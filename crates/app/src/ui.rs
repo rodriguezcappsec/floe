@@ -4,6 +4,15 @@ use gtk::{gio, glib};
 
 use crate::{appearance::Appearance, locations::Location};
 
+#[derive(Clone)]
+pub struct OperationWidgets {
+    pub revealer: gtk::Revealer,
+    pub operation_label: gtk::Label,
+    pub operation_detail: gtk::Label,
+    pub operation_progress: gtk::ProgressBar,
+    pub operation_cancel: gtk::Button,
+}
+
 pub struct BrowserWidgets {
     pub window: adw::ApplicationWindow,
     pub toast_overlay: adw::ToastOverlay,
@@ -20,6 +29,7 @@ pub struct BrowserWidgets {
     pub spinner: gtk::Spinner,
     pub status_label: gtk::Label,
     pub location_buttons: Vec<gtk::Button>,
+    pub operations: OperationWidgets,
 }
 
 pub fn build(
@@ -121,8 +131,13 @@ pub fn build(
     root.append(&header);
     root.append(&workspace);
 
+    let operations = build_operations_island();
+    let content_overlay = gtk::Overlay::new();
+    content_overlay.set_child(Some(&root));
+    content_overlay.add_overlay(&operations.revealer);
+
     let toast_overlay = adw::ToastOverlay::new();
-    toast_overlay.set_child(Some(&root));
+    toast_overlay.set_child(Some(&content_overlay));
     window.set_content(Some(&toast_overlay));
 
     BrowserWidgets {
@@ -141,6 +156,78 @@ pub fn build(
         spinner,
         status_label,
         location_buttons,
+        operations,
+    }
+}
+
+fn build_operations_island() -> OperationWidgets {
+    let operation_label = gtk::Label::builder()
+        .label("Copying item")
+        .halign(gtk::Align::Start)
+        .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .single_line_mode(true)
+        .build();
+    operation_label.add_css_class("heading");
+
+    let operation_detail = gtk::Label::builder()
+        .label("Preparing…")
+        .halign(gtk::Align::Start)
+        .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::Middle)
+        .single_line_mode(true)
+        .build();
+    operation_detail.add_css_class("floe-status");
+
+    let operation_progress = gtk::ProgressBar::builder()
+        .hexpand(true)
+        .width_request(220)
+        .build();
+    set_accessible_label(&operation_progress, "Copy progress");
+
+    let operation_cancel = gtk::Button::builder()
+        .icon_name("process-stop-symbolic")
+        .tooltip_text("Cancel copy")
+        .has_frame(false)
+        .build();
+    set_accessible_label(&operation_cancel, "Cancel copy");
+
+    let progress_row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(10)
+        .build();
+    progress_row.append(&operation_progress);
+    progress_row.append(&operation_cancel);
+
+    let island = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .margin_top(18)
+        .margin_bottom(18)
+        .margin_start(18)
+        .margin_end(18)
+        .width_request(300)
+        .build();
+    island.add_css_class("operations-island");
+    island.append(&operation_label);
+    island.append(&operation_detail);
+    island.append(&progress_row);
+
+    let revealer = gtk::Revealer::builder()
+        .halign(gtk::Align::End)
+        .valign(gtk::Align::End)
+        .transition_type(gtk::RevealerTransitionType::Crossfade)
+        .transition_duration(160)
+        .reveal_child(false)
+        .child(&island)
+        .build();
+
+    OperationWidgets {
+        revealer,
+        operation_label,
+        operation_detail,
+        operation_progress,
+        operation_cancel,
     }
 }
 

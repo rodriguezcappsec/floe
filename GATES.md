@@ -1,43 +1,48 @@
-# Gates: Floe Phase 4A safe copy engine
+# Gates: Floe Phase 4B copy interaction
 
-Scope: Implement the first filesystem-mutation slice: path-safe copy requests, explicit conflict and symlink semantics, a bounded application executor, lifecycle integration, cancellation, and temporary-directory verification. Move, rename, trash, delete, and GTK mutation controls remain out of scope.
+Scope: Add an application-owned, copy-only clipboard workflow, GTK job observation, and compact non-modal operation feedback on branch `phase-4b-copy-interaction`. Preserve the Phase 4A safety model; overwrite, move, rename, trash, delete, cross-application clipboard formats, and unrelated roadmap features remain out of scope.
 
-- [x] G1: `floe-core` exposes path-safe copy request, conflict policy, symlink policy, validation, execution result, and structured copy error types without GTK dependencies.
-  CHECK: rg -n "CopyRequest|ConflictPolicy|SymlinkPolicy|CopyOutcome|CopyError" crates/core/src
-  EXPECT: /CopyRequest/
-  EVIDENCE: crates/core/src/lib.rs:11:    ConflictPolicy, CopyCancellation, CopyError, CopyOutcome, CopyProgress, CopyRequest, | crates/core/src/lib.rs:12:    SymlinkPolicy, execute_copy,
+- [x] G1: Work is isolated on the requested Phase 4B branch and `main` remains unchanged at the initial commit.
+  CHECK: git branch --show-current && git rev-parse main
+  EXPECT: /phase-4b-copy-interaction[\s\S]*a720988/
+  EVIDENCE: phase-4b-copy-interaction | a720988e4da41f0ec47462d1b98542e2ec4f9365
 
-- [x] G2: copy execution preserves bytes and original path identity, supports files/directories, rejects unsafe self/descendant copies, never silently overwrites, and follows the documented symlink policy.
-  CHECK: cargo test -p floe-core copy -- --nocapture
-  EXPECT: /test result: ok\. 9 passed/
-  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.21s | Running unittests src/lib.rs (target/debug/deps/floe_core-f780aeceafe054cb)
+- [x] G2: Application state owns original-path copy-buffer and paste-submission semantics; destinations are never reconstructed from lossy display text.
+  CHECK: rg -n "CopyBuffer|stage_copy|submit_paste|PathBuf|CopyRequest" crates/app/src/state.rs
+  EXPECT: /submit_paste/
+  EVIDENCE: 336:            .submit_paste_with_cancellation(&destination_directory, cancellation) | 346:            .submit_paste(&completed_directory)
 
-- [x] G3: the application owns a bounded copy executor that maps queued work into existing job started/progress/completed/failed/cancelled lifecycle events without doing filesystem work in GTK callbacks.
-  CHECK: rg -n "CopyExecutor|CopyCommand|submit_copy|JobCommand::(Start|SetProgress|Complete|Fail|Cancel)" crates/app/src crates/core/src
-  EXPECT: /CopyExecutor/
-  EVIDENCE: crates/app/src/job_manager.rs:168:            .transition(queued.job_id(), JobCommand::Cancel) | crates/app/src/job_manager.rs:172:                .transition(queued.job_id(), JobCommand::Start)
+- [x] G3: Ctrl+C and Ctrl+V use controller selection/navigation state and submit through `ApplicationState`; GTK callbacks do not execute filesystem operations directly.
+  CHECK: rg -n "win.copy|win.paste|set_accels_for_action|stage_copy|submit_paste" crates/app/src/application.rs crates/app/src/browser.rs
+  EXPECT: /win\.copy/
+  EVIDENCE: crates/app/src/browser.rs:457:        match self.application_state.submit_paste(&destination) { | crates/app/src/application.rs:32:    application.set_accels_for_action("app.quit", &["<Control>q"]);
 
-- [x] G4: executor tests prove success, failure, cancellation, capacity bounds, retry-safe identity, and shutdown using temporary directories only.
-  CHECK: cargo test -p floe-app copy_executor -- --nocapture
-  EXPECT: /test result: ok\. 6 passed/
-  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s | Running unittests src/main.rs (target/debug/deps/floe_app-cf50067f0f209ac0)
+- [x] G4: A separate GTK operation observer drains structured job events without blocking, supports cancellation, refreshes a successfully pasted destination, and surfaces recovery-oriented failure feedback.
+  CHECK: rg -n "OperationController|drain_job_events|cancel_copy|JobEventKind|refresh_if_current|add_toast" crates/app/src/operations.rs crates/app/src/browser.rs crates/app/src/state.rs
+  EXPECT: /OperationController/
+  EVIDENCE: crates/app/src/operations.rs:212:        match self.state.cancel_copy(job_id) { | crates/app/src/operations.rs:223:            .add_toast(adw::Toast::builder().title(title).timeout(timeout).build());
 
-- [x] G5: project documentation and `AGENTS.md` accurately describe implemented Phase 4A semantics, limitations, and the next milestone.
-  CHECK: rg -n "Phase 4A|copy executor|ConflictPolicy|SymlinkPolicy|Move|Rename|Trash" README.md DESIGN.md docs/ARCHITECTURE.md docs/DEVELOPMENT.md docs/ROADMAP.md AGENTS.md
-  EXPECT: /Phase 4A/
-  EVIDENCE: docs/ARCHITECTURE.md:229:bounded copy executor (implemented) | docs/ARCHITECTURE.md:232:Move/rename/trash implementations must not appear in widgets or reuse either
+- [x] G5: The compact Operations Island is non-modal, uses semantic GTK widgets/icons, exposes an accessible cancel name and tooltip, and keeps visible status text with stable progress layout across appearance presets.
+  CHECK: rg -n "operations-island|operation_label|operation_progress|operation_cancel|Cancel copy|ProgressBar|Overlay" crates/app/src/ui.rs crates/app/src/appearance.rs
+  EXPECT: /Cancel copy/
+  EVIDENCE: crates/app/src/appearance.rs:194:            .operations-island progressbar progress {{ | crates/app/src/appearance.rs:199:            .operations-island button {{
 
-- [x] G6: the complete Rust quality suite passes with warnings denied.
+- [x] G6: Focused application tests cover path-safe staging/paste, missing-buffer and inside-source rejection, conflict, cancellation, successful lifecycle, and recovery-oriented operation labels.
+  CHECK: cargo test -p floe-app copy_interaction -- --nocapture
+  EXPECT: /7 passed/
+  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s | Running unittests src/main.rs (target/debug/deps/floe_app-cf50067f0f209ac0)
+
+- [x] G7: User, design, architecture, roadmap, development, and project-status documentation describe the Phase 4B interaction, internal-only clipboard, safety limits, verification, and next branch.
+  CHECK: rg -n "Phase 4B|internal-only|internal clipboard|Operations Island|copy_interaction|phase-4c-move-rename-foundation" README.md DESIGN.md docs/ARCHITECTURE.md docs/DEVELOPMENT.md docs/ROADMAP.md AGENTS.md
+  EXPECT: /phase-4c-move-rename-foundation/
+  EVIDENCE: DESIGN.md:84:Active work appears in a compact, bottom-end Operations Island. It uses visible | DESIGN.md:178:- **Operations Island:** a compact, non-modal observer for queued/running file
+
+- [x] G8: Formatting, workspace compilation, strict Clippy, and the complete test suite pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
-  EXPECT: /test result: ok\. 20 passed/
+  EXPECT: /test result: ok/
   EVIDENCE: Running unittests src/lib.rs (target/debug/deps/floe_core-7b642bdde78542e0) | Doc-tests floe_core
 
-- [x] G7: a native Wayland smoke launch keeps the Floe window healthy after Phase 4A wiring.
+- [x] G9: A native Wayland smoke launch emits the Floe startup event and remains healthy until the planned timeout.
   CHECK: RUST_LOG=floe_app=info timeout 8s cargo run -p floe-app
   EXPECT: /Floe application started/
-  EVIDENCE: WARNING: radv is not a conformant Vulkan implementation, testing use only. | (floe-app:256014): Gdk-WARNING **: 17:59:27.786: vkAcquireNextImageKHR(): A swapchain no longer matches the surface propert
-
-- [x] G8: the workspace contains exactly 30 registered Rust tests.
-  CHECK: cargo test --workspace -- --list 2>/dev/null | rg -c ": test$"
-  EXPECT: /^30$/m
-  EVIDENCE: 30
+  EVIDENCE: (floe-app:288055): Adwaita-WARNING **: 18:27:08.455: Using GtkSettings:gtk-application-prefer-dark-theme with libadwaita is unsupported. Please use AdwStyleManager:color-scheme instead. | WARNING: rad

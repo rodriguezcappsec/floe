@@ -31,10 +31,14 @@ required nor simulated.
   preserve-or-reject symlink policies
 - Fixed-capacity background copy execution connected to application-owned job
   lifecycle events, cancellation, failure mapping, and retry identity
+- Application-owned internal copy buffer with Ctrl+C/Ctrl+V copy-only workflow
+- Compact non-modal Operations Island with progress, cancellation, completion,
+  conflict, and failure feedback
 
-The copy engine is backend-only in Phase 4A: no GTK copy/paste control is
-exposed yet. Move, rename, trash, previews, tabs, split view, Miller columns,
-and environment-specific integrations remain deferred.
+Phase 4B copy/paste works within the running Floe application. Cross-application
+clipboard formats and overwrite are not implemented. Move, rename, trash,
+previews, tabs, split view, Miller columns, and environment-specific
+integrations remain deferred.
 
 ## Project documentation
 

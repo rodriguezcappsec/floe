@@ -25,7 +25,7 @@ pub struct BrowserController {
     pending_store: RefCell<Option<gio::ListStore>>,
     pending_total: Cell<usize>,
     selected_entry: RefCell<Option<DirectoryEntry>>,
-    _application_state: Rc<ApplicationState>,
+    application_state: Rc<ApplicationState>,
 }
 
 impl BrowserController {
@@ -45,7 +45,7 @@ impl BrowserController {
             pending_store: RefCell::new(None),
             pending_total: Cell::new(0),
             selected_entry: RefCell::new(None),
-            _application_state: application_state,
+            application_state,
         })
     }
 
@@ -114,6 +114,10 @@ impl BrowserController {
         self.add_action("hidden", |controller| controller.toggle_hidden());
         let open_action = self.add_action("open", |controller| controller.activate_selected());
         open_action.set_enabled(false);
+        let copy_action = self.add_action("copy", |controller| controller.stage_selected_copy());
+        copy_action.set_enabled(false);
+        let paste_action = self.add_action("paste", |controller| controller.paste_copy());
+        paste_action.set_enabled(false);
 
         application.set_accels_for_action("win.back", &["<Alt>Left"]);
         application.set_accels_for_action("win.forward", &["<Alt>Right"]);
@@ -121,6 +125,8 @@ impl BrowserController {
         application.set_accels_for_action("win.location", &["<Control>l"]);
         application.set_accels_for_action("win.hidden", &["<Control>h"]);
         application.set_accels_for_action("win.cancel-location", &["Escape"]);
+        application.set_accels_for_action("win.copy", &["<Control>c"]);
+        application.set_accels_for_action("win.paste", &["<Control>v"]);
     }
 
     fn add_action(self: &Rc<Self>, name: &str, callback: fn(&Self)) -> gio::SimpleAction {
@@ -189,6 +195,7 @@ impl BrowserController {
         self.widgets.list_view.set_sensitive(false);
         self.widgets.empty_state.set_visible(false);
         self.set_open_enabled(false);
+        self.set_copy_enabled(false);
         let path = self.navigation.borrow().current().to_path_buf();
         let generation = self.worker.borrow_mut().request(path.clone());
         self.active_generation.set(generation);
@@ -353,6 +360,7 @@ impl BrowserController {
         let has_selection = selected_entry.is_some();
         self.selected_entry.replace(selected_entry);
         self.set_open_enabled(has_selection);
+        self.set_copy_enabled(has_selection);
         self.refresh_status();
     }
 
@@ -391,6 +399,70 @@ impl BrowserController {
             .and_downcast::<gio::SimpleAction>()
         {
             action.set_enabled(enabled);
+        }
+    }
+
+    fn set_copy_enabled(&self, enabled: bool) {
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("copy")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(enabled);
+        }
+    }
+
+    fn set_paste_enabled(&self, enabled: bool) {
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("paste")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(enabled);
+        }
+    }
+
+    fn stage_selected_copy(&self) {
+        let Some(entry) = self.selected_entry() else {
+            self.show_toast("Select an item to copy", 4);
+            return;
+        };
+        if matches!(entry.kind(), floe_core::EntryKind::Other) {
+            self.show_toast("This special file type cannot be copied yet", 5);
+            return;
+        }
+
+        match self
+            .application_state
+            .stage_copy(entry.path().to_path_buf())
+        {
+            Ok(()) => {
+                self.set_paste_enabled(true);
+                self.show_toast(
+                    &format!(
+                        "Ready to copy {}. Open a destination and press Ctrl+V.",
+                        entry.display_name_lossy()
+                    ),
+                    5,
+                );
+            }
+            Err(error) => self.show_toast(&format!("Could not stage copy: {error}"), 6),
+        }
+    }
+
+    fn paste_copy(&self) {
+        let destination = self.navigation.borrow().current().to_path_buf();
+        match self.application_state.submit_paste(&destination) {
+            Ok(_) => self.widgets.status_label.set_label("Copy queued…"),
+            Err(error) => self.show_toast(&format!("Could not start copy: {error}"), 6),
+        }
+    }
+
+    pub fn refresh_if_current(&self, directory: &std::path::Path) {
+        if self.navigation.borrow().current() == directory {
+            self.load_current();
         }
     }
 

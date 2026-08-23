@@ -5,8 +5,8 @@ use gtk::{gio, glib};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
-    appearance::Appearance, browser::BrowserController, locations, state::ApplicationState, ui,
-    worker::BrowserWorker,
+    appearance::Appearance, browser::BrowserController, locations, operations::OperationController,
+    state::ApplicationState, ui, worker::BrowserWorker,
 };
 
 const APPLICATION_ID: &str = "io.github.floe.FileManager";
@@ -85,7 +85,24 @@ fn build_window(application: &adw::Application) {
             return;
         }
     };
-    let controller = BrowserController::new(widgets, initial_path, worker, application_state);
+    let operation_widgets = widgets.operations.clone();
+    let operation_window = widgets.window.clone();
+    let operation_toasts = widgets.toast_overlay.clone();
+    let controller =
+        BrowserController::new(widgets, initial_path, worker, Rc::clone(&application_state));
+    let browser = Rc::downgrade(&controller);
+    let operation_controller = OperationController::new(
+        operation_window,
+        operation_toasts,
+        operation_widgets,
+        application_state,
+        move |destination| {
+            if let Some(browser) = browser.upgrade() {
+                browser.refresh_if_current(destination);
+            }
+        },
+    );
+    operation_controller.wire();
     controller.wire(application, &places);
     controller.present_and_start();
     tracing::info!("Floe application started");

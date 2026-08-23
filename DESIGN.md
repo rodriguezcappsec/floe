@@ -73,14 +73,20 @@ counts, total item counts, or the selected filename. An empty folder shows a
 symbolic folder icon and plain-language message. Directory and launch failures
 surface in an `AdwToastOverlay` while technical context is sent to tracing.
 
-### Nonvisual copy-job foundation
+### Copy workflow and Operations Island
 
-Phase 4A adds a nonvisual, fixed-capacity copy executor to the existing
-operation/job lifecycle. Copy requests preserve original `PathBuf` values,
-never follow symlinks, fail when the destination exists, and report structured
-progress, cancellation, completion, and failure events. It does not yet expose
-copy/paste controls or render the Operations Island. GTK will observe and
-submit through this boundary rather than own copy correctness.
+Phase 4B exposes the safe copy engine through an application-owned internal
+copy buffer. Ctrl+C stages the selected entry's original `PathBuf`; Ctrl+V
+submits an exact destination beneath the current directory. GTK callbacks do
+not execute filesystem work. The buffer is currently internal to Floe rather
+than interoperable with other file managers.
+
+Active work appears in a compact, bottom-end Operations Island. It uses visible
+filename and state text, a stable progress bar that pulses before a total is
+known, and a symbolic cancel button with an accessible label and tooltip.
+Completion and cancellation remain visible briefly; conflicts and failures use
+non-modal toasts with a concrete recovery action. The directory refreshes after
+a successful paste into the visible location. Overwrite is unavailable.
 
 ## Implemented appearance system
 

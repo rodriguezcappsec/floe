@@ -1129,18 +1129,17 @@ Last updated:
 Current phase:
 
 ```text
-Phase 4 — Filesystem operations (Phase 4A copy engine complete)
+Phase 4 — Filesystem operations (Phase 4B copy interaction complete)
 ```
 
 Status:
 
 ```text
-Phases 0-3 are complete. Phase 4A's backend-only copy slice is implemented:
-path-safe requests, explicit conflict/symlink policies, recursive copy,
-cooperative cancellation, cleanup, a fixed-capacity application executor, and
-job lifecycle integration. No GTK copy/paste control exists yet. The current
-design, architecture, development workflow, and roadmap are documented in
-`DESIGN.md` and `docs/`.
+Phases 0-3 and Phase 4A are complete. Phase 4B connects the safe copy backend
+to application-owned copy/paste commands and a non-blocking GTK operation
+observer. Floe now exposes internal Ctrl+C/Ctrl+V copy interaction, visible
+progress, cancellation, failure feedback, and destination refresh without
+performing filesystem work in GTK callbacks.
 ```
 
 Established product decisions:
@@ -1173,9 +1172,9 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 4A copy execution is complete. Phase 4B should add application commands
-and non-blocking GTK job observation for copy/paste, progress, cancellation,
-and conflict feedback without placing filesystem work in widgets.
+Phase 4B is complete. The next coherent branch is
+`phase-4c-move-rename-foundation`, beginning with path-safe core/backend move
+and rename semantics before exposing additional GTK mutation actions.
 ```
 
 Verified:
@@ -1183,31 +1182,32 @@ Verified:
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo test --workspace` pass. Thirty tests pass: twenty core tests and ten
-application tests. Nine focused core copy tests and six executor tests
-cover byte-preserving recursion, symlinks, conflicts, self-copy rejection,
-non-UTF-8 names, cancellation/cleanup, capacity, lifecycle failure mapping,
-retry identity, and shutdown. A native Niri/Wayland smoke launch emitted
-`Floe application started`; the window remained healthy until timeout.
+`cargo test --workspace` pass. Thirty-seven tests pass: twenty core tests and
+seventeen application tests. Seven focused copy-interaction tests cover
+non-UTF-8 staging and exact destinations, empty-buffer and inside-source
+rejection, conflicts, cancellation, successful lifecycle, and recovery labels.
+A native Niri/Wayland smoke launch remained healthy until its planned timeout.
 ```
 
 Known issues:
 
 ```text
-No application correctness failures are known. The copy backend has no GTK
-observer or mutation controls yet and does not preserve timestamps, ownership,
-ACLs, extended attributes, sparse extents, or reflink state. Native smoke runs
-emit host GtkSettings/libadwaita and Vulkan suboptimal-swapchain warnings;
-neither originates from Floe logic.
+No application correctness failures are known. The copy interaction uses a
+Floe-internal clipboard only; it does not interoperate with other applications.
+Copy still does not preserve timestamps, ownership, ACLs, extended attributes,
+sparse extents, or reflink state. Native smoke runs may emit host
+GtkSettings/libadwaita and Vulkan suboptimal-swapchain warnings; neither
+originates from Floe logic.
 ```
 
 Deferred:
 
 ```text
-GTK copy/paste controls, overwrite/conflict resolution, move, rename, trash,
-permanent delete, metadata-complete copies, job persistence/history UI, drag
-and drop, thumbnails, tabs, split view, Miller columns, previews, archives,
-search, device management, Niri IPC, KDE-specific APIs, and network filesystems.
+Cross-application clipboard support, overwrite/conflict resolution, move,
+rename, trash, permanent delete, metadata-complete copies, job
+persistence/history UI, drag and drop, thumbnails, tabs, split view, Miller
+columns, previews, archives, search, device management, Niri IPC, KDE-specific
+APIs, and network filesystems.
 ```
 
 Completed this session:
@@ -1234,17 +1234,26 @@ Completed this session:
   cancellation, tracked cleanup, non-UTF-8 preservation, and structured errors.
 * Added a fixed-capacity, single-worker application copy executor connected to
   job progress, completion, cancellation, failure, retry identity, and shutdown.
-* Kept copy execution backend-only; GTK mutation controls remain deferred.
+* Kept Phase 4A copy execution backend-only until its safety contract was
+  verified.
+* Added an application-owned, original-path `CopyBuffer` and exact-destination
+  paste submission through shared `ApplicationState`.
+* Added internal Ctrl+C/Ctrl+V actions without filesystem work in GTK callbacks.
+* Added a separate non-blocking `OperationController` and compact Operations
+  Island for progress, cancellation, terminal status, recovery feedback, and
+  destination refresh.
+* Kept overwrite, cross-application clipboard formats, move, rename, trash,
+  and permanent delete deferred.
 ```
 
 Recommended next task:
 
 ```text
-Begin Phase 4B with a copy-only GTK interaction slice: application-owned
-copy/paste commands, non-blocking job event observation, and compact progress,
-cancellation, conflict, and failure feedback. Use the existing executor; do not
-place filesystem work in callbacks or introduce overwrite, move, rename, trash,
-or permanent delete until the copy interaction is verified.
+Create `phase-4c-move-rename-foundation` and implement path-safe core/backend
+move and rename models with explicit fail-if-exists semantics, original-path
+preservation, symlink safety, cancellation boundaries, and temporary-directory
+tests. Keep GTK actions, overwrite, trash, and permanent delete deferred until
+the backend contract is verified.
 ```
 
 ---

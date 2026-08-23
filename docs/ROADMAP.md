@@ -42,21 +42,26 @@ of truth for sequencing and current-session handoff.
 - Fixed-capacity, single-worker application executor connected to job events.
 - Temporary-directory tests for success, conflict, cancellation, capacity,
   retry identity, symlinks, self-copy rejection, and non-UTF-8 names.
-- No GTK copy/paste controls yet.
-
-## In progress
-
-Phase 4 continues at the application/UI boundary. Copy execution is proven,
-but users cannot submit or observe a copy from the GTK interface yet.
-
-## Next
 
 ### Phase 4B — Copy interaction and operation observation
 
-Add an application command for copy-only clipboard/paste, observe job events
-from GTK without blocking, and show non-modal progress/failure/cancellation
-feedback. Keep destination conflicts explicit and do not add overwrite until a
-real resolution flow exists.
+- Floe-internal copy buffer retaining original paths.
+- Ctrl+C/Ctrl+V staging and paste submission through application state.
+- Non-blocking structured job observation in a separate GTK controller.
+- Compact Operations Island with progress, cancellation, terminal feedback,
+  and destination refresh after completion.
+- Explicit fail-if-exists behavior; no silent overwrite.
+- Cross-application clipboard formats remain deferred.
+
+## Next
+
+### Phase 4C — Move and rename foundation
+
+Create branch `phase-4c-move-rename-foundation`. Add path-safe core operation
+models and backend execution semantics for move and rename, including explicit
+conflicts, non-UTF-8 paths, symlink preservation, cancellation boundaries, and
+tests. Do not expose destructive GTK actions until the backend contract is
+verified.
 
 ## Later
 
