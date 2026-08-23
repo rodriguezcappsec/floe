@@ -1,12 +1,15 @@
 use std::{
     collections::{HashMap, VecDeque},
     num::NonZeroU64,
+    sync::{Arc, Mutex},
 };
 
 use floe_core::{
     JobCommand, JobEvent, JobId, JobRecord, JobState, JobTransitionError, OperationId,
 };
 use thiserror::Error;
+
+pub type SharedJobManager = Arc<Mutex<ApplicationJobManager>>;
 
 /// Application-owned registry and event boundary for future filesystem jobs.
 ///

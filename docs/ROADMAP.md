@@ -53,21 +53,29 @@ of truth for sequencing and current-session handoff.
 - Explicit fail-if-exists behavior; no silent overwrite.
 - Cross-application clipboard formats remain deferred.
 
-## Next
-
 ### Phase 4C — Move and rename foundation
 
-Create branch `phase-4c-move-rename-foundation`. Add path-safe core operation
-models and backend execution semantics for move and rename, including explicit
-conflicts, non-UTF-8 paths, symlink preservation, cancellation boundaries, and
-tests. Do not expose destructive GTK actions until the backend contract is
-verified.
+- Exact-path `MoveRequest` and same-parent `RenameRequest` models.
+- Raw `PathBuf`/`OsString` preservation, including non-UTF-8 names.
+- Linux atomic no-replace execution for files, directories, and symlinks.
+- Explicit cancellation boundary and structured cross-filesystem failure.
+- Fixed-capacity application executor with lifecycle events and shutdown.
+- Temporary-directory core and executor tests; no GTK controls yet.
+
+## Next
+
+### Phase 4D — Move and rename interaction
+
+Create branch `phase-4d-move-rename-interaction`. Add application-owned move
+and rename request tracking, explicit keyboard/menu commands, non-blocking job
+observation, and clear same-filesystem/conflict feedback. Do not introduce
+overwrite, trash, or cross-filesystem copy-delete fallback in the UI.
 
 ## Later
 
 ### Remaining Phase 4 and Phase 5 — Mutations and resilience
 
-- Move, rename, and trash operation models/executors.
+- Trash operation model/executor and cross-filesystem move recovery.
 - Pause where meaningful, richer retry, and conflict resolution.
 - Explicit overwrite policy and understandable partial-failure reporting.
 

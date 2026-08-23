@@ -14,11 +14,11 @@ use floe_core::{
 };
 use thiserror::Error;
 
-use crate::job_manager::{ApplicationJobManager, JobManagerError};
+#[cfg(test)]
+use crate::job_manager::ApplicationJobManager;
+use crate::job_manager::{JobManagerError, SharedJobManager};
 
 pub const DEFAULT_COPY_QUEUE_CAPACITY: usize = 8;
-
-pub type SharedJobManager = Arc<Mutex<ApplicationJobManager>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CopySubmission {

@@ -31,7 +31,7 @@ BrowserController      OperationController
  |               |       |          |
  |               |       |          +--> CopyBuffer / tracked requests
  |               |       +--> ApplicationJobManager / structured events
- |               +--> CopyExecutor (one bounded worker)
+ |               +--> CopyExecutor / MoveExecutor (bounded workers)
  v
 BrowserWorker (one std thread)
        |
@@ -85,6 +85,21 @@ validated determinate/indeterminate `JobProgress`, structured failures,
 lifecycle commands/states/events, and `JobRecord::apply` as the legal-transition
 authority. A logical operation retains its ID across retry attempts while each
 attempt receives a new job ID. Terminal states reject further commands.
+
+### `move_operation.rs`
+
+`MoveRequest` retains exact source and destination `PathBuf` values.
+`RenameRequest` retains the original source plus one raw `OsString` filename
+component, so rename never reconstructs a path from UI text. On Linux,
+`execute_move` and `execute_rename` use
+`renameat2(RENAME_NOREPLACE)` through `rustix`; the destination cannot be
+silently replaced even under a race. Files, directories, and symlinks move
+atomically on one filesystem, and symlinks are not followed.
+
+Cancellation is checked before inspection and again immediately before the
+irreversible rename syscall. Cross-filesystem moves return a structured
+unsupported error; a copy-delete fallback is intentionally deferred until
+partial-failure recovery is designed.
 
 ### `error.rs`
 
@@ -158,6 +173,15 @@ general failures produce recovery-oriented toasts. Terminal status remains
 visible for three seconds. The controller observes jobs but never executes
 filesystem operations.
 
+### `move_executor.rs`
+
+`MoveExecutor` owns one named worker and a fixed-capacity queue for core
+`MoveRequest` and `RenameRequest` values. It starts, completes, cancels, or
+fails jobs through the shared `ApplicationJobManager`, maps core conflicts and
+unsupported cross-filesystem results into structured failure kinds, and
+cancels queued work during shutdown. `ApplicationState` owns the executor so
+its lifetime matches the application. No GTK move or rename action exists yet.
+
 ### `worker.rs`
 
 `BrowserWorker` owns one named `std::thread` and two `std::mpsc` channels. An
@@ -219,7 +243,7 @@ No desktop integration trait or Niri/Plasma backend exists. The app uses generic
 GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
 detection and compositor APIs must eventually stay under `crates/app`.
 
-### Filesystem jobs and Phase 4B copy interaction
+### Filesystem jobs through Phase 4C
 
 Identity, lifecycle, progress, failure, retry-attempt, registry, and event
 foundations now exist. `floe-core::copy` adds the first path-safe operation
@@ -256,13 +280,19 @@ floe-core legal state transitions (implemented)
 floe-core path-safe copy model and engine (implemented)
        |
        v
-bounded copy executor (implemented)
+bounded copy and move/rename executors (implemented)
 ```
 
-Move/rename/trash implementations must not appear in widgets or reuse either
-the read-only browser worker or copy worker as an ad-hoc general mutation
-queue. The next mutation slice should add explicit move/rename models and
-execution semantics before exposing additional GTK actions.
+Phase 4C adds separate path-safe move/rename models and a bounded executor.
+These operations currently support only atomic same-filesystem renames with
+fail-if-exists behavior. Cross-filesystem move, overwrite, operation
+persistence, retry request tracking, GTK move/rename controls, and interactive
+conflict resolution remain unimplemented.
+
+Move/rename/trash interactions must not appear directly in widgets or reuse the
+read-only browser worker as an ad-hoc mutation queue. The next slice may add
+application-owned move/rename submission and GTK observation on top of the
+verified backend; trash requires a separate XDG/GIO design.
 
 ## Known architectural debt
 

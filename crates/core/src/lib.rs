@@ -5,6 +5,7 @@ mod directory;
 mod error;
 mod jobs;
 mod model;
+mod move_operation;
 mod navigation;
 
 pub use copy::{
@@ -18,4 +19,8 @@ pub use jobs::{
     JobFailureKind, JobId, JobProgress, JobRecord, JobState, JobTransitionError, OperationId,
 };
 pub use model::{DirectoryEntry, DirectoryListing, EntryKind, ThumbnailState};
+pub use move_operation::{
+    MoveCancellation, MoveError, MoveOutcome, MoveRequest, RenameRequest, execute_move,
+    execute_rename,
+};
 pub use navigation::NavigationState;
