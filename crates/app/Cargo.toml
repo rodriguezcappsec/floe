@@ -1,0 +1,19 @@
+[package]
+name = "floe-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+adw.workspace = true
+floe-core.workspace = true
+gtk.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "3.20"
+
+[lints]
+workspace = true
