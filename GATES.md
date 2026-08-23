@@ -1,48 +1,53 @@
-# Gates: Floe Phase 4B copy interaction
+# Gates: Floe Phase 4C move and rename foundation
 
-Scope: Add an application-owned, copy-only clipboard workflow, GTK job observation, and compact non-modal operation feedback on branch `phase-4b-copy-interaction`. Preserve the Phase 4A safety model; overwrite, move, rename, trash, delete, cross-application clipboard formats, and unrelated roadmap features remain out of scope.
+Scope: Add GTK-independent, path-safe move and rename request models plus a bounded application executor on branch `phase-4c-move-rename-foundation`. Preserve original Linux paths and atomic fail-if-exists semantics. GTK actions, overwrite, trash, permanent delete, and cross-filesystem copy-delete fallback remain out of scope.
 
-- [x] G1: Work is isolated on the requested Phase 4B branch and `main` remains unchanged at the initial commit.
-  CHECK: git branch --show-current && git rev-parse main
-  EXPECT: /phase-4b-copy-interaction[\s\S]*a720988/
-  EVIDENCE: phase-4b-copy-interaction | a720988e4da41f0ec47462d1b98542e2ec4f9365
+- [x] G1: Work is isolated on the requested Phase 4C branch and the Phase 4B commit remains unchanged.
+  CHECK: git branch --show-current && git rev-parse phase-4b-copy-interaction
+  EXPECT: /phase-4c-move-rename-foundation[\s\S]*99382d3/
+  EVIDENCE: phase-4c-move-rename-foundation | 99382d34f454c5c256bb924ddbaca3a4f1fc78be
 
-- [x] G2: Application state owns original-path copy-buffer and paste-submission semantics; destinations are never reconstructed from lossy display text.
-  CHECK: rg -n "CopyBuffer|stage_copy|submit_paste|PathBuf|CopyRequest" crates/app/src/state.rs
-  EXPECT: /submit_paste/
-  EVIDENCE: 336:            .submit_paste_with_cancellation(&destination_directory, cancellation) | 346:            .submit_paste(&completed_directory)
+- [x] G2: Core exposes separate exact-path move and same-parent rename requests without representing paths as strings.
+  CHECK: rg -n "MoveRequest|RenameRequest|PathBuf|OsString|new_name" crates/core/src
+  EXPECT: /RenameRequest/
+  EVIDENCE: crates/core/src/navigation.rs:104:        assert_eq!(state.current(), PathBuf::from("/one")); | crates/core/src/navigation.rs:106:        assert_eq!(state.current(), PathBuf::from("/"));
 
-- [x] G3: Ctrl+C and Ctrl+V use controller selection/navigation state and submit through `ApplicationState`; GTK callbacks do not execute filesystem operations directly.
-  CHECK: rg -n "win.copy|win.paste|set_accels_for_action|stage_copy|submit_paste" crates/app/src/application.rs crates/app/src/browser.rs
-  EXPECT: /win\.copy/
-  EVIDENCE: crates/app/src/browser.rs:457:        match self.application_state.submit_paste(&destination) { | crates/app/src/application.rs:32:    application.set_accels_for_action("app.quit", &["<Control>q"]);
+- [x] G3: Linux execution uses atomic no-replace rename semantics, preserves symlinks as links, rejects missing sources and invalid rename names, and reports cross-filesystem moves explicitly.
+  CHECK: rg -n "NOREPLACE|CrossFilesystem|symlink_metadata|InvalidName|SourceMissing" crates/core/src
+  EXPECT: /NOREPLACE/
+  EVIDENCE: crates/core/src/copy.rs:591:fn symlink_metadata(path: &Path, action: &'static str) -> Result<fs::Metadata, CopyError> { | crates/core/src/copy.rs:592:    fs::symlink_metadata(path).map_err(|source| Co
 
-- [x] G4: A separate GTK operation observer drains structured job events without blocking, supports cancellation, refreshes a successfully pasted destination, and surfaces recovery-oriented failure feedback.
-  CHECK: rg -n "OperationController|drain_job_events|cancel_copy|JobEventKind|refresh_if_current|add_toast" crates/app/src/operations.rs crates/app/src/browser.rs crates/app/src/state.rs
-  EXPECT: /OperationController/
-  EVIDENCE: crates/app/src/operations.rs:212:        match self.state.cancel_copy(job_id) { | crates/app/src/operations.rs:223:            .add_toast(adw::Toast::builder().title(title).timeout(timeout).build());
+- [x] G4: Cancellation is observed before the irreversible rename boundary and lifecycle failures map into structured job events.
+  CHECK: rg -n "is_cancelled|Cancelled|JobFailureKind|execute_move|execute_rename" crates/core/src crates/app/src
+  EXPECT: /execute_move/
+  EVIDENCE: crates/core/src/directory.rs:29:            return Err(DirectoryError::Cancelled); | crates/core/src/directory.rs:159:        assert!(matches!(result, Err(DirectoryError::Cancelled)));
 
-- [x] G5: The compact Operations Island is non-modal, uses semantic GTK widgets/icons, exposes an accessible cancel name and tooltip, and keeps visible status text with stable progress layout across appearance presets.
-  CHECK: rg -n "operations-island|operation_label|operation_progress|operation_cancel|Cancel copy|ProgressBar|Overlay" crates/app/src/ui.rs crates/app/src/appearance.rs
-  EXPECT: /Cancel copy/
-  EVIDENCE: crates/app/src/appearance.rs:194:            .operations-island progressbar progress {{ | crates/app/src/appearance.rs:199:            .operations-island button {{
+- [x] G5: A fixed-capacity application executor runs move/rename jobs off GTK and supports cancellation, lifecycle completion/failure, and clean shutdown without adding GTK mutation callbacks.
+  CHECK: rg -n "MoveExecutor|submit_move|submit_rename|sync_channel|cancel|shutdown" crates/app/src
+  EXPECT: /MoveExecutor/
+  EVIDENCE: crates/app/src/copy_executor.rs:553:            .expect("queued copy should be cancellable"); | crates/app/src/copy_executor.rs:563:                .expect("cancelled copy should remain registered")
 
-- [x] G6: Focused application tests cover path-safe staging/paste, missing-buffer and inside-source rejection, conflict, cancellation, successful lifecycle, and recovery-oriented operation labels.
-  CHECK: cargo test -p floe-app copy_interaction -- --nocapture
-  EXPECT: /7 passed/
-  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s | Running unittests src/main.rs (target/debug/deps/floe_app-cf50067f0f209ac0)
+- [x] G6: Temporary-directory core tests cover file, directory, symlink, conflict, invalid rename, missing source, cancellation, and non-UTF-8 paths while leaving conflicting targets unchanged.
+  CHECK: cargo test -p floe-core move_operation -- --nocapture
+  EXPECT: /8 passed/
+  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s | Running unittests src/lib.rs (target/debug/deps/floe_core-454dc5653b111925)
 
-- [x] G7: User, design, architecture, roadmap, development, and project-status documentation describe the Phase 4B interaction, internal-only clipboard, safety limits, verification, and next branch.
-  CHECK: rg -n "Phase 4B|internal-only|internal clipboard|Operations Island|copy_interaction|phase-4c-move-rename-foundation" README.md DESIGN.md docs/ARCHITECTURE.md docs/DEVELOPMENT.md docs/ROADMAP.md AGENTS.md
-  EXPECT: /phase-4c-move-rename-foundation/
-  EVIDENCE: DESIGN.md:84:Active work appears in a compact, bottom-end Operations Island. It uses visible | DESIGN.md:178:- **Operations Island:** a compact, non-modal observer for queued/running file
+- [x] G7: Application tests cover move and rename lifecycle completion, cancellation, failure mapping, queue capacity, and shutdown.
+  CHECK: cargo test -p floe-app move_executor -- --nocapture
+  EXPECT: /6 passed/
+  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s | Running unittests src/main.rs (target/debug/deps/floe_app-2fd028b442df4964)
 
-- [x] G8: Formatting, workspace compilation, strict Clippy, and the complete test suite pass.
+- [x] G8: Architecture, development, roadmap, README, and project status document Phase 4C scope, atomic same-filesystem limit, verification, and next branch.
+  CHECK: rg -n "Phase 4C|same-filesystem|cross-filesystem|phase-4d-move-rename-interaction|move_executor" README.md docs/ARCHITECTURE.md docs/DEVELOPMENT.md docs/ROADMAP.md AGENTS.md
+  EXPECT: /phase-4d-move-rename-interaction/
+  EVIDENCE: README.md:42:clipboard formats, overwrite, cross-filesystem copy-delete moves, trash, | docs/DEVELOPMENT.md:91:cargo test -p floe-app move_executor
+
+- [x] G9: Formatting, workspace compilation, strict Clippy, and the complete test suite pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
   EXPECT: /test result: ok/
-  EVIDENCE: Running unittests src/lib.rs (target/debug/deps/floe_core-7b642bdde78542e0) | Doc-tests floe_core
+  EVIDENCE: Running unittests src/lib.rs (target/debug/deps/floe_core-945472730d9a84a6) | Doc-tests floe_core
 
-- [x] G9: A native Wayland smoke launch emits the Floe startup event and remains healthy until the planned timeout.
+- [x] G10: A native Wayland smoke launch emits the Floe startup event and remains healthy until the planned timeout.
   CHECK: RUST_LOG=floe_app=info timeout 8s cargo run -p floe-app
   EXPECT: /Floe application started/
-  EVIDENCE: (floe-app:288055): Adwaita-WARNING **: 18:27:08.455: Using GtkSettings:gtk-application-prefer-dark-theme with libadwaita is unsupported. Please use AdwStyleManager:color-scheme instead. | WARNING: rad
+  EVIDENCE: (floe-app:296616): Adwaita-WARNING **: 18:38:44.598: Using GtkSettings:gtk-application-prefer-dark-theme with libadwaita is unsupported. Please use AdwStyleManager:color-scheme instead. | WARNING: rad

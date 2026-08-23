@@ -1129,17 +1129,17 @@ Last updated:
 Current phase:
 
 ```text
-Phase 4 — Filesystem operations (Phase 4B copy interaction complete)
+Phase 4 — Filesystem operations (Phase 4C move/rename foundation complete)
 ```
 
 Status:
 
 ```text
-Phases 0-3 and Phase 4A are complete. Phase 4B connects the safe copy backend
-to application-owned copy/paste commands and a non-blocking GTK operation
-observer. Floe now exposes internal Ctrl+C/Ctrl+V copy interaction, visible
-progress, cancellation, failure feedback, and destination refresh without
-performing filesystem work in GTK callbacks.
+Phases 0-3 and Phases 4A-4C are complete. Copy interaction is available through
+application-owned Ctrl+C/Ctrl+V commands and a non-blocking GTK observer. The
+new move/rename backend preserves original Linux paths, uses atomic
+same-filesystem no-replace semantics, and runs on a bounded worker. Move and
+rename have no GTK actions yet.
 ```
 
 Established product decisions:
@@ -1172,9 +1172,9 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 4B is complete. The next coherent branch is
-`phase-4c-move-rename-foundation`, beginning with path-safe core/backend move
-and rename semantics before exposing additional GTK mutation actions.
+Phase 4C is complete. The next coherent branch is
+`phase-4d-move-rename-interaction`, adding application-owned request tracking
+and non-blocking GTK commands/feedback on top of the verified backend.
 ```
 
 Verified:
@@ -1182,11 +1182,12 @@ Verified:
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo test --workspace` pass. Thirty-seven tests pass: twenty core tests and
-seventeen application tests. Seven focused copy-interaction tests cover
-non-UTF-8 staging and exact destinations, empty-buffer and inside-source
-rejection, conflicts, cancellation, successful lifecycle, and recovery labels.
-A native Niri/Wayland smoke launch remained healthy until its planned timeout.
+`cargo test --workspace` pass. Fifty-one tests pass: twenty-eight core tests and
+twenty-three application tests. Eight focused core move tests cover files,
+directories, self-nesting, symlinks, conflicts, invalid rename names, missing
+sources, cancellation, and non-UTF-8 names. Six executor tests cover move and
+rename completion, cancellation, conflict mapping, capacity, and shutdown.
+Phase 4C's native Wayland smoke result is recorded in `GATES.md`.
 ```
 
 Known issues:
@@ -1195,7 +1196,8 @@ Known issues:
 No application correctness failures are known. The copy interaction uses a
 Floe-internal clipboard only; it does not interoperate with other applications.
 Copy still does not preserve timestamps, ownership, ACLs, extended attributes,
-sparse extents, or reflink state. Native smoke runs may emit host
+sparse extents, or reflink state. Move/rename is currently same-filesystem only;
+cross-filesystem copy-delete recovery is not implemented. Native smoke runs may emit host
 GtkSettings/libadwaita and Vulkan suboptimal-swapchain warnings; neither
 originates from Floe logic.
 ```
@@ -1203,8 +1205,9 @@ originates from Floe logic.
 Deferred:
 
 ```text
-Cross-application clipboard support, overwrite/conflict resolution, move,
-rename, trash, permanent delete, metadata-complete copies, job
+Cross-application clipboard support, overwrite/conflict resolution, GTK
+move/rename actions, cross-filesystem moves, trash, permanent delete,
+metadata-complete copies, job
 persistence/history UI, drag and drop, thumbnails, tabs, split view, Miller
 columns, previews, archives, search, device management, Niri IPC, KDE-specific
 APIs, and network filesystems.
@@ -1244,16 +1247,25 @@ Completed this session:
   destination refresh.
 * Kept overwrite, cross-application clipboard formats, move, rename, trash,
   and permanent delete deferred.
+* Added GTK-independent exact-path `MoveRequest` and same-parent
+  `RenameRequest` models with raw `PathBuf`/`OsString` preservation.
+* Added atomic Linux `RENAME_NOREPLACE` execution for same-filesystem files,
+  directories, and symlinks; conflicts never overwrite existing targets.
+* Added explicit invalid-name, missing-source, self-nesting, cancellation, and
+  cross-filesystem failure semantics.
+* Added a fixed-capacity move/rename worker connected to application job
+  lifecycle events, structured failures, cancellation, and clean shutdown.
+* Kept GTK move/rename actions, overwrite, cross-filesystem fallback, trash,
+  and permanent delete deferred.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-4c-move-rename-foundation` and implement path-safe core/backend
-move and rename models with explicit fail-if-exists semantics, original-path
-preservation, symlink safety, cancellation boundaries, and temporary-directory
-tests. Keep GTK actions, overwrite, trash, and permanent delete deferred until
-the backend contract is verified.
+Create `phase-4d-move-rename-interaction` and add application-owned move/rename
+request tracking plus explicit GTK commands and non-blocking lifecycle feedback.
+Use the verified backend; keep overwrite, cross-filesystem copy-delete fallback,
+trash, and permanent delete deferred.
 ```
 
 ---

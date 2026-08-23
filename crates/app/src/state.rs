@@ -11,9 +11,9 @@ use thiserror::Error;
 use crate::{
     copy_executor::{
         CopyCancelError, CopyExecutor, CopyExecutorSpawnError, CopySubmission, CopySubmitError,
-        SharedJobManager,
     },
-    job_manager::ApplicationJobManager,
+    job_manager::{ApplicationJobManager, SharedJobManager},
+    move_executor::{MoveExecutor, MoveExecutorSpawnError},
 };
 
 /// Application-owned copy buffer. It retains the original Linux path and is
@@ -51,22 +51,33 @@ pub enum CopyInteractionError {
     Cancel(#[from] CopyCancelError),
 }
 
+#[derive(Debug, Error)]
+pub enum ApplicationStateSpawnError {
+    #[error(transparent)]
+    Copy(#[from] CopyExecutorSpawnError),
+    #[error(transparent)]
+    Move(#[from] MoveExecutorSpawnError),
+}
+
 /// Application-wide services and state that outlive any one browser concern.
 #[derive(Debug)]
 pub struct ApplicationState {
     pub jobs: SharedJobManager,
     copy_executor: CopyExecutor,
+    _move_executor: MoveExecutor,
     copy_buffer: RefCell<CopyBuffer>,
     copy_requests: RefCell<HashMap<JobId, CopyRequest>>,
 }
 
 impl ApplicationState {
-    pub fn new() -> Result<Self, CopyExecutorSpawnError> {
+    pub fn new() -> Result<Self, ApplicationStateSpawnError> {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
         let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
+        let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
             copy_executor,
+            _move_executor: move_executor,
             copy_buffer: RefCell::new(CopyBuffer::default()),
             copy_requests: RefCell::new(HashMap::new()),
         })
