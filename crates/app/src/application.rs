@@ -1,0 +1,104 @@
+use std::rc::Rc;
+
+use adw::prelude::*;
+use gtk::{gio, glib};
+use tracing_subscriber::EnvFilter;
+
+use crate::{
+    appearance::Appearance, browser::BrowserController, locations, state::ApplicationState, ui,
+    worker::BrowserWorker,
+};
+
+const APPLICATION_ID: &str = "io.github.floe.FileManager";
+
+pub fn run() -> glib::ExitCode {
+    init_logging();
+
+    let application = adw::Application::builder()
+        .application_id(APPLICATION_ID)
+        .flags(gio::ApplicationFlags::FLAGS_NONE)
+        .build();
+
+    application.connect_activate(build_window);
+
+    let quit = gio::SimpleAction::new("quit", None);
+    let application_weak = application.downgrade();
+    quit.connect_activate(move |_, _| {
+        if let Some(application) = application_weak.upgrade() {
+            application.quit();
+        }
+    });
+    application.add_action(&quit);
+    application.set_accels_for_action("app.quit", &["<Control>q"]);
+
+    application.run()
+}
+
+fn build_window(application: &adw::Application) {
+    if let Some(window) = application.active_window() {
+        window.present();
+        return;
+    }
+
+    let appearance = Appearance::from_environment();
+    appearance.install();
+
+    let places = locations::standard_locations();
+    let initial_path = places
+        .first()
+        .map(|place| place.path.clone())
+        .unwrap_or_else(glib::home_dir);
+    let widgets = ui::build(application, &places, appearance);
+    let worker = match BrowserWorker::spawn() {
+        Ok(worker) => worker,
+        Err(error) => {
+            tracing::error!(%error, "could not start directory worker");
+            widgets.spinner.stop();
+            widgets
+                .status_label
+                .set_label("Directory browsing is unavailable");
+            widgets.toast_overlay.add_toast(
+                adw::Toast::builder()
+                    .title(format!("Could not start directory browser: {error}"))
+                    .timeout(0)
+                    .build(),
+            );
+            widgets.window.present();
+            return;
+        }
+    };
+    let application_state = match ApplicationState::new() {
+        Ok(state) => Rc::new(state),
+        Err(error) => {
+            tracing::error!(%error, "could not start copy executor");
+            widgets.spinner.stop();
+            widgets
+                .status_label
+                .set_label("Filesystem operations are unavailable");
+            widgets.toast_overlay.add_toast(
+                adw::Toast::builder()
+                    .title(format!("Could not start filesystem operations: {error}"))
+                    .timeout(0)
+                    .build(),
+            );
+            widgets.window.present();
+            return;
+        }
+    };
+    let controller = BrowserController::new(widgets, initial_path, worker, application_state);
+    controller.wire(application, &places);
+    controller.present_and_start();
+    tracing::info!("Floe application started");
+}
+
+fn init_logging() {
+    let filter = match std::env::var("RUST_LOG") {
+        Ok(value) if !value.trim().is_empty() => EnvFilter::new(value),
+        _ => EnvFilter::new("floe_app=info,floe_core=info"),
+    };
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .compact()
+        .try_init();
+}

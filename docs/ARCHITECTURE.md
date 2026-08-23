@@ -1,0 +1,248 @@
+# Floe Architecture
+
+This document describes the code that exists now. Future boundaries are called
+out separately rather than presented as implemented.
+
+## Workspace and dependency direction
+
+Floe is a Cargo workspace with two crates:
+
+```text
+floe-app (GTK4, libadwaita, GIO, GLib, tracing)
+   |
+   v
+floe-core (standard library, thiserror)
+```
+
+`crates/core` never depends on GTK, GIO, GLib, a compositor, or a desktop
+environment. `crates/app` depends on `floe-core` and owns all desktop/UI wiring.
+
+## Current runtime architecture
+
+```text
+AdwApplication / GTK widgets
+             |
+             v
+      BrowserController
+       |       |             |
+       |       |             +----> launcher.rs ----> GIO default application
+       |       v
+       |  shared ApplicationState ----> ApplicationJobManager
+       |                                  (records/events only)
+       v
+ BrowserWorker (one std thread)
+       |
+       v
+ floe-core directory enumeration
+       |
+       +---- std::mpsc Response ----> 16 ms GTK poll
+                                      |
+                                      v
+                           batched virtualized list model
+```
+
+GTK callbacks submit navigation/activation intent to `BrowserController`; they
+do not call `std::fs` directory operations. The controller owns navigation,
+selection, loading generations, and GTK-model delivery state.
+
+## `floe-core`
+
+### `directory.rs`
+
+`enumerate_directory` and `enumerate_directory_with_cancel` perform one-level,
+non-recursive `std::fs::read_dir` enumeration. They use `symlink_metadata`,
+classify directory/file/symlink/other entries, mark dot-prefixed hidden names,
+capture inexpensive size and modification metadata, and sort directories first.
+
+The cancellation callback is checked between entries. No directory is traversed
+recursively, so a symlink cannot create an implicit recursive walk.
+
+### `model.rs`
+
+`DirectoryEntry` preserves `PathBuf` and `OsString` values independently of
+lossy display text. It currently contains kind, optional size and modification
+time, optional MIME placeholder, hidden state, and `ThumbnailState`. MIME is not
+populated and thumbnail state remains `NotRequested`.
+
+`EntryKind::SymbolicLink` records whether the resolved target is a directory.
+`DirectoryListing` couples the enumerated directory path to its entries.
+
+### `navigation.rs`
+
+`NavigationState` owns current, back, and forward `PathBuf` values. New
+navigation clears forward history; back/forward exchange paths between stacks;
+parent navigation stops at filesystem root. It is toolkit-independent.
+
+### `jobs.rs`
+
+The Phase 3 foundation defines non-zero `OperationId` and `JobId` types,
+validated determinate/indeterminate `JobProgress`, structured failures,
+lifecycle commands/states/events, and `JobRecord::apply` as the legal-transition
+authority. A logical operation retains its ID across retry attempts while each
+attempt receives a new job ID. Terminal states reject further commands.
+
+### `error.rs`
+
+`DirectoryError` uses `thiserror` to distinguish open, entry-read, metadata, and
+superseded/cancelled enumeration failures while retaining original `io::Error`
+context.
+
+## `floe-app`
+
+### `application.rs` and `main.rs`
+
+`main.rs` declares modules and starts `application::run`. `application.rs`
+creates application ID `io.github.floe.FileManager`, installs Ctrl+Q, selects
+appearance and XDG locations, builds the window, starts `BrowserWorker`, and
+surfaces worker-start failure. It also creates the shared `ApplicationState`
+that owns the job registry boundary. `tracing-subscriber` reads `RUST_LOG` and
+defaults to `floe=info`.
+
+### `state.rs` and `job_manager.rs`
+
+`ApplicationState` is separate from `BrowserController` and owns an
+`ApplicationJobManager`. The manager allocates operation/job IDs, stores core
+`JobRecord` values, applies core lifecycle commands, queues observable events,
+and creates retries under the original operation ID. It executes no filesystem
+operation and currently has no GTK observer or persistence.
+
+### `ui.rs`
+
+`ui::build` constructs the header, `GtkPaned` Places/content layout,
+`GtkListView`, empty overlay, status strip, and toast overlay. A
+`GtkSignalListItemFactory` binds boxed `DirectoryEntry` values to virtualized
+rows. Symbolic icon buttons have tooltips and accessible labels.
+
+### `browser.rs`
+
+`BrowserController` is the current application-state coordinator. It owns:
+
+- `NavigationState`;
+- the currently selected `DirectoryEntry` mirrored from GTK selection;
+- hidden-file preference for the current process;
+- request generation and pending listing batches;
+- enabled state for navigation and Open actions.
+
+Navigation queues a worker request, disables stale interaction, and ignores
+responses whose generation is no longer active. Results are filtered for hidden
+entries and fed to a new `GioListStore` in batches of 256.
+
+The controller currently polls worker responses from a GLib timeout every 16ms.
+This is bounded and simple, but a future event/channel integration may remove
+periodic polling.
+
+### `worker.rs`
+
+`BrowserWorker` owns one named `std::thread` and two `std::mpsc` channels. An
+atomic latest-generation value lets core enumeration cooperatively stop stale
+requests. This is a browsing worker, not the future filesystem mutation job
+engine.
+
+### `launcher.rs`
+
+`launch_default` converts the original `Path` directly to `gio::File::uri` and
+uses asynchronous `GAppInfo` default-app launching. A Unix test verifies that a
+non-UTF-8 path round-trips through the GIO URI without replacement characters.
+
+### `locations.rs`
+
+The app layer uses GLib home and XDG user-special directories for Home,
+Downloads, Documents, and Pictures, removing duplicate paths. Trash, devices,
+mounts, and network locations are not implemented.
+
+### `appearance.rs`
+
+`Appearance` centralizes preset-level radius, gap, opacity, row padding, shadow,
+floating-panel, and sidebar-width values. It generates GTK CSS using libadwaita
+semantic colors. Frosted is the default; `FLOE_APPEARANCE` selects Native,
+Glass, Frosted, Minimal, or Compact. Blur and settings persistence do not exist.
+
+## Keyboard input
+
+Current application/window actions are:
+
+| Input | Action |
+| --- | --- |
+| Alt+Left | Back |
+| Alt+Right | Forward |
+| Alt+Up | Parent |
+| Ctrl+L | Show local path entry |
+| Ctrl+H | Toggle hidden entries |
+| Escape | Leave path entry |
+| Ctrl+Q | Quit |
+| Enter / double-click | Activate selected list row |
+
+Open is also a visible header action. There is no configurable keymap or Vim
+mode yet.
+
+## Error handling and tracing
+
+Core failures are structured. Recoverable browsing and launch errors produce
+toasts/status feedback; worker-channel failures and technical context use
+`tracing`. Paths may be sensitive, so normal logs should avoid adding verbose
+path reporting. No file contents are logged.
+
+## Boundaries not implemented yet
+
+### Desktop integration
+
+No desktop integration trait or Niri/Plasma backend exists. The app uses generic
+GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
+detection and compositor APIs must eventually stay under `crates/app`.
+
+### Filesystem jobs and Phase 4A copy execution
+
+Identity, lifecycle, progress, failure, retry-attempt, registry, and event
+foundations now exist. `floe-core::copy` adds the first path-safe operation
+model and synchronous engine; `floe-app::copy_executor` runs it on one named
+worker behind a fixed-capacity queue. `ApplicationState` owns both the shared
+registry and executor.
+
+`ConflictPolicy::FailIfExists` is the only Phase 4A conflict behavior, so an
+existing target is never overwritten. `SymlinkPolicy::Preserve` recreates a
+link using its stored target and never follows it; `Reject` fails during the
+preflight scan before the destination is created. The destination is an exact
+path and its parent must already exist. Files and directories are copied in
+chunks/entries with cooperative cancellation. Created paths are tracked and
+removed in reverse order after failure without recursively deleting unknown
+content.
+
+The engine preserves regular-file bytes, directory structure, Unix permission
+bits, and link targets. It does not yet preserve timestamps, ownership, ACLs,
+extended attributes, sparse extents, or reflink state. There is no persistence,
+history UI, GTK observer, copy/paste action, or interactive conflict resolver.
+The current direction is:
+
+```text
+GTK observers/actions
+       |
+       v
+ApplicationState / ApplicationJobManager (implemented)
+       |
+       v
+floe-core legal state transitions (implemented)
+       |
+       v
+floe-core path-safe copy model and engine (implemented)
+       |
+       v
+bounded copy executor (implemented)
+```
+
+Move/rename/trash implementations must not appear in widgets or reuse either
+the read-only browser worker or copy worker as an ad-hoc general mutation
+queue. GTK copy controls remain deferred until event observation and conflict
+feedback have a coherent application-layer design.
+
+## Known architectural debt
+
+- `BrowserController` already coordinates several concerns and should not absorb
+  mutation execution, previews, tabs, and desktop integration.
+- Navigation state changes before enumeration succeeds; failed destinations are
+  recoverable via history/sidebar, but success-aware navigation may be clearer.
+- Appearance values are partly centralized while local widget margins remain in
+  `ui.rs`.
+- Sidebar width, appearance, hidden-file visibility, selection, and scroll
+  position are not persisted.
+- MIME, permissions, thumbnail, device, and mount data are incomplete or absent.
+- There is no file-watching reconciliation for external changes.
