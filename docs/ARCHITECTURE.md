@@ -21,19 +21,22 @@ environment. `crates/app` depends on `floe-core` and owns all desktop/UI wiring.
 
 ```text
 AdwApplication / GTK widgets
-             |
-             v
-      BrowserController
-       |       |             |
-       |       |             +----> launcher.rs ----> GIO default application
-       |       v
-       |  shared ApplicationState ----> ApplicationJobManager
-       |                                  (records/events only)
-       v
- BrowserWorker (one std thread)
+       |                       |
+       v                       v
+BrowserController      OperationController
+ |       |               |             |
+ |       +--> launcher   |             +--> Operations Island / toasts
+ |                       v
+ |              shared ApplicationState
+ |               |       |          |
+ |               |       |          +--> CopyBuffer / tracked requests
+ |               |       +--> ApplicationJobManager / structured events
+ |               +--> CopyExecutor (one bounded worker)
+ v
+BrowserWorker (one std thread)
        |
        v
- floe-core directory enumeration
+floe-core directory enumeration
        |
        +---- std::mpsc Response ----> 16 ms GTK poll
                                       |
@@ -41,9 +44,11 @@ AdwApplication / GTK widgets
                            batched virtualized list model
 ```
 
-GTK callbacks submit navigation/activation intent to `BrowserController`; they
-do not call `std::fs` directory operations. The controller owns navigation,
-selection, loading generations, and GTK-model delivery state.
+GTK callbacks submit navigation, activation, copy, paste, or cancellation
+intent to controllers and application state. They do not call `std::fs`
+operations. `BrowserController` owns navigation, selection, loading
+generations, and GTK-model delivery state; `OperationController` observes job
+events and owns operation feedback without executing copy work.
 
 ## `floe-core`
 
@@ -100,18 +105,26 @@ defaults to `floe=info`.
 
 ### `state.rs` and `job_manager.rs`
 
-`ApplicationState` is separate from `BrowserController` and owns an
-`ApplicationJobManager`. The manager allocates operation/job IDs, stores core
-`JobRecord` values, applies core lifecycle commands, queues observable events,
-and creates retries under the original operation ID. It executes no filesystem
-operation and currently has no GTK observer or persistence.
+`ApplicationState`, separate from `BrowserController`, owns the
+`ApplicationJobManager`, bounded `CopyExecutor`, internal `CopyBuffer`, and
+tracked `CopyRequest` values keyed by `JobId`. The manager allocates
+operation/job IDs, stores core `JobRecord` values, applies core lifecycle
+commands, queues observable events, and creates retries under the original
+operation ID. `ApplicationState::stage_copy` retains the selected original
+`PathBuf`; `submit_paste` derives the destination with the source `OsStr`
+filename and queues the copy. No path is reconstructed from display text.
+
+The copy buffer is Floe-internal only. Cross-application clipboard formats,
+operation persistence, history UI, and overwrite policy are not implemented.
 
 ### `ui.rs`
 
 `ui::build` constructs the header, `GtkPaned` Places/content layout,
-`GtkListView`, empty overlay, status strip, and toast overlay. A
+`GtkListView`, empty overlay, status strip, toast overlay, and compact
+Operations Island in a non-modal `GtkOverlay`. A
 `GtkSignalListItemFactory` binds boxed `DirectoryEntry` values to virtualized
-rows. Symbolic icon buttons have tooltips and accessible labels.
+rows. Symbolic icon buttons have tooltips and accessible labels, including the
+copy-cancellation control.
 
 ### `browser.rs`
 
@@ -123,13 +136,27 @@ rows. Symbolic icon buttons have tooltips and accessible labels.
 - request generation and pending listing batches;
 - enabled state for navigation and Open actions.
 
+It also owns the Ctrl+C/Ctrl+V action wiring because those commands depend on
+the active selection and current destination. The actions stage or submit
+through shared `ApplicationState`; they do not perform filesystem work.
+
 Navigation queues a worker request, disables stale interaction, and ignores
 responses whose generation is no longer active. Results are filtered for hidden
 entries and fed to a new `GioListStore` in batches of 256.
 
 The controller currently polls worker responses from a GLib timeout every 16ms.
-This is bounded and simple, but a future event/channel integration may remove
-periodic polling.
+This polling is bounded and simple, but a future event/channel integration may
+remove periodic polling.
+
+### `operations.rs`
+
+`OperationController` polls structured application job events every 50 ms,
+maps queued/running/progress/terminal states into the Operations Island, and
+submits cancellation intent through `ApplicationState`. Completion refreshes
+the visible destination directory; conflict, permission, unsupported, and
+general failures produce recovery-oriented toasts. Terminal status remains
+visible for three seconds. The controller observes jobs but never executes
+filesystem operations.
 
 ### `worker.rs`
 
@@ -168,6 +195,8 @@ Current application/window actions are:
 | Alt+Up | Parent |
 | Ctrl+L | Show local path entry |
 | Ctrl+H | Toggle hidden entries |
+| Ctrl+C | Stage selected entry in Floe's internal copy buffer |
+| Ctrl+V | Paste staged entry into the current directory |
 | Escape | Leave path entry |
 | Ctrl+Q | Quit |
 | Enter / double-click | Activate selected list row |
@@ -190,13 +219,14 @@ No desktop integration trait or Niri/Plasma backend exists. The app uses generic
 GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
 detection and compositor APIs must eventually stay under `crates/app`.
 
-### Filesystem jobs and Phase 4A copy execution
+### Filesystem jobs and Phase 4B copy interaction
 
 Identity, lifecycle, progress, failure, retry-attempt, registry, and event
 foundations now exist. `floe-core::copy` adds the first path-safe operation
 model and synchronous engine; `floe-app::copy_executor` runs it on one named
-worker behind a fixed-capacity queue. `ApplicationState` owns both the shared
-registry and executor.
+worker behind a fixed-capacity queue. `ApplicationState` owns the shared
+registry, executor, copy buffer, and tracked copy requests.
+`OperationController` is the GTK observer and feedback boundary.
 
 `ConflictPolicy::FailIfExists` is the only Phase 4A conflict behavior, so an
 existing target is never overwritten. `SymlinkPolicy::Preserve` recreates a
@@ -210,11 +240,11 @@ content.
 The engine preserves regular-file bytes, directory structure, Unix permission
 bits, and link targets. It does not yet preserve timestamps, ownership, ACLs,
 extended attributes, sparse extents, or reflink state. There is no persistence,
-history UI, GTK observer, copy/paste action, or interactive conflict resolver.
-The current direction is:
+history UI, cross-application clipboard format, overwrite path, or interactive
+conflict resolver. The current direction is:
 
 ```text
-GTK observers/actions
+GTK observers/actions (implemented for copy)
        |
        v
 ApplicationState / ApplicationJobManager (implemented)
@@ -231,8 +261,8 @@ bounded copy executor (implemented)
 
 Move/rename/trash implementations must not appear in widgets or reuse either
 the read-only browser worker or copy worker as an ad-hoc general mutation
-queue. GTK copy controls remain deferred until event observation and conflict
-feedback have a coherent application-layer design.
+queue. The next mutation slice should add explicit move/rename models and
+execution semantics before exposing additional GTK actions.
 
 ## Known architectural debt
 

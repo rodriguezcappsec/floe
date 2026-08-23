@@ -178,6 +178,30 @@ impl Appearance {
                 font-weight: 600;
             }}
 
+            .operations-island {{
+                padding: 14px;
+                background-color: alpha(@card_bg_color, {island_opacity});
+                border: 1px solid alpha(@borders, 0.68);
+                border-radius: {island_radius}px;
+                box-shadow: 0 6px 24px alpha(black, {island_shadow});
+            }}
+
+            .operations-island progressbar trough {{
+                min-height: 6px;
+                border-radius: 999px;
+            }}
+
+            .operations-island progressbar progress {{
+                min-height: 6px;
+                border-radius: 999px;
+            }}
+
+            .operations-island button {{
+                min-width: 40px;
+                min-height: 40px;
+                border-radius: 999px;
+            }}
+
             .appearance-native .floe-workspace {{ padding: 0; }}
             .appearance-native .floe-panel {{ border-width: 0; box-shadow: none; }}
             .appearance-minimal .floe-panel {{ box-shadow: none; }}
@@ -188,6 +212,9 @@ impl Appearance {
             shadow = self.shadow_opacity,
             row_padding = self.row_padding,
             handle_width = self.window_gap.max(8),
+            island_opacity = self.panel_opacity.max(0.92),
+            island_radius = self.panel_radius.max(10),
+            island_shadow = self.shadow_opacity.max(0.10),
         );
 
         let provider = gtk::CssProvider::new();

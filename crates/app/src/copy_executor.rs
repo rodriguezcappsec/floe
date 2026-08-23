@@ -54,6 +54,15 @@ pub enum CopySubmitError {
     ExecutorStopped { job_id: JobId },
 }
 
+impl CopySubmitError {
+    pub const fn job_id(&self) -> Option<JobId> {
+        match self {
+            Self::QueueFull { job_id } | Self::ExecutorStopped { job_id } => Some(*job_id),
+            Self::JobManager(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum CopyCancelError {
     #[error("job {0:?} is not an active copy job")]
