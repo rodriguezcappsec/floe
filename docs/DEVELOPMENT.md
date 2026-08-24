@@ -159,7 +159,9 @@ sizes, and all fourteen registered full-color SVG resource aliases.
 
 Phase 6H adds no dependency. Focused tests run with `cargo test -p floe-app phase_6h -- --nocapture` and cover location syntax, absolute-path trimming, file-versus-directory recovery wording, non-UTF-8 display ownership, and exact navigation-snapshot rollback. Native checking should exercise both the clickable header path and Ctrl+L, Enter success/failure, Escape cancellation, and restored file-view focus.
 
-After Phase 6H, continue on `phase-6i-open-with-fallback`.
+Phase 6I adds no dependency. Run `cargo test -p floe-app phase_6i -- --nocapture` for deterministic default/no-default routing coverage. Native smoke should confirm the Open and Open With window actions remain registered and Floe owns/releases `io.github.floe.FileManager`; installed host application associations are intentionally not changed during tests.
+
+After Phase 6I, continue on `phase-6j-places-and-devices`.
 
 ## Wayland environments
 

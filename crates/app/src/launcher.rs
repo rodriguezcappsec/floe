@@ -8,16 +8,37 @@ use gtk::{
     glib,
 };
 
-/// Opens a local path with the desktop's default application without losing
-/// non-UTF-8 path bytes through an intermediate display string.
-pub fn launch_default(path: &Path, callback: impl FnOnce(Result<(), glib::Error>) + 'static) {
-    let uri = local_file_uri(path);
-    gio::AppInfo::launch_default_for_uri_async(
-        &uri,
-        None::<&gio::AppLaunchContext>,
-        None::<&gio::Cancellable>,
-        callback,
-    );
+pub enum DefaultLaunch {
+    Launched,
+    NoDefault(OpenWithOptions),
+}
+
+/// Resolves and opens a local path with its registered default application.
+/// When no default exists, the already-discovered compatible applications are
+/// returned to the caller for an explicit chooser instead of becoming an error.
+pub fn launch_default(
+    path: &Path,
+    callback: impl FnOnce(Result<DefaultLaunch, glib::Error>) + 'static,
+) {
+    let path = path.to_path_buf();
+    glib::spawn_future_local(async move {
+        let options = match discover_open_with(path).await {
+            Ok(options) => options,
+            Err(error) => {
+                callback(Err(error));
+                return;
+            }
+        };
+
+        let Some(application) = default_application(&options) else {
+            callback(Ok(DefaultLaunch::NoDefault(options)));
+            return;
+        };
+        let launch_path = options.path.clone();
+        launch_with(&application, &launch_path, move |result| {
+            callback(result.map(|()| DefaultLaunch::Launched));
+        });
+    });
 }
 
 #[derive(Clone)]
@@ -31,6 +52,14 @@ pub struct OpenWithOptions {
     pub path: PathBuf,
     pub content_type: String,
     pub applications: Vec<OpenWithApplication>,
+}
+
+fn default_application(options: &OpenWithOptions) -> Option<gio::AppInfo> {
+    options
+        .applications
+        .iter()
+        .find(|application| application.is_default)
+        .map(|application| application.app_info.clone())
 }
 
 pub async fn discover_open_with(path: PathBuf) -> Result<OpenWithOptions, glib::Error> {
@@ -137,7 +166,10 @@ mod tests {
 
     use gtk::gio::{self, prelude::*};
 
-    use super::{OpenWithApplication, local_file_uri, sort_and_deduplicate_applications};
+    use super::{
+        OpenWithApplication, OpenWithOptions, default_application, local_file_uri,
+        sort_and_deduplicate_applications,
+    };
 
     #[test]
     fn local_uri_round_trip_preserves_non_utf8_path() {
@@ -185,5 +217,49 @@ mod tests {
         assert_eq!(choices[0].display_name, "Zulu");
         assert!(choices[0].is_default);
         assert_eq!(choices[1].display_name, "Alpha");
+    }
+
+    #[test]
+    fn phase_6i_no_default_routes_to_chooser_options() {
+        let application = gio::AppInfo::create_from_commandline(
+            "/usr/bin/alpha",
+            Some("Alpha"),
+            gio::AppInfoCreateFlags::SUPPORTS_URIS,
+        )
+        .expect("fixture app info");
+        let options = OpenWithOptions {
+            path: PathBuf::from("/tmp/no-default.bin"),
+            content_type: "application/octet-stream".into(),
+            applications: vec![OpenWithApplication {
+                app_info: application,
+                display_name: "Alpha".into(),
+                is_default: false,
+            }],
+        };
+
+        assert!(default_application(&options).is_none());
+        assert_eq!(options.path, PathBuf::from("/tmp/no-default.bin"));
+    }
+
+    #[test]
+    fn phase_6i_registered_default_routes_to_that_application() {
+        let application = gio::AppInfo::create_from_commandline(
+            "/usr/bin/alpha",
+            Some("Alpha"),
+            gio::AppInfoCreateFlags::SUPPORTS_URIS,
+        )
+        .expect("fixture app info");
+        let options = OpenWithOptions {
+            path: PathBuf::from("/tmp/default.bin"),
+            content_type: "application/octet-stream".into(),
+            applications: vec![OpenWithApplication {
+                app_info: application.clone(),
+                display_name: "Alpha".into(),
+                is_default: true,
+            }],
+        };
+
+        let resolved = default_application(&options).expect("default should resolve");
+        assert!(resolved.equal(&application));
     }
 }

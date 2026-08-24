@@ -146,7 +146,9 @@ thumbnail codecs, and environment-specific integrations remain deferred.
 
 Phase 6H turns the header path into an editable location control. Click the displayed path or press Ctrl+L to edit the current absolute path; Enter validates and opens it on the bounded directory worker, while Escape cancels. Empty, relative, missing, unreadable, and non-directory locations remain in edit mode with recovery guidance. Existing navigation continues to own the original `PathBuf`; the lossy display string becomes a new path only when the user explicitly edits and submits it.
 
-The next branch is `phase-6i-open-with-fallback`, followed by Places/devices/bookmarks and broader system thumbnailers.
+Phase 6I makes normal Open resolve GIO applications asynchronously before launch. A registered default opens immediately; when no default exists, Floe automatically presents the same compatible-application chooser used by Open With. One-time Open never changes associations, and Set as Default remains a separate explicit button.
+
+The next branch is `phase-6j-places-and-devices`, followed by broader system thumbnailers.
 
 ## Project documentation
 

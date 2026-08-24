@@ -278,7 +278,13 @@ animation preferences before it ships.
 
 The header location is both orientation and navigation. Its resting state is a pointer-operable button with the current path, and Ctrl+L provides the keyboard route. Edit mode starts with the current displayed path selected for replacement; Enter submits an absolute local folder path and Escape returns to the prior browser state. Validation stays beside the field, keeps focus recoverable, and never relies on color alone. A submitted path is committed to navigation history only after its background directory enumeration succeeds.
 
-Phase 6H implements this surface; `phase-6i-open-with-fallback` is the next interaction branch.
+Phase 6H implements this surface.
+
+### Open without a default application
+
+Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.
+
+`phase-6j-places-and-devices` is the next navigation branch.
 
 ### Transparency and accessibility
 

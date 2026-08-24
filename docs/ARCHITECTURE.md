@@ -515,7 +515,9 @@ permanent deletion remain deferred.
 
 Phase 6H adds `location_input.rs` as a GTK-independent input and recovery policy. GTK only captures explicit text and submits it to `BrowserController`; absolute-path syntax is checked immediately, directory enumeration remains on `BrowserWorker`, and failed submissions restore the exact previous navigation snapshot. Existing non-UTF-8 `PathBuf` state is used directly until the user explicitly submits edited UTF-8 entry text.
 
-The next branch, `phase-6i-open-with-fallback`, reuses the existing asynchronous GIO launcher/chooser boundary and does not add filesystem work to GTK.
+Phase 6I reuses the existing asynchronous GIO launcher/chooser boundary. `launcher::launch_default` now returns `DefaultLaunch::Launched` or `DefaultLaunch::NoDefault(OpenWithOptions)` after content-type/application resolution. `BrowserController` presents the existing chooser for the latter; the UI never infers or mutates a default association. Exact original paths continue through `gio::File` URIs.
+
+The next branch is `phase-6j-places-and-devices`.
 
 ## Known architectural debt
 
