@@ -1053,7 +1053,8 @@ Do not mark a feature complete unless it actually works or has been verified.
 
 # Roadmap
 
-The rough roadmap is:
+`docs/ROADMAP.md` is the authoritative bounded sequence. The synopsis below is
+historical orientation only and is superseded whenever the roadmap differs.
 
 ```text
 Phase 0
@@ -1111,12 +1112,42 @@ Phase 17
 Remote/network filesystem support as justified
 
 Phase 18
-Packaging, distribution, performance tuning, polish
+Privacy, security, and data integrity
+
+Phase 19
+Extensibility and developer features
+
+Phase 20
+Settings, visual, accessibility, and quality-of-life audit
+
+Phase 21
+Performance, packaging, and release hardening
 ```
 
 The order may evolve.
 
 Architecture and correctness are more important than rigid phase numbering.
+
+Use persistent planning documents by responsibility:
+
+* `docs/ROADMAP.md` owns phase sequencing and marks exactly one next phase.
+* `docs/FEATURE_MATRIX.md` is the exhaustive capability/status ledger. Code and
+  tests, not prose alone, determine `COMPLETE`.
+* `docs/PRIVACY_SECURITY.md` owns the threat model, security architecture, and
+  prohibited claims.
+* `DESIGN.md` owns visual and interaction language.
+* `PLAN.md` and `GATES.md` belong to one active implementation phase. Do not
+  repurpose them as the long-term roadmap or erase completed evidence.
+
+Future sessions read the current roadmap entry and matching matrix/security
+requirements, implement only that bounded phase, verify it, update persistent
+status, name exactly one next phase, and stop.
+
+Security terms are non-interchangeable. Use **Encrypted Vault** only for real
+encrypted storage, **Sensitive Folder** for reduced Floe-owned traces,
+**Protected Folder** for accidental-change guardrails, **Private Mode** for
+history/cache minimization, **Open Safely** only while a real restriction policy
+is active, and **Integrity verified** only after verification completes.
 
 ---
 
@@ -1129,7 +1160,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid, thumbnails, navigation, and interaction polish (Phase 6K2 complete)
+Phase 6 — List/grid, thumbnails, navigation, and interaction polish (Phase 6L complete)
 ```
 
 Status:
@@ -1172,7 +1203,7 @@ Phase 6B makes all four visible metadata headings native keyboard/pointer
 controls with explicit ascending/descending arrows and accessible pressed state.
 The GTK-independent policy keeps navigable directories first, unknown optional
 metadata last, and raw path values as deterministic tie-breakers. Sorting runs
-on the bounded directory worker using shared entries; model rebuilds retain
+on the single directory worker using shared entries; model rebuilds retain
 256-entry batches and restore selection by exact original `PathBuf`.
 
 Phase 6C adds lazy 32-pixel PNG/JPEG thumbnails to bound virtualized list rows.
@@ -1268,6 +1299,16 @@ owns password prompts and Floe remains credential-opaque.
 It requires the documented GFile/GVfs `admin://` provider, polkit flow, visible
 Administrator state, and all test/rollout gates. Floe must never elevate its
 whole GTK process or interpolate paths into shell elevation commands.
+
+Phase 6L discovers policy-accepted freedesktop `.thumbnailer` definitions on
+the capacity-64 thumbnail worker. Native rasters stay in-process; supported
+video, audio, font, text/code, PDF, office, and archive MIME types may use an
+installed provider. Commands are parsed to argv without a shell, receive exact
+raw path/URI identity and a private output path, and run in a supervised process
+group with timeout, cancellation, bounded no-follow PNG output, stale-source
+revalidation, persistent-cache reuse, and cleanup. Failures keep generic icons.
+Providers are not sandboxed and retain the user's normal authority; Phase 18L
+owns isolation.
 ```
 
 Established product decisions:
@@ -1300,20 +1341,24 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6K2 is complete. The next coherent branch is
-`phase-6l-system-thumbnailers`, consuming reviewed freedesktop thumbnailer
-providers for video frames, PDF pages, office/DOCX documents, fonts, text/code,
-embedded audio artwork, and archive previews on the existing bounded thumbnail
-boundary. Phase 6M then adds
-truthfully labelled, confirmed “Delete Permanently” jobs and Shift+Delete without
-claiming secure erase.
+Phase 6L is complete. The one recommended next branch is
+`phase-6m-permanent-delete`, adding truthfully labelled, confirmed “Delete
+Permanently” jobs and Shift+Delete without claiming secure erase.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-181 tests pass: thirty-three core and 148 application tests. Ten focused Phase
+192 tests pass: thirty-three core and 159 application tests. Eleven focused
+Phase 6L tests cover deterministic user/system precedence, malformed definitions,
+fixed executable argv and field-code policy, non-UTF-8 identity, MIME denial,
+private output, no-follow and size limits, process failure, timeout/cancellation
+with process-group termination, cleanup, stale-source rejection, bounded queue
+fallback, provider PNG validation, and persistent cache reuse. A two-launch
+native Wayland smoke invoked one controlled PDF provider, wrote one persistent
+cache entry, then reused it while the provider failed; both launches owned and
+released D-Bus cleanly and left no provider temp artifacts. Ten focused Phase
 6K2 tests cover stable density names, backward-compatible complete preference
 state, clamped/restored/reset width, divider resize policy, mount-authentication
 ownership, Operations Island bounds/recovery rows, and action/spacing mappings.
@@ -1350,7 +1395,7 @@ Eight focused Phase 6C tests cover PNG/JPEG eligibility and decoding, bounded sc
 exact non-UTF-8 identity, metadata invalidation, symlink-replacement no-follow
 safety, source limits, stale generations, non-blocking queue capacity, pending
 deduplication, and the 256-entry cache bound.
-Eight focused Phase 6B tests cover direction cycling, directories-first ordering,
+Seven focused Phase 6B tests cover direction cycling, directories-first ordering,
 unknown metadata, raw non-UTF-8 identity, worker dispatch, visible arrows, and
 exact-path selection restoration. Four focused Phase 6A tests cover stable column
 semantics, text-only kind distinctions,
@@ -1420,6 +1465,8 @@ Known issues:
 ```text
 No application correctness failures are known. The copy interaction uses a
 Floe-internal clipboard only; it does not interoperate with other applications.
+`BrowserWorker` has one worker thread and generation supersession, but its
+request channel is currently unbounded; do not describe its queue as bounded.
 Copy still does not preserve timestamps, ownership, ACLs, extended attributes,
 sparse extents, or reflink state. Move/rename is currently same-filesystem only;
 cross-filesystem copy-delete recovery is not implemented. Native smoke runs may emit host
@@ -1435,6 +1482,10 @@ beyond the first still frame. Cache interoperability remains intentionally
 limited to the freedesktop normal/large tiers needed by Floe's current 32-192
 pixel requests. Remote and network mount roots are shown as unavailable; browsing
 them remains deferred.
+Phase 6L system thumbnailers are supervised but unsandboxed and inherit the
+user's normal filesystem, environment, session, and network authority. Coverage
+depends on installed freedesktop providers; SVG/image providers and executable
+MIME types remain deliberately excluded.
 ```
 
 Deferred:
@@ -1453,6 +1504,14 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Added the exhaustive code-audited `docs/FEATURE_MATRIX.md` capability ledger.
+* Rebuilt `docs/ROADMAP.md` as the bounded dependency-aware sequence through
+  Phase 21; Phase 6L is complete and Phase 6M is the sole next phase.
+* Added `docs/PRIVACY_SECURITY.md` with implemented/planned separation, threat
+  boundaries, cryptographic rules, cache/sandbox/vault/integrity architecture,
+  and prohibited claims.
+* Added privacy/security interaction semantics to `DESIGN.md` without
+  implementing a security feature or choosing a dependency.
 * Added `DESIGN.md` as the implemented/planned visual and interaction source of
   truth, including the actual appearance preset values.
 * Added `docs/ARCHITECTURE.md` for current crate/module responsibilities, data
@@ -1651,16 +1710,22 @@ Completed this session:
 * Added `docs/PRIVILEGED_ACCESS.md`: Open as Administrator is designed around
   GFile/GVfs `admin://` and polkit but intentionally remains unexposed until its
   security test and rollout gates pass; whole-process elevation is prohibited.
+* Added deterministic freedesktop system-thumbnailer discovery and reviewed MIME
+  policy on the existing capacity-64 thumbnail worker.
+* Added no-shell raw argv expansion, private temporary output, fixed timeout,
+  cancellation with process-group termination, no-follow bounded reads, PNG
+  validation, stale-source rejection, cache reuse, and generic-icon fallbacks.
+* Kept system providers explicitly unsandboxed; Phase 18L remains responsible
+  for restricted execution.
+* Verified 192 tests plus a two-launch native Wayland provider/cache smoke.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-6l-system-thumbnailers` and consume reviewed freedesktop
-thumbnailer providers on the existing bounded, cancellable worker boundary.
-Prioritize safe video frames, PDF pages, office documents including DOCX,
-fonts, text/code, embedded audio artwork, and archive previews without executing
-active content.
+Create `phase-6m-permanent-delete` and add path-safe multi-target permanent
+deletion with truthful “Delete Permanently” wording, Shift+Delete, explicit
+irreversible confirmation, partial-failure reporting, and no secure-erase claim.
 ```
 
 ---

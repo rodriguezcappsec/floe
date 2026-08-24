@@ -319,10 +319,11 @@ Phase 6H implements this surface.
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.
 
 Phase 6K completes the first Places/bookmarks/devices navigation surface. Phase
-6L system thumbnailers are the next branch.
-That branch covers video frames, PDF pages, office documents including DOCX,
-fonts, text/code, embedded audio artwork, and archive previews while keeping
-active content non-executable.
+6L adds installed freedesktop system thumbnailers for video frames, PDF pages,
+office documents including DOCX, fonts, text/code, embedded audio artwork, and
+archive previews through the bounded thumbnail boundary. Floe does not invoke a
+shell or intentionally execute document active content, but the helpers retain
+the user's normal authority until the Phase 18L sandbox boundary.
 
 ### Privileged access
 
@@ -383,3 +384,49 @@ The following are direction, not current functionality:
   Open With and Set as Default behavior.
 
 None of these planned surfaces should move filesystem operation code into GTK.
+## Privacy, security, and integrity states
+
+These surfaces are planned; they are not evidence that Floe currently provides
+encryption, sandboxing, malware detection, or integrity monitoring. Security
+language is part of correctness and must match the mechanism actually active.
+
+- **Encrypted Vault** is reserved for real encrypted storage. A vault surface
+  must show a text label and accessible state for Locked, Unlocking, Unlocked,
+  Locking, Lock delayed by open files, and Recovery required. Unlocked state is
+  not a promise of protection from applications or malware running as the user.
+- **Sensitive Folder** means reduced Floe-owned traces and caches, not
+  encryption. **Private Mode** means a non-persistent browsing session, not
+  cryptographic privacy. **Protected Folder** adds mistake-prevention friction,
+  not attacker resistance. These terms must never be substituted for one
+  another.
+- **Open Safely** may appear only when an actual reviewed restriction policy is
+  active. The surface must name the restricted application/session, show a
+  persistent text-and-icon sandbox indicator, and explain important limits.
+  Sandbox setup failure returns to an explicit unsupported/error state; it must
+  never silently launch normally under the Open Safely label.
+- Suspicious-file presentation is an evidence-based inspection mode, not an
+  accusation or antivirus verdict. It states the signal that triggered it (for
+  example executable metadata, a MIME/extension mismatch, or bidirectional
+  controls), offers an escaped filename view, and retains normal inspection and
+  recovery routes.
+- **Integrity verified** may be shown only after verification completes against
+  a named digest or manifest. Changed, missing, new, interrupted, stale, and
+  unverified are separate text states; a hash alone is not authenticity or a
+  signature.
+- Security, privacy, warning, and recovery states use visible wording,
+  accessible names, icon or shape, and hierarchy. Color may reinforce meaning
+  but cannot carry it alone. High-contrast, screen-reader, reduced-motion,
+  keyboard, and pointer behavior are acceptance requirements.
+- Recovery is conservative. Interrupted encryption, sanitization, transfer,
+  vault, or destructive work shows what is known about source and destination
+  and never silently deletes uncertain data. Destructive choices state scope
+  and reversibility instead of relying on a generic warning.
+- Password and recovery-material UX supports reveal/hide, confirmation when
+  creating or changing credentials, Caps Lock indication where the platform
+  exposes it, careful focus behavior, and conservative wrong-password errors.
+  Secrets never appear in notifications, logs, command arguments, or ordinary
+  preference storage.
+
+Detailed mechanism, threat-boundary, cache, and claim rules live in
+`docs/PRIVACY_SECURITY.md`. That document, not visual styling, decides whether a
+security label is truthful.

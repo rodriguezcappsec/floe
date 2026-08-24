@@ -184,11 +184,11 @@ intentionally not exposed yet. It requires the documented GFile/GVfs
 `admin://` provider and rollout gates. Floe will never elevate the whole GTK
 application or interpolate paths into `sudo`, `pkexec`, or shell commands.
 
-Phase 6K2 is complete. The immediate next branch is
-`phase-6l-system-thumbnailers`, consuming reviewed system thumbnailers for video
-frames, PDF pages, office documents including DOCX, fonts, text/code, embedded
-audio artwork, and archive previews without executing active content. It is
-followed by `phase-6m-permanent-delete`. Phase 6M will use
+Phase 6L is complete. Installed freedesktop system thumbnailers now feed the
+existing bounded worker/cache boundary for video, PDF, office/DOCX, font,
+text/code, audio-artwork, and archive formats. Helpers are supervised but not
+sandboxed, and unavailable or failed providers retain generic icons. The sole
+next branch is `phase-6m-permanent-delete`. Phase 6M will use
 the truthful label “Delete Permanently,” require explicit confirmation, and avoid
 claiming secure erase where storage cannot guarantee overwriting.
 
@@ -202,5 +202,7 @@ Default flows remain the safe foundation for association management.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current code and data flow
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — build, run, test, and troubleshoot
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — completed, next, and later milestones
+- [`docs/FEATURE_MATRIX.md`](docs/FEATURE_MATRIX.md) — exhaustive capability status ledger
+- [`docs/PRIVACY_SECURITY.md`](docs/PRIVACY_SECURITY.md) — threat model and security/privacy claim rules
 - [`docs/PRIVILEGED_ACCESS.md`](docs/PRIVILEGED_ACCESS.md) — security design and
   rollout gates for future administrator-scoped browsing
