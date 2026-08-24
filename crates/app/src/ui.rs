@@ -13,6 +13,15 @@ pub struct OperationWidgets {
     pub operation_cancel: gtk::Button,
 }
 
+#[derive(Clone)]
+pub struct RenameDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub rename_entry: gtk::Entry,
+    pub rename_error: gtk::Label,
+    pub cancel_button: gtk::Button,
+    pub rename_button: gtk::Button,
+}
+
 pub struct BrowserWidgets {
     pub window: adw::ApplicationWindow,
     pub toast_overlay: adw::ToastOverlay,
@@ -97,8 +106,19 @@ pub fn build(
     header.pack_start(&forward_button);
     header.pack_start(&parent_button);
     header.set_title_widget(Some(&path_stack));
+    let file_actions_model = gio::Menu::new();
+    file_actions_model.append(Some("Copy"), Some("win.copy"));
+    file_actions_model.append(Some("Move"), Some("win.cut"));
+    file_actions_model.append(Some("Rename…"), Some("win.rename"));
+    let file_actions = gtk::MenuButton::builder()
+        .icon_name("view-more-symbolic")
+        .tooltip_text("File actions")
+        .menu_model(&file_actions_model)
+        .build();
+    set_accessible_label(&file_actions, "File actions");
     header.pack_end(&hidden_button);
     header.pack_end(&open_button);
+    header.pack_end(&file_actions);
 
     let (sidebar, location_buttons) = build_sidebar(locations, appearance.sidebar_min_width());
     let (content, selection, list_view, empty_state, spinner, status_label) =
@@ -160,9 +180,74 @@ pub fn build(
     }
 }
 
+pub fn build_rename_dialog(current_name: &str) -> RenameDialogWidgets {
+    let rename_entry = gtk::Entry::builder()
+        .text(current_name)
+        .activates_default(true)
+        .hexpand(true)
+        .build();
+    set_accessible_label(&rename_entry, "New filename");
+
+    let rename_error = gtk::Label::builder()
+        .label("Invalid name")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .visible(false)
+        .build();
+    rename_error.add_css_class("error");
+    set_accessible_label(&rename_error, "Rename error");
+
+    let cancel_button = gtk::Button::with_label("Cancel");
+    let rename_button = gtk::Button::with_label("Rename");
+    rename_button.add_css_class("suggested-action");
+
+    let actions = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .halign(gtk::Align::End)
+        .spacing(8)
+        .build();
+    actions.append(&cancel_button);
+    actions.append(&rename_button);
+
+    let heading = gtk::Label::builder()
+        .label("Rename item")
+        .halign(gtk::Align::Start)
+        .build();
+    heading.add_css_class("title-2");
+
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(24)
+        .margin_bottom(24)
+        .margin_start(24)
+        .margin_end(24)
+        .build();
+    content.append(&heading);
+    content.append(&rename_entry);
+    content.append(&rename_error);
+    content.append(&actions);
+
+    let dialog = adw::Dialog::builder()
+        .title("Rename item")
+        .content_width(420)
+        .child(&content)
+        .default_widget(&rename_button)
+        .focus_widget(&rename_entry)
+        .build();
+
+    RenameDialogWidgets {
+        dialog,
+        rename_entry,
+        rename_error,
+        cancel_button,
+        rename_button,
+    }
+}
+
 fn build_operations_island() -> OperationWidgets {
     let operation_label = gtk::Label::builder()
-        .label("Copying item")
+        .label("Working on item")
         .halign(gtk::Align::Start)
         .hexpand(true)
         .ellipsize(gtk::pango::EllipsizeMode::End)
@@ -183,14 +268,14 @@ fn build_operations_island() -> OperationWidgets {
         .hexpand(true)
         .width_request(220)
         .build();
-    set_accessible_label(&operation_progress, "Copy progress");
+    set_accessible_label(&operation_progress, "File operation progress");
 
     let operation_cancel = gtk::Button::builder()
         .icon_name("process-stop-symbolic")
-        .tooltip_text("Cancel copy")
+        .tooltip_text("Cancel file operation")
         .has_frame(false)
         .build();
-    set_accessible_label(&operation_cancel, "Cancel copy");
+    set_accessible_label(&operation_cancel, "Cancel file operation");
 
     let progress_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)

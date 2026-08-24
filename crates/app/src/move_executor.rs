@@ -52,6 +52,15 @@ pub enum MoveSubmitError {
     ExecutorStopped { job_id: JobId },
 }
 
+impl MoveSubmitError {
+    pub const fn job_id(&self) -> Option<JobId> {
+        match self {
+            Self::QueueFull { job_id } | Self::ExecutorStopped { job_id } => Some(*job_id),
+            Self::JobManager(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum MoveCancelError {
     #[error("job {0:?} is not an active move or rename job")]
@@ -186,7 +195,7 @@ impl MoveExecutor {
     }
 
     #[cfg(test)]
-    fn submit_move_with_cancellation(
+    pub(crate) fn submit_move_with_cancellation(
         &self,
         request: MoveRequest,
         cancellation: MoveCancellation,

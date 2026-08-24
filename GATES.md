@@ -1,46 +1,46 @@
-# Gates: Floe Phase 4C move and rename foundation
+# Gates: Floe Phase 4D move and rename interaction
 
-Scope: Add GTK-independent, path-safe move and rename request models plus a bounded application executor on branch `phase-4c-move-rename-foundation`. Preserve original Linux paths and atomic fail-if-exists semantics. GTK actions, overwrite, trash, permanent delete, and cross-filesystem copy-delete fallback remain out of scope.
+Scope: Add application-owned cut/move and rename interaction on branch `phase-4d-move-rename-interaction`, using the verified Phase 4C backend. Preserve original paths, keep GTK callbacks filesystem-free, and retain atomic fail-if-exists semantics. Overwrite, cross-filesystem fallback, trash, and permanent delete remain out of scope.
 
-- [x] G1: Work is isolated on the requested Phase 4C branch and the Phase 4B commit remains unchanged.
-  CHECK: git branch --show-current && git rev-parse phase-4b-copy-interaction
-  EXPECT: /phase-4c-move-rename-foundation[\s\S]*99382d3/
-  EVIDENCE: phase-4c-move-rename-foundation | 99382d34f454c5c256bb924ddbaca3a4f1fc78be
+- [x] G1: Work is isolated on the requested Phase 4D branch and `main` remains at the verified Phase 4C commit.
+  CHECK: git branch --show-current && git rev-parse main
+  EXPECT: /phase-4d-move-rename-interaction[\s\S]*a918ad2/
+  EVIDENCE: phase-4d-move-rename-interaction | a918ad2281615e7372110ae39e5ebb3bc8a03790
 
-- [x] G2: Core exposes separate exact-path move and same-parent rename requests without representing paths as strings.
-  CHECK: rg -n "MoveRequest|RenameRequest|PathBuf|OsString|new_name" crates/core/src
-  EXPECT: /RenameRequest/
-  EVIDENCE: crates/core/src/navigation.rs:104:        assert_eq!(state.current(), PathBuf::from("/one")); | crates/core/src/navigation.rs:106:        assert_eq!(state.current(), PathBuf::from("/"));
+- [x] G2: One application-owned transfer buffer stores copy or move intent with the original `PathBuf`, and paste dispatches through the appropriate bounded executor.
+  CHECK: rg -n "TransferBuffer|TransferIntent|stage_copy|stage_move|submit_paste|MoveExecutor|CopyExecutor" crates/app/src/state.rs
+  EXPECT: /TransferIntent/
+  EVIDENCE: 567:            Some((TransferIntent::Move, source.clone())) | 571:            .submit_paste(&destination_directory)
 
-- [x] G3: Linux execution uses atomic no-replace rename semantics, preserves symlinks as links, rejects missing sources and invalid rename names, and reports cross-filesystem moves explicitly.
-  CHECK: rg -n "NOREPLACE|CrossFilesystem|symlink_metadata|InvalidName|SourceMissing" crates/core/src
-  EXPECT: /NOREPLACE/
-  EVIDENCE: crates/core/src/copy.rs:591:fn symlink_metadata(path: &Path, action: &'static str) -> Result<fs::Metadata, CopyError> { | crates/core/src/copy.rs:592:    fs::symlink_metadata(path).map_err(|source| Co
+- [x] G3: Application state tracks copy, move, and rename requests by `JobId`, exposes generic cancellation/event observation, and refresh metadata without reconstructing lossy paths.
+  CHECK: rg -n "TrackedOperation|operation_request|finish_operation|cancel_operation|affected_directories|PathBuf|OsString" crates/app/src/state.rs
+  EXPECT: /TrackedOperation/
+  EVIDENCE: 585:        state.finish_operation(moved.job_id(), true); | 588:        let renamed_name = OsString::from_vec(b"renamed-\xfe".to_vec());
 
-- [x] G4: Cancellation is observed before the irreversible rename boundary and lifecycle failures map into structured job events.
-  CHECK: rg -n "is_cancelled|Cancelled|JobFailureKind|execute_move|execute_rename" crates/core/src crates/app/src
-  EXPECT: /execute_move/
-  EVIDENCE: crates/core/src/directory.rs:29:            return Err(DirectoryError::Cancelled); | crates/core/src/directory.rs:159:        assert!(matches!(result, Err(DirectoryError::Cancelled)));
+- [x] G4: Ctrl+X stages a move, Ctrl+V dispatches the staged intent, F2 starts rename, and visible menu actions provide pointer alternatives without direct filesystem calls in GTK callbacks.
+  CHECK: rg -n "win.cut|win.paste|win.rename|<Control>x|F2|File actions|stage_selected_move|show_rename" crates/app/src
+  EXPECT: /win\.rename/
+  EVIDENCE: crates/app/src/ui.rs:115:        .tooltip_text("File actions") | crates/app/src/ui.rs:118:    set_accessible_label(&file_actions, "File actions");
 
-- [x] G5: A fixed-capacity application executor runs move/rename jobs off GTK and supports cancellation, lifecycle completion/failure, and clean shutdown without adding GTK mutation callbacks.
-  CHECK: rg -n "MoveExecutor|submit_move|submit_rename|sync_channel|cancel|shutdown" crates/app/src
-  EXPECT: /MoveExecutor/
-  EVIDENCE: crates/app/src/copy_executor.rs:553:            .expect("queued copy should be cancellable"); | crates/app/src/copy_executor.rs:563:                .expect("cancelled copy should remain registered")
+- [x] G5: Rename uses a focused native dialog with inline validation, accessible labels, cancel/submit controls, and retains the original source path separately from editable text.
+  CHECK: rg -n "Rename item|rename_entry|rename_error|Invalid name|set_accessible|grab_focus|submit_rename" crates/app/src
+  EXPECT: /rename_error/
+  EVIDENCE: crates/app/src/state.rs:244:        match self.move_executor.submit_rename(request.clone()) { | crates/app/src/state.rs:590:            .submit_rename(moved_path.clone(), renamed_name.clone())
 
-- [x] G6: Temporary-directory core tests cover file, directory, symlink, conflict, invalid rename, missing source, cancellation, and non-UTF-8 paths while leaving conflicting targets unchanged.
-  CHECK: cargo test -p floe-core move_operation -- --nocapture
+- [x] G6: The Operations Island observes copy/move/rename jobs generically, shows operation-specific text, supports cancellation, refreshes affected directories, and gives recovery-oriented conflict/cross-filesystem feedback.
+  CHECK: rg -n "OperationController|TrackedOperation|operation_title|Cross-filesystem|cancel_operation|affected_directories|refresh_if_current" crates/app/src/operations.rs crates/app/src/state.rs crates/app/src/browser.rs
+  EXPECT: /Cross-filesystem/
+  EVIDENCE: crates/app/src/operations.rs:422:        assert_eq!(operation_title(Some(&moved)), "Moving photos"); | crates/app/src/operations.rs:425:            "Cross-filesystem move is not supported yet"
+
+- [x] G7: Focused application tests cover copy/move transfer replacement, exact move destination, non-UTF-8 path preservation, rename lifecycle, cancellation, conflict feedback, and validation.
+  CHECK: cargo test -p floe-app phase_4d -- --nocapture
   EXPECT: /8 passed/
-  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s | Running unittests src/lib.rs (target/debug/deps/floe_core-454dc5653b111925)
+  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.05s | Running unittests src/main.rs (target/debug/deps/floe_app-2fd028b442df4964)
 
-- [x] G7: Application tests cover move and rename lifecycle completion, cancellation, failure mapping, queue capacity, and shutdown.
-  CHECK: cargo test -p floe-app move_executor -- --nocapture
-  EXPECT: /6 passed/
-  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s | Running unittests src/main.rs (target/debug/deps/floe_app-2fd028b442df4964)
-
-- [x] G8: Architecture, development, roadmap, README, and project status document Phase 4C scope, atomic same-filesystem limit, verification, and next branch.
-  CHECK: rg -n "Phase 4C|same-filesystem|cross-filesystem|phase-4d-move-rename-interaction|move_executor" README.md docs/ARCHITECTURE.md docs/DEVELOPMENT.md docs/ROADMAP.md AGENTS.md
-  EXPECT: /phase-4d-move-rename-interaction/
-  EVIDENCE: README.md:42:clipboard formats, overwrite, cross-filesystem copy-delete moves, trash, | docs/DEVELOPMENT.md:91:cargo test -p floe-app move_executor
+- [x] G8: README, design, architecture, development, roadmap, and project status document Phase 4D behavior, safety limits, verification, and next branch.
+  CHECK: rg -n "Phase 4D|Ctrl\+X|F2|same-filesystem|phase-4e-trash-foundation|phase_4d" README.md DESIGN.md docs/ARCHITECTURE.md docs/DEVELOPMENT.md docs/ROADMAP.md AGENTS.md
+  EXPECT: /phase-4e-trash-foundation/
+  EVIDENCE: README.md:40:- F2 rename dialog with inline validation and visible file-actions menu | README.md:42:Phase 4D copy/move/paste and rename work within the running Floe application.
 
 - [x] G9: Formatting, workspace compilation, strict Clippy, and the complete test suite pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
@@ -50,4 +50,4 @@ Scope: Add GTK-independent, path-safe move and rename request models plus a boun
 - [x] G10: A native Wayland smoke launch emits the Floe startup event and remains healthy until the planned timeout.
   CHECK: RUST_LOG=floe_app=info timeout 8s cargo run -p floe-app
   EXPECT: /Floe application started/
-  EVIDENCE: (floe-app:296616): Adwaita-WARNING **: 18:38:44.598: Using GtkSettings:gtk-application-prefer-dark-theme with libadwaita is unsupported. Please use AdwStyleManager:color-scheme instead. | WARNING: rad
+  EVIDENCE: (floe-app:310791): Adwaita-WARNING **: 19:02:21.535: Using GtkSettings:gtk-application-prefer-dark-theme with libadwaita is unsupported. Please use AdwStyleManager:color-scheme instead. | WARNING: rad

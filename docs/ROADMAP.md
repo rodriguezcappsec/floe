@@ -45,7 +45,7 @@ of truth for sequencing and current-session handoff.
 
 ### Phase 4B — Copy interaction and operation observation
 
-- Floe-internal copy buffer retaining original paths.
+- Initial Floe-internal copy-only transfer buffer retaining original paths.
 - Ctrl+C/Ctrl+V staging and paste submission through application state.
 - Non-blocking structured job observation in a separate GTK controller.
 - Compact Operations Island with progress, cancellation, terminal feedback,
@@ -62,14 +62,24 @@ of truth for sequencing and current-session handoff.
 - Fixed-capacity application executor with lifecycle events and shutdown.
 - Temporary-directory core and executor tests; no GTK controls yet.
 
-## Next
-
 ### Phase 4D — Move and rename interaction
 
-Create branch `phase-4d-move-rename-interaction`. Add application-owned move
-and rename request tracking, explicit keyboard/menu commands, non-blocking job
-observation, and clear same-filesystem/conflict feedback. Do not introduce
-overwrite, trash, or cross-filesystem copy-delete fallback in the UI.
+- Unified internal copy/move transfer buffer preserving original paths.
+- Ctrl+X/Ctrl+V move workflow and F2 rename command.
+- Visible file-actions menu as a pointer alternative to shortcuts.
+- Focused rename dialog with inline validation and retained focus on errors.
+- Generic copy/move/rename Operations Island feedback and cancellation.
+- Affected-directory refresh and recovery-oriented conflict/cross-device text.
+
+## Next
+
+### Phase 4E — Trash foundation
+
+Create branch `phase-4e-trash-foundation`. Design and implement an
+application-layer, standards-based trash job using GIO/XDG behavior, with
+original paths, structured failures, cancellation boundaries, and tests. Keep
+permanent delete and any GTK Delete shortcut deferred until trash recovery and
+confirmation semantics are verified.
 
 ## Later
 
