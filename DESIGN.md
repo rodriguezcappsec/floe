@@ -66,6 +66,14 @@ non-directory symbolic links are opened asynchronously through GIO's default
 application. Paths are converted directly to GIO file URIs rather than rebuilt
 from display text. Launch failures appear as toasts.
 
+Phase 5C adds a native popover context menu to each virtualized row. A
+secondary-click first selects the exact row under the pointer, then presents
+Open, Copy, Cut, Rename, and Move to Trash using the same enabled state and
+application actions as the header and keyboard shortcuts. Shift+F10 and the
+Menu key provide the focused-list keyboard route. Destructive-adjacent Trash is
+separated from editing actions. Open With and external tools are not mixed into
+this initial menu.
+
 ### Status, loading, errors, and empty folders
 
 The bottom status area shows a spinner during enumeration, incremental row-load

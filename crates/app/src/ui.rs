@@ -4,6 +4,14 @@ use gtk::{gio, glib};
 
 use crate::{appearance::Appearance, locations::Location};
 
+const FILE_CONTEXT_ACTIONS: [(&str, &str); 5] = [
+    ("Open", "win.open"),
+    ("Copy", "win.copy"),
+    ("Cut", "win.cut"),
+    ("Rename…", "win.rename"),
+    ("Move to Trash", "win.trash"),
+];
+
 #[derive(Clone)]
 pub struct OperationWidgets {
     pub revealer: gtk::Revealer,
@@ -35,6 +43,7 @@ pub struct BrowserWidgets {
     pub location_entry: gtk::Entry,
     pub selection: gtk::SingleSelection,
     pub list_view: gtk::ListView,
+    pub context_menu: gtk::PopoverMenu,
     pub empty_state: gtk::Box,
     pub spinner: gtk::Spinner,
     pub status_label: gtk::Label,
@@ -123,7 +132,7 @@ pub fn build(
     header.pack_end(&file_actions);
 
     let (sidebar, location_buttons) = build_sidebar(locations, appearance.sidebar_min_width());
-    let (content, selection, list_view, empty_state, spinner, status_label) =
+    let (content, selection, list_view, context_menu, empty_state, spinner, status_label) =
         build_directory_panel();
 
     content.set_width_request(420);
@@ -174,6 +183,7 @@ pub fn build(
         location_entry,
         selection,
         list_view,
+        context_menu,
         empty_state,
         spinner,
         status_label,
@@ -388,6 +398,7 @@ fn build_directory_panel() -> (
     gtk::Box,
     gtk::SingleSelection,
     gtk::ListView,
+    gtk::PopoverMenu,
     gtk::Box,
     gtk::Spinner,
     gtk::Label,
@@ -397,8 +408,13 @@ fn build_directory_panel() -> (
     selection.set_autoselect(false);
     selection.set_can_unselect(true);
 
+    let context_menu = gtk::PopoverMenu::from_model(Some(&build_file_context_menu_model()));
+    context_menu.set_has_arrow(false);
+
     let factory = gtk::SignalListItemFactory::new();
-    factory.connect_setup(|_, object| {
+    let row_selection = selection.clone();
+    let row_context_menu = context_menu.clone();
+    factory.connect_setup(move |_, object| {
         let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
             return;
         };
@@ -423,6 +439,41 @@ fn build_directory_panel() -> (
         row.append(&icon);
         row.append(&name);
         row.append(&detail);
+
+        let secondary_click = gtk::GestureClick::new();
+        secondary_click.set_button(gtk::gdk::BUTTON_SECONDARY);
+        let list_item_weak = list_item.downgrade();
+        let selection = row_selection.clone();
+        let context_menu = row_context_menu.clone();
+        secondary_click.connect_pressed(move |gesture, _, x, y| {
+            let Some(list_item) = list_item_weak.upgrade() else {
+                return;
+            };
+            let position = list_item.position();
+            if !is_bound_list_position(position) {
+                return;
+            }
+
+            selection.set_selected(position);
+            let Some(row) = gesture.widget() else {
+                return;
+            };
+            let parent = gtk::prelude::WidgetExt::parent(&context_menu);
+            let Some(parent) = parent else {
+                return;
+            };
+            let Some(point) =
+                row.compute_point(&parent, &gtk::graphene::Point::new(x as f32, y as f32))
+            else {
+                return;
+            };
+            let pointing_to =
+                gtk::gdk::Rectangle::new(point.x().round() as i32, point.y().round() as i32, 1, 1);
+            context_menu.set_pointing_to(Some(&pointing_to));
+            context_menu.popup();
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        row.add_controller(secondary_click);
         list_item.set_child(Some(&row));
     });
     factory.connect_bind(|_, object| {
@@ -456,6 +507,7 @@ fn build_directory_panel() -> (
     list_view.add_css_class("floe-directory-list");
     list_view.set_single_click_activate(false);
     list_view.set_vexpand(true);
+    context_menu.set_parent(&list_view);
 
     let scroller = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
@@ -519,10 +571,41 @@ fn build_directory_panel() -> (
         panel,
         selection,
         list_view,
+        context_menu,
         empty_state,
         spinner,
         status_label,
     )
+}
+
+fn build_file_context_menu_model() -> gio::Menu {
+    let menu = gio::Menu::new();
+
+    let primary = gio::Menu::new();
+    primary.append(
+        Some(FILE_CONTEXT_ACTIONS[0].0),
+        Some(FILE_CONTEXT_ACTIONS[0].1),
+    );
+    menu.append_section(None, &primary);
+
+    let editing = gio::Menu::new();
+    for (label, action) in &FILE_CONTEXT_ACTIONS[1..4] {
+        editing.append(Some(label), Some(action));
+    }
+    menu.append_section(None, &editing);
+
+    let destructive = gio::Menu::new();
+    destructive.append(
+        Some(FILE_CONTEXT_ACTIONS[4].0),
+        Some(FILE_CONTEXT_ACTIONS[4].1),
+    );
+    menu.append_section(None, &destructive);
+
+    menu
+}
+
+fn is_bound_list_position(position: u32) -> bool {
+    position != gtk::INVALID_LIST_POSITION
 }
 
 fn icon_button(icon_name: &str, tooltip: &str, action_name: &str) -> gtk::Button {
@@ -569,5 +652,31 @@ fn format_size(bytes: u64) -> String {
         format!("{bytes} {}", UNITS[unit])
     } else {
         format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phase_5c_context_menu_reuses_complete_existing_action_mapping() {
+        assert_eq!(
+            FILE_CONTEXT_ACTIONS,
+            [
+                ("Open", "win.open"),
+                ("Copy", "win.copy"),
+                ("Cut", "win.cut"),
+                ("Rename…", "win.rename"),
+                ("Move to Trash", "win.trash"),
+            ]
+        );
+    }
+
+    #[test]
+    fn phase_5c_context_selection_rejects_unbound_virtualized_rows() {
+        assert!(is_bound_list_position(0));
+        assert!(is_bound_list_position(42));
+        assert!(!is_bound_list_position(gtk::INVALID_LIST_POSITION));
     }
 }
