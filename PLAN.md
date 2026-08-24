@@ -35,3 +35,4 @@ Budget note: This sidebar subsystem spans exact-path persistence, GIO lifecycle 
 - 2026-08-24 leaves 1.1.1, 1.2.1, and 1.3.1 parent-verified.
 - 2026-08-24 native Wayland smoke passed ownership, Refresh, liveness, clean Quit, and name release.
 - 2026-08-24 leaf 1.4.1 documented and verified Phase 6K at 8/8 gates.
+- 2026-08-24 implementation refs synchronized at `e6a28b4`; root ledger reached 12/12 gates.
