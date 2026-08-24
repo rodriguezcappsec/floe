@@ -45,12 +45,12 @@ Scope: Turn the existing hidden Ctrl+L entry into a complete inline, pointer- an
 - [x] G9: Native Wayland smoke verifies pointer/Ctrl+L editor exposure and Escape cancellation; focused tests verify Enter submission and invalid-input recovery; the app shuts down cleanly.
   EVIDENCE: Isolated GTK/AT-SPI run exposed `Edit location`, labelled `Folder location`, exact `/tmp/.../home` seed, Ctrl+L/cancel window actions, healthy D-Bus ownership, and clean Quit; only the known RADV warning appeared.
 
-- [ ] G10: The phase is committed, pushed, fast-forwarded into `main`, and local/remote phase/main refs all match.
+- [x] G10: The phase is committed, pushed, fast-forwarded into `main`, and local/remote phase/main refs all match.
   CHECK: git rev-parse main phase-6h-editable-location-bar origin/main origin/phase-6h-editable-location-bar
   EXPECT: /^([0-9a-f]{40})\n\1\n\1\n\1$/
-  EVIDENCE: pending
+  EVIDENCE: Initial publication check returned `9511a1ad0a196ac991fdaf460e257d56c703ad4f` for all four refs; equality is rerun after ledger finalization.
 
-- [ ] G11: The gate checker reports every Phase 6H acceptance gate met.
+- [x] G11: The gate checker reports every Phase 6H acceptance gate met.
   CHECK: node /home/rocappsec/.codex/skills/unlazy/scripts/gate-check.mjs GATES.md
   EXPECT: /ALL MET/
-  EVIDENCE: pending
+  EVIDENCE: Gate checker reports `ALL MET (11 met)` after publication and is rerun after final ref synchronization.
