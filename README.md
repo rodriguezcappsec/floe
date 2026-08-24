@@ -47,7 +47,9 @@ required nor simulated.
 - Persistent accessible Retry control for failed or cancelled Operations Island
   jobs
 - Explicit destination-conflict decisions to keep existing or retry with a
-  validated sibling filename; generic Retry cannot repeat a conflict
+ validated sibling filename; generic Retry cannot repeat a conflict
+- Focused non-blocking conflict dialog with inline filename validation and a
+ persistent Operations Island Resolve Conflict action after dismissal
 - Native row context menu with Open, Copy, Cut, Rename, and Move to Trash
 - Asynchronous GIO Open With discovery, explicit app launching, and default
   association changes
@@ -58,8 +60,8 @@ desktop Trash action. Permanent delete, Shift+Delete, bulk trash, and built-in
 restore/undo remain unavailable.
 Phase 5B exposes that retry infrastructure through the Operations Island. Failed
 or cancelled jobs remain visible with a Retry button; completed jobs dismiss
-normally and cannot be retried. Overwrite and interactive conflict choices are
-still unavailable.
+normally and cannot be retried. Destination conflicts instead open a focused
+decision dialog; dismissing it leaves an accessible Resolve Conflict action.
 
 Phase 5C adds secondary-click and Shift+F10/Menu-key access to a native context
 menu. It selects the targeted virtualized row first and reuses the existing
@@ -70,9 +72,11 @@ lists compatible desktop applications, and changes the default only through an
 explicit button. Custom external tools remain future work. Phase 5E adds an
 application-layer conflict contract retaining exact paths and stable logical
 operation identity. Revised copy/move/rename attempts receive a fresh job ID
-and remain fail-if-exists.
-Cross-application clipboard formats, overwrite, apply-to-all, the GTK conflict
-dialog, cross-filesystem copy-delete moves, trash restore/bulk UI, permanent
+and remain fail-if-exists. Phase 5F presents those decisions without blocking
+other file-manager work. The retry field starts empty and accepts one valid,
+different filename; no lossy display path is submitted automatically.
+Cross-application clipboard formats, overwrite, apply-to-all,
+cross-filesystem copy-delete moves, trash restore/bulk UI, permanent
 deletion, previews, tabs, split view, Miller columns, and environment-specific
 integrations remain deferred.
 

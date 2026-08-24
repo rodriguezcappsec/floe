@@ -131,14 +131,23 @@ of truth for sequencing and current-session handoff.
 - Resolution is single-use and bookkeeping follows bounded terminal-history eviction.
 - No overwrite, apply-to-all, trash-conflict, or GTK conflict-dialog path.
 
-## Next
-
 ### Phase 5F — Conflict interaction
 
-Create branch `phase-5f-conflict-interaction`. Present the Phase 5E decision
-contract through a focused non-blocking GTK conflict surface. Offer
-keep-existing and validated retry-name actions only; do not add overwrite or
-apply-to-all behavior.
+- Focused non-blocking conflict dialog with incoming/existing path context.
+- Empty-by-default retry field with inline accessible single-name validation.
+- Keep Existing submits no job; Retry with New Name returns to normal job feedback.
+- Dismissal leaves the conflict pending behind an Operations Island Resolve Conflict action.
+- Ordered pending conflicts and at most one active decision dialog.
+- No overwrite, apply-to-all, or trash-conflict option.
+
+## Next
+
+### Phase 6A — List-view polish foundation
+
+Create branch `phase-6a-list-view-polish`. Improve the existing virtualized
+list's information hierarchy and density using already-available entry metadata
+before adding thumbnail generation or a separate grid implementation. Preserve
+large-directory responsiveness and original path ownership.
 
 ## Later
 

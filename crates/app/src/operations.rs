@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
+    ffi::{OsStr, OsString},
     path::Path,
     rc::Rc,
     time::Duration,
@@ -11,12 +12,62 @@ use floe_core::{JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId};
 use gtk::glib;
 
 use crate::{
-    state::{ApplicationState, TerminalOutcome, TrackedOperation},
-    ui::OperationWidgets,
+    state::{
+        ApplicationState, ConflictDecision, ConflictResolution, TerminalOutcome, TrackedOperation,
+        validate_rename_name,
+    },
+    ui::{OperationWidgets, build_conflict_dialog},
 };
 
 const JOB_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const TERMINAL_VISIBILITY: Duration = Duration::from_secs(3);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminalAction {
+    ResolveConflict(JobId),
+    Retry(JobId),
+}
+
+#[derive(Debug, Default)]
+struct ConflictInteractions {
+    pending: VecDeque<JobId>,
+    dialog_job: Option<JobId>,
+}
+
+impl ConflictInteractions {
+    fn enqueue(&mut self, job_id: JobId) {
+        if !self.pending.contains(&job_id) {
+            self.pending.push_back(job_id);
+        }
+    }
+
+    fn current(&self) -> Option<JobId> {
+        self.pending.front().copied()
+    }
+
+    fn begin_dialog(&mut self, job_id: JobId) -> bool {
+        if self.dialog_job.is_some() || !self.pending.contains(&job_id) {
+            return false;
+        }
+        self.dialog_job = Some(job_id);
+        true
+    }
+
+    fn dismiss_dialog(&mut self, job_id: JobId) -> bool {
+        if self.dialog_job != Some(job_id) {
+            return false;
+        }
+        self.dialog_job = None;
+        true
+    }
+
+    fn resolve(&mut self, job_id: JobId) {
+        self.pending.retain(|pending| *pending != job_id);
+        if self.dialog_job == Some(job_id) {
+            self.dialog_job = None;
+        }
+    }
+}
 
 pub struct OperationController {
     window: adw::ApplicationWindow,
@@ -26,6 +77,7 @@ pub struct OperationController {
     active_jobs: RefCell<VecDeque<JobId>>,
     visible_job: Cell<Option<JobId>>,
     retryable_job: Cell<Option<JobId>>,
+    conflicts: RefCell<ConflictInteractions>,
     indeterminate: Cell<bool>,
     visibility_generation: Rc<Cell<u64>>,
     on_operation_completed: Box<dyn Fn(&Path)>,
@@ -47,6 +99,7 @@ impl OperationController {
             active_jobs: RefCell::new(VecDeque::new()),
             visible_job: Cell::new(None),
             retryable_job: Cell::new(None),
+            conflicts: RefCell::new(ConflictInteractions::default()),
             indeterminate: Cell::new(false),
             visibility_generation: Rc::new(Cell::new(0)),
             on_operation_completed: Box::new(on_operation_completed),
@@ -64,7 +117,7 @@ impl OperationController {
         let controller = Rc::downgrade(self);
         self.widgets.operation_retry.connect_clicked(move |_| {
             if let Some(controller) = controller.upgrade() {
-                controller.retry_terminal_operation();
+                controller.activate_terminal_action();
             }
         });
 
@@ -81,13 +134,13 @@ impl OperationController {
         });
     }
 
-    fn drain_job_events(&self) {
+    fn drain_job_events(self: &Rc<Self>) {
         for event in self.state.drain_job_events() {
             self.handle_event(&event);
         }
     }
 
-    fn handle_event(&self, event: &JobEvent) {
+    fn handle_event(self: &Rc<Self>, event: &JobEvent) {
         match event.kind() {
             JobEventKind::Queued => {
                 self.track_active(event.job_id());
@@ -172,11 +225,14 @@ impl OperationController {
         self.widgets.revealer.set_reveal_child(true);
     }
 
-    fn finish(&self, job_id: JobId, result: TerminalResult<'_>) {
+    fn finish(self: &Rc<Self>, job_id: JobId, result: TerminalResult<'_>) {
         self.active_jobs
             .borrow_mut()
             .retain(|active| *active != job_id);
         let outcome = terminal_outcome(&result);
+        if outcome == TerminalOutcome::Conflict {
+            self.conflicts.borrow_mut().enqueue(job_id);
+        }
         self.retryable_job.set(updated_retryable_job(
             self.retryable_job.get(),
             job_id,
@@ -209,9 +265,14 @@ impl OperationController {
                 self.show_toast("Operation cancelled", 4);
             }
             TerminalResult::Failed(failure) => {
+                let title = if failure.kind() == JobFailureKind::Conflict {
+                    "Destination conflict"
+                } else {
+                    "Operation failed"
+                };
                 self.show_terminal(
                     request.as_ref(),
-                    "Operation failed",
+                    title,
                     failure_summary(request.as_ref(), failure),
                     false,
                 );
@@ -222,10 +283,12 @@ impl OperationController {
         if let Some(next_job) = self.active_jobs.borrow().back().copied() {
             let request = self.request(next_job);
             self.show_running(next_job, waiting_detail(request), None);
-        } else if let Some(retryable_job) = self.retryable_job.get() {
-            self.show_retry(retryable_job);
         } else {
-            self.schedule_hide();
+            self.show_available_terminal_action();
+        }
+
+        if outcome == TerminalOutcome::Conflict {
+            self.present_conflict(job_id);
         }
     }
 
@@ -280,8 +343,32 @@ impl OperationController {
         self.visibility_generation
             .set(self.visibility_generation.get().wrapping_add(1));
         self.retryable_job.set(Some(job_id));
+        self.widgets.operation_retry.set_label("Retry");
+        self.widgets
+            .operation_retry
+            .set_tooltip_text(Some("Retry file operation"));
         self.widgets.operation_retry.set_sensitive(true);
         self.widgets.operation_retry.set_visible(true);
+    }
+
+    fn show_conflict_action(&self) {
+        self.visibility_generation
+            .set(self.visibility_generation.get().wrapping_add(1));
+        self.widgets.operation_retry.set_label("Resolve Conflict");
+        self.widgets
+            .operation_retry
+            .set_tooltip_text(Some("Resolve destination conflict"));
+        self.widgets.operation_retry.set_sensitive(true);
+        self.widgets.operation_retry.set_visible(true);
+        self.widgets.revealer.set_reveal_child(true);
+    }
+
+    fn show_available_terminal_action(&self) {
+        match available_terminal_action(&self.conflicts.borrow(), self.retryable_job.get()) {
+            Some(TerminalAction::ResolveConflict(_)) => self.show_conflict_action(),
+            Some(TerminalAction::Retry(job_id)) => self.show_retry(job_id),
+            None => self.schedule_hide(),
+        }
     }
 
     fn clear_retry(&self) {
@@ -291,6 +378,15 @@ impl OperationController {
 
     fn hide_retry(&self) {
         self.widgets.operation_retry.set_visible(false);
+    }
+
+    fn activate_terminal_action(self: &Rc<Self>) {
+        let action = available_terminal_action(&self.conflicts.borrow(), self.retryable_job.get());
+        match action {
+            Some(TerminalAction::ResolveConflict(job_id)) => self.present_conflict(job_id),
+            Some(TerminalAction::Retry(_)) => self.retry_terminal_operation(),
+            None => {}
+        }
     }
 
     fn retry_terminal_operation(&self) {
@@ -310,10 +406,206 @@ impl OperationController {
         }
     }
 
+    fn present_conflict(self: &Rc<Self>, job_id: JobId) {
+        if !self.conflicts.borrow_mut().begin_dialog(job_id) {
+            return;
+        }
+
+        let pending = match self.state.pending_conflict(job_id) {
+            Ok(pending) => pending,
+            Err(error) => {
+                self.conflicts.borrow_mut().resolve(job_id);
+                self.show_toast(&format!("Could not reopen conflict: {error}"), 7);
+                self.show_available_terminal_action();
+                return;
+            }
+        };
+        let source = pending.source().to_string_lossy().into_owned();
+        let destination = pending.destination().to_string_lossy().into_owned();
+        let existing_name = pending.destination().file_name().map(OsString::from);
+        let conflict = build_conflict_dialog(&source, &destination);
+
+        let retry_button = conflict.retry_button.clone();
+        let name_error = conflict.name_error.clone();
+        let existing_for_validation = existing_name.clone();
+        conflict.name_entry.connect_changed(move |entry| {
+            let text = entry.text();
+            if text.is_empty() {
+                retry_button.set_sensitive(false);
+                name_error.set_visible(false);
+                return;
+            }
+            match conflict_retry_name(text.as_str(), existing_for_validation.as_deref()) {
+                Ok(_) => {
+                    retry_button.set_sensitive(true);
+                    name_error.set_visible(false);
+                }
+                Err(message) => {
+                    retry_button.set_sensitive(false);
+                    name_error.set_label(message);
+                    name_error.set_visible(true);
+                }
+            }
+        });
+
+        let dialog = conflict.dialog.downgrade();
+        conflict.cancel_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+
+        let controller = Rc::downgrade(self);
+        let dialog = conflict.dialog.downgrade();
+        let retry_button = conflict.retry_button.clone();
+        let name_entry_for_keep = conflict.name_entry.clone();
+        let existing_for_keep = existing_name.clone();
+        conflict
+            .keep_existing_button
+            .connect_clicked(move |button| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                button.set_sensitive(false);
+                retry_button.set_sensitive(false);
+                match controller
+                    .state
+                    .resolve_conflict(job_id, ConflictDecision::KeepExisting)
+                {
+                    Ok(ConflictResolution::KeptExisting) => {
+                        controller.conflicts.borrow_mut().resolve(job_id);
+                        controller
+                            .widgets
+                            .operation_label
+                            .set_label("Conflict resolved");
+                        controller
+                            .widgets
+                            .operation_detail
+                            .set_label("Existing destination kept");
+                        controller.show_toast("Kept the existing destination", 4);
+                        if let Some(dialog) = dialog.upgrade() {
+                            dialog.close();
+                        }
+                        if controller.active_jobs.borrow().is_empty() {
+                            controller.show_available_terminal_action();
+                        }
+                    }
+                    Ok(ConflictResolution::Retried(_)) => {
+                        button.set_sensitive(true);
+                        retry_button.set_sensitive(
+                            conflict_retry_name(
+                                name_entry_for_keep.text().as_str(),
+                                existing_for_keep.as_deref(),
+                            )
+                            .is_ok(),
+                        );
+                        controller.show_toast("Could not keep the existing destination", 7);
+                    }
+                    Err(error) => {
+                        button.set_sensitive(true);
+                        retry_button.set_sensitive(
+                            conflict_retry_name(
+                                name_entry_for_keep.text().as_str(),
+                                existing_for_keep.as_deref(),
+                            )
+                            .is_ok(),
+                        );
+                        controller.show_toast(&format!("Could not resolve conflict: {error}"), 7);
+                    }
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        let dialog = conflict.dialog.downgrade();
+        let name_entry = conflict.name_entry.clone();
+        let name_error = conflict.name_error.clone();
+        let keep_existing_button = conflict.keep_existing_button.clone();
+        conflict.retry_button.connect_clicked(move |button| {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let new_name =
+                match conflict_retry_name(name_entry.text().as_str(), existing_name.as_deref()) {
+                    Ok(new_name) => new_name,
+                    Err(message) => {
+                        name_error.set_label(message);
+                        name_error.set_visible(true);
+                        button.set_sensitive(false);
+                        return;
+                    }
+                };
+            button.set_sensitive(false);
+            keep_existing_button.set_sensitive(false);
+            match controller
+                .state
+                .resolve_conflict(job_id, ConflictDecision::RetryWithName(new_name))
+            {
+                Ok(ConflictResolution::Retried(submission)) => {
+                    controller.conflicts.borrow_mut().resolve(job_id);
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.close();
+                    }
+                    controller.track_active(submission.job_id());
+                    controller.show_running(submission.job_id(), "Retry queued…", None);
+                }
+                Ok(ConflictResolution::KeptExisting) => {
+                    button.set_sensitive(true);
+                    keep_existing_button.set_sensitive(true);
+                    controller.show_toast("Could not submit the revised operation", 7);
+                }
+                Err(error) => {
+                    button.set_sensitive(true);
+                    keep_existing_button.set_sensitive(true);
+                    controller.show_toast(&format!("Could not retry with that name: {error}"), 7);
+                }
+            }
+        });
+
+        let controller = Rc::downgrade(self);
+        conflict.dialog.connect_closed(move |_| {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            if controller.conflicts.borrow_mut().dismiss_dialog(job_id)
+                && controller.active_jobs.borrow().is_empty()
+            {
+                controller.show_available_terminal_action();
+            }
+        });
+
+        conflict.dialog.present(Some(&self.window));
+        conflict.name_entry.grab_focus();
+    }
+
     fn show_toast(&self, title: &str, timeout: u32) {
         self.toast_overlay
             .add_toast(adw::Toast::builder().title(title).timeout(timeout).build());
     }
+}
+
+fn available_terminal_action(
+    conflicts: &ConflictInteractions,
+    retryable_job: Option<JobId>,
+) -> Option<TerminalAction> {
+    conflicts
+        .current()
+        .map(TerminalAction::ResolveConflict)
+        .or_else(|| retryable_job.map(TerminalAction::Retry))
+}
+
+fn conflict_retry_name(
+    input: &str,
+    existing_name: Option<&OsStr>,
+) -> Result<OsString, &'static str> {
+    if input.is_empty() {
+        return Err("Enter a different filename");
+    }
+    let new_name = OsString::from(input);
+    validate_rename_name(&new_name).map_err(|_| "Enter one filename without slashes")?;
+    if existing_name == Some(new_name.as_os_str()) {
+        return Err("Choose a different filename");
+    }
+    Ok(new_name)
 }
 
 enum TerminalResult<'a> {
@@ -457,10 +749,10 @@ fn failure_recovery(request: Option<&TrackedOperation>, failure: &JobFailure) ->
     let name = operation_name(request);
     match failure.kind() {
         JobFailureKind::Conflict if matches!(request, Some(TrackedOperation::Rename(_))) => {
-            format!("Choose a different name for {name}, then try again.")
+            format!("Keep the existing item or choose a different name for {name}.")
         }
         JobFailureKind::Conflict => {
-            format!("Choose another destination, or rename/remove {name}, then try again.")
+            format!("Keep the existing destination or retry {name} with a different filename.")
         }
         JobFailureKind::PermissionDenied => {
             format!("Could not change {name}. Check folder permissions and try again.")
@@ -485,12 +777,37 @@ fn failure_recovery(request: Option<&TrackedOperation>, failure: &JobFailure) ->
 
 #[cfg(test)]
 mod tests {
-    use std::{num::NonZeroU64, path::PathBuf};
+    use std::{
+        fs,
+        num::NonZeroU64,
+        path::PathBuf,
+        thread,
+        time::{Duration, Instant},
+    };
 
-    use floe_core::{ConflictPolicy, JobFailure, MoveRequest, RenameRequest};
+    use floe_core::{ConflictPolicy, JobFailure, JobState, MoveRequest, RenameRequest};
+    use tempfile::tempdir;
 
     use super::*;
     use crate::trash_executor::TrashRequest;
+
+    fn wait_for_terminal(state: &ApplicationState, job_id: JobId) -> JobState {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(job_state) = state
+                .jobs
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .record(job_id)
+                .map(|record| record.state())
+                && job_state.is_terminal()
+            {
+                return job_state;
+            }
+            assert!(Instant::now() < deadline, "job did not become terminal");
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
 
     #[test]
     fn phase_5b_only_failed_and_cancelled_operations_are_retryable() {
@@ -542,7 +859,7 @@ mod tests {
         assert_eq!(operation_title(Some(&rename)), "Renaming notes.txt");
         assert_eq!(
             failure_recovery(Some(&rename), &failure),
-            "Choose a different name for notes.txt, then try again."
+            "Keep the existing item or choose a different name for notes.txt."
         );
     }
 
@@ -601,5 +918,127 @@ mod tests {
         );
         assert_eq!(completed_title(Some(&trashed)), "Moved to Trash");
         assert_eq!(completed_toast(Some(&trashed)), "Moved notes.txt to Trash");
+    }
+
+    #[test]
+    fn phase_5f_conflict_action_survives_dismissal_and_yields_to_retry_after_resolution() {
+        let conflict_job = JobId::new(NonZeroU64::new(51).expect("non-zero conflict job id"));
+        let retry_job = JobId::new(NonZeroU64::new(52).expect("non-zero retry job id"));
+        let mut conflicts = ConflictInteractions::default();
+        conflicts.enqueue(conflict_job);
+
+        assert_eq!(
+            available_terminal_action(&conflicts, Some(retry_job)),
+            Some(TerminalAction::ResolveConflict(conflict_job))
+        );
+        assert!(conflicts.begin_dialog(conflict_job));
+        assert!(!conflicts.begin_dialog(conflict_job));
+        assert!(conflicts.dismiss_dialog(conflict_job));
+        assert_eq!(conflicts.current(), Some(conflict_job));
+        assert!(conflicts.begin_dialog(conflict_job));
+
+        conflicts.resolve(conflict_job);
+        assert_eq!(
+            available_terminal_action(&conflicts, Some(retry_job)),
+            Some(TerminalAction::Retry(retry_job))
+        );
+    }
+
+    #[test]
+    fn phase_5f_retry_name_requires_one_different_filename_without_normalizing_it() {
+        let existing = OsStr::new("notes.txt");
+
+        assert_eq!(
+            conflict_retry_name("", Some(existing)),
+            Err("Enter a different filename")
+        );
+        assert_eq!(
+            conflict_retry_name("folder/notes.txt", Some(existing)),
+            Err("Enter one filename without slashes")
+        );
+        assert_eq!(
+            conflict_retry_name("notes.txt", Some(existing)),
+            Err("Choose a different filename")
+        );
+        assert_eq!(
+            conflict_retry_name(" notes (copy).txt ", Some(existing)),
+            Ok(OsString::from(" notes (copy).txt "))
+        );
+    }
+
+    #[test]
+    fn phase_5f_ui_decisions_keep_existing_or_submit_a_fresh_named_retry() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source_directory = fixture.path().join("source");
+        let destination_directory = fixture.path().join("destination");
+        fs::create_dir(&source_directory).expect("source directory");
+        fs::create_dir(&destination_directory).expect("destination directory");
+        let state = ApplicationState::new().expect("application state should start");
+
+        let kept_source = source_directory.join("keep-item");
+        let kept_destination = destination_directory.join("keep-item");
+        fs::write(&kept_source, b"incoming").expect("incoming keep fixture");
+        fs::write(&kept_destination, b"existing").expect("existing keep fixture");
+        state
+            .stage_copy(kept_source.clone())
+            .expect("keep copy should stage");
+        let kept_conflict = state
+            .submit_paste(&destination_directory)
+            .expect("keep conflict should submit");
+        assert_eq!(
+            wait_for_terminal(&state, kept_conflict.job_id()),
+            JobState::Failed
+        );
+        state.finish_operation(kept_conflict.job_id(), TerminalOutcome::Conflict);
+        assert_eq!(
+            state
+                .resolve_conflict(kept_conflict.job_id(), ConflictDecision::KeepExisting)
+                .expect("keep-existing decision should resolve"),
+            ConflictResolution::KeptExisting
+        );
+        assert_eq!(fs::read(kept_source).expect("source remains"), b"incoming");
+        assert_eq!(
+            fs::read(kept_destination).expect("existing remains"),
+            b"existing"
+        );
+
+        let retry_source = source_directory.join("retry-item");
+        let retry_destination = destination_directory.join("retry-item");
+        fs::write(&retry_source, b"incoming-retry").expect("incoming retry fixture");
+        fs::write(&retry_destination, b"existing-retry").expect("existing retry fixture");
+        state
+            .stage_copy(retry_source)
+            .expect("retry copy should stage");
+        let retry_conflict = state
+            .submit_paste(&destination_directory)
+            .expect("retry conflict should submit");
+        assert_eq!(
+            wait_for_terminal(&state, retry_conflict.job_id()),
+            JobState::Failed
+        );
+        state.finish_operation(retry_conflict.job_id(), TerminalOutcome::Conflict);
+        let ConflictResolution::Retried(retried) = state
+            .resolve_conflict(
+                retry_conflict.job_id(),
+                ConflictDecision::RetryWithName(OsString::from("retry-item-copy")),
+            )
+            .expect("retry-name decision should submit")
+        else {
+            panic!("retry-name decision should create a fresh attempt");
+        };
+        assert_eq!(retried.operation_id(), retry_conflict.operation_id());
+        assert_ne!(retried.job_id(), retry_conflict.job_id());
+        assert_eq!(
+            wait_for_terminal(&state, retried.job_id()),
+            JobState::Completed
+        );
+        assert_eq!(
+            fs::read(retry_destination).expect("existing retry remains"),
+            b"existing-retry"
+        );
+        assert_eq!(
+            fs::read(destination_directory.join("retry-item-copy")).expect("revised retry exists"),
+            b"incoming-retry"
+        );
     }
 }

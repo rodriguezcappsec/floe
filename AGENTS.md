@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 5 — Progress, cancellation, and conflict handling (Phase 5E complete)
+Phase 5 — Progress, cancellation, and conflict handling (Phase 5F complete)
 ```
 
 Status:
@@ -1157,6 +1157,10 @@ Destination conflicts are distinct terminal outcomes. Generic Retry cannot
 blindly repeat them; application state exposes keep-existing or validated
 retry-with-name decisions for copy, move, and rename while preserving the
 logical operation ID and never overwriting an existing destination.
+Phase 5F presents those decisions in a focused non-blocking dialog with exact
+request paths as context, inline filename validation, and no overwrite option.
+Dismissal leaves an accessible Resolve Conflict action in the Operations
+Island; revised attempts return to normal progress handling.
 ```
 
 Established product decisions:
@@ -1189,16 +1193,19 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 5E is complete. The next coherent branch is
-`phase-5f-conflict-interaction`, presenting the established decision contract
-through a focused non-blocking GTK surface without enabling overwrite.
+Phase 5F is complete. The next coherent branch is
+`phase-6a-list-view-polish`, improving the existing virtualized list's
+information hierarchy and density before thumbnails or a separate grid view.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-eighty-one tests pass: twenty-eight core and fifty-three application tests.
+eighty-five tests pass: twenty-eight core and fifty-seven application tests.
+Four focused Phase 5F tests cover conflict-action priority, dismissal/reopen,
+single-dialog state, exact filename validation, keep-existing and fresh retry
+submission, retry fallback, and the absence of overwrite/apply-to-all decisions.
 Six focused Phase 5E tests cover distinct conflict outcome, blind-retry
 rejection, raw-path identity, validation, revised copy/move/rename attempts,
 keep-existing, single-use resolution, trash rejection, no overwrite, and
@@ -1235,7 +1242,7 @@ desktop service commits it. Floe does not yet expose trash restore/browsing UI.
 Deferred:
 
 ```text
-Cross-application clipboard support, overwrite, conflict decision UI,
+Cross-application clipboard support, overwrite and apply-to-all conflict policy,
 cross-filesystem moves, trash restore/bulk UI, permanent delete,
 metadata-complete copies, job
 persistence/history UI, drag and drop, thumbnails, tabs, split view, Miller
@@ -1325,15 +1332,22 @@ Completed this session:
 * Added original-path pending conflict data with stable operation identity.
 * Added single-use keep-existing and validated retry-with-name decisions for
   copy, move, and rename; revised attempts remain fail-if-exists.
-* Added no overwrite, apply-to-all, trash-conflict, or GTK conflict-dialog path.
+* Added focused non-blocking conflict dialog with source/destination context,
+  empty-by-default retry name, inline accessible validation, and native focus.
+* Added ordered pending-conflict interaction state and a persistent Operations
+  Island Resolve Conflict action after dismissal.
+* Routed Keep Existing and Retry with New Name through `ApplicationState` only;
+  GTK callbacks perform no filesystem work.
+* Added no overwrite, apply-to-all, or trash-conflict path.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-5f-conflict-interaction` and present the Phase 5E decision
-contract through a focused non-blocking GTK surface. Offer keep-existing and
-validated retry-name actions only; do not enable overwrite or apply-to-all.
+Create `phase-6a-list-view-polish` and improve the existing virtualized list's
+information hierarchy and density using available entry metadata. Preserve
+large-directory responsiveness and original path ownership; do not add
+thumbnail generation or a separate grid implementation in the same slice.
 ```
 
 ---
