@@ -152,15 +152,27 @@ of truth for sequencing and current-session handoff.
 - Original `PathBuf`/`OsString` ownership remains unchanged; thumbnails and a
   separate grid remain deferred.
 
-## Next
-
 ### Phase 6B — List sorting
 
-Create branch `phase-6b-list-sorting`. Make the visible Name, Type, Size, and
-Modified headings keyboard/pointer operable with explicit ascending/descending
-state. Keep directories-first behavior deliberate, preserve the current
-selection by original path when order changes, and keep sort logic outside GTK
-callbacks. Thumbnails and a separate grid remain deferred.
+- Native keyboard/pointer Name, Type, Size, and Modified heading controls.
+- Explicit ascending/descending arrows, accessible labels, and active pressed
+  state; a newly selected column starts ascending.
+- Navigable directories always remain first and missing optional metadata
+  remains last in either direction.
+- Comparisons run on the bounded directory worker using shared entries.
+- Selection restores by exact original `PathBuf`; `GtkListView` virtualization
+  and 256-entry main-loop insertion batches remain intact.
+- Thumbnail generation and a separate grid remain deferred.
+
+## Next
+
+### Phase 6C — Thumbnail foundation
+
+Create branch `phase-6c-thumbnail-foundation`. Define a bounded, asynchronous
+thumbnail request/result boundary and safe cache identity without blocking GTK
+or executing active content. Start with the smallest useful image-thumbnail
+slice, preserve generic icons and readable fallback states, and keep a separate
+grid view deferred until the shared thumbnail path is verified.
 
 ## Later
 

@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid polish and thumbnails (Phase 6A complete)
+Phase 6 — List/grid polish and thumbnails (Phase 6B complete)
 ```
 
 Status:
@@ -1167,6 +1167,13 @@ Modified hierarchy using metadata already captured by directory enumeration.
 Formatting occurs only for bound visible rows, 256-entry model insertion batches
 remain intact, keyboard focus is explicit, and original `PathBuf`/`OsString`
 values remain authoritative. Thumbnails and a separate grid are not implemented.
+
+Phase 6B makes all four visible metadata headings native keyboard/pointer
+controls with explicit ascending/descending arrows and accessible pressed state.
+The GTK-independent policy keeps navigable directories first, unknown optional
+metadata last, and raw path values as deterministic tie-breakers. Sorting runs
+on the bounded directory worker using shared entries; model rebuilds retain
+256-entry batches and restore selection by exact original `PathBuf`.
 ```
 
 Established product decisions:
@@ -1199,17 +1206,20 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6A is complete. The next coherent branch is `phase-6b-list-sorting`,
-making the visible metadata headings operable while preserving directories-first
-ordering, selection identity, virtualization, and original path ownership.
+Phase 6B is complete. The next coherent branch is
+`phase-6c-thumbnail-foundation`, establishing bounded asynchronous image
+thumbnail requests and safe fallback behavior before a separate grid view.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-eighty-nine tests pass: twenty-eight core and sixty-one application tests. Four
-focused Phase 6A tests cover stable column semantics, text-only kind distinctions,
+ninety-seven tests pass: thirty-three core and sixty-four application tests.
+Eight focused Phase 6B tests cover direction cycling, directories-first ordering,
+unknown metadata, raw non-UTF-8 identity, worker dispatch, visible arrows, and
+exact-path selection restoration. Four focused Phase 6A tests cover stable column
+semantics, text-only kind distinctions,
 size-unit boundaries through exabytes, and signed modified-time formatting.
 Four focused Phase 5F tests cover conflict-action priority, dismissal/reopen,
 single-dialog state, exact filename validation, keep-existing and fresh retry
@@ -1223,7 +1233,7 @@ deduplicated application ordering, and chooser/default button sensitivity.
 Three focused Phase 5C tests cover the complete action mapping, rejection of an
 unbound virtualized row, and lock-state-safe keyboard shortcuts. Two focused
 Phase 5B tests cover retryable outcomes and preservation of pending retry state
-while another job completes. A native Wayland Phase 6A build registered the
+while another job completes. A native Wayland Phase 6B build registered the
 expected D-Bus application owner and remained healthy until stopped, emitting
 only the known host Vulkan suboptimal-swapchain warning. Ten focused Phase 4E
 tests cover original
@@ -1357,17 +1367,25 @@ Completed this session:
   locale-aware modified times, stable tabular figures, and visible keyboard
   focus styling.
 * Kept original `PathBuf`/`OsString` identity authoritative and deferred
-  thumbnail generation, a separate grid, and interactive sorting.
+  thumbnail generation and a separate grid.
+* Added GTK-independent Name, Type, Size, and Modified sorting in both
+  directions, with directories first and unknown metadata last.
+* Added native operable headings with visible arrows, tooltips, accessible
+  labels, and pressed state without relying on color alone.
+* Ran comparisons on the bounded directory worker using shared entries while
+  retaining virtualized 256-entry main-loop insertion batches.
+* Preserved selection across reordered models by exact original `PathBuf`,
+  including colliding lossy non-UTF-8 display names.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-6b-list-sorting` and make the visible Name, Type, Size, and
-Modified headings keyboard/pointer operable with explicit ascending/descending
-state. Preserve directories-first behavior, selection by original path, and
-virtualization; keep sort logic outside GTK callbacks. Do not add thumbnails or
-a separate grid in the same slice.
+Create `phase-6c-thumbnail-foundation` and define a bounded asynchronous
+thumbnail request/result boundary plus safe cache identity. Begin with the
+smallest useful image-thumbnail slice, retain generic icon and readable failure
+fallbacks, and do not introduce a separate grid until the shared thumbnail path
+is verified.
 ```
 
 ---

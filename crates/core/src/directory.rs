@@ -3,7 +3,9 @@ use std::{ffi::OsStr, fs, path::Path};
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 
-use crate::{DirectoryEntry, DirectoryError, DirectoryListing, EntryKind, ThumbnailState};
+use crate::{
+    DirectoryEntry, DirectoryError, DirectoryListing, DirectorySort, EntryKind, ThumbnailState,
+};
 
 /// Enumerates one directory without following it recursively.
 pub fn enumerate_directory(path: &Path) -> Result<DirectoryListing, DirectoryError> {
@@ -71,13 +73,7 @@ pub fn enumerate_directory_with_cancel(
         ));
     }
 
-    entries.sort_by(|left, right| {
-        let left_rank = u8::from(!left.is_navigable_directory());
-        let right_rank = u8::from(!right.is_navigable_directory());
-        left_rank
-            .cmp(&right_rank)
-            .then_with(|| left.display_name().cmp(right.display_name()))
-    });
+    DirectorySort::default().sort_entries(&mut entries);
 
     Ok(DirectoryListing::new(path.to_path_buf(), entries))
 }

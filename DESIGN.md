@@ -53,6 +53,13 @@ icon, a lossy display label, a textual kind that does not rely on icon or color,
 an available regular-file size, and locale-aware modification time. The
 underlying `DirectoryEntry` retains the original path and filename.
 
+Phase 6B turns those headings into native flat buttons with visible arrows,
+tooltips, accessible labels, and pressed state for the active column. Repeating
+the active heading reverses direction; a different heading begins ascending.
+Navigable directories remain grouped first, missing optional metadata remains
+last, and the selected entry is restored using its exact original path. The
+worker owns comparison work so pointer and keyboard callbacks stay responsive.
+
 Directories sort before other entries. Hidden entries can be toggled. Rows are
 inserted into the GTK model in batches so very large results do not arrive in
 one main-loop update. Metadata strings are produced in the list factory bind
