@@ -2,8 +2,8 @@
 
 Scope: Add a standards-conscious, bounded persistent image-thumbnail cache while preserving exact path identity, bounded asynchronous work, and safe generic fallbacks.
 
-- [x] G1: Work is isolated on `phase-6e-thumbnail-cache-polish`; `main` remains at the completed Phase 6D commit before publication.
-  CHECK: git branch --show-current && git rev-parse --short main
+- [x] G1: Work was isolated on `phase-6e-thumbnail-cache-polish` from the completed Phase 6D commit before publication.
+  CHECK: git branch --show-current && git merge-base --is-ancestor 7e87f88 phase-6e-thumbnail-cache-polish && git rev-parse --short 7e87f88
   EXPECT: /phase-6e-thumbnail-cache-polish[\s\S]*7e87f88/
   EVIDENCE: Branch is `phase-6e-thumbnail-cache-polish`; local `main` remains at `7e87f88` before publication.
 
@@ -52,5 +52,5 @@ Scope: Add a standards-conscious, bounded persistent image-thumbnail cache while
 
 - [x] G11: The Phase 6E commit is pushed, fast-forwarded into `main`, and local/remote phase and main refs are identical.
   CHECK: git rev-parse main phase-6e-thumbnail-cache-polish origin/main origin/phase-6e-thumbnail-cache-polish
-  EXPECT: /([0-9a-f]{40}\n){4}/
-  EVIDENCE: Publication sequence pushes the focused Phase 6E commit through the phase branch and fast-forwarded `main`; the final four-ref comparison is required before handoff.
+  EXPECT: /^([0-9a-f]{40})\n\1\n\1\n\1$/
+  EVIDENCE: The focused Phase 6E commits are pushed through the phase branch and fast-forwarded `main`; the final four-ref comparison is required before handoff.
