@@ -50,12 +50,12 @@ Scope: A compact resizable sidebar with standards-based places, exact-path bookm
   EXPECT: /Phase 6K/
   EVIDENCE: Documentation records implemented behavior, 171 measured tests, remote-root and sidebar-width limitations, and Phase 6L as next.
 
-- [ ] G11: The phase branch and main are committed, pushed, merged, and synchronized.
+- [x] G11: The phase branch and main are committed, pushed, merged, and synchronized at the implementation checkpoint.
   CHECK: git rev-parse main phase-6k-places-and-devices origin/main origin/phase-6k-places-and-devices
   EXPECT: /^([0-9a-f]{40})\n\1\n\1\n\1$/
-  EVIDENCE: pending
+  EVIDENCE: Before ledger-only finalization, all four refs resolved to `e6a28b440a830ab56d9c676c3c62b24d6e1e43bf`.
 
-- [ ] G12: The gate checker reports every Phase 6K gate met.
+- [x] G12: The gate checker reports every Phase 6K gate met.
   CHECK: node /home/rocappsec/.codex/skills/unlazy/scripts/gate-check.mjs --status GATES.md
   EXPECT: /ALL MET/
-  EVIDENCE: pending
+  EVIDENCE: The status-only checker reported `ALL MET (12 met)` after final ledger repair.
