@@ -1,54 +1,51 @@
-# Plan: Floe Phase 6L system thumbnailers
+# Plan: Floe Phase 6M permanent deletion
 
-Mode: solo, depth 3. The phase has one architectural seam—system provider
-discovery/execution feeding the existing thumbnail result/cache boundary—and is
-kept separate from future Preview and sandbox phases.
+Mode: solo, depth 3.
 
 ## Contract
 
-- Discover freedesktop `.thumbnailer` providers from standards-based data
-  directories with deterministic precedence.
-- Resolve content type and execute providers only on the thumbnail worker, never
-  in GTK callbacks.
-- Parse provider command lines into argv and substitute reviewed thumbnailer
-  field codes without a shell or filename interpolation.
-- Supervise helpers with exact input identity, private temporary output,
-  cancellation, timeout, output limits, source revalidation, and cleanup.
-- Validate/decode provider output through existing image/cache limits and retain
-  generic icon fallback for unsupported, malformed, failed, stale, or busy work.
-- Do not add Quick Preview, active content, provider installation, a sandbox
-  dependency, or a claim that Phase 6L providers are sandboxed.
+- `floe-core` owns exact multi-target validation, whole-batch no-follow
+  preflight, mount/root refusal, deterministic postorder deletion, identity
+  revalidation, progress, and the irreversible cancellation boundary.
+- The application owns a fixed-capacity worker, job lifecycle mapping,
+  request tracking, cancellation, and conservative retry policy.
+- GTK gathers authoritative selected `PathBuf` values, presents one explicit
+  irreversible confirmation, and submits an application command only.
+- User-visible language is “Delete Permanently.” Floe does not claim secure
+  erase, offer undo, or call committed partial deletion cancelled.
+- Phase 6N Trash browsing, restore, Empty Trash, retention, and later roadmap
+  work remain out of scope.
 
-## Tree
+## Depth tree
 
-1. Provider policy and discovery
-   - Inspect freedesktop thumbnailer files, current worker/cache contracts, and
-     available GLib/GIO process/content-type APIs.
-   - Add GTK-independent parsing, precedence, MIME selection, and argv expansion.
-2. Supervised execution and integration
-   - Add private temporary output, timeout/cancellation/process termination,
-     bounded output decode, source revalidation, cache write, and fallback.
-   - Integrate system providers after native raster handling without disturbing
-     current list/grid presentation or cache reuse.
-3. Verification and handoff
-   - Cover hostile definitions, MIME selection, non-UTF-8 paths, malformed and
-     oversized output, timeout, cancellation, stale sources, and cleanup.
-   - Run formatting, workspace check, strict Clippy, all tests, and native
-     Wayland smoke with a controlled provider fixture.
-   - Update project status, roadmap, matrix, gates, architecture/security docs;
-     mark 6L complete only after every gate passes and make 6M the sole next.
+1. Core destructive boundary
+   - Validate raw paths and reject empty, relative, root, unnormalized,
+     duplicate, and nested targets.
+   - Preflight every selected tree without following symlinks or crossing
+     mounts; revalidate device/inode/kind before removal.
+   - Allow cancellation only before the first removal; afterward finish or
+     report exact non-retryable partial failure.
+2. Application boundary
+   - Run requests on a named fixed-capacity worker.
+   - Map queued/running/progress/completed/cancelled/partial/failed states into
+     the shared job model.
+   - Track affected directories and reject generic retry after partial commit.
+3. GTK interaction and verification
+   - Add selection-aware “Delete Permanently…” and `Shift+Delete`.
+   - Make Cancel the initial/default focus; show target count and escaped exact
+     paths in a scrollable copyable surface.
+   - Verify focused tests, full Rust gates, isolated native Wayland smoke, and
+     update the persistent project documentation.
 
 ## Status log
 
-- 2026-08-24: Phase 6L identified as the sole NEXT phase; branch, contract, and
-  gates established before implementation.
-- 2026-08-24: Provider discovery/policy, no-shell supervised process execution,
-  process-group cancellation, bounded PNG validation, and worker/cache
-  integration completed with eleven focused tests.
-- 2026-08-24: Full Rust verification passed with 159 application and 33 core
-  tests. Two isolated native Wayland launches proved one provider execution,
-  persistent cache reuse while the provider failed, clean D-Bus release, and no
-  leftover provider temporary directories.
-- 2026-08-24: Persistent status, roadmap, feature matrix, architecture, and
-  privacy/security documentation updated; Phase 6M is the sole recommended next
-  phase and no Phase 6M implementation was started.
+- 2026-08-24: Created `phase-6m-permanent-delete` from synchronized `main` and
+  defined the phase contract and gates before coding.
+- 2026-08-24: Core planner/executor, application tracking, confirmation UI,
+  truthful feedback, and focused tests implemented.
+- 2026-08-24: Formatting, workspace check, strict Clippy, all 205 tests, and
+  diff hygiene pass. Two isolated native Wayland action smokes proved the
+  selection-enabled action, confirmation activation without deletion, D-Bus
+  health, fixture preservation, clean exit, and name release.
+- 2026-08-24: Persistent documentation now records Phase 6M COMPLETE and Phase
+  6N Trash lifecycle as the sole NEXT phase. Phase 6M is complete.

@@ -147,7 +147,7 @@ from display text. Launch failures appear as toasts.
 
 Phase 5C adds a native popover context menu to each virtualized row. A
 secondary-click first selects the exact row under the pointer, then presents
-Open, Copy, Cut, Rename, and Move to Trash using the same enabled state and
+Open, Copy, Cut, Rename, Move to Trash, and Delete Permanently using the same enabled state and
 application actions as the header and keyboard shortcuts. Shift+F10 and the
 Menu key provide the focused-list keyboard route. Destructive-adjacent Trash is
 separated from editing actions.
@@ -227,8 +227,16 @@ menu item and the conventional Delete shortcut. The action is available only
 with one selected entry, keeps the browser responsive, refreshes the affected
 parent after completion, and never implies that a failed request silently
 deleted the item. Floe uses no confirmation dialog because this action targets
-the recoverable desktop Trash rather than permanent deletion; permanent delete
-and Shift+Delete remain unavailable.
+the recoverable desktop Trash.
+
+Phase 6M adds a separate “Delete Permanently…” action and `Shift+Delete` for
+multi-selection. It always opens a focused, non-blocking irreversible
+confirmation showing the target count and a scrollable, copyable list of
+escaped exact paths. Cancel is the default and initial focus; the confirm
+button uses destructive styling. Confirm submits one application-owned batch,
+never performs filesystem work in GTK, offers no undo, and never claims secure
+erase. Operations Island distinguishes preparing, deleting, cancelled before
+deletion, completed, and non-retryable partial failure.
 
 ## Implemented appearance system
 
@@ -352,9 +360,10 @@ Copy, move, and Trash submit original paths through application state. A serial
 batch dispatcher feeds existing bounded workers one job at a time, preventing
 large selections from becoming silent partial operations.
 
-Permanent deletion follows in Phase 6M as “Delete Permanently,” with explicit
-irreversible confirmation and exact target context. Floe must not call this
-secure erase because modern storage and filesystem layers cannot guarantee it.
+Permanent deletion is implemented by Phase 6M as “Delete Permanently,” with
+explicit irreversible confirmation and escaped exact target context. Floe does
+not call this secure erase because modern storage and filesystem layers cannot
+guarantee it.
 
 ### Transparency and accessibility
 

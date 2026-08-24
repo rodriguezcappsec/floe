@@ -95,6 +95,7 @@ pub enum JobFailureKind {
     Io,
     PermissionDenied,
     Conflict,
+    Partial,
     Unsupported,
     Internal,
 }

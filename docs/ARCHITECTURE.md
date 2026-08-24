@@ -209,7 +209,7 @@ text-kind labels.
 ### `state.rs` and `job_manager.rs`
 
 `ApplicationState`, separate from `BrowserController`, owns the
-`ApplicationJobManager`, bounded copy/move/trash executors, internal
+`ApplicationJobManager`, bounded copy/move/trash/permanent-delete executors, internal
 `TransferBuffer`, and `TrackedOperation` values keyed by `JobId`. The manager
 allocates operation/job IDs, stores core `JobRecord` values, applies core lifecycle
 commands, queues observable events, and creates retries under the original
@@ -324,11 +324,13 @@ menu. Secondary-click selection flows through `GtkMultiSelection`, so the
 controller retains every original `DirectoryEntry` and exact path before any
 existing action is dispatched.
 
-It also owns Ctrl+C/Ctrl+X/Ctrl+V/F2/Delete and file-menu action wiring because
+It also owns Ctrl+C/Ctrl+X/Ctrl+V/F2/Delete/Shift+Delete and file-menu action wiring because
 those commands depend on the active selection and current destination. The
 actions stage or submit through shared `ApplicationState`; they do not perform
-filesystem work. The destructive-adjacent menu label is explicitly “Move to
-Trash”; no permanent-delete command exists.
+filesystem work. “Move to Trash” remains the recoverable action.
+“Delete Permanently…” opens a safe-focus irreversible confirmation containing
+escaped exact target labels; its GTK callback submits preserved `PathBuf`
+values and performs no filesystem work.
 
 Navigation queues a worker request, disables stale interaction, and ignores
 responses whose generation is no longer active. Results are filtered for hidden
@@ -343,8 +345,10 @@ remove periodic polling.
 `OperationController` polls structured application job events every 50 ms,
 maps queued/running/progress/terminal states into the Operations Island, and
 submits generic cancellation intent through `ApplicationState`. Completion
-refreshes every affected visible directory for copy, move, rename, or trash;
-conflict, permission, cross-filesystem, unsupported-trash, and general failures
+refreshes every affected visible directory for copy, move, rename, trash, or
+permanent deletion. Permanent-delete cancellation is pre-commit only; a
+`Partial` failure refreshes affected directories and remains non-retryable.
+Conflict, permission, cross-filesystem, unsupported-trash, and general failures
 produce recovery-oriented toasts. Terminal status remains
 visible for three seconds. The controller observes jobs but never executes
 filesystem operations.
@@ -387,6 +391,20 @@ job lifecycle. Tests inject a backend and use virtual or temporary paths, so
 the suite never modifies the user's real Trash.
 Trash retries likewise retain the original `TrashRequest` and delegate attempt
 identity allocation to the shared job manager.
+
+### `permanent_delete_executor.rs`
+
+`PermanentDeleteExecutor` owns one named worker and a fixed-capacity queue of
+validated core `PermanentDeleteRequest` batches. The core builds a complete
+no-follow postorder plan before mutation, refuses filesystem roots, selected
+mount roots, mounted subtrees, duplicate or nested selections, and paths whose
+device, inode, or kind changes before removal. Symlinks are removed as links
+and are never traversed.
+
+Cancellation can produce `Cancelled` only before the first removal. After
+commit, execution finishes or produces `JobFailureKind::Partial` with exact
+removed/planned counts. Application retry rejects that partial outcome; safe
+preflight failures and pre-commit cancellation retain normal retry identity.
 
 ### `worker.rs`
 
@@ -524,7 +542,7 @@ Identity, lifecycle, progress, failure, retry-attempt, registry, and event
 foundations now exist. `floe-core::copy` adds the first path-safe operation
 model and synchronous engine; `floe-app::copy_executor` runs it on one named
 worker behind a fixed-capacity queue. `ApplicationState` owns the shared
-registry, all three executors, unified transfer buffer, and tracked
+registry, all four executors, unified transfer buffer, and tracked
 copy/move/rename/trash requests.
 `OperationController` is the GTK observer and feedback boundary.
 
@@ -556,7 +574,7 @@ floe-core legal state transitions (implemented)
 floe-core path-safe copy model and engine (implemented)
        |
        v
-bounded copy, move/rename, and GIO trash executors (implemented)
+bounded copy, move/rename, GIO trash, and permanent-delete executors (implemented)
 ```
 
 Phase 4D exposes the Phase 4C move/rename models through application-owned

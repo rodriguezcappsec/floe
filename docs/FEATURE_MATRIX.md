@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 6L. Phase 6M is the only
+The implementation baseline for this matrix is Phase 6M. Phase 6N is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -69,8 +69,8 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | GTK-independent operation/job model | `COMPLETE` | 3 | Strong operation and attempt IDs, progress, commands, events, failures, and legal transitions live outside widgets. |
-| Bounded background executors | `COMPLETE` | 4A-4E | Copy, move/rename, and Trash use fixed-capacity application-owned workers. |
-| GTK-thread filesystem mutation prohibition | `COMPLETE` | 0-6K2 | GTK callbacks submit application commands; filesystem work stays in core/application workers. |
+| Bounded background executors | `COMPLETE` | 4A-6M | Copy, move/rename, Trash, and permanent deletion use fixed-capacity application-owned workers. |
+| GTK-thread filesystem mutation prohibition | `COMPLETE` | 0-6M | GTK callbacks submit application commands; filesystem work stays in core/application workers. |
 | Multiple logical operations | `COMPLETE` | 3/6J | Each request has stable logical identity; multi-selection batches serialize requests over bounded workers. |
 | Copy files and directories | `COMPLETE` | 4A/4B | Recursive copy has no-follow link policy, chunk cancellation, progress, tracked cleanup, and fail-if-exists behavior. |
 | Internal Cut/Copy/Paste | `COMPLETE` | 4B/4D/6J | Application-owned exact-path transfer buffer supports multi-selection batches. |
@@ -127,9 +127,9 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Restore elsewhere | `PLANNED` | 6N | Needs an explicit destination chooser and safe conflict policy. |
 | Show deletion date and original location | `PLANNED` | 6N/10B | Metadata must come from the Trash standard, not filename inference. |
 | Empty Trash | `PLANNED` | 6N | Requires rich aggregate preflight, cancellation semantics, and partial-failure reporting. |
-| Delete one Trash item permanently | `PLANNED` | 6M/6N | Reuses the Phase 6M deletion engine from the Phase 6N Trash browser. |
-| Permanent delete job | `PLANNED` | 6M | Exact targets, irreversible confirmation, meaningful cancellation boundary, and partial failure are required. |
-| Shift+Delete | `PLANNED` | 6M | Must invoke the confirmed “Delete Permanently” path and remain selection-aware. |
+| Delete one Trash item permanently | `PLANNED` | 6N | Phase 6N must connect Trash entries to the completed Phase 6M deletion engine. |
+| Permanent delete job | `COMPLETE` | 6M | Exact multi-target requests preflight every tree without following symlinks, reject roots and mount boundaries, revalidate identity, and report non-retryable partial failure after commit. |
+| Shift+Delete | `COMPLETE` | 6M | Selection-aware shortcut and menu action open an explicit irreversible confirmation with escaped exact target context before submitting the application job. |
 | Secure erase claim | `NOT APPLICABLE` | Policy | SSD wear leveling, CoW, snapshots, and remote storage make general secure-erasure claims dishonest. |
 | Trash age/size cleanup preferences | `DEFERRED` | 6N/20 | Only where desktop standards/backend behavior can support them predictably. |
 

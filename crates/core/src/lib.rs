@@ -7,6 +7,7 @@ mod jobs;
 mod model;
 mod move_operation;
 mod navigation;
+mod permanent_delete;
 mod sorting;
 
 pub use copy::{
@@ -25,4 +26,8 @@ pub use move_operation::{
     execute_rename,
 };
 pub use navigation::NavigationState;
+pub use permanent_delete::{
+    PermanentDeleteError, PermanentDeleteOutcome, PermanentDeleteProgress, PermanentDeleteRequest,
+    PermanentDeleteRequestError, execute_permanent_delete,
+};
 pub use sorting::{DirectorySort, SortColumn, SortDirection};

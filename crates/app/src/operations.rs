@@ -256,19 +256,43 @@ impl OperationController {
                 self.show_toast(&completed_toast(request.as_ref()), 4);
             }
             TerminalResult::Cancelled => {
+                let permanent_delete =
+                    matches!(request.as_ref(), Some(TrackedOperation::PermanentDelete(_)));
                 self.show_terminal(
                     request.as_ref(),
-                    "Operation cancelled",
-                    "No partial change was kept",
+                    if permanent_delete {
+                        "Cancelled before deletion"
+                    } else {
+                        "Operation cancelled"
+                    },
+                    if permanent_delete {
+                        "No selected item was deleted"
+                    } else {
+                        "No partial change was kept"
+                    },
                     false,
                 );
-                self.show_toast("Operation cancelled", 4);
+                self.show_toast(
+                    if permanent_delete {
+                        "Permanent deletion cancelled before it started"
+                    } else {
+                        "Operation cancelled"
+                    },
+                    4,
+                );
             }
             TerminalResult::Failed(failure) => {
-                let title = if failure.kind() == JobFailureKind::Conflict {
-                    "Destination conflict"
-                } else {
-                    "Operation failed"
+                if failure.kind() == JobFailureKind::Partial
+                    && let Some(request) = request.as_ref()
+                {
+                    for directory in request.affected_directories() {
+                        (self.on_operation_completed)(&directory);
+                    }
+                }
+                let title = match failure.kind() {
+                    JobFailureKind::Conflict => "Destination conflict",
+                    JobFailureKind::Partial => "Permanent deletion partially completed",
+                    _ => "Operation failed",
                 };
                 self.show_terminal(
                     request.as_ref(),
@@ -628,6 +652,9 @@ fn terminal_outcome(result: &TerminalResult<'_>) -> TerminalOutcome {
         TerminalResult::Failed(failure) if failure.kind() == JobFailureKind::Conflict => {
             TerminalOutcome::Conflict
         }
+        TerminalResult::Failed(failure) if failure.kind() == JobFailureKind::Partial => {
+            TerminalOutcome::PartialFailure
+        }
         TerminalResult::Failed(_) => TerminalOutcome::Failed,
     }
 }
@@ -651,6 +678,17 @@ fn operation_title(request: Option<&TrackedOperation>) -> String {
 }
 
 fn operation_name(request: Option<&TrackedOperation>) -> String {
+    if let Some(TrackedOperation::PermanentDelete(request)) = request {
+        let count = request.targets().len();
+        return if count == 1 {
+            request.targets()[0]
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "item".to_owned())
+        } else {
+            format!("{count} items")
+        };
+    }
     request
         .and_then(|request| request.source().file_name())
         .map(|name| name.to_string_lossy().into_owned())
@@ -663,6 +701,7 @@ fn operation_verb(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Move(_)) => "Move",
         Some(TrackedOperation::Rename(_)) => "Rename",
         Some(TrackedOperation::Trash(_)) => "Move to Trash",
+        Some(TrackedOperation::PermanentDelete(_)) => "Delete Permanently",
         None => "Operation",
     }
 }
@@ -673,6 +712,7 @@ fn operation_verb_ing(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Move(_)) => "Moving",
         Some(TrackedOperation::Rename(_)) => "Renaming",
         Some(TrackedOperation::Trash(_)) => "Moving to Trash",
+        Some(TrackedOperation::PermanentDelete(_)) => "Deleting permanently",
         None => "Working on",
     }
 }
@@ -683,6 +723,7 @@ fn waiting_detail(request: Option<TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Move(_)) => "Waiting to move…",
         Some(TrackedOperation::Rename(_)) => "Waiting to rename…",
         Some(TrackedOperation::Trash(_)) => "Waiting to move to Trash…",
+        Some(TrackedOperation::PermanentDelete(_)) => "Preparing permanent deletion…",
         None => "Waiting…",
     }
 }
@@ -693,6 +734,7 @@ fn running_detail(request: Option<TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Move(_)) => "Moving on this filesystem…",
         Some(TrackedOperation::Rename(_)) => "Renaming…",
         Some(TrackedOperation::Trash(_)) => "Moving to Trash through GIO…",
+        Some(TrackedOperation::PermanentDelete(_)) => "Deleting permanently…",
         None => "Working…",
     }
 }
@@ -703,6 +745,7 @@ fn completed_title(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Move(_)) => "Move complete",
         Some(TrackedOperation::Rename(_)) => "Rename complete",
         Some(TrackedOperation::Trash(_)) => "Moved to Trash",
+        Some(TrackedOperation::PermanentDelete(_)) => "Deleted permanently",
         None => "Operation complete",
     }
 }
@@ -713,6 +756,7 @@ fn completed_detail(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Move(_)) => "Moved successfully",
         Some(TrackedOperation::Rename(_)) => "Renamed successfully",
         Some(TrackedOperation::Trash(_)) => "Item is available in Trash",
+        Some(TrackedOperation::PermanentDelete(_)) => "Permanent deletion completed",
         None => "Completed successfully",
     }
 }
@@ -725,6 +769,9 @@ fn completed_toast(request: Option<&TrackedOperation>) -> String {
         Some(TrackedOperation::Copy(_)) => format!("Copied {}", operation_name(request)),
         Some(TrackedOperation::Move(_)) => format!("Moved {}", operation_name(request)),
         Some(TrackedOperation::Rename(_)) => format!("Renamed {}", operation_name(request)),
+        Some(TrackedOperation::PermanentDelete(_)) => {
+            format!("Deleted {} permanently", operation_name(request))
+        }
         None => "Operation completed".to_owned(),
     }
 }
@@ -733,6 +780,7 @@ fn failure_summary(request: Option<&TrackedOperation>, failure: &JobFailure) -> 
     match failure.kind() {
         JobFailureKind::Conflict => "The destination already exists",
         JobFailureKind::PermissionDenied => "Permission was denied",
+        JobFailureKind::Partial => "Some items were deleted permanently before the failure",
         JobFailureKind::Unsupported if matches!(request, Some(TrackedOperation::Move(_))) => {
             "Cross-filesystem move is not supported yet"
         }
@@ -757,6 +805,7 @@ fn failure_recovery(request: Option<&TrackedOperation>, failure: &JobFailure) ->
         JobFailureKind::PermissionDenied => {
             format!("Could not change {name}. Check folder permissions and try again.")
         }
+        JobFailureKind::Partial => failure.message().to_owned(),
         JobFailureKind::Unsupported if matches!(request, Some(TrackedOperation::Move(_))) => {
             "Choose a destination on the same filesystem, then try the move again.".to_owned()
         }
@@ -785,7 +834,9 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use floe_core::{ConflictPolicy, JobFailure, JobState, MoveRequest, RenameRequest};
+    use floe_core::{
+        ConflictPolicy, JobFailure, JobState, MoveRequest, PermanentDeleteRequest, RenameRequest,
+    };
     use tempfile::tempdir;
 
     use super::*;
@@ -814,6 +865,7 @@ mod tests {
         assert!(!outcome_is_retryable(TerminalOutcome::Completed));
         assert!(outcome_is_retryable(TerminalOutcome::Cancelled));
         assert!(!outcome_is_retryable(TerminalOutcome::Conflict));
+        assert!(!outcome_is_retryable(TerminalOutcome::PartialFailure));
         assert!(outcome_is_retryable(TerminalOutcome::Failed));
     }
 
@@ -830,6 +882,36 @@ mod tests {
             terminal_outcome(&TerminalResult::Failed(&failure)),
             TerminalOutcome::Failed
         );
+    }
+
+    #[test]
+    fn phase_6m_feedback_is_truthful_and_partial_failure_is_not_retryable() {
+        let request = TrackedOperation::PermanentDelete(
+            PermanentDeleteRequest::new(vec![
+                PathBuf::from("/virtual/first"),
+                PathBuf::from("/virtual/second"),
+            ])
+            .expect("fixture request should be valid"),
+        );
+        let partial = JobFailure::new(
+            JobFailureKind::Partial,
+            "permanent deletion stopped after removing 1 of 2 planned items",
+        );
+
+        assert_eq!(
+            terminal_outcome(&TerminalResult::Failed(&partial)),
+            TerminalOutcome::PartialFailure
+        );
+        assert_eq!(
+            operation_title(Some(&request)),
+            "Deleting permanently 2 items"
+        );
+        assert_eq!(completed_title(Some(&request)), "Deleted permanently");
+        assert_eq!(
+            failure_recovery(Some(&request), &partial),
+            partial.message()
+        );
+        assert!(!failure_recovery(Some(&request), &partial).contains("Retry"));
     }
 
     #[test]

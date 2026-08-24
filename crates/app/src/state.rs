@@ -8,8 +8,8 @@ use std::{
 };
 
 use floe_core::{
-    ConflictPolicy, CopyRequest, JobEvent, JobId, MoveRequest, OperationId, RenameRequest,
-    SymlinkPolicy,
+    ConflictPolicy, CopyRequest, JobEvent, JobId, MoveRequest, OperationId, PermanentDeleteRequest,
+    PermanentDeleteRequestError, RenameRequest, SymlinkPolicy,
 };
 use thiserror::Error;
 
@@ -20,6 +20,10 @@ use crate::{
     job_manager::{ApplicationJobManager, SharedJobManager},
     move_executor::{
         MoveCancelError, MoveExecutor, MoveExecutorSpawnError, MoveSubmission, MoveSubmitError,
+    },
+    permanent_delete_executor::{
+        PermanentDeleteCancelError, PermanentDeleteExecutor, PermanentDeleteExecutorSpawnError,
+        PermanentDeleteSubmission, PermanentDeleteSubmitError,
     },
     trash_executor::{
         TrashCancelError, TrashExecutor, TrashExecutorSpawnError, TrashRequest, TrashRequestError,
@@ -106,6 +110,7 @@ pub enum TrackedOperation {
     Move(MoveRequest),
     Rename(RenameRequest),
     Trash(TrashRequest),
+    PermanentDelete(PermanentDeleteRequest),
 }
 
 pub const MAX_TERMINAL_HISTORY: usize = 64;
@@ -115,6 +120,7 @@ pub enum TerminalOutcome {
     Completed,
     Cancelled,
     Conflict,
+    PartialFailure,
     Failed,
 }
 
@@ -183,6 +189,7 @@ impl TrackedOperation {
             Self::Move(request) => request.source(),
             Self::Rename(request) => request.source(),
             Self::Trash(request) => request.source(),
+            Self::PermanentDelete(request) => request.targets()[0].as_path(),
         }
     }
 
@@ -204,6 +211,11 @@ impl TrackedOperation {
             }
             Self::Rename(request) => add_parent(request.source()),
             Self::Trash(request) => add_parent(request.source()),
+            Self::PermanentDelete(request) => {
+                for target in request.targets() {
+                    add_parent(target);
+                }
+            }
         }
         directories
     }
@@ -220,6 +232,7 @@ pub enum RetrySubmission {
     Copy(CopySubmission),
     Move(MoveSubmission),
     Trash(TrashSubmission),
+    PermanentDelete(PermanentDeleteSubmission),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -234,6 +247,7 @@ impl RetrySubmission {
             Self::Copy(submission) => submission.operation_id(),
             Self::Move(submission) => submission.operation_id(),
             Self::Trash(submission) => submission.operation_id(),
+            Self::PermanentDelete(submission) => submission.operation_id(),
         }
     }
 
@@ -242,6 +256,7 @@ impl RetrySubmission {
             Self::Copy(submission) => submission.job_id(),
             Self::Move(submission) => submission.job_id(),
             Self::Trash(submission) => submission.job_id(),
+            Self::PermanentDelete(submission) => submission.job_id(),
         }
     }
 }
@@ -288,10 +303,18 @@ pub enum CopyInteractionError {
     TrashSubmit(#[from] TrashSubmitError),
     #[error(transparent)]
     TrashCancel(#[from] TrashCancelError),
+    #[error(transparent)]
+    PermanentDeleteRequest(#[from] PermanentDeleteRequestError),
+    #[error(transparent)]
+    PermanentDeleteSubmit(#[from] PermanentDeleteSubmitError),
+    #[error(transparent)]
+    PermanentDeleteCancel(#[from] PermanentDeleteCancelError),
     #[error("terminal operation history does not contain job {0:?}")]
     RetryNotFound(JobId),
     #[error("completed job {0:?} cannot be retried")]
     RetryCompleted(JobId),
+    #[error("partially completed destructive job {0:?} cannot be retried")]
+    RetryUnsafePartial(JobId),
     #[error("job {0:?} needs an explicit conflict decision")]
     ConflictDecisionRequired(JobId),
     #[error("job {0:?} does not have a pending destination conflict")]
@@ -310,6 +333,8 @@ pub enum ApplicationStateSpawnError {
     Move(#[from] MoveExecutorSpawnError),
     #[error(transparent)]
     Trash(#[from] TrashExecutorSpawnError),
+    #[error(transparent)]
+    PermanentDelete(#[from] PermanentDeleteExecutorSpawnError),
 }
 
 /// Application-wide services and state that outlive any one browser concern.
@@ -319,6 +344,7 @@ pub struct ApplicationState {
     copy_executor: CopyExecutor,
     move_executor: MoveExecutor,
     trash_executor: TrashExecutor,
+    permanent_delete_executor: PermanentDeleteExecutor,
     transfer_buffer: RefCell<TransferBuffer>,
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
     terminal_history: RefCell<VecDeque<TerminalOperation>>,
@@ -333,11 +359,13 @@ impl ApplicationState {
         let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
         let trash_executor = TrashExecutor::spawn(Arc::clone(&jobs))?;
+        let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
             copy_executor,
             move_executor,
             trash_executor,
+            permanent_delete_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
@@ -519,6 +547,28 @@ impl ApplicationState {
         }
     }
 
+    pub fn submit_permanent_delete(
+        &self,
+        targets: Vec<PathBuf>,
+    ) -> Result<PermanentDeleteSubmission, CopyInteractionError> {
+        let request = PermanentDeleteRequest::new(targets)?;
+        match self.permanent_delete_executor.submit(request.clone()) {
+            Ok(submission) => {
+                self.track(
+                    submission.job_id(),
+                    TrackedOperation::PermanentDelete(request),
+                );
+                Ok(submission)
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.track(job_id, TrackedOperation::PermanentDelete(request));
+                }
+                Err(error.into())
+            }
+        }
+    }
+
     fn pump_batch(&self) {
         if self.batch_active.get().is_some() {
             return;
@@ -589,8 +639,8 @@ impl ApplicationState {
                     }
                 }
             }
-            TrackedOperation::Rename(_) => {
-                unreachable!("rename is never queued as a multi-selection batch")
+            TrackedOperation::Rename(_) | TrackedOperation::PermanentDelete(_) => {
+                unreachable!("operation is never queued as a per-item multi-selection batch")
             }
         }
     }
@@ -657,6 +707,9 @@ impl ApplicationState {
             return Err(CopyInteractionError::ConflictDecisionRequired(
                 failed_job_id,
             ));
+        }
+        if terminal.outcome() == TerminalOutcome::PartialFailure {
+            return Err(CopyInteractionError::RetryUnsafePartial(failed_job_id));
         }
 
         match terminal.operation().clone() {
@@ -728,6 +781,26 @@ impl ApplicationState {
                     }
                 }
             }
+            TrackedOperation::PermanentDelete(request) => {
+                match self
+                    .permanent_delete_executor
+                    .submit_retry(failed_job_id, request.clone())
+                {
+                    Ok(submission) => {
+                        self.track(
+                            submission.job_id(),
+                            TrackedOperation::PermanentDelete(request),
+                        );
+                        Ok(RetrySubmission::PermanentDelete(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::PermanentDelete(request));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
         }
     }
 
@@ -742,6 +815,9 @@ impl ApplicationState {
                 .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?
                 .join(request.new_name()),
             TrackedOperation::Trash(_) => {
+                return Err(CopyInteractionError::ConflictUnsupported(job_id));
+            }
+            TrackedOperation::PermanentDelete(_) => {
                 return Err(CopyInteractionError::ConflictUnsupported(job_id));
             }
         };
@@ -874,6 +950,9 @@ impl ApplicationState {
             TrackedOperation::Trash(_) => {
                 Err(CopyInteractionError::ConflictUnsupported(failed_job_id))
             }
+            TrackedOperation::PermanentDelete(_) => {
+                Err(CopyInteractionError::ConflictUnsupported(failed_job_id))
+            }
         }
     }
 
@@ -884,6 +963,9 @@ impl ApplicationState {
                 self.move_executor.cancel(job_id)?;
             }
             Some(TrackedOperation::Trash(_)) => self.trash_executor.cancel(job_id)?,
+            Some(TrackedOperation::PermanentDelete(_)) => {
+                self.permanent_delete_executor.cancel(job_id)?;
+            }
             None => return Err(MoveCancelError::NotActive(job_id).into()),
         }
         Ok(())
@@ -907,11 +989,13 @@ impl ApplicationState {
         let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
         let trash_executor = TrashExecutor::spawn_with_backend(Arc::clone(&jobs), 8, backend)?;
+        let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
             copy_executor,
             move_executor,
             trash_executor,
+            permanent_delete_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
@@ -1816,6 +1900,23 @@ mod tests {
                 .iter()
                 .all(|source| completed_sources.contains(source))
         );
+    }
+
+    #[test]
+    fn phase_6m_partial_permanent_delete_cannot_be_retried() {
+        let state = ApplicationState::new().expect("application state should start");
+        let queued = lock(&state.jobs)
+            .queue_operation()
+            .expect("fixture job should queue");
+        let request = PermanentDeleteRequest::new(vec![PathBuf::from("/virtual/item")])
+            .expect("fixture request should be valid");
+        state.track(queued.job_id(), TrackedOperation::PermanentDelete(request));
+        state.finish_operation(queued.job_id(), TerminalOutcome::PartialFailure);
+
+        assert!(matches!(
+            state.retry_operation(queued.job_id()),
+            Err(CopyInteractionError::RetryUnsafePartial(job_id)) if job_id == queued.job_id()
+        ));
     }
 
     #[test]

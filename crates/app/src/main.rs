@@ -11,6 +11,7 @@ mod location_input;
 mod locations;
 pub mod move_executor;
 mod operations;
+mod permanent_delete_executor;
 mod preferences;
 pub mod state;
 mod system_thumbnailer;

@@ -22,7 +22,8 @@ Security state must use text and accessible semantics, never color alone. A fail
 - The Cargo workspace forbids Rust `unsafe` code. The core crate is GTK-independent, and filesystem work stays out of GTK callbacks.
 - Filesystem identities retain `PathBuf` and `OsString`. Lossy display labels are not reconstructed into operation targets. GIO launches receive a URI created from the exact local path.
 - Directory enumeration uses `symlink_metadata`. Copy has an explicit preserve-or-reject symlink policy. Same-filesystem move and rename use `RENAME_NOREPLACE`, so a conflict cannot overwrite an existing target.
-- Copy, move, rename, and Trash use bounded application-owned executors, structured job state, cooperative cancellation, and explicit terminal failures. Copy tracks newly created destinations for best-effort cleanup after failure. Trash delegates to GIO rather than a shell command.
+- Copy, move, rename, Trash, and permanent deletion use bounded application-owned executors, structured job state, cooperative cancellation, and explicit terminal failures. Copy tracks newly created destinations for best-effort cleanup after failure. Trash delegates to GIO rather than a shell command. Permanent deletion uses a validated exact-path batch, full no-follow preflight, root/mount refusal, postorder removal, and device/inode/kind revalidation without shelling out.
+- Permanent deletion requires an explicit safe-focus confirmation showing escaped exact target labels. Cancellation is confirmed only before the first removal; after commit, completion or exact partial failure is reported. Partial deletion is non-retryable and no undo or secure-erasure claim is made.
 - Raster thumbnails have an explicit PNG, JPEG, WebP, GIF, BMP, TIFF, and ICO policy. The bounded worker opens regular files with `O_NOFOLLOW`, enforces 32 MiB encoded and 128 MiB decoded limits plus dimension limits, revalidates source metadata, and returns a generic icon on failure.
 - The freedesktop thumbnail cache validates URI, modification time, size, and Floe's nanosecond marker. Floe uses private cache directories, `0600` files, atomic writes, and ownership markers. MD5 is only the freedesktop cache filename convention; it is not an integrity mechanism.
 - Bookmarks retain exact path bytes and use bounded asynchronous atomic persistence with `0700` directories and `0600` files. View preferences use asynchronous atomic `0600` file writes.
@@ -45,6 +46,7 @@ Security state must use text and accessible semantics, never color alone. A fail
   vulnerable or malicious installed provider can access data beyond the input.
 - Conflict refusal, atomic no-replace rename, source revalidation, and cleanup improve data safety. They are not content-integrity verification, authenticity, crash recovery, or durable transaction guarantees.
 - Current toasts and desktop integration have no complete sensitive-name notification policy. Search indexing, privacy-aware session history, secret clipboard handling, and persistent operation recovery are not implemented.
+- Permanent deletion cannot remove copies retained by snapshots, backups, journal or CoW history, remote services, storage firmware, or another process. It is ordinary filesystem unlink/removal, not forensic erasure.
 
 ### PLANNED and unavailable today
 
