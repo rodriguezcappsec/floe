@@ -44,8 +44,16 @@ Original `PathBuf` values remain authoritative.
 
 The sidebar is the start child of a native horizontal `GtkPaned` divider. Its
 pointer/keyboard-native handle makes the panel user-resizable while preserving a
-128-pixel compact minimum. Appearance presets supply the initial width; the
-chosen width is not yet persisted across launches.
+128-pixel minimum. Floe restores the chosen width on launch, clamps persisted
+and dragged values to 128-480 pixels, and debounces divider writes by 320 ms.
+Reset Sidebar Width clears the override and reapplies the active appearance
+preset's default.
+
+Sidebar Density in the view-options menu provides Compact, Balanced, and
+Comfortable choices without forking the widget tree. All modes keep related rows
+at 2 pixels; section gaps are 4, 8, and 12 pixels, and outer margins are 6, 8,
+and 12 pixels respectively. Compact is the default daily-driver rhythm. The
+state is applied immediately and persisted with the view and grid preferences.
 
 Bookmarks may add the current folder, navigate an existing bookmark, or remove
 it with an explicit adjacent control. Loading and saving are asynchronous;
@@ -56,7 +64,10 @@ Devices are live GIO drive, volume, and mount snapshots. Rows distinguish
 mounted, unmounted, remote, multiple-location, unavailable, and busy states.
 Available Mount, Unmount, and Eject actions use native asynchronous GIO mount
 operations, disable conflicting controls while busy, and surface failures in a
-toast. A mounted local filesystem root navigates through normal Floe navigation.
+toast. Mount and unlock pass a window-parented `GtkMountOperation`; any password
+or passphrase prompt belongs to the desktop, and Floe never receives, stores, or
+logs credentials. A mounted local filesystem root navigates through normal Floe
+navigation.
 Remote/network roots remain explicitly unavailable instead of being converted
 into `PathBuf`; their browsing support is deferred.
 
@@ -172,6 +183,12 @@ Completion and cancellation remain visible briefly; conflicts and failures use
 non-modal toasts with a concrete recovery action. The directory refreshes after
 a successful copy, move, or rename affecting the visible location. Move and
 rename remain same-filesystem only; overwrite is unavailable.
+
+Phase 6K2 corrects the island's previous crowded single-row geometry. The
+340-pixel surface uses 12-pixel insets, a title/cancel row, a separate detail
+row, a flexible full-width progress row, and an end-aligned recovery-action row.
+Retry and Resolve Conflict therefore remain reachable without overlapping or
+forcing the progress bar beyond the surface.
 
 Phase 5B keeps failed and cancelled terminal jobs visible and adds a labelled
 Retry button in the Operations Island. The control uses native keyboard focus,
@@ -303,6 +320,19 @@ Phase 6I removes a dead end from normal Open. Floe first resolves the selected f
 
 Phase 6K completes the first Places/bookmarks/devices navigation surface. Phase
 6L system thumbnailers are the next branch.
+That branch covers video frames, PDF pages, office documents including DOCX,
+fonts, text/code, embedded audio artwork, and archive previews while keeping
+active content non-executable.
+
+### Privileged access
+
+**Open as Administrator...** is security-designed but intentionally not
+exposed. Floe's current browser and operation identities are local `PathBuf`
+values and cannot truthfully preserve GFile authority. The action may ship only
+after the GFile/GVfs `admin://` provider, polkit authentication, visible
+Administrator state, downgrade/cancellation behavior, and documented test and
+rollout gates pass. Floe must never elevate the whole GTK process, capture a
+password, or construct `sudo`, `pkexec`, or shell commands from a path.
 
 ### Multi-selection and context surfaces
 
@@ -348,5 +378,8 @@ The following are direction, not current functionality:
   and clear focus ownership.
 - **Grid polish:** continue refining large-directory layout and persistent
   thumbnail-cache behavior without changing the shared model/selection contract.
+- **Customization:** user-facing theme presets and theme tokens, font family and
+  scale controls, and a full MIME/file-association manager built on explicit
+  Open With and Set as Default behavior.
 
 None of these planned surfaces should move filesystem operation code into GTK.

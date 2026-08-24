@@ -19,7 +19,6 @@ pub struct Appearance {
     shadow_opacity: f32,
     floating_panels: bool,
     sidebar_width: u16,
-    sidebar_min_width: u16,
 }
 
 impl Appearance {
@@ -42,7 +41,6 @@ impl Appearance {
                 shadow_opacity: 0.0,
                 floating_panels: false,
                 sidebar_width: 176,
-                sidebar_min_width: 136,
             },
             AppearancePreset::Glass => Self {
                 preset,
@@ -53,7 +51,6 @@ impl Appearance {
                 shadow_opacity: 0.16,
                 floating_panels: true,
                 sidebar_width: 168,
-                sidebar_min_width: 136,
             },
             AppearancePreset::Frosted => Self {
                 preset,
@@ -64,7 +61,6 @@ impl Appearance {
                 shadow_opacity: 0.12,
                 floating_panels: true,
                 sidebar_width: 168,
-                sidebar_min_width: 136,
             },
             AppearancePreset::Minimal => Self {
                 preset,
@@ -75,7 +71,6 @@ impl Appearance {
                 shadow_opacity: 0.0,
                 floating_panels: true,
                 sidebar_width: 160,
-                sidebar_min_width: 128,
             },
             AppearancePreset::Compact => Self {
                 preset,
@@ -86,7 +81,6 @@ impl Appearance {
                 shadow_opacity: 0.08,
                 floating_panels: true,
                 sidebar_width: 152,
-                sidebar_min_width: 124,
             },
         }
     }
@@ -109,10 +103,6 @@ impl Appearance {
         i32::from(self.sidebar_width)
     }
 
-    pub fn sidebar_min_width(self) -> i32 {
-        i32::from(self.sidebar_min_width)
-    }
-
     pub fn install(self) {
         let css = format!(
             r#"
@@ -128,7 +118,7 @@ impl Appearance {
             }}
 
             .floe-sidebar {{
-                padding: 12px;
+                padding: 0;
             }}
 
             .floe-workspace > separator {{
@@ -148,9 +138,37 @@ impl Appearance {
             }}
 
             .floe-sidebar button {{
-                min-height: 38px;
-                padding: 4px 10px;
                 border-radius: 10px;
+            }}
+
+            .floe-sidebar.sidebar-compact button {{
+                min-height: 32px;
+                padding: 2px 8px;
+            }}
+
+            .floe-sidebar.sidebar-balanced button {{
+                min-height: 36px;
+                padding: 4px 8px;
+            }}
+
+            .floe-sidebar.sidebar-comfortable button {{
+                min-height: 40px;
+                padding: 6px 10px;
+            }}
+
+            .floe-sidebar button.sidebar-icon-button {{
+                min-width: 36px;
+                min-height: 36px;
+            }}
+
+            .floe-sidebar.sidebar-balanced button.sidebar-icon-button {{
+                min-width: 40px;
+                min-height: 40px;
+            }}
+
+            .floe-sidebar.sidebar-comfortable button.sidebar-icon-button {{
+                min-width: 44px;
+                min-height: 44px;
             }}
 
             .floe-directory-list row {{
@@ -276,7 +294,8 @@ impl Appearance {
             }}
 
             .operations-island {{
-                padding: 14px;
+                min-width: 320px;
+                padding: 12px;
                 background-color: alpha(@card_bg_color, {island_opacity});
                 border: 1px solid alpha(@borders, 0.68);
                 border-radius: {island_radius}px;
@@ -293,9 +312,15 @@ impl Appearance {
                 border-radius: 999px;
             }}
 
-            .operations-island button {{
+            .operations-island button.operation-icon-action {{
                 min-width: 40px;
                 min-height: 40px;
+                border-radius: 999px;
+            }}
+
+            .operations-island button.operation-text-action {{
+                min-width: 72px;
+                min-height: 36px;
                 border-radius: 999px;
             }}
 

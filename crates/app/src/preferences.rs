@@ -16,10 +16,44 @@ use crate::view::{GridSize, ViewMode};
 const PREFERENCE_QUEUE_CAPACITY: usize = 1;
 const PREFERENCE_FILE_NAME: &str = "view-preferences.conf";
 
+/// The smallest useful sidebar width in Floe's compact density.
+pub const SIDEBAR_WIDTH_MIN: u16 = 128;
+/// Keeps the sidebar from starving the file view on ordinary desktop windows.
+pub const SIDEBAR_WIDTH_MAX: u16 = 480;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SidebarDensity {
+    #[default]
+    Compact,
+    Balanced,
+    Comfortable,
+}
+
+impl SidebarDensity {
+    pub const fn persisted(self) -> &'static str {
+        match self {
+            Self::Compact => "compact",
+            Self::Balanced => "balanced",
+            Self::Comfortable => "comfortable",
+        }
+    }
+
+    pub fn from_persisted(value: &str) -> Option<Self> {
+        match value {
+            "compact" => Some(Self::Compact),
+            "balanced" => Some(Self::Balanced),
+            "comfortable" => Some(Self::Comfortable),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ViewPreferences {
     pub mode: ViewMode,
     pub grid_size: GridSize,
+    pub sidebar_density: SidebarDensity,
+    pub sidebar_width: Option<u16>,
 }
 
 impl ViewPreferences {
@@ -42,6 +76,16 @@ impl ViewPreferences {
                         preferences.grid_size = size;
                     }
                 }
+                "sidebar-density" => {
+                    if let Some(density) = SidebarDensity::from_persisted(value.trim()) {
+                        preferences.sidebar_density = density;
+                    }
+                }
+                "sidebar-width" => {
+                    if let Ok(width) = value.trim().parse::<u16>() {
+                        preferences.sidebar_width = Some(clamp_sidebar_width(width));
+                    }
+                }
                 _ => {}
             }
         }
@@ -49,12 +93,21 @@ impl ViewPreferences {
     }
 
     fn serialize(self) -> String {
-        format!(
-            "view={}\ngrid-size={}\n",
+        let mut serialized = format!(
+            "view={}\ngrid-size={}\nsidebar-density={}\n",
             self.mode.persisted(),
-            self.grid_size.edge()
-        )
+            self.grid_size.edge(),
+            self.sidebar_density.persisted(),
+        );
+        if let Some(width) = self.sidebar_width {
+            serialized.push_str(&format!("sidebar-width={}\n", clamp_sidebar_width(width)));
+        }
+        serialized
     }
+}
+
+pub fn clamp_sidebar_width(width: u16) -> u16 {
+    width.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
 }
 
 #[derive(Debug, Error)]
@@ -207,6 +260,7 @@ mod tests {
         let preferences = ViewPreferences {
             mode: ViewMode::Grid,
             grid_size: GridSize::from_persisted(192).expect("grid size should be valid"),
+            ..ViewPreferences::default()
         };
         worker
             .try_save(preferences)
@@ -236,6 +290,7 @@ mod tests {
         let latest = ViewPreferences {
             mode: ViewMode::Grid,
             grid_size: GridSize::from_persisted(160).expect("grid size should be valid"),
+            ..ViewPreferences::default()
         };
         gate_sender.send(()).expect("worker should be released");
         worker
@@ -244,6 +299,99 @@ mod tests {
         drop(worker);
 
         let saved = fs::read_to_string(path).expect("latest preferences should be written");
+        assert_eq!(ViewPreferences::parse(&saved), latest);
+    }
+
+    #[test]
+    fn phase_6k2_preference_density_has_stable_names_and_compact_fallback() {
+        assert_eq!(SidebarDensity::default(), SidebarDensity::Compact);
+
+        for (density, persisted) in [
+            (SidebarDensity::Compact, "compact"),
+            (SidebarDensity::Balanced, "balanced"),
+            (SidebarDensity::Comfortable, "comfortable"),
+        ] {
+            assert_eq!(density.persisted(), persisted);
+            assert_eq!(SidebarDensity::from_persisted(persisted), Some(density));
+        }
+
+        assert_eq!(SidebarDensity::from_persisted("dense"), None);
+        assert_eq!(
+            ViewPreferences::parse("sidebar-density=dense\n").sidebar_density,
+            SidebarDensity::Compact
+        );
+    }
+
+    #[test]
+    fn phase_6k2_preference_width_is_optional_clamped_and_backward_compatible() {
+        let legacy = ViewPreferences::parse("view=grid\ngrid-size=160\n");
+        assert_eq!(legacy.mode, ViewMode::Grid);
+        assert_eq!(legacy.grid_size.edge(), 160);
+        assert_eq!(legacy.sidebar_density, SidebarDensity::Compact);
+        assert_eq!(legacy.sidebar_width, None);
+
+        assert_eq!(
+            ViewPreferences::parse("sidebar-width=1\n").sidebar_width,
+            Some(SIDEBAR_WIDTH_MIN)
+        );
+        assert_eq!(
+            ViewPreferences::parse("sidebar-width=65535\n").sidebar_width,
+            Some(SIDEBAR_WIDTH_MAX)
+        );
+        assert_eq!(
+            ViewPreferences::parse("sidebar-width=not-a-number\n").sidebar_width,
+            None
+        );
+        assert_eq!(
+            ViewPreferences::parse("sidebar-width=70000\n").sidebar_width,
+            None
+        );
+
+        let complete = ViewPreferences {
+            mode: ViewMode::Grid,
+            grid_size: GridSize::from_persisted(192).expect("grid size should be valid"),
+            sidebar_density: SidebarDensity::Comfortable,
+            sidebar_width: Some(336),
+        };
+        let serialized = complete.serialize();
+        assert_eq!(ViewPreferences::parse(&serialized), complete);
+        assert!(serialized.contains("sidebar-density=comfortable\n"));
+        assert!(serialized.contains("sidebar-width=336\n"));
+
+        let out_of_range = ViewPreferences {
+            sidebar_width: Some(u16::MAX),
+            ..ViewPreferences::default()
+        };
+        assert_eq!(
+            ViewPreferences::parse(&out_of_range.serialize()).sidebar_width,
+            Some(SIDEBAR_WIDTH_MAX)
+        );
+    }
+
+    #[test]
+    fn phase_6k2_preference_worker_shutdown_preserves_newest_complete_state() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let path = directory.path().join(PREFERENCE_FILE_NAME);
+        let (gate_sender, gate_receiver) = mpsc::channel();
+        let (_, worker) = PreferenceWorker::spawn_internal(path.clone(), Some(gate_receiver))
+            .expect("preference worker should start");
+        worker
+            .try_save(ViewPreferences::default())
+            .expect("first preference state should fill the bounded queue");
+
+        let latest = ViewPreferences {
+            mode: ViewMode::Grid,
+            grid_size: GridSize::from_persisted(160).expect("grid size should be valid"),
+            sidebar_density: SidebarDensity::Balanced,
+            sidebar_width: Some(312),
+        };
+        gate_sender.send(()).expect("worker should be released");
+        worker
+            .save_before_shutdown(latest)
+            .expect("shutdown should submit the newest complete state");
+        drop(worker);
+
+        let saved = fs::read_to_string(path).expect("latest preferences should be persisted");
         assert_eq!(ViewPreferences::parse(&saved), latest);
     }
 }

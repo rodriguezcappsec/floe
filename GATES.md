@@ -1,61 +1,61 @@
-# Gates: Floe Phase 6K places, bookmarks, and devices
+# Gates: Floe Phase 6K2 daily-driver polish
 
-Scope: A compact resizable sidebar with standards-based places, exact-path bookmarks, and live GIO storage devices with recoverable mount actions.
+Scope: Compact customizable sidebar spacing, remembered divider width, native authentication UX, and a structurally aligned Operations Island.
 
-- [x] G1: The dedicated phase branch starts from finalized Phase 6J on main.
-  CHECK: git branch --show-current && git merge-base --is-ancestor a0228e8 HEAD
-  EXPECT: /phase-6k-places-and-devices/
-  EVIDENCE: Current branch is `phase-6k-places-and-devices`; finalized Phase 6J commit `a0228e8` is its ancestor.
+- [x] G1: The dedicated branch starts from completed Phase 6K on main.
+  CHECK: git branch --show-current && git merge-base --is-ancestor c98b862 HEAD
+  EXPECT: /phase-6k2-daily-driver-polish/
+  EVIDENCE: Current branch is `phase-6k2-daily-driver-polish`; completed Phase 6K commit `c98b862` is its ancestor.
 
-- [x] G2: Default Places include Home and every distinct existing XDG user directory without inventing or reconstructing paths from display text.
-  CHECK: cargo test -p floe-app phase_6k_standard_locations -- --nocapture
+- [x] G2: Preferences persist a clamped sidebar width and explicit compact, balanced, or comfortable sidebar density without regressing view/grid preferences.
+  CHECK: cargo test -p floe-app phase_6k2_preference -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: Two focused tests pass for ordered existing XDG directories, omission, and exact-path deduplication.
+  EVIDENCE: Four focused tests passed for stable density names, legacy parsing, clamped width, complete-state merge, and bounded latest-state shutdown persistence.
 
-- [x] G3: User bookmarks preserve exact Linux paths, persist atomically with private permissions, deduplicate, and reject invalid or missing directories without blocking GTK.
-  CHECK: cargo test -p floe-app phase_6k_bookmark -- --nocapture
+- [x] G3: The sidebar defaults to a denser daily-driver rhythm and exposes accessible live density choices plus reset-width control.
+  CHECK: cargo test -p floe-app phase_6k2_sidebar -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: Seven bookmark tests pass for validation, non-UTF-8 binary round-trip, corrupt input, bounded queues, private atomic writes, structured failures, and shutdown.
+  EVIDENCE: Three focused tests passed; native D-Bus exported the stateful density action and reset action, and all three density choices mapped to exact accessible menu labels.
 
-- [x] G4: The sidebar is compact and pointer-resizable, separates Places, Bookmarks, and Devices, and exposes add/remove bookmark actions with accessible labels.
-  CHECK: cargo test -p floe-app phase_6k_sidebar -- --nocapture
+- [x] G4: Pointer divider changes are restored on next launch and persisted through debounced application state rather than synchronous GTK filesystem I/O.
+  CHECK: cargo test -p floe-app phase_6k2_sidebar_width -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: Four sidebar/controller tests pass; GtkPaned permits start-child resize/shrink with a 128-pixel floor and scrollable sections.
+  EVIDENCE: Two focused tests passed. Persistence is armed after initial allocation, divider changes debounce 320 ms to the bounded worker, the sidebar remains fixed during window resize, and shutdown flushes the newest complete state.
 
-- [x] G5: GIO drive, volume, and mount snapshots use stable identities, distinguish mounted/unmounted/removable state, and update on VolumeMonitor signals.
-  CHECK: cargo test -p floe-app phase_6k_device -- --nocapture
+- [x] G5: Copy/move/rename/trash progress and terminal feedback use an aligned Operations Island with bounded metrics, clear hierarchy, and reachable Retry, Resolve Conflict, and Cancel controls.
+  CHECK: cargo test -p floe-app phase_6k2_operation_island -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: Ten device tests pass, including stable identity, monitor notification, and hierarchy collapse to one useful sidebar row.
+  EVIDENCE: Two geometry tests passed; the 340-pixel island has 12-pixel insets and separate title/cancel, detail, flexible progress, and end-aligned recovery rows.
 
-- [x] G6: Mount, unmount, and eject requests go through an application-owned asynchronous device boundary with busy, success, and understandable failure states.
-  CHECK: cargo test -p floe-app phase_6k_device_action -- --nocapture
+- [x] G6: Password-protected device mounting uses a window-parented native GtkMountOperation, permits system password/polkit interaction, and never stores or logs credentials.
+  CHECK: cargo test -p floe-app phase_6k2_mount_auth -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: Action tests and the safety scan pass; GIO async APIs reserve one action per device and return structured outcomes without shell or blocking filesystem calls.
+  EVIDENCE: One focused policy test passed; runtime delegates mount authentication to `gtk::MountOperation::new(Some(&window))` and Floe owns no password field or credential value.
 
-- [x] G7: Mounted local devices navigate by authoritative paths; unmounted rows mount first; unavailable/non-local roots never corrupt navigation state.
-  CHECK: cargo test -p floe-app phase_6k_sidebar_ -- --nocapture
-  EXPECT: /test result: ok/
-  EVIDENCE: Four sidebar/controller tests pass for exact non-UTF-8 navigation, mount-first activation, local navigation, and honest remote/busy/unavailable states.
+- [x] G7: Privileged browsing is not faked by running Floe as root; the roadmap defines a GFile-native administrator location boundary before exposing Open as Administrator.
+  CHECK: rg -n 'Open as Administrator|GFile|admin://|whole.*root|privileged' README.md DESIGN.md docs/ARCHITECTURE.md docs/ROADMAP.md docs/DEVELOPMENT.md AGENTS.md
+  EXPECT: /Open as Administrator/
+  EVIDENCE: Persistent docs and `docs/PRIVILEGED_ACCESS.md` define GFile/GVfs `admin://`, polkit delegation, authority-preserving provider/jobs, visible administrator state, and test/rollout gates; the action remains unexposed.
 
-- [x] G8: Formatting, compilation, strict Clippy, all tests, and diff hygiene pass.
+- [x] G8: Video, PDF, office-document, font, text/code, audio-art, and archive thumbnail coverage remains explicitly next on the bounded freedesktop system-thumbnailer branch.
+  CHECK: rg -n 'video|PDF|office|DOCX|font|audio|archive|system thumbnail' README.md DESIGN.md docs/ROADMAP.md AGENTS.md
+  EXPECT: /system thumbnail/
+  EVIDENCE: README, design, roadmap, development, and project status name Phase 6L coverage for video frames, PDF pages, office/DOCX, fonts, text/code, embedded audio artwork, and archive previews.
+
+- [x] G9: Formatting, compilation, strict Clippy, all tests, and diff hygiene pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && git diff --check
   EXPECT: /test result: ok/
-  EVIDENCE: All commands passed; 171 tests passed: 138 application and 33 core.
+  EVIDENCE: Parent final suite passed formatting, workspace check, strict Clippy, 148 application tests, 33 core tests, and diff hygiene; 181 tests passed with zero failures.
 
-- [x] G9: Native Wayland smoke keeps Floe healthy while sidebar actions and device monitoring are active.
-  EVIDENCE: Floe owned `io.github.floe.FileManager`, exported 24 window actions, activated Refresh, answered D-Bus Ping, exited zero through Quit, and released its name; only known host warnings appeared.
+- [x] G10: Native Wayland smoke verifies settings actions, divider restoration, device-monitor health, and clean D-Bus release; operation layout receives explicit structural audit evidence.
+  EVIDENCE: Niri smoke exported 26 actions, exercised Balanced/Comfortable/Compact, and remained healthy. Isolated two-launch QA preserved 333 pixels, Reset removed only width, and the reset survived restart/shutdown. Floe exited 0 and released its D-Bus name; screenshot tools were unavailable, so Operations Island evidence is deterministic geometry plus live health rather than a claimed screenshot.
 
-- [x] G10: README, DESIGN, architecture, roadmap, development notes, and AGENTS status truthfully record Phase 6K behavior and limitations.
-  CHECK: rg -n 'Phase 6K|Places|Bookmarks|Devices|VolumeMonitor' README.md DESIGN.md docs/ARCHITECTURE.md docs/ROADMAP.md docs/DEVELOPMENT.md AGENTS.md
-  EXPECT: /Phase 6K/
-  EVIDENCE: Documentation records implemented behavior, 171 measured tests, remote-root and sidebar-width limitations, and Phase 6L as next.
-
-- [x] G11: The phase branch and main are committed, pushed, merged, and synchronized at the implementation checkpoint.
-  CHECK: git rev-parse main phase-6k-places-and-devices origin/main origin/phase-6k-places-and-devices
+- [ ] G11: The phase branch and main are committed, pushed, merged, and synchronized.
+  CHECK: git rev-parse main phase-6k2-daily-driver-polish origin/main origin/phase-6k2-daily-driver-polish
   EXPECT: /^([0-9a-f]{40})\n\1\n\1\n\1$/
-  EVIDENCE: Before ledger-only finalization, all four refs resolved to `e6a28b440a830ab56d9c676c3c62b24d6e1e43bf`.
+  EVIDENCE: pending
 
-- [x] G12: The gate checker reports every Phase 6K gate met.
+- [ ] G12: The status-only gate checker reports every Phase 6K2 gate met.
   CHECK: node /home/rocappsec/.codex/skills/unlazy/scripts/gate-check.mjs --status GATES.md
   EXPECT: /ALL MET/
-  EVIDENCE: The status-only checker reported `ALL MET (12 met)` after final ledger repair.
+  EVIDENCE: pending

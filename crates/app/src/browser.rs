@@ -25,13 +25,57 @@ use crate::{
         PendingLocation, location_failure_message, location_text, resolve_location_input,
     },
     locations::Location,
-    preferences::{PreferenceSubmitError, PreferenceWorker, ViewPreferences},
+    preferences::{
+        PreferenceSubmitError, PreferenceWorker, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
+        SidebarDensity, ViewPreferences, clamp_sidebar_width,
+    },
     state::{ApplicationState, TransferIntent, validate_rename_name},
     thumbnail::{ThumbnailSubmitError, ThumbnailWorker},
     ui::{self, BrowserWidgets},
     view::{GridSize, VIEW_ACTIONS, ViewCommand, ViewMode},
     worker::{BrowserWorker, ResponseKind},
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct MountAuthenticationPolicy {
+    window_parented: bool,
+    credential_opaque: bool,
+    feedback: &'static str,
+}
+
+const fn mount_authentication_policy() -> MountAuthenticationPolicy {
+    MountAuthenticationPolicy {
+        window_parented: true,
+        credential_opaque: true,
+        feedback: "Mounting… If authentication is required, your desktop will ask for the password.",
+    }
+}
+
+const SIDEBAR_PERSIST_DEBOUNCE: Duration = Duration::from_millis(320);
+
+fn with_current_view_preferences(
+    mut preferences: ViewPreferences,
+    mode: ViewMode,
+    grid_size: GridSize,
+) -> ViewPreferences {
+    preferences.mode = mode;
+    preferences.grid_size = grid_size;
+    preferences
+}
+
+fn sidebar_width_from_position(position: i32) -> u16 {
+    let width = match u16::try_from(position) {
+        Ok(width) => width,
+        Err(_) if position < 0 => SIDEBAR_WIDTH_MIN,
+        Err(_) => SIDEBAR_WIDTH_MAX,
+    };
+    clamp_sidebar_width(width)
+}
+
+fn preferences_after_sidebar_reset(mut preferences: ViewPreferences) -> ViewPreferences {
+    preferences.sidebar_width = None;
+    preferences
+}
 
 pub struct BrowserServices {
     browser: BrowserWorker,
@@ -80,6 +124,9 @@ pub struct BrowserController {
     grid_size: Cell<GridSize>,
     preference_worker: RefCell<Option<PreferenceWorker>>,
     pending_preferences: Cell<Option<ViewPreferences>>,
+    current_preferences: RefCell<ViewPreferences>,
+    sidebar_save_source: RefCell<Option<glib::SourceId>>,
+    ignore_sidebar_position_signal: Cell<bool>,
     pending_location: RefCell<Option<PendingLocation>>,
     application_state: Rc<ApplicationState>,
     bookmark_worker: RefCell<Option<BookmarkWorker>>,
@@ -93,16 +140,16 @@ pub struct BrowserController {
 
 impl Drop for BrowserController {
     fn drop(&mut self) {
+        if let Some(source) = self.sidebar_save_source.get_mut().take() {
+            source.remove();
+        }
         if let Some(subscription) = self.device_subscription.take() {
             self.device_monitor.disconnect_changed(subscription);
         }
-        let Some(preferences) = self.pending_preferences.take() else {
-            return;
-        };
         let Some(worker) = self.preference_worker.get_mut().as_ref() else {
             return;
         };
-        if let Err(error) = worker.save_before_shutdown(preferences) {
+        if let Err(error) = worker.save_before_shutdown(*self.current_preferences.get_mut()) {
             tracing::warn!(%error, "could not submit final view preferences");
         }
     }
@@ -144,6 +191,9 @@ impl BrowserController {
             grid_size: Cell::new(view_preferences.grid_size),
             preference_worker: RefCell::new(preferences),
             pending_preferences: Cell::new(None),
+            current_preferences: RefCell::new(view_preferences),
+            sidebar_save_source: RefCell::new(None),
+            ignore_sidebar_position_signal: Cell::new(false),
             pending_location: RefCell::new(None),
             application_state,
             bookmark_worker: RefCell::new(bookmarks),
@@ -159,6 +209,8 @@ impl BrowserController {
     pub fn wire(self: &Rc<Self>, application: &adw::Application, locations: &[Location]) {
         self.install_actions(application);
         self.update_sort_headers();
+        self.widgets
+            .apply_sidebar_density(self.current_preferences.borrow().sidebar_density);
 
         for (button, location) in self.widgets.location_buttons.iter().zip(locations) {
             let controller = Rc::downgrade(self);
@@ -398,6 +450,7 @@ impl BrowserController {
                 .sensitive(actions_enabled)
                 .tooltip_text(format!("Remove {display_name} from Bookmarks"))
                 .build();
+            remove.add_css_class("sidebar-icon-button");
             set_accessible_label(&remove, &format!("Remove bookmark {display_name}"));
             let controller = Rc::downgrade(self);
             remove.connect_clicked(move |_| {
@@ -522,6 +575,7 @@ impl BrowserController {
             .has_frame(false)
             .tooltip_text(&label)
             .build();
+        button.add_css_class("sidebar-icon-button");
         set_accessible_label(&button, &label);
         let id = snapshot.id.clone();
         let controller = Rc::downgrade(self);
@@ -539,6 +593,9 @@ impl BrowserController {
         action: DeviceAction,
         navigate_after_mount: bool,
     ) {
+        if action == DeviceAction::Mount {
+            self.show_toast(mount_authentication_policy().feedback, 6);
+        }
         let mount_operation = gtk::MountOperation::new(Some(&self.widgets.window));
         let controller = Rc::downgrade(self);
         let completion = move |outcome| {
@@ -633,6 +690,7 @@ impl BrowserController {
 
     pub fn present_and_start(self: &Rc<Self>) {
         self.widgets.window.present();
+        self.arm_sidebar_width_persistence();
         self.load_current();
 
         let controller = Rc::clone(self);
@@ -647,6 +705,35 @@ impl BrowserController {
             controller.drain_thumbnail_worker();
             controller.flush_pending_preferences();
             glib::ControlFlow::Continue
+        });
+    }
+
+    fn arm_sidebar_width_persistence(self: &Rc<Self>) {
+        let controller = Rc::downgrade(self);
+        glib::idle_add_local_once(move || {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let restored_width = controller
+                .current_preferences
+                .borrow()
+                .sidebar_width
+                .map(clamp_sidebar_width)
+                .map(i32::from)
+                .unwrap_or(controller.widgets.sidebar_default_width);
+            controller.ignore_sidebar_position_signal.set(true);
+            controller.widgets.workspace.set_position(restored_width);
+            controller.ignore_sidebar_position_signal.set(false);
+
+            let controller_weak = Rc::downgrade(&controller);
+            controller
+                .widgets
+                .workspace
+                .connect_position_notify(move |workspace| {
+                    if let Some(controller) = controller_weak.upgrade() {
+                        controller.sidebar_position_changed(workspace.position());
+                    }
+                });
         });
     }
 
@@ -669,6 +756,31 @@ impl BrowserController {
                 controller.apply_view_command(command);
             });
         }
+
+        let density = self.current_preferences.borrow().sidebar_density;
+        let density_action = gio::SimpleAction::new_stateful(
+            "sidebar-density",
+            Some(&String::static_variant_type()),
+            &density.persisted().to_variant(),
+        );
+        let controller = Rc::downgrade(self);
+        density_action.connect_activate(move |action, parameter| {
+            let Some(density) = parameter
+                .and_then(glib::Variant::str)
+                .and_then(SidebarDensity::from_persisted)
+            else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                controller.change_sidebar_density(density);
+                action.set_state(&density.persisted().to_variant());
+            }
+        });
+        self.widgets.window.add_action(&density_action);
+
+        self.add_action("reset-sidebar-width", |controller| {
+            controller.reset_sidebar_width();
+        });
         let open_action = self.add_action("open", |controller| controller.activate_selected());
         open_action.set_enabled(false);
         let open_with_action =
@@ -789,11 +901,57 @@ impl BrowserController {
     }
 
     fn queue_preferences(&self) {
-        self.pending_preferences.set(Some(ViewPreferences {
-            mode: self.view_mode.get(),
-            grid_size: self.grid_size.get(),
-        }));
+        let preferences = with_current_view_preferences(
+            *self.current_preferences.borrow(),
+            self.view_mode.get(),
+            self.grid_size.get(),
+        );
+        *self.current_preferences.borrow_mut() = preferences;
+        self.pending_preferences.set(Some(preferences));
         self.flush_pending_preferences();
+    }
+
+    fn change_sidebar_density(&self, density: SidebarDensity) {
+        if self.current_preferences.borrow().sidebar_density == density {
+            return;
+        }
+        self.current_preferences.borrow_mut().sidebar_density = density;
+        self.widgets.apply_sidebar_density(density);
+        self.queue_preferences();
+    }
+
+    fn sidebar_position_changed(self: &Rc<Self>, position: i32) {
+        if self.ignore_sidebar_position_signal.get() {
+            return;
+        }
+        self.current_preferences.borrow_mut().sidebar_width =
+            Some(sidebar_width_from_position(position));
+
+        if let Some(source) = self.sidebar_save_source.borrow_mut().take() {
+            source.remove();
+        }
+        let controller = Rc::downgrade(self);
+        let source = glib::timeout_add_local_once(SIDEBAR_PERSIST_DEBOUNCE, move || {
+            if let Some(controller) = controller.upgrade() {
+                controller.sidebar_save_source.borrow_mut().take();
+                controller.queue_preferences();
+            }
+        });
+        self.sidebar_save_source.borrow_mut().replace(source);
+    }
+
+    fn reset_sidebar_width(&self) {
+        if let Some(source) = self.sidebar_save_source.borrow_mut().take() {
+            source.remove();
+        }
+        self.ignore_sidebar_position_signal.set(true);
+        self.widgets
+            .workspace
+            .set_position(self.widgets.sidebar_default_width);
+        self.ignore_sidebar_position_signal.set(false);
+        let reset = preferences_after_sidebar_reset(*self.current_preferences.borrow());
+        *self.current_preferences.borrow_mut() = reset;
+        self.queue_preferences();
     }
 
     fn flush_pending_preferences(&self) {
@@ -1906,6 +2064,53 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn phase_6k2_mount_auth_is_window_parented_and_credential_opaque() {
+        let policy = mount_authentication_policy();
+
+        assert!(policy.window_parented);
+        assert!(policy.credential_opaque);
+        assert!(policy.feedback.contains("your desktop will ask"));
+        assert!(!policy.feedback.to_ascii_lowercase().contains("store"));
+        assert!(!policy.feedback.to_ascii_lowercase().contains("log"));
+    }
+
+    #[test]
+    fn phase_6k2_preferences_preserve_sidebar_state_across_view_changes() {
+        let current = ViewPreferences {
+            mode: ViewMode::List,
+            grid_size: GridSize::default(),
+            sidebar_density: SidebarDensity::Comfortable,
+            sidebar_width: Some(312),
+        };
+        let updated =
+            with_current_view_preferences(current, ViewMode::Grid, GridSize::default().zoom_in());
+
+        assert_eq!(updated.mode, ViewMode::Grid);
+        assert_eq!(updated.sidebar_density, SidebarDensity::Comfortable);
+        assert_eq!(updated.sidebar_width, Some(312));
+        assert_eq!(SIDEBAR_PERSIST_DEBOUNCE, Duration::from_millis(320));
+    }
+
+    #[test]
+    fn phase_6k2_sidebar_width_debounces_clamps_and_resets_to_appearance_default() {
+        assert_eq!(sidebar_width_from_position(-1), SIDEBAR_WIDTH_MIN);
+        assert_eq!(sidebar_width_from_position(0), SIDEBAR_WIDTH_MIN);
+        assert_eq!(sidebar_width_from_position(312), 312);
+        assert_eq!(sidebar_width_from_position(i32::MAX), SIDEBAR_WIDTH_MAX);
+        assert_eq!(SIDEBAR_PERSIST_DEBOUNCE, Duration::from_millis(320));
+
+        let current = ViewPreferences {
+            mode: ViewMode::Grid,
+            grid_size: GridSize::default(),
+            sidebar_density: SidebarDensity::Balanced,
+            sidebar_width: Some(312),
+        };
+        let reset = preferences_after_sidebar_reset(current);
+        assert_eq!(reset.sidebar_width, None);
+        assert_eq!(reset.sidebar_density, SidebarDensity::Balanced);
+    }
 
     #[cfg(unix)]
     #[test]

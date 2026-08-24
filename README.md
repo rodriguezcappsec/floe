@@ -26,12 +26,15 @@ required nor simulated.
   Pictures, Public Share, Templates, and Videos location
 - Switchable virtualized list/grid views sharing one multi-selection model and original `PathBuf` values
 - Fixed Name, Type, Size, and Modified columns using already-loaded metadata
-- Compact, vertically scrollable, user-resizable sidebar with separate
-  Places, Bookmarks, and Devices sections
+- Compact, vertically scrollable sidebar with separate Places, Bookmarks, and
+  Devices sections; Compact, Balanced, and Comfortable density choices apply
+  immediately, and the resizable divider width is restored on the next launch
 - Add/remove folder bookmarks loaded and saved asynchronously with exact Linux
   path identity and private atomic persistence
 - Live GIO drive, volume, and mount rows with asynchronous mount, unmount, and
-  eject actions; mounted local filesystem roots navigate directly
+  eject actions; a window-parented native `GtkMountOperation` presents any
+  desktop password prompt without Floe receiving credentials, and mounted local
+  filesystem roots navigate directly
 - Floe-owned scalable folder/file icon family with executable, link, document,
   media, archive, code, PDF, spreadsheet, and presentation distinctions
 - Lazy PNG/JPEG/WebP/GIF/BMP/TIFF/ICO thumbnails decoded on a bounded worker
@@ -47,7 +50,8 @@ required nor simulated.
   lifecycle events, cancellation, failure mapping, and retry identity
 - Application-owned multi-path transfer buffer for Ctrl+C copy, Ctrl+X move, and Ctrl+V paste
 - Compact non-modal Operations Island with progress, cancellation, completion,
-  conflict, and failure feedback
+  conflict, and failure feedback; separate title/cancel, detail, flexible
+  progress, and recovery rows prevent action/progress collisions
 - GTK-independent exact-path move and same-directory rename models
 - Atomic same-filesystem no-replace move/rename execution on a bounded worker
 - F2 rename dialog with inline validation and visible file-actions menu
@@ -168,13 +172,29 @@ without reducing raw paths to display text, and observes GIO `VolumeMonitor`
 drive/volume/mount changes. Device rows expose honest mounted, unmounted, busy,
 unavailable, and failed-action feedback. Floe navigates mounted local filesystem
 roots; remote/network roots remain unavailable until the dedicated remote
-filesystem phase. Sidebar width remains user-resizable for the current window
-but is not persisted yet.
+filesystem phase. Phase 6K2 adds a compact default rhythm plus Balanced and
+Comfortable sidebar density choices. Divider changes are clamped to 128-480
+pixels, saved after a 320 ms debounce, restored on launch, and can be reset to
+the active appearance preset's default width.
 
-Phase 6K is complete. The next branch is `phase-6l-system-thumbnailers`, followed
-by `phase-6m-permanent-delete`. Phase 6M will use
+Encrypted or password-protected mounts use the desktop-native,
+window-parented `GtkMountOperation`; Floe does not ask for, store, or log the
+password. A future **Open as Administrator...** action is security-designed but
+intentionally not exposed yet. It requires the documented GFile/GVfs
+`admin://` provider and rollout gates. Floe will never elevate the whole GTK
+application or interpolate paths into `sudo`, `pkexec`, or shell commands.
+
+Phase 6K2 is complete. The immediate next branch is
+`phase-6l-system-thumbnailers`, consuming reviewed system thumbnailers for video
+frames, PDF pages, office documents including DOCX, fonts, text/code, embedded
+audio artwork, and archive previews without executing active content. It is
+followed by `phase-6m-permanent-delete`. Phase 6M will use
 the truthful label “Delete Permanently,” require explicit confirmation, and avoid
 claiming secure erase where storage cannot guarantee overwriting.
+
+Later customization milestones include first-class theme and font controls plus
+a full file-association manager. The existing Open With and explicit Set as
+Default flows remain the safe foundation for association management.
 
 ## Project documentation
 
@@ -182,3 +202,5 @@ claiming secure erase where storage cannot guarantee overwriting.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — current code and data flow
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) — build, run, test, and troubleshoot
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — completed, next, and later milestones
+- [`docs/PRIVILEGED_ACCESS.md`](docs/PRIVILEGED_ACCESS.md) — security design and
+  rollout gates for future administrator-scoped browsing

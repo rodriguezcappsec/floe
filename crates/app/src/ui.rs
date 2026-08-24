@@ -19,12 +19,111 @@ use crate::{
     iconography::{EntryIcon, LIST_ICON_EDGE, grid_icon_edge, icon_for_entry},
     launcher::OpenWithOptions,
     locations::Location,
-    preferences::ViewPreferences,
+    preferences::{SIDEBAR_WIDTH_MIN, SidebarDensity, ViewPreferences, clamp_sidebar_width},
     thumbnail::{LIST_THUMBNAIL_EDGE, ThumbnailError, ThumbnailKey, ThumbnailPixels},
     view::{GRID_SIZES, GridSize, ViewMode},
 };
 
 pub const SIDEBAR_COMPACT_MIN_WIDTH: i32 = 128;
+pub const OPERATION_ISLAND_WIDTH: i32 = 340;
+pub const OPERATION_ISLAND_INSET: i32 = 12;
+const OPERATION_ISLAND_CANCEL_MIN_WIDTH: i32 = 40;
+const OPERATION_ISLAND_ACTION_MIN_WIDTH: i32 = 72;
+const SIDEBAR_DENSITY_MENU_ITEMS: [(&str, &str); 3] = [
+    ("Compact", "win.sidebar-density::compact"),
+    ("Balanced", "win.sidebar-density::balanced"),
+    ("Comfortable", "win.sidebar-density::comfortable"),
+];
+const RESET_SIDEBAR_WIDTH_MENU_ITEM: (&str, &str) =
+    ("Reset Sidebar Width", "win.reset-sidebar-width");
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OperationIslandRow {
+    TitleAndCancel,
+    Detail,
+    Progress,
+    RecoveryActions,
+}
+
+const OPERATION_ISLAND_STRUCTURE: [OperationIslandRow; 4] = [
+    OperationIslandRow::TitleAndCancel,
+    OperationIslandRow::Detail,
+    OperationIslandRow::Progress,
+    OperationIslandRow::RecoveryActions,
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct OperationIslandLayout {
+    outer_width: i32,
+    inset: i32,
+    cancel_min_width: i32,
+    action_min_width: i32,
+}
+
+impl OperationIslandLayout {
+    const CURRENT: Self = Self {
+        outer_width: OPERATION_ISLAND_WIDTH,
+        inset: OPERATION_ISLAND_INSET,
+        cancel_min_width: OPERATION_ISLAND_CANCEL_MIN_WIDTH,
+        action_min_width: OPERATION_ISLAND_ACTION_MIN_WIDTH,
+    };
+
+    const fn content_width(self) -> i32 {
+        self.outer_width - (self.inset * 2)
+    }
+
+    const fn child_minimums_fit(self) -> bool {
+        self.content_width() >= self.cancel_min_width
+            && self.content_width() >= self.action_min_width
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SidebarDensityMetrics {
+    section_gap: i32,
+    row_gap: i32,
+    outer_margin: i32,
+}
+
+const fn sidebar_density_metrics(density: SidebarDensity) -> SidebarDensityMetrics {
+    match density {
+        SidebarDensity::Compact => SidebarDensityMetrics {
+            section_gap: 4,
+            row_gap: 2,
+            outer_margin: 6,
+        },
+        SidebarDensity::Balanced => SidebarDensityMetrics {
+            section_gap: 8,
+            row_gap: 2,
+            outer_margin: 8,
+        },
+        SidebarDensity::Comfortable => SidebarDensityMetrics {
+            section_gap: 12,
+            row_gap: 2,
+            outer_margin: 12,
+        },
+    }
+}
+
+fn sidebar_density_class(density: SidebarDensity) -> &'static str {
+    match density {
+        SidebarDensity::Compact => "sidebar-compact",
+        SidebarDensity::Balanced => "sidebar-balanced",
+        SidebarDensity::Comfortable => "sidebar-comfortable",
+    }
+}
+
+fn initial_sidebar_width(preferences: ViewPreferences, appearance_default: i32) -> i32 {
+    preferences
+        .sidebar_width
+        .map(clamp_sidebar_width)
+        .map(i32::from)
+        .unwrap_or(appearance_default)
+}
+
+fn sidebar_pane_resize_policy() -> (bool, bool) {
+    (false, true)
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DeviceActivation {
@@ -417,11 +516,15 @@ pub struct BrowserWidgets {
     pub bookmarks_box: gtk::Box,
     pub add_bookmark_button: gtk::Button,
     pub devices_box: gtk::Box,
+    pub workspace: gtk::Paned,
+    pub sidebar: gtk::Box,
+    pub sidebar_default_width: i32,
     pub operations: OperationWidgets,
 }
 
 struct SidebarWidgets {
     content: gtk::ScrolledWindow,
+    sidebar: gtk::Box,
     location_buttons: Vec<gtk::Button>,
     bookmarks_box: gtk::Box,
     add_bookmark_button: gtk::Button,
@@ -447,6 +550,20 @@ struct DirectoryPanelWidgets {
 }
 
 impl BrowserWidgets {
+    pub fn apply_sidebar_density(&self, density: SidebarDensity) {
+        for class_name in ["sidebar-compact", "sidebar-balanced", "sidebar-comfortable"] {
+            self.sidebar.remove_css_class(class_name);
+        }
+        self.sidebar.add_css_class(sidebar_density_class(density));
+
+        let metrics = sidebar_density_metrics(density);
+        self.sidebar.set_spacing(metrics.section_gap);
+        self.sidebar.set_margin_top(metrics.outer_margin);
+        self.sidebar.set_margin_bottom(metrics.outer_margin);
+        self.sidebar.set_margin_start(metrics.outer_margin);
+        self.sidebar.set_margin_end(metrics.outer_margin);
+    }
+
     pub fn set_view_mode(&self, mode: ViewMode) {
         self.view_stack.set_visible_child_name(mode.stack_name());
         self.list_header.set_visible(mode == ViewMode::List);
@@ -606,12 +723,24 @@ pub fn build(
     file_actions_model.append(Some("Move"), Some("win.cut"));
     file_actions_model.append(Some("Rename…"), Some("win.rename"));
     file_actions_model.append(Some("Move to Trash"), Some("win.trash"));
+
+    let sidebar_density_model = gio::Menu::new();
+    for (label, action) in SIDEBAR_DENSITY_MENU_ITEMS {
+        sidebar_density_model.append(Some(label), Some(action));
+    }
+    let sidebar_model = gio::Menu::new();
+    sidebar_model.append_submenu(Some("Sidebar Density"), &sidebar_density_model);
+    sidebar_model.append(
+        Some(RESET_SIDEBAR_WIDTH_MENU_ITEM.0),
+        Some(RESET_SIDEBAR_WIDTH_MENU_ITEM.1),
+    );
+    file_actions_model.append_section(None, &sidebar_model);
     let file_actions = gtk::MenuButton::builder()
         .icon_name("view-more-symbolic")
-        .tooltip_text("File actions")
+        .tooltip_text("File and view options")
         .menu_model(&file_actions_model)
         .build();
-    set_accessible_label(&file_actions, "File actions");
+    set_accessible_label(&file_actions, "File and view options");
 
     let list_view_button = gtk::ToggleButton::builder()
         .icon_name("view-list-symbolic")
@@ -671,7 +800,11 @@ pub fn build(
     header.pack_end(&grid_size_controls);
     header.pack_end(&view_controls);
 
-    let sidebar = build_sidebar(locations, appearance.sidebar_min_width());
+    let sidebar = build_sidebar(
+        locations,
+        i32::from(SIDEBAR_WIDTH_MIN),
+        preferences.sidebar_density,
+    );
     let DirectoryPanelWidgets {
         content,
         selection,
@@ -691,12 +824,14 @@ pub fn build(
     } = build_directory_panel(preferences);
 
     content.set_width_request(420);
+    let restored_sidebar_width = initial_sidebar_width(preferences, appearance.sidebar_width());
+    let (resize_sidebar, resize_content) = sidebar_pane_resize_policy();
     let workspace = gtk::Paned::builder()
         .orientation(gtk::Orientation::Horizontal)
-        .position(appearance.sidebar_width())
+        .position(restored_sidebar_width)
         .wide_handle(true)
-        .resize_start_child(true)
-        .resize_end_child(true)
+        .resize_start_child(resize_sidebar)
+        .resize_end_child(resize_content)
         .shrink_start_child(true)
         .shrink_end_child(false)
         .hexpand(true)
@@ -759,6 +894,9 @@ pub fn build(
         bookmarks_box: sidebar.bookmarks_box,
         add_bookmark_button: sidebar.add_bookmark_button,
         devices_box: sidebar.devices_box,
+        workspace,
+        sidebar: sidebar.sidebar,
+        sidebar_default_width: appearance.sidebar_width(),
         operations,
     }
 }
@@ -1042,6 +1180,16 @@ pub fn build_open_with_dialog(file_name: &str, options: &OpenWithOptions) -> Ope
 }
 
 fn build_operations_island() -> OperationWidgets {
+    debug_assert!(OperationIslandLayout::CURRENT.child_minimums_fit());
+    debug_assert_eq!(
+        OPERATION_ISLAND_STRUCTURE,
+        [
+            OperationIslandRow::TitleAndCancel,
+            OperationIslandRow::Detail,
+            OperationIslandRow::Progress,
+            OperationIslandRow::RecoveryActions,
+        ]
+    );
     let operation_label = gtk::Label::builder()
         .label("Working on item")
         .halign(gtk::Align::Start)
@@ -1060,10 +1208,7 @@ fn build_operations_island() -> OperationWidgets {
         .build();
     operation_detail.add_css_class("floe-status");
 
-    let operation_progress = gtk::ProgressBar::builder()
-        .hexpand(true)
-        .width_request(220)
-        .build();
+    let operation_progress = gtk::ProgressBar::builder().hexpand(true).build();
     set_accessible_label(&operation_progress, "File operation progress");
 
     let operation_cancel = gtk::Button::builder()
@@ -1071,6 +1216,7 @@ fn build_operations_island() -> OperationWidgets {
         .tooltip_text("Cancel file operation")
         .has_frame(false)
         .build();
+    operation_cancel.add_css_class("operation-icon-action");
     set_accessible_label(&operation_cancel, "Cancel file operation");
 
     let operation_retry = gtk::Button::builder()
@@ -1078,28 +1224,35 @@ fn build_operations_island() -> OperationWidgets {
         .tooltip_text("Retry file operation")
         .visible(false)
         .build();
+    operation_retry.add_css_class("operation-text-action");
 
-    let progress_row = gtk::Box::builder()
+    let title_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(10)
+        .spacing(8)
         .build();
-    progress_row.append(&operation_progress);
-    progress_row.append(&operation_retry);
-    progress_row.append(&operation_cancel);
+    title_row.append(&operation_label);
+    title_row.append(&operation_cancel);
+
+    let action_row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .halign(gtk::Align::End)
+        .build();
+    action_row.append(&operation_retry);
 
     let island = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .spacing(6)
-        .margin_top(18)
-        .margin_bottom(18)
-        .margin_start(18)
-        .margin_end(18)
-        .width_request(300)
+        .margin_top(OPERATION_ISLAND_INSET)
+        .margin_bottom(OPERATION_ISLAND_INSET)
+        .margin_start(OPERATION_ISLAND_INSET)
+        .margin_end(OPERATION_ISLAND_INSET)
+        .width_request(OPERATION_ISLAND_WIDTH)
         .build();
     island.add_css_class("operations-island");
-    island.append(&operation_label);
+    island.append(&title_row);
     island.append(&operation_detail);
-    island.append(&progress_row);
+    island.append(&operation_progress);
+    island.append(&action_row);
 
     let revealer = gtk::Revealer::builder()
         .halign(gtk::Align::End)
@@ -1120,19 +1273,29 @@ fn build_operations_island() -> OperationWidgets {
     }
 }
 
-fn build_sidebar(locations: &[Location], minimum_width: i32) -> SidebarWidgets {
+fn build_sidebar(
+    locations: &[Location],
+    minimum_width: i32,
+    density: SidebarDensity,
+) -> SidebarWidgets {
+    let metrics = sidebar_density_metrics(density);
     let sidebar = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(8)
-        .margin_top(10)
-        .margin_bottom(10)
-        .margin_start(8)
-        .margin_end(8)
+        .spacing(metrics.section_gap)
+        .margin_top(metrics.outer_margin)
+        .margin_bottom(metrics.outer_margin)
+        .margin_start(metrics.outer_margin)
+        .margin_end(metrics.outer_margin)
         .vexpand(true)
         .build();
     sidebar.add_css_class("floe-sidebar");
+    sidebar.add_css_class(sidebar_density_class(density));
 
     sidebar.append(&sidebar_heading("Places"));
+    let places_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(metrics.row_gap)
+        .build();
 
     let mut buttons = Vec::with_capacity(locations.len());
     for location in locations {
@@ -1145,6 +1308,7 @@ fn build_sidebar(locations: &[Location], minimum_width: i32) -> SidebarWidgets {
             .label(location.label)
             .halign(gtk::Align::Start)
             .hexpand(true)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
             .build();
         content.append(&label);
 
@@ -1153,9 +1317,10 @@ fn build_sidebar(locations: &[Location], minimum_width: i32) -> SidebarWidgets {
             .has_frame(false)
             .build();
         set_accessible_label(&button, location.label);
-        sidebar.append(&button);
+        places_box.append(&button);
         buttons.push(button);
     }
+    sidebar.append(&places_box);
 
     let bookmark_heading = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -1168,6 +1333,7 @@ fn build_sidebar(locations: &[Location], minimum_width: i32) -> SidebarWidgets {
         .tooltip_text("Add current folder to Bookmarks")
         .halign(gtk::Align::End)
         .build();
+    add_bookmark_button.add_css_class("sidebar-icon-button");
     set_accessible_label(&add_bookmark_button, "Add current folder to Bookmarks");
     bookmark_heading.append(&add_bookmark_button);
     sidebar.append(&bookmark_heading);
@@ -1198,6 +1364,7 @@ fn build_sidebar(locations: &[Location], minimum_width: i32) -> SidebarWidgets {
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .propagate_natural_height(true)
+        .propagate_natural_width(false)
         .width_request(minimum_width.max(SIDEBAR_COMPACT_MIN_WIDTH))
         .vexpand(true)
         .child(&sidebar)
@@ -1206,6 +1373,7 @@ fn build_sidebar(locations: &[Location], minimum_width: i32) -> SidebarWidgets {
 
     SidebarWidgets {
         content,
+        sidebar,
         location_buttons: buttons,
         bookmarks_box,
         add_bookmark_button,
@@ -1937,6 +2105,98 @@ mod tests {
     use std::{path::PathBuf, time::Duration};
 
     use super::*;
+
+    #[test]
+    fn phase_6k2_operation_island_layout_keeps_every_child_within_content_width() {
+        let layout = OperationIslandLayout::CURRENT;
+
+        assert!(layout.outer_width >= 320);
+        assert_eq!(layout.inset, 12);
+        assert_eq!(layout.content_width(), 316);
+        assert!(layout.child_minimums_fit());
+        assert!(layout.cancel_min_width <= layout.content_width());
+        assert!(layout.action_min_width <= layout.content_width());
+    }
+
+    #[test]
+    fn phase_6k2_operation_island_layout_keeps_recovery_actions_reachable() {
+        let layout = OperationIslandLayout::CURRENT;
+
+        assert!(layout.action_min_width >= 72);
+        assert!(layout.content_width() - layout.action_min_width >= 0);
+        assert_eq!(
+            OPERATION_ISLAND_STRUCTURE,
+            [
+                OperationIslandRow::TitleAndCancel,
+                OperationIslandRow::Detail,
+                OperationIslandRow::Progress,
+                OperationIslandRow::RecoveryActions,
+            ]
+        );
+    }
+
+    #[test]
+    fn phase_6k2_sidebar_density_uses_consistent_related_and_section_rhythm() {
+        let compact = sidebar_density_metrics(SidebarDensity::Compact);
+        let balanced = sidebar_density_metrics(SidebarDensity::Balanced);
+        let comfortable = sidebar_density_metrics(SidebarDensity::Comfortable);
+
+        assert_eq!(compact.row_gap, 2);
+        assert_eq!(balanced.row_gap, 2);
+        assert_eq!(comfortable.row_gap, 2);
+        assert_eq!(compact.section_gap, 4);
+        assert_eq!(balanced.section_gap, 8);
+        assert_eq!(comfortable.section_gap, 12);
+        assert!(compact.outer_margin < balanced.outer_margin);
+        assert!(balanced.outer_margin < comfortable.outer_margin);
+        assert_eq!(
+            sidebar_density_class(SidebarDensity::Compact),
+            "sidebar-compact"
+        );
+        assert_eq!(
+            SIDEBAR_DENSITY_MENU_ITEMS,
+            [
+                ("Compact", "win.sidebar-density::compact"),
+                ("Balanced", "win.sidebar-density::balanced"),
+                ("Comfortable", "win.sidebar-density::comfortable"),
+            ]
+        );
+        assert_eq!(
+            RESET_SIDEBAR_WIDTH_MENU_ITEM,
+            ("Reset Sidebar Width", "win.reset-sidebar-width")
+        );
+    }
+
+    #[test]
+    fn phase_6k2_sidebar_width_restores_clamped_value_or_appearance_default() {
+        let appearance_default = 168;
+
+        assert_eq!(
+            initial_sidebar_width(
+                ViewPreferences {
+                    sidebar_width: Some(312),
+                    ..ViewPreferences::default()
+                },
+                appearance_default,
+            ),
+            312
+        );
+        assert_eq!(
+            initial_sidebar_width(
+                ViewPreferences {
+                    sidebar_width: Some(1),
+                    ..ViewPreferences::default()
+                },
+                appearance_default,
+            ),
+            i32::from(SIDEBAR_WIDTH_MIN)
+        );
+        assert_eq!(
+            initial_sidebar_width(ViewPreferences::default(), appearance_default),
+            appearance_default
+        );
+        assert_eq!(sidebar_pane_resize_policy(), (false, true));
+    }
 
     #[test]
     fn phase_6a_columns_have_stable_scannable_semantics() {
