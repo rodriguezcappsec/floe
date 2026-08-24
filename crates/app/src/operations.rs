@@ -292,7 +292,7 @@ fn operation_verb(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Copy(_)) => "Copy",
         Some(TrackedOperation::Move(_)) => "Move",
         Some(TrackedOperation::Rename(_)) => "Rename",
-        Some(TrackedOperation::Trash(_)) => "Trash",
+        Some(TrackedOperation::Trash(_)) => "Move to Trash",
         None => "Operation",
     }
 }
@@ -348,14 +348,15 @@ fn completed_detail(request: Option<&TrackedOperation>) -> &'static str {
 }
 
 fn completed_toast(request: Option<&TrackedOperation>) -> String {
-    let verb = match request {
-        Some(TrackedOperation::Copy(_)) => "Copied",
-        Some(TrackedOperation::Move(_)) => "Moved",
-        Some(TrackedOperation::Rename(_)) => "Renamed",
-        Some(TrackedOperation::Trash(_)) => "Trashed",
-        None => "Completed",
-    };
-    format!("{verb} {}", operation_name(request))
+    match request {
+        Some(TrackedOperation::Trash(_)) => {
+            format!("Moved {} to Trash", operation_name(request))
+        }
+        Some(TrackedOperation::Copy(_)) => format!("Copied {}", operation_name(request)),
+        Some(TrackedOperation::Move(_)) => format!("Moved {}", operation_name(request)),
+        Some(TrackedOperation::Rename(_)) => format!("Renamed {}", operation_name(request)),
+        None => "Operation completed".to_owned(),
+    }
 }
 
 fn failure_summary(request: Option<&TrackedOperation>, failure: &JobFailure) -> &'static str {
@@ -465,5 +466,24 @@ mod tests {
             failure_recovery(Some(&trashed), &failure),
             "The filesystem cannot trash notes.txt. Leave it unchanged or use another location."
         );
+    }
+
+    #[test]
+    fn phase_4f_feedback_uses_explicit_trash_progress_and_completion_wording() {
+        let trashed = TrackedOperation::Trash(
+            TrashRequest::new(PathBuf::from("/source/notes.txt")).expect("valid trash request"),
+        );
+
+        assert_eq!(operation_verb(Some(&trashed)), "Move to Trash");
+        assert_eq!(
+            waiting_detail(Some(trashed.clone())),
+            "Waiting to move to Trash…"
+        );
+        assert_eq!(
+            running_detail(Some(trashed.clone())),
+            "Moving to Trash through GIO…"
+        );
+        assert_eq!(completed_title(Some(&trashed)), "Moved to Trash");
+        assert_eq!(completed_toast(Some(&trashed)), "Moved notes.txt to Trash");
     }
 }

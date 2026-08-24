@@ -100,10 +100,13 @@ Cancellation is cooperative: it can stop work while GIO still accepts
 cancellation, but it cannot reverse a trash move after the desktop service has
 committed it.
 
-There is deliberately no Delete shortcut or permanent-delete control in this
-phase. A later interaction slice must label the action as “Move to Trash,” keep
-the browser responsive, refresh the affected parent, and never imply that a
-failed trash request silently deleted the item.
+Phase 4F exposes this backend through an explicitly labelled “Move to Trash”
+menu item and the conventional Delete shortcut. The action is available only
+with one selected entry, keeps the browser responsive, refreshes the affected
+parent after completion, and never implies that a failed request silently
+deleted the item. Floe uses no confirmation dialog because this action targets
+the recoverable desktop Trash rather than permanent deletion; permanent delete
+and Shift+Delete remain unavailable.
 
 ## Implemented appearance system
 

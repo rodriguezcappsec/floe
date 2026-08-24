@@ -110,6 +110,7 @@ pub fn build(
     file_actions_model.append(Some("Copy"), Some("win.copy"));
     file_actions_model.append(Some("Move"), Some("win.cut"));
     file_actions_model.append(Some("Rename…"), Some("win.rename"));
+    file_actions_model.append(Some("Move to Trash"), Some("win.trash"));
     let file_actions = gtk::MenuButton::builder()
         .icon_name("view-more-symbolic")
         .tooltip_text("File actions")
