@@ -8,7 +8,7 @@ use std::{
 };
 
 use adw::prelude::*;
-use floe_core::{DirectoryEntry, DirectoryError, DirectoryListing, NavigationState};
+use floe_core::{DirectoryEntry, DirectoryError, DirectoryListing, EntryKind, NavigationState};
 use gtk::{gio, glib};
 
 use crate::{
@@ -137,6 +137,9 @@ impl BrowserController {
         self.add_action("hidden", |controller| controller.toggle_hidden());
         let open_action = self.add_action("open", |controller| controller.activate_selected());
         open_action.set_enabled(false);
+        let open_with_action =
+            self.add_action("open-with", |controller| controller.show_open_with());
+        open_with_action.set_enabled(false);
         let copy_action = self.add_action("copy", |controller| controller.stage_selected_copy());
         copy_action.set_enabled(false);
         let cut_action = self.add_action("cut", |controller| controller.stage_selected_move());
@@ -227,6 +230,7 @@ impl BrowserController {
         self.widgets.list_view.set_sensitive(false);
         self.widgets.empty_state.set_visible(false);
         self.set_open_enabled(false);
+        self.set_open_with_enabled(false);
         self.set_selection_actions_enabled(false);
         let path = self.navigation.borrow().current().to_path_buf();
         let generation = self.worker.borrow_mut().request(path.clone());
@@ -392,6 +396,12 @@ impl BrowserController {
         let has_selection = selected_entry.is_some();
         self.selected_entry.replace(selected_entry);
         self.set_open_enabled(has_selection);
+        self.set_open_with_enabled(
+            self.selected_entry
+                .borrow()
+                .as_ref()
+                .is_some_and(open_with_eligible),
+        );
         self.set_selection_actions_enabled(has_selection);
         self.refresh_status();
     }
@@ -440,6 +450,81 @@ impl BrowserController {
         {
             action.set_enabled(enabled);
         }
+    }
+
+    fn set_open_with_enabled(&self, enabled: bool) {
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("open-with")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(enabled);
+        }
+    }
+
+    fn show_open_with(&self) {
+        let Some(entry) = self.selected_entry() else {
+            self.show_toast("Select a file to choose an application", 4);
+            return;
+        };
+        if !open_with_eligible(&entry) {
+            self.show_toast("Open With is available for files", 4);
+            return;
+        }
+
+        let path = entry.path().to_path_buf();
+        let display_name = entry.display_name_lossy();
+        let window = self.widgets.window.clone();
+        let toast_overlay = self.widgets.toast_overlay.clone();
+        let status_label = self.widgets.status_label.clone();
+        let selection = self.widgets.selection.clone();
+        let action = self
+            .widgets
+            .window
+            .lookup_action("open-with")
+            .and_downcast::<gio::SimpleAction>();
+        if let Some(action) = action.as_ref() {
+            action.set_enabled(false);
+        }
+        status_label.set_label("Loading applications…");
+
+        glib::spawn_future_local(async move {
+            let result = launcher::discover_open_with(path).await;
+            if !window.is_visible() {
+                return;
+            }
+            if let Some(action) = action.as_ref() {
+                let eligible = selection
+                    .selected_item()
+                    .and_downcast::<glib::BoxedAnyObject>()
+                    .is_some_and(|object| open_with_eligible(&object.borrow::<DirectoryEntry>()));
+                action.set_enabled(eligible);
+            }
+            status_label.set_label(&format!("{display_name} selected"));
+            match result {
+                Ok(options) if options.applications.is_empty() => {
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title("No compatible applications were found")
+                            .timeout(6)
+                            .build(),
+                    );
+                }
+                Ok(options) => {
+                    present_open_with_dialog(&window, &toast_overlay, &display_name, options)
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "Open With application discovery failed");
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not find applications: {error}"))
+                            .timeout(7)
+                            .build(),
+                    );
+                }
+            }
+        });
     }
 
     fn set_selection_actions_enabled(&self, enabled: bool) {
@@ -638,6 +723,154 @@ fn is_context_menu_shortcut(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierTyp
         || (key == gtk::gdk::Key::F10 && relevant == gtk::gdk::ModifierType::SHIFT_MASK)
 }
 
+fn open_with_eligible(entry: &DirectoryEntry) -> bool {
+    open_with_kind_eligible(entry.kind())
+}
+
+fn open_with_kind_eligible(kind: EntryKind) -> bool {
+    matches!(
+        kind,
+        EntryKind::RegularFile
+            | EntryKind::SymbolicLink {
+                target_is_directory: false
+            }
+    )
+}
+
+fn selected_application_index(list: &gtk::ListBox, count: usize) -> Option<usize> {
+    usize::try_from(list.selected_row()?.index())
+        .ok()
+        .filter(|index| *index < count)
+}
+
+fn chooser_action_sensitivity(selected: Option<usize>, default: Option<usize>) -> (bool, bool) {
+    (
+        selected.is_some(),
+        selected.is_some() && selected != default,
+    )
+}
+
+fn present_open_with_dialog(
+    window: &adw::ApplicationWindow,
+    toast_overlay: &adw::ToastOverlay,
+    display_name: &str,
+    options: launcher::OpenWithOptions,
+) {
+    let chooser = ui::build_open_with_dialog(display_name, &options);
+    let applications = Rc::new(options.applications);
+    let default_index = Rc::new(Cell::new(
+        applications
+            .iter()
+            .position(|application| application.is_default),
+    ));
+    let initial_selection = selected_application_index(&chooser.list, applications.len());
+    let (can_open, can_set_default) =
+        chooser_action_sensitivity(initial_selection, default_index.get());
+    chooser.open_button.set_sensitive(can_open);
+    chooser.set_default_button.set_sensitive(can_set_default);
+
+    let open_button = chooser.open_button.clone();
+    let set_default_button = chooser.set_default_button.clone();
+    let applications_for_selection = Rc::clone(&applications);
+    let default_for_selection = Rc::clone(&default_index);
+    chooser.list.connect_selected_rows_changed(move |list| {
+        let selected = selected_application_index(list, applications_for_selection.len());
+        let (can_open, can_set_default) =
+            chooser_action_sensitivity(selected, default_for_selection.get());
+        open_button.set_sensitive(can_open);
+        set_default_button.set_sensitive(can_set_default);
+    });
+
+    let dialog = chooser.dialog.downgrade();
+    chooser.cancel_button.connect_clicked(move |_| {
+        if let Some(dialog) = dialog.upgrade() {
+            dialog.close();
+        }
+    });
+
+    let list = chooser.list.clone();
+    let path = options.path.clone();
+    let applications_for_open = Rc::clone(&applications);
+    let toast_for_open = toast_overlay.clone();
+    let dialog = chooser.dialog.downgrade();
+    chooser.open_button.connect_clicked(move |button| {
+        let Some(index) = selected_application_index(&list, applications_for_open.len()) else {
+            return;
+        };
+        button.set_sensitive(false);
+        let application = applications_for_open[index].app_info.clone();
+        let application_name = applications_for_open[index].display_name.clone();
+        let toast_for_result = toast_for_open.clone();
+        launcher::launch_with(&application, &path, move |result| {
+            if let Err(error) = result {
+                tracing::warn!(%error, "Open With launch failed");
+                toast_for_result.add_toast(
+                    adw::Toast::builder()
+                        .title(format!("Could not open with {application_name}: {error}"))
+                        .timeout(7)
+                        .build(),
+                );
+            }
+        });
+        if let Some(dialog) = dialog.upgrade() {
+            dialog.close();
+        }
+    });
+
+    let open_button = chooser.open_button.clone();
+    chooser
+        .list
+        .connect_row_activated(move |_, _| open_button.emit_clicked());
+
+    let list = chooser.list.clone();
+    let rows = chooser.rows.clone();
+    let default_label = chooser.default_label.clone();
+    let applications_for_default = Rc::clone(&applications);
+    let default_for_change = Rc::clone(&default_index);
+    let content_type = options.content_type;
+    let toast_for_default = toast_overlay.clone();
+    chooser.set_default_button.connect_clicked(move |button| {
+        let Some(index) = selected_application_index(&list, applications_for_default.len()) else {
+            return;
+        };
+        let application = &applications_for_default[index];
+        match launcher::set_default_for_type(&application.app_info, &content_type) {
+            Ok(()) => {
+                default_for_change.set(Some(index));
+                button.set_sensitive(false);
+                default_label.set_label(&format!("Current default: {}", application.display_name));
+                for (row_index, row) in rows.iter().enumerate() {
+                    if let Some(row) = row.downcast_ref::<adw::ActionRow>() {
+                        row.set_subtitle(if row_index == index {
+                            "Current default"
+                        } else {
+                            ""
+                        });
+                    }
+                }
+                toast_for_default.add_toast(
+                    adw::Toast::builder()
+                        .title(format!("{} is now the default", application.display_name))
+                        .timeout(4)
+                        .build(),
+                );
+            }
+            Err(error) => {
+                tracing::warn!(%error, "default application change failed");
+                toast_for_default.add_toast(
+                    adw::Toast::builder()
+                        .title(format!("Could not change the default application: {error}"))
+                        .timeout(7)
+                        .build(),
+                );
+            }
+        }
+    });
+
+    chooser.dialog.present(Some(window));
+    chooser.list.grab_focus();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -656,5 +889,26 @@ mod tests {
             gtk::gdk::Key::F10,
             gtk::gdk::ModifierType::SHIFT_MASK | gtk::gdk::ModifierType::CONTROL_MASK,
         ));
+    }
+
+    #[test]
+    fn phase_5d_open_with_is_limited_to_launchable_file_kinds() {
+        assert!(open_with_kind_eligible(EntryKind::RegularFile));
+        assert!(open_with_kind_eligible(EntryKind::SymbolicLink {
+            target_is_directory: false,
+        }));
+        assert!(!open_with_kind_eligible(EntryKind::Directory));
+        assert!(!open_with_kind_eligible(EntryKind::SymbolicLink {
+            target_is_directory: true,
+        }));
+        assert!(!open_with_kind_eligible(EntryKind::Other));
+    }
+
+    #[test]
+    fn phase_5d_chooser_separates_open_from_default_changes() {
+        assert_eq!(chooser_action_sensitivity(None, Some(0)), (false, false));
+        assert_eq!(chooser_action_sensitivity(Some(0), Some(0)), (true, false));
+        assert_eq!(chooser_action_sensitivity(Some(1), Some(0)), (true, true));
+        assert_eq!(chooser_action_sensitivity(Some(0), None), (true, true));
     }
 }
