@@ -71,21 +71,31 @@ of truth for sequencing and current-session handoff.
 - Generic copy/move/rename Operations Island feedback and cancellation.
 - Affected-directory refresh and recovery-oriented conflict/cross-device text.
 
-## Next
-
 ### Phase 4E — Trash foundation
 
-Create branch `phase-4e-trash-foundation`. Design and implement an
-application-layer, standards-based trash job using GIO/XDG behavior, with
-original paths, structured failures, cancellation boundaries, and tests. Keep
-permanent delete and any GTK Delete shortcut deferred until trash recovery and
-confirmation semantics are verified.
+- Application-layer `TrashRequest` retaining the original `PathBuf`.
+- Bounded GIO trash worker using `gio::File::trash` and `gio::Cancellable`.
+- Structured missing-source, permission, unsupported, I/O, capacity, shutdown,
+  cancellation, and completion lifecycle behavior.
+- Shared application tracking and affected-parent refresh metadata.
+- Injected-backend tests that never modify real user Trash.
+- No Delete shortcut, restore UI, or permanent-delete action yet.
+
+## Next
+
+### Phase 4F — Trash interaction
+
+Create branch `phase-4f-trash-interaction`. Expose the verified backend through
+an explicitly labelled “Move to Trash” menu action and Delete shortcut, generic
+Operations Island feedback, and affected-parent refresh. Keep permanent delete,
+bulk trash, and restore UI deferred; do not imply cancellation can undo a trash
+move after GIO commits it.
 
 ## Later
 
 ### Remaining Phase 4 and Phase 5 — Mutations and resilience
 
-- Trash operation model/executor and cross-filesystem move recovery.
+- Trash restore/bulk workflows and cross-filesystem move recovery.
 - Pause where meaningful, richer retry, and conflict resolution.
 - Explicit overwrite policy and understandable partial-failure reporting.
 

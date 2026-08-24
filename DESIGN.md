@@ -91,6 +91,20 @@ non-modal toasts with a concrete recovery action. The directory refreshes after
 a successful copy, move, or rename affecting the visible location. Move and
 rename remain same-filesystem only; overwrite is unavailable.
 
+### Trash job foundation
+
+Phase 4E adds the application-owned backend contract for moving one original
+path to the desktop Trash through GIO. The bounded worker reports queued,
+running, completed, cancelled, and failed states through the same job boundary.
+Cancellation is cooperative: it can stop work while GIO still accepts
+cancellation, but it cannot reverse a trash move after the desktop service has
+committed it.
+
+There is deliberately no Delete shortcut or permanent-delete control in this
+phase. A later interaction slice must label the action as “Move to Trash,” keep
+the browser responsive, refresh the affected parent, and never imply that a
+failed trash request silently deleted the item.
+
 ## Implemented appearance system
 
 `crates/app/src/appearance.rs` defines `AppearancePreset` and one shared token

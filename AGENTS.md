@@ -1129,17 +1129,19 @@ Last updated:
 Current phase:
 
 ```text
-Phase 4 — Filesystem operations (Phase 4D move/rename interaction complete)
+Phase 4 — Filesystem operations (Phase 4E trash foundation complete)
 ```
 
 Status:
 
 ```text
-Phases 0-3 and Phases 4A-4D are complete. One application-owned transfer buffer
+Phases 0-3 and Phases 4A-4E are complete. One application-owned transfer buffer
 supports Ctrl+C copy and Ctrl+X move followed by Ctrl+V paste. F2 and the
 file-actions menu open a validated rename dialog. Copy, move, and rename use
 bounded workers plus generic non-blocking Operations Island feedback; GTK
-callbacks perform no filesystem work.
+callbacks perform no filesystem work. A separate bounded GIO trash executor
+now provides path-safe, cancellable job infrastructure without exposing Delete
+or permanent-delete controls.
 ```
 
 Established product decisions:
@@ -1172,9 +1174,9 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 4D is complete. The next coherent branch is
-`phase-4e-trash-foundation`, beginning with a standards-based application-layer
-trash job before exposing Delete or permanent-delete controls.
+Phase 4E is complete. The next coherent branch is
+`phase-4f-trash-interaction`, exposing the verified trash job through an
+explicit “Move to Trash” action while keeping permanent deletion deferred.
 ```
 
 Verified:
@@ -1182,11 +1184,12 @@ Verified:
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo test --workspace` pass. Fifty-two tests pass: twenty-eight core tests and
-twenty-four application tests. Eight focused Phase 4D tests cover transfer
-replacement, exact destinations, non-UTF-8 paths, rename lifecycle,
-cancellation, conflict feedback, and validation. A native Wayland smoke launch
-emitted the startup event and remained healthy until the planned timeout.
+`cargo test --workspace` passes with sixty-two tests: twenty-eight core tests
+and thirty-four application tests. Ten focused Phase 4E tests cover original
+non-UTF-8 paths, GIO error mapping, success, cancellation, structured failures,
+capacity, shutdown, state tracking, and recovery feedback without touching real
+user Trash. Formatting, workspace check, strict Clippy, and native smoke status
+are recorded in `GATES.md`.
 ```
 
 Known issues:
@@ -1199,13 +1202,15 @@ sparse extents, or reflink state. Move/rename is currently same-filesystem only;
 cross-filesystem copy-delete recovery is not implemented. Native smoke runs may emit host
 GtkSettings/libadwaita and Vulkan suboptimal-swapchain warnings; neither
 originates from Floe logic.
+GIO trash cancellation is cooperative and cannot reverse a move after the
+desktop service commits it. Floe does not yet expose trash restore/browsing UI.
 ```
 
 Deferred:
 
 ```text
 Cross-application clipboard support, overwrite/conflict resolution,
-cross-filesystem moves, trash, permanent delete,
+cross-filesystem moves, trash interaction/restore UI, permanent delete,
 metadata-complete copies, job
 persistence/history UI, drag and drop, thumbnails, tabs, split view, Miller
 columns, previews, archives, search, device management, Niri IPC, KDE-specific
@@ -1264,15 +1269,21 @@ Completed this session:
   feedback, and affected-directory refresh across copy, move, and rename.
 * Kept overwrite, cross-filesystem copy-delete fallback, trash, and permanent
   delete deferred.
+* Added an application-layer original-path `TrashRequest` and fixed-capacity
+  `TrashExecutor` backed by GIO/XDG trash behavior and `gio::Cancellable`.
+* Added structured trash lifecycle, failure mapping, capacity, cancellation,
+  shutdown, generic operation tracking, and affected-parent refresh metadata.
+* Added injected-backend tests that never modify the user's real Trash.
+* Kept Delete shortcuts, restore/bulk-trash UI, and permanent deletion deferred.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-4e-trash-foundation` and add a standards-based application-layer
-GIO/XDG trash job with original-path preservation, structured failures,
-cancellation boundaries, and tests. Keep permanent-delete UI deferred until
-trash recovery and confirmation semantics are verified.
+Create `phase-4f-trash-interaction` and expose the verified backend through an
+explicitly labelled “Move to Trash” menu action and Delete shortcut, generic
+Operations Island feedback, and affected-parent refresh. Keep permanent delete,
+bulk trash, and restore UI deferred.
 ```
 
 ---

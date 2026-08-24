@@ -20,7 +20,14 @@ use crate::{
     move_executor::{
         MoveCancelError, MoveExecutor, MoveExecutorSpawnError, MoveSubmission, MoveSubmitError,
     },
+    trash_executor::{
+        TrashCancelError, TrashExecutor, TrashExecutorSpawnError, TrashRequest, TrashRequestError,
+        TrashSubmission, TrashSubmitError,
+    },
 };
+
+#[cfg(test)]
+use crate::trash_executor::{TrashBackend, TrashError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TransferIntent {
@@ -70,6 +77,7 @@ pub enum TrackedOperation {
     Copy(CopyRequest),
     Move(MoveRequest),
     Rename(RenameRequest),
+    Trash(TrashRequest),
 }
 
 impl TrackedOperation {
@@ -78,6 +86,7 @@ impl TrackedOperation {
             Self::Copy(request) => request.source(),
             Self::Move(request) => request.source(),
             Self::Rename(request) => request.source(),
+            Self::Trash(request) => request.source(),
         }
     }
 
@@ -98,6 +107,7 @@ impl TrackedOperation {
                 add_parent(request.destination());
             }
             Self::Rename(request) => add_parent(request.source()),
+            Self::Trash(request) => add_parent(request.source()),
         }
         directories
     }
@@ -136,6 +146,12 @@ pub enum CopyInteractionError {
     CopyCancel(#[from] CopyCancelError),
     #[error(transparent)]
     MoveCancel(#[from] MoveCancelError),
+    #[error(transparent)]
+    TrashRequest(#[from] TrashRequestError),
+    #[error(transparent)]
+    TrashSubmit(#[from] TrashSubmitError),
+    #[error(transparent)]
+    TrashCancel(#[from] TrashCancelError),
 }
 
 #[derive(Debug, Error)]
@@ -144,6 +160,8 @@ pub enum ApplicationStateSpawnError {
     Copy(#[from] CopyExecutorSpawnError),
     #[error(transparent)]
     Move(#[from] MoveExecutorSpawnError),
+    #[error(transparent)]
+    Trash(#[from] TrashExecutorSpawnError),
 }
 
 /// Application-wide services and state that outlive any one browser concern.
@@ -152,6 +170,7 @@ pub struct ApplicationState {
     pub jobs: SharedJobManager,
     copy_executor: CopyExecutor,
     move_executor: MoveExecutor,
+    trash_executor: TrashExecutor,
     transfer_buffer: RefCell<TransferBuffer>,
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
 }
@@ -161,10 +180,12 @@ impl ApplicationState {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
         let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
+        let trash_executor = TrashExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
             copy_executor,
             move_executor,
+            trash_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
         })
@@ -259,6 +280,22 @@ impl ApplicationState {
         self.operation_requests.borrow().get(&job_id).cloned()
     }
 
+    pub fn submit_trash(&self, source: PathBuf) -> Result<TrashSubmission, CopyInteractionError> {
+        let request = TrashRequest::new(source)?;
+        match self.trash_executor.submit_trash(request.clone()) {
+            Ok(submission) => {
+                self.track(submission.job_id(), TrackedOperation::Trash(request));
+                Ok(submission)
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.track(job_id, TrackedOperation::Trash(request));
+                }
+                Err(error.into())
+            }
+        }
+    }
+
     pub fn finish_operation(&self, job_id: JobId, completed: bool) -> Option<TrackedOperation> {
         let operation = self.operation_requests.borrow_mut().remove(&job_id);
         if completed && let Some(TrackedOperation::Move(request)) = operation.as_ref() {
@@ -275,6 +312,7 @@ impl ApplicationState {
             Some(TrackedOperation::Move(_) | TrackedOperation::Rename(_)) => {
                 self.move_executor.cancel(job_id)?;
             }
+            Some(TrackedOperation::Trash(_)) => self.trash_executor.cancel(job_id)?,
             None => return Err(MoveCancelError::NotActive(job_id).into()),
         }
         Ok(())
@@ -288,6 +326,24 @@ impl ApplicationState {
         self.operation_requests
             .borrow_mut()
             .insert(job_id, operation);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_trash_backend(
+        backend: Arc<dyn TrashBackend>,
+    ) -> Result<Self, ApplicationStateSpawnError> {
+        let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
+        let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
+        let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
+        let trash_executor = TrashExecutor::spawn_with_backend(Arc::clone(&jobs), 8, backend)?;
+        Ok(Self {
+            jobs,
+            copy_executor,
+            move_executor,
+            trash_executor,
+            transfer_buffer: RefCell::new(TransferBuffer::default()),
+            operation_requests: RefCell::new(HashMap::new()),
+        })
     }
 
     #[cfg(test)]
@@ -600,5 +656,44 @@ mod tests {
             b"move"
         );
         assert!(validate_rename_name(OsStr::new("nested/name")).is_err());
+    }
+
+    #[derive(Debug)]
+    struct SuccessfulTrashBackend;
+
+    impl TrashBackend for SuccessfulTrashBackend {
+        fn trash(
+            &self,
+            _request: &TrashRequest,
+            _cancellable: &gtk::gio::Cancellable,
+        ) -> Result<(), TrashError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn phase_4e_state_tracks_original_trash_path_and_parent() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let name = OsString::from_vec(b"trash-state-\xff".to_vec());
+        let source = fixture.path().join(&name);
+        let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
+            .expect("application state should start with test trash backend");
+        let submission = state
+            .submit_trash(source.clone())
+            .expect("trash request should be submitted");
+
+        assert_eq!(
+            wait_for_terminal(&state, submission.job_id()),
+            JobState::Completed
+        );
+        let tracked = state
+            .operation_request(submission.job_id())
+            .expect("trash request should remain observable");
+        assert_eq!(tracked.source(), source);
+        assert_eq!(
+            tracked.affected_directories(),
+            vec![fixture.path().to_path_buf()]
+        );
+        assert!(matches!(tracked, TrackedOperation::Trash(_)));
     }
 }
