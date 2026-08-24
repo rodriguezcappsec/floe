@@ -1129,13 +1129,13 @@ Last updated:
 Current phase:
 
 ```text
-Phase 5 — Progress, cancellation, and contextual interaction (Phase 5C complete)
+Phase 5 — Progress, cancellation, and contextual interaction (Phase 5D complete)
 ```
 
 Status:
 
 ```text
-Phases 0-4 and Phase 5C are complete. One application-owned transfer buffer
+Phases 0-4 and Phase 5D are complete. One application-owned transfer buffer
 supports Ctrl+C copy and Ctrl+X move followed by Ctrl+V paste. F2 and the
 file-actions menu open a validated rename dialog. Copy, move, and rename use
 bounded workers plus generic non-blocking Operations Island feedback; GTK
@@ -1150,6 +1150,9 @@ Operations Island; completed jobs remain non-retryable.
 The virtualized file list has a native selection-aware context menu for Open,
 Copy, Cut, Rename, and Move to Trash, with secondary-click and focused-list
 keyboard access. Menu commands reuse existing application actions.
+Open With asynchronously resolves GIO content type and compatible applications,
+shows the current default, launches the explicit choice, and changes default
+associations only through a separate user action.
 ```
 
 Established product decisions:
@@ -1182,16 +1185,18 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 5C is complete. The next coherent branch is `phase-5d-open-with`, adding
-GIO-backed application choices and safe file-association management without
-introducing custom shell-command tools.
+Phase 5D is complete. The next coherent branch is
+`phase-5e-conflict-foundation`, modelling explicit fail-if-exists decisions
+without enabling silent overwrite.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-seventy-two tests pass: twenty-eight core and forty-four application tests.
+seventy-five tests pass: twenty-eight core and forty-seven application tests.
+Three focused Phase 5D tests cover eligible file kinds, default-first
+deduplicated application ordering, and chooser/default button sensitivity.
 Three focused Phase 5C tests cover the complete action mapping, rejection of an
 unbound virtualized row, and lock-state-safe keyboard shortcuts. Two focused
 Phase 5B tests cover retryable outcomes and preservation of pending retry state
@@ -1304,6 +1309,9 @@ Completed this session:
   Trash, all routed through existing selection-sensitive `win.*` actions.
 * Added exact pointer-target row selection plus Shift+F10/Menu-key access scoped
   to the focused list.
+* Added asynchronous GIO Open With discovery, default-first compatible app
+  ordering, explicit launching, and explicit Set as Default behavior.
+* Kept original paths intact and added no shell-command execution.
 * Kept overwrite, pause/resume controls, interactive conflict choices, and
   permanent deletion deferred.
 ```
@@ -1311,10 +1319,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-5d-open-with` and add a GIO-backed Open With chooser for regular
-files and non-directory symlinks. Show the current default clearly and support
-safe default-association changes where available. Keep MIME work asynchronous;
-defer configurable external tools to the shared command/action provider work.
+Create `phase-5e-conflict-foundation` and model explicit conflict decisions for
+fail-if-exists jobs in application/job state. Do not enable silent overwrite;
+establish the non-blocking resolution contract before richer conflict UI.
 ```
 
 ---

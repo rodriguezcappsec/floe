@@ -248,6 +248,13 @@ engine.
 uses asynchronous `GAppInfo` default-app launching. A Unix test verifies that a
 non-UTF-8 path round-trips through the GIO URI without replacement characters.
 
+Phase 5D adds asynchronous `standard::content-type` discovery, combines GIO's
+default, recommended, and type-capable `AppInfo` results, removes duplicates,
+and sorts the current default first. Specific-app launches use asynchronous
+`launch_uris`; an explicit chooser action delegates default changes to
+`set_as_default_for_type`. No shell command or lossy path reconstruction is
+introduced.
+
 ### `locations.rs`
 
 The app layer uses GLib home and XDG user-special directories for Home,

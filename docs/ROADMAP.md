@@ -115,15 +115,21 @@ of truth for sequencing and current-session handoff.
 - Shift+F10 and Menu-key access scoped to the focused file list.
 - Existing selection-sensitive `win.*` actions and original paths are reused.
 
-## Next
-
 ### Phase 5D — Open With and file associations
 
-Create branch `phase-5d-open-with`. Add a GIO-backed Open With chooser for
-regular files and non-directory symlinks, including clear current-default
-application state and safe default-association changes where supported. Keep
-MIME probing asynchronous and in the application layer. Custom external tools
-remain deferred to the shared command/action provider work near Phase 11.
+- Asynchronous GIO content-type and compatible-application discovery.
+- Current default shown separately and selected initially.
+- Explicit Open and Set as Default actions with recoverable error feedback.
+- Regular-file and non-directory-link eligibility; original paths retained.
+
+## Next
+
+### Phase 5E — Conflict interaction foundation
+
+Create branch `phase-5e-conflict-foundation`. Model explicit conflict decisions
+for fail-if-exists jobs without enabling silent overwrite. Keep resolution in
+application/job state and expose a small non-blocking interaction contract
+before adding richer overwrite or apply-to-all UI.
 
 ## Later
 

@@ -1,43 +1,43 @@
-# Gates: Floe Phase 5C context menu
+# Gates: Floe Phase 5D Open With and file associations
 
-Scope: Add a native selection-aware context menu on branch `phase-5c-context-menu`. Secondary-click selects the exact pointer-targeted row before showing Open, Copy, Cut, Rename, and Move to Trash. The menu reuses existing `win.*` actions, preserves original `DirectoryEntry` paths, and has a list-focused keyboard route. Open With, file-association management, external tools, and new filesystem execution paths remain deferred.
+Scope: Add GIO-backed Open With interaction on branch `phase-5d-open-with`. Eligible selected files can asynchronously resolve content type, current default, and capable applications; a native accessible dialog launches the chosen app and can explicitly set it as default. Original paths remain intact. Direct shell execution, custom external tools, directory associations, and filesystem mutation callbacks remain out of scope.
 
-- [x] G1: Branch is `phase-5c-context-menu` and `main` remains at Phase 5B commit.
+- [x] G1: Branch is `phase-5d-open-with` and `main` remains at Phase 5C commit.
   CHECK: git branch --show-current && git rev-parse main
-  EXPECT: /phase-5c-context-menu[\s\S]*6ceb27b/
-  EVIDENCE: branch is `phase-5c-context-menu`; local main remains `6ceb27b`.
+  EXPECT: /phase-5d-open-with[\s\S]*440aa0c/
+  EVIDENCE: branch is `phase-5d-open-with`; local main remains `440aa0c`.
 
-- [x] G2: Secondary-click selects the pointer-targeted virtualized list item before opening a native GTK popover menu.
-  CHECK: rg -n "BUTTON_SECONDARY|set_selected|PopoverMenu|set_pointing_to|popup" crates/app/src/ui.rs
-  EXPECT: /BUTTON_SECONDARY/
-  EVIDENCE: row setup uses a secondary-button `GestureClick`, validates `ListItem::position`, calls `SingleSelection::set_selected`, anchors the popover to the event point, then calls `popup`.
+- [x] G2: Association discovery is asynchronous, GIO-backed, preserves the original path, and returns structured current-default/application data.
+  CHECK: rg -n "query_info_future|standard::content-type|recommended_for_type|default_for_type|OpenWith" crates/app/src
+  EXPECT: /query_info_future/
+  EVIDENCE: `discover_open_with` takes `PathBuf`, awaits `query_info_future`, resolves content type/default/recommended/all URI-capable apps, and returns `OpenWithOptions`.
 
-- [x] G3: Context items reuse the existing `win.open`, `win.copy`, `win.cut`, `win.rename`, and `win.trash` actions without filesystem work in UI callbacks.
-  CHECK: rg -n "win\.open|win\.copy|win\.cut|win\.rename|win\.trash|FILE_CONTEXT" crates/app/src/ui.rs
-  EXPECT: /FILE_CONTEXT/
-  EVIDENCE: `FILE_CONTEXT_ACTIONS` contains exactly the five existing window actions; the row callback only selects and presents the popover.
+- [x] G3: The context menu exposes selection-sensitive Open With without altering default Open or adding shell commands.
+  CHECK: rg -n "Open With|win\.open-with|open_with|Command::new|sh -c" crates/app/src
+  EXPECT: /win\.open-with/
+  EVIDENCE: `win.open-with` is enabled only for regular files and non-directory links; default Open remains unchanged and repository search finds no shell execution.
 
-- [x] G4: The context menu has a list-focused keyboard route and native action sensitivity/focus behavior.
-  CHECK: rg -n "context_menu|Shift|F10|Menu|key_pressed" crates/app/src/browser.rs crates/app/src/ui.rs
-  EXPECT: /F10/
-  EVIDENCE: the list-owned key controller handles Menu and Shift+F10, ignores lock state, rejects extra command modifiers, and existing `GSimpleAction` sensitivity drives native menu state.
+- [x] G4: The chooser has clear loading, empty, error, default, launch, cancel, and explicit set-default states with native keyboard focus.
+  CHECK: rg -n "Loading applications|No compatible applications|Set as Default|Current default|Could not|Cancel|Open" crates/app/src/ui.rs crates/app/src/browser.rs
+  EXPECT: /Set as Default/
+  EVIDENCE: immediate loading status precedes a focused native dialog with current-default text, selectable boxed list, Cancel/Open/Set as Default, empty-result toast, and specific recovery errors.
 
-- [x] G5: Focused Phase 5C tests verify the complete human-readable action mapping and selection-safe position validation.
-  CHECK: cargo test -p floe-app phase_5c -- --nocapture
+- [x] G5: Launch and default-association changes use GIO `AppInfo` APIs, launch asynchronously, and surface failures.
+  CHECK: rg -n "launch|set_as_default_for_type|spawn_local|add_toast" crates/app/src/launcher.rs crates/app/src/browser.rs
+  EXPECT: /set_as_default_for_type/
+  EVIDENCE: chosen apps launch through `launch_uris_async`; explicit association changes call `set_as_default_for_type`; both error paths log and toast.
+
+- [x] G6: Focused Phase 5D tests cover eligibility, application ordering/deduplication, and selection/default state rules.
+  CHECK: cargo test -p floe-app phase_5d -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: all 3 `phase_5c` tests passed: action mapping, invalid virtualized position, and keyboard modifier handling.
+  EVIDENCE: 3 focused tests pass for launchable entry kinds, default-first deduplicated application ordering, and chooser/default button sensitivity.
 
-- [x] G6: Documentation and project status describe Phase 5C behavior, limits, verification, and the next coherent phase.
-  CHECK: rg -n "Phase 5C|context menu|Open With|external tools|Recommended next" README.md DESIGN.md docs/ARCHITECTURE.md docs/DEVELOPMENT.md docs/ROADMAP.md AGENTS.md
-  EXPECT: /Phase 5C/
-  EVIDENCE: README, DESIGN, architecture, development, roadmap, and AGENTS status document Phase 5C and name `phase-5d-open-with`; Open With and external-tool boundaries are explicit.
+- [x] G7: Documentation and project status describe behavior, limits, verification, and the next coherent branch.
+  CHECK: rg -n "Phase 5D|Open With|file association|external tools|phase-5e-conflict" README.md DESIGN.md docs/ARCHITECTURE.md docs/DEVELOPMENT.md docs/ROADMAP.md AGENTS.md
+  EXPECT: /phase-5e-conflict/
+  EVIDENCE: README, DESIGN, architecture, development, roadmap, and AGENTS status describe Phase 5D, defer external tools, and name `phase-5e-conflict-foundation`.
 
-- [x] G7: Formatting, workspace compilation, strict Clippy, complete tests, and diff hygiene pass.
+- [x] G8: Formatting, workspace compilation, strict Clippy, all tests, diff hygiene, and native Wayland smoke pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && git diff --check
   EXPECT: /test result: ok/
-  EVIDENCE: fmt, workspace check, strict Clippy, all 72 tests (28 core, 44 app), and `git diff --check` passed.
-
-- [x] G8: Native Wayland launch emits startup and remains healthy until timeout.
-  CHECK: RUST_LOG=floe_app=info timeout 8s cargo run -p floe-app
-  EXPECT: /Floe application started/
-  EVIDENCE: clean current-binary Wayland launch logged `Floe application started` and remained healthy until timeout exit 124; only known host libadwaita/RADV warnings appeared.
+  EVIDENCE: fmt, workspace check, strict Clippy, all 75 tests (28 core, 47 app), and diff hygiene passed; native launch logged startup and stayed healthy until timeout.

@@ -2,15 +2,26 @@ use adw::prelude::*;
 use floe_core::{DirectoryEntry, EntryKind};
 use gtk::{gio, glib};
 
-use crate::{appearance::Appearance, locations::Location};
+use crate::{appearance::Appearance, launcher::OpenWithOptions, locations::Location};
 
-const FILE_CONTEXT_ACTIONS: [(&str, &str); 5] = [
+const FILE_CONTEXT_ACTIONS: [(&str, &str); 6] = [
     ("Open", "win.open"),
+    ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
     ("Cut", "win.cut"),
     ("Rename…", "win.rename"),
     ("Move to Trash", "win.trash"),
 ];
+
+pub struct OpenWithDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub default_label: gtk::Label,
+    pub list: gtk::ListBox,
+    pub rows: Vec<gtk::ListBoxRow>,
+    pub cancel_button: gtk::Button,
+    pub set_default_button: gtk::Button,
+    pub open_button: gtk::Button,
+}
 
 #[derive(Clone)]
 pub struct OperationWidgets {
@@ -117,6 +128,7 @@ pub fn build(
     header.pack_start(&parent_button);
     header.set_title_widget(Some(&path_stack));
     let file_actions_model = gio::Menu::new();
+    file_actions_model.append(Some("Open With…"), Some("win.open-with"));
     file_actions_model.append(Some("Copy"), Some("win.copy"));
     file_actions_model.append(Some("Move"), Some("win.cut"));
     file_actions_model.append(Some("Rename…"), Some("win.rename"));
@@ -254,6 +266,116 @@ pub fn build_rename_dialog(current_name: &str) -> RenameDialogWidgets {
         rename_error,
         cancel_button,
         rename_button,
+    }
+}
+
+pub fn build_open_with_dialog(file_name: &str, options: &OpenWithOptions) -> OpenWithDialogWidgets {
+    let heading = gtk::Label::builder()
+        .label(format!("Open {file_name} with"))
+        .halign(gtk::Align::Start)
+        .ellipsize(gtk::pango::EllipsizeMode::Middle)
+        .build();
+    heading.add_css_class("title-2");
+
+    let current_default = options
+        .applications
+        .iter()
+        .find(|application| application.is_default)
+        .map_or_else(
+            || "No current default application".to_owned(),
+            |application| format!("Current default: {}", application.display_name),
+        );
+    let default_label = gtk::Label::builder()
+        .label(current_default)
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .build();
+    default_label.add_css_class("floe-status");
+
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::Single)
+        .activate_on_single_click(false)
+        .build();
+    list.add_css_class("boxed-list");
+    let mut rows = Vec::with_capacity(options.applications.len());
+    let mut default_row = None;
+    for (index, application) in options.applications.iter().enumerate() {
+        let row = adw::ActionRow::builder()
+            .title(&application.display_name)
+            .subtitle(if application.is_default {
+                "Current default"
+            } else {
+                ""
+            })
+            .activatable(true)
+            .build();
+        if let Some(icon) = application.app_info.icon() {
+            row.add_prefix(&gtk::Image::from_gicon(&icon));
+        }
+        list.append(&row);
+        let list_row = row.upcast::<gtk::ListBoxRow>();
+        if application.is_default {
+            default_row = Some(list_row.clone());
+        }
+        if index == 0 && default_row.is_none() {
+            default_row = Some(list_row.clone());
+        }
+        rows.push(list_row);
+    }
+    if let Some(row) = default_row.as_ref() {
+        list.select_row(Some(row));
+    }
+
+    let scroller = gtk::ScrolledWindow::builder()
+        .child(&list)
+        .min_content_height(220)
+        .max_content_height(420)
+        .propagate_natural_height(true)
+        .vexpand(true)
+        .build();
+    let cancel_button = gtk::Button::with_label("Cancel");
+    let set_default_button = gtk::Button::with_label("Set as Default");
+    let open_button = gtk::Button::with_label("Open");
+    open_button.add_css_class("suggested-action");
+    let actions = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::End)
+        .build();
+    actions.append(&cancel_button);
+    actions.append(&set_default_button);
+    actions.append(&open_button);
+
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(24)
+        .margin_bottom(24)
+        .margin_start(24)
+        .margin_end(24)
+        .build();
+    content.append(&heading);
+    content.append(&default_label);
+    content.append(&scroller);
+    content.append(&actions);
+
+    let dialog = adw::Dialog::builder()
+        .title("Open With")
+        .content_width(480)
+        .content_height(420)
+        .child(&content)
+        .default_widget(&open_button)
+        .focus_widget(&list)
+        .build();
+
+    OpenWithDialogWidgets {
+        dialog,
+        default_label,
+        list,
+        rows,
+        cancel_button,
+        set_default_button,
+        open_button,
     }
 }
 
@@ -586,18 +708,22 @@ fn build_file_context_menu_model() -> gio::Menu {
         Some(FILE_CONTEXT_ACTIONS[0].0),
         Some(FILE_CONTEXT_ACTIONS[0].1),
     );
+    primary.append(
+        Some(FILE_CONTEXT_ACTIONS[1].0),
+        Some(FILE_CONTEXT_ACTIONS[1].1),
+    );
     menu.append_section(None, &primary);
 
     let editing = gio::Menu::new();
-    for (label, action) in &FILE_CONTEXT_ACTIONS[1..4] {
+    for (label, action) in &FILE_CONTEXT_ACTIONS[2..5] {
         editing.append(Some(label), Some(action));
     }
     menu.append_section(None, &editing);
 
     let destructive = gio::Menu::new();
     destructive.append(
-        Some(FILE_CONTEXT_ACTIONS[4].0),
-        Some(FILE_CONTEXT_ACTIONS[4].1),
+        Some(FILE_CONTEXT_ACTIONS[5].0),
+        Some(FILE_CONTEXT_ACTIONS[5].1),
     );
     menu.append_section(None, &destructive);
 
@@ -665,6 +791,7 @@ mod tests {
             FILE_CONTEXT_ACTIONS,
             [
                 ("Open", "win.open"),
+                ("Open With…", "win.open-with"),
                 ("Copy", "win.copy"),
                 ("Cut", "win.cut"),
                 ("Rename…", "win.rename"),

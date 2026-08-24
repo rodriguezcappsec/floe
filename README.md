@@ -47,6 +47,8 @@ required nor simulated.
 - Persistent accessible Retry control for failed or cancelled Operations Island
   jobs
 - Native row context menu with Open, Copy, Cut, Rename, and Move to Trash
+- Asynchronous GIO Open With discovery, explicit app launching, and default
+  association changes
 
 Phase 4D copy/move/paste and rename work within the running Floe application.
 Phase 4F exposes the verified trash job as a single-selection, recoverable
@@ -60,8 +62,10 @@ still unavailable.
 Phase 5C adds secondary-click and Shift+F10/Menu-key access to a native context
 menu. It selects the targeted virtualized row first and reuses the existing
 selection-sensitive window actions. Open follows the current GIO default
-application; Open With, association editing, and custom external tools remain
-future work.
+application. Phase 5D adds Open With for regular files and non-directory links:
+it resolves the content type asynchronously, identifies the current default,
+lists compatible desktop applications, and changes the default only through an
+explicit button. Custom external tools remain future work.
 Cross-application clipboard formats, overwrite, cross-filesystem copy-delete
 moves, trash restore/bulk UI, permanent deletion, previews, tabs, split view,
 Miller columns, and environment-specific integrations remain deferred.
