@@ -290,7 +290,9 @@ Phase 6B stores `Arc<DirectoryEntry>` in the boxed list model and exposes each
 column heading as a native action-backed button with explicit direction and
 accessible pressed state. Shared entries let the controller retain one complete
 filtered set while the GTK model continues receiving at most 256 rows per main
-loop tick. Sort requests run on the existing bounded directory worker. On
+loop tick. Sort requests run on the existing single directory worker. Its
+concurrency is one and stale generations are superseded, but its request channel
+is unbounded. On
 completion, `browser.rs` rebuilds the model and restores selection by exact
 `PathBuf`; it never derives identity from lossy labels.
 
@@ -391,7 +393,8 @@ identity allocation to the shared job manager.
 `BrowserWorker` owns one named `std::thread` and two `std::mpsc` channels. An
 atomic latest-generation value lets core enumeration cooperatively stop stale
 requests. This is a browsing worker, not the future filesystem mutation job
-engine.
+engine. The request channel is currently unbounded; single-threaded execution
+and generation supersession bound concurrency, not queued request count.
 
 ### `launcher.rs`
 
@@ -582,11 +585,19 @@ Phase 6H adds `location_input.rs` as a GTK-independent input and recovery policy
 
 Phase 6I reuses the existing asynchronous GIO launcher/chooser boundary. `launcher::launch_default` now returns `DefaultLaunch::Launched` or `DefaultLaunch::NoDefault(OpenWithOptions)` after content-type/application resolution. `BrowserController` presents the existing chooser for the latter; the UI never infers or mutates a default association. Exact original paths continue through `gio::File` URIs.
 
-Phase 6K2 completes density, persisted-width, native mount-authentication, and
-Operations Island layout polish. The immediate next branch is
-`phase-6l-system-thumbnailers`, covering reviewed video-frame, PDF-page,
-office/DOCX, font, text/code, embedded-audio-artwork, and archive-preview
-providers on the existing bounded worker boundary.
+Phase 6L adds `system_thumbnailer.rs` as an application-layer provider registry
+and supervised process boundary. The capacity-64 thumbnail worker discovers
+user/system freedesktop `.thumbnailer` definitions with deterministic
+precedence, resolves allowed MIME types through GIO, parses reviewed `%i`, `%u`,
+`%o`, `%s`, and `%%` codes into raw argv, and launches no shell. Native raster
+decode remains preferred. Provider-backed requests validate support before
+persistent-cache lookup, execute in a private temporary directory on cache miss,
+terminate the process group on cancellation/timeout, accept only no-follow
+regular output under 32 MiB, decode it as bounded passive PNG, revalidate the
+source, and reuse the existing cache/pixel result boundary. GTK observes only
+owned pixels or failure and retains generic icons. These helpers are supervised
+but not sandboxed; Phase 18L owns isolation. Phase 6M permanent deletion is the
+sole next phase.
 
 ## Known architectural debt
 
@@ -594,7 +605,7 @@ providers on the existing bounded worker boundary.
   mutation execution, previews, tabs, and desktop integration.
 - Normal entry/sidebar navigation still changes state before enumeration succeeds. Phase 6H
   direct location submissions use a generation-bound `PendingLocation` snapshot and commit or
-  restore the complete `NavigationState` after the bounded directory worker responds.
+restore the complete `NavigationState` after the single directory worker responds.
 - Appearance values are partly centralized while local widget margins remain in
   `ui.rs`.
 - Sidebar width and density are persisted. Appearance, hidden-file visibility,

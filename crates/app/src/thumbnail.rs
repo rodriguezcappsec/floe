@@ -16,7 +16,10 @@ use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits, metada
 use rustix::fs::{Mode, OFlags};
 use thiserror::Error;
 
-use crate::thumbnail_cache::{CacheTier, ThumbnailCache, ThumbnailCacheConfig};
+use crate::{
+    system_thumbnailer::{SystemThumbnailerError, SystemThumbnailerRegistry},
+    thumbnail_cache::{CacheTier, ThumbnailCache, ThumbnailCacheConfig},
+};
 
 pub const LIST_THUMBNAIL_EDGE: u16 = 32;
 pub const MIN_THUMBNAIL_EDGE: u16 = LIST_THUMBNAIL_EDGE;
@@ -89,7 +92,7 @@ pub struct ThumbnailKey {
     path: PathBuf,
     size: u64,
     modified: SystemTime,
-    format: ThumbnailFormat,
+    format: Option<ThumbnailFormat>,
     edge: u16,
 }
 
@@ -108,7 +111,7 @@ impl ThumbnailKey {
             path: entry.path().to_path_buf(),
             size: entry.size()?,
             modified: entry.modified()?,
-            format: ThumbnailFormat::from_path(entry.path())?,
+            format: ThumbnailFormat::from_path(entry.path()),
             edge,
         })
     }
@@ -150,7 +153,7 @@ impl ThumbnailKey {
             path,
             size,
             modified,
-            format: ThumbnailFormat::Png,
+            format: Some(ThumbnailFormat::Png),
             edge,
         }
     }
@@ -189,6 +192,8 @@ pub enum ThumbnailError {
     Read(#[from] io::Error),
     #[error("thumbnail could not be decoded: {0}")]
     Decode(String),
+    #[error("system thumbnailer was unavailable: {0}")]
+    SystemThumbnailer(String),
     #[error("thumbnail decoder returned an unsupported pixel layout")]
     UnsupportedPixelLayout,
 }
@@ -242,6 +247,24 @@ impl ThumbnailWorker {
         start_gate: Option<Receiver<()>>,
         cache_config: Option<ThumbnailCacheConfig>,
     ) -> io::Result<Self> {
+        Self::spawn_with_configuration(capacity, start_gate, cache_config, None)
+    }
+
+    #[cfg(test)]
+    fn spawn_with_provider_data_dirs(
+        capacity: usize,
+        cache_config: Option<ThumbnailCacheConfig>,
+        provider_data_dirs: Vec<PathBuf>,
+    ) -> io::Result<Self> {
+        Self::spawn_with_configuration(capacity, None, cache_config, Some(provider_data_dirs))
+    }
+
+    fn spawn_with_configuration(
+        capacity: usize,
+        start_gate: Option<Receiver<()>>,
+        cache_config: Option<ThumbnailCacheConfig>,
+        provider_data_dirs: Option<Vec<PathBuf>>,
+    ) -> io::Result<Self> {
         let (request_sender, request_receiver) = mpsc::sync_channel::<ThumbnailRequest>(capacity);
         let (response_sender, response_receiver) = mpsc::channel();
         let latest_generation = Arc::new(AtomicU64::new(0));
@@ -251,6 +274,10 @@ impl ThumbnailWorker {
         let worker = thread::Builder::new()
             .name("floe-thumbnail-worker".to_owned())
             .spawn(move || {
+                let system_thumbnailers = provider_data_dirs
+                    .as_deref()
+                    .map(SystemThumbnailerRegistry::discover_from_data_dirs)
+                    .unwrap_or_else(SystemThumbnailerRegistry::discover);
                 let mut thumbnail_cache = cache_config.map(ThumbnailCache::new);
                 if let Some(cache) = thumbnail_cache.as_mut()
                     && let Err(error) = cache.initialize()
@@ -269,8 +296,15 @@ impl ThumbnailWorker {
                     if worker_generation.load(Ordering::Acquire) != request.generation {
                         continue;
                     }
-                    let result =
-                        decode_thumbnail_with_cache(&request.key, thumbnail_cache.as_mut());
+                    let result = decode_thumbnail_with_cache_and_providers(
+                        &request.key,
+                        thumbnail_cache.as_mut(),
+                        &system_thumbnailers,
+                        || {
+                            worker_shutdown.load(Ordering::Acquire)
+                                || worker_generation.load(Ordering::Acquire) != request.generation
+                        },
+                    );
                     if worker_shutdown.load(Ordering::Acquire)
                         || worker_generation.load(Ordering::Acquire) != request.generation
                     {
@@ -342,10 +376,94 @@ impl Drop for ThumbnailWorker {
 
 #[cfg(test)]
 fn decode_thumbnail(key: &ThumbnailKey) -> Result<ThumbnailPixels, ThumbnailError> {
-    decode_thumbnail_with_cache(key, None)
+    decode_native_thumbnail_with_cache(key, None)
 }
 
+#[cfg(test)]
 fn decode_thumbnail_with_cache(
+    key: &ThumbnailKey,
+    cache: Option<&mut ThumbnailCache>,
+) -> Result<ThumbnailPixels, ThumbnailError> {
+    decode_native_thumbnail_with_cache(key, cache)
+}
+
+fn decode_thumbnail_with_cache_and_providers(
+    key: &ThumbnailKey,
+    mut cache: Option<&mut ThumbnailCache>,
+    providers: &SystemThumbnailerRegistry,
+    cancelled: impl Fn() -> bool,
+) -> Result<ThumbnailPixels, ThumbnailError> {
+    if key.format.is_some() {
+        return decode_native_thumbnail_with_cache(key, cache);
+    }
+
+    let metadata = source_metadata(key)?;
+    providers
+        .supports_path(key.path())
+        .map_err(map_system_thumbnailer_error)?;
+
+    if let Some(cache) = cache.as_deref_mut() {
+        match cache.load(key) {
+            Ok(Some(image)) => return pixels_from_image(image, key.edge),
+            Ok(None) => {}
+            Err(error) => {
+                tracing::debug!(%error, "persistent thumbnail cache read failed; running system thumbnailer");
+            }
+        }
+    }
+
+    let output = providers
+        .generate(key.path(), u32::from(key.edge), cancelled)
+        .map_err(map_system_thumbnailer_error)?;
+    let metadata_after_provider = source_metadata(key)?;
+    if metadata.len() != metadata_after_provider.len()
+        || metadata.modified().ok() != metadata_after_provider.modified().ok()
+    {
+        return Err(ThumbnailError::SourceChanged);
+    }
+
+    let decoded = decode_source_image(output.bytes, ThumbnailFormat::Png)?;
+    let tier_edge = CacheTier::from_edge(key.edge).edge();
+    let decoded = decoded.into_rgba8();
+    let tier_thumbnail = if decoded.width() <= tier_edge && decoded.height() <= tier_edge {
+        decoded
+    } else {
+        image::DynamicImage::ImageRgba8(decoded)
+            .thumbnail(tier_edge, tier_edge)
+            .into_rgba8()
+    };
+
+    if let Some(cache) = cache
+        && let Err(error) = cache.store(key, &tier_thumbnail)
+    {
+        tracing::debug!(%error, content_type = %output.content_type, "persistent system thumbnail cache write failed; using generated pixels");
+    }
+    pixels_from_image(tier_thumbnail, key.edge)
+}
+
+fn source_metadata(key: &ThumbnailKey) -> Result<std::fs::Metadata, ThumbnailError> {
+    let descriptor = rustix::fs::open(
+        key.path(),
+        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+        Mode::empty(),
+    )
+    .map_err(io::Error::from)?;
+    let source = File::from(descriptor);
+    let metadata = source.metadata()?;
+    if !metadata.is_file() {
+        return Err(ThumbnailError::NotRegularFile);
+    }
+    if key.size != metadata.len() || metadata.modified().ok() != Some(key.modified) {
+        return Err(ThumbnailError::SourceChanged);
+    }
+    Ok(metadata)
+}
+
+fn map_system_thumbnailer_error(error: SystemThumbnailerError) -> ThumbnailError {
+    ThumbnailError::SystemThumbnailer(error.to_string())
+}
+
+fn decode_native_thumbnail_with_cache(
     key: &ThumbnailKey,
     mut cache: Option<&mut ThumbnailCache>,
 ) -> Result<ThumbnailPixels, ThumbnailError> {
@@ -392,7 +510,10 @@ fn decode_thumbnail_with_cache(
         return Err(ThumbnailError::SourceChanged);
     }
 
-    let decoded = decode_source_image(encoded, key.format)?;
+    let format = key.format.ok_or_else(|| {
+        ThumbnailError::SystemThumbnailer("native raster format is unavailable".to_owned())
+    })?;
+    let decoded = decode_source_image(encoded, format)?;
     let tier_edge = CacheTier::from_edge(key.edge).edge();
     let decoded = decoded.into_rgba8();
     let tier_thumbnail = if decoded.width() <= tier_edge && decoded.height() <= tier_edge {
@@ -475,6 +596,266 @@ fn pixels_from_image(
 }
 
 #[cfg(test)]
+mod phase_6l_integration_tests {
+    use std::{
+        ffi::OsString,
+        fs,
+        os::unix::{ffi::OsStringExt, fs::PermissionsExt},
+        path::{Path, PathBuf},
+        sync::mpsc,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use floe_core::{DirectoryEntry, enumerate_directory};
+    use tempfile::tempdir;
+
+    use super::*;
+
+    const PNG_1X1: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x04, 0x00, 0x00, 0x00, 0xb5,
+        0x1c, 0x0c, 0x02, 0x00, 0x00, 0x00, 0x0b, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x64,
+        0xf8, 0x0f, 0x00, 0x01, 0x05, 0x01, 0x01, 0x27, 0x18, 0xe3, 0x66, 0x00, 0x00, 0x00, 0x00,
+        0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+
+    fn write_script(path: &Path, body: &str) {
+        fs::write(path, format!("#!/bin/sh\nset -eu\n{body}\n"))
+            .expect("provider script should be written");
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+            .expect("provider script should be executable");
+    }
+
+    fn write_provider(data_dir: &Path, script: &Path, mime: &str) {
+        let thumbnailers = data_dir.join("thumbnailers");
+        fs::create_dir_all(&thumbnailers).expect("provider directory should be created");
+        fs::write(
+            thumbnailers.join("controlled.thumbnailer"),
+            format!(
+                "[Thumbnailer Entry]\nExec={} %i %o %s\nMimeType={mime};\n",
+                script.display()
+            ),
+        )
+        .expect("provider definition should be written");
+    }
+
+    fn entry_for<'a>(entries: &'a [DirectoryEntry], path: &Path) -> &'a DirectoryEntry {
+        entries
+            .iter()
+            .find(|entry| entry.path() == path)
+            .expect("test entry should be enumerated")
+    }
+
+    fn wait_for_response(worker: &ThumbnailWorker) -> ThumbnailResponse {
+        (0..400)
+            .find_map(|_| {
+                let response = worker.try_response();
+                if response.is_none() {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                response
+            })
+            .expect("thumbnail response should arrive")
+    }
+
+    fn provider_key(path: &Path) -> ThumbnailKey {
+        let listing = enumerate_directory(path.parent().expect("source should have parent"))
+            .expect("directory should enumerate");
+        let key = ThumbnailKey::from_entry(entry_for(listing.entries(), path))
+            .expect("regular file should receive a thumbnail key");
+        assert_eq!(key.format, None);
+        key
+    }
+
+    #[test]
+    fn phase_6l_integration_generates_non_utf8_pdf_and_reuses_persistent_cache() {
+        let root = tempdir().expect("temporary directory should be created");
+        let data = root.path().join("data");
+        let cache = root.path().join("cache");
+        let fixture = root.path().join("fixture.png");
+        let marker = root.path().join("provider-runs");
+        fs::write(&fixture, PNG_1X1).expect("PNG fixture should be written");
+        let script = root.path().join("provider");
+        write_script(
+            &script,
+            &format!(
+                "printf 'run\\n' >> '{}'\ncp '{}' \"$2\"",
+                marker.display(),
+                fixture.display()
+            ),
+        );
+        write_provider(&data, &script, "application/pdf");
+        let source = root.path().join(OsString::from_vec(vec![
+            b'r', b'a', b'w', 0x80, b'.', b'p', b'd', b'f',
+        ]));
+        fs::write(&source, b"%PDF-1.4\n").expect("PDF marker should be written");
+        let key = provider_key(&source);
+        let cache_config = ThumbnailCacheConfig::for_test(cache);
+
+        let mut first = ThumbnailWorker::spawn_with_provider_data_dirs(
+            1,
+            Some(cache_config.clone()),
+            vec![data.clone()],
+        )
+        .expect("first worker should start");
+        let generation = first.begin_generation();
+        first
+            .try_request(generation, key.clone())
+            .expect("provider request should enter queue");
+        assert!(wait_for_response(&first).result.is_ok());
+        drop(first);
+        assert_eq!(
+            fs::read_to_string(&marker).expect("marker should exist"),
+            "run\n"
+        );
+
+        write_script(&script, "exit 9");
+        let mut second =
+            ThumbnailWorker::spawn_with_provider_data_dirs(1, Some(cache_config), vec![data])
+                .expect("second worker should start");
+        let generation = second.begin_generation();
+        second
+            .try_request(generation, key)
+            .expect("cached request should enter queue");
+        assert!(wait_for_response(&second).result.is_ok());
+        assert_eq!(
+            fs::read_to_string(marker).expect("marker should remain"),
+            "run\n"
+        );
+    }
+
+    #[test]
+    fn phase_6l_integration_unsupported_and_malformed_results_keep_safe_errors() {
+        let root = tempdir().expect("temporary directory should be created");
+        let data = root.path().join("data");
+        let script = root.path().join("provider");
+        write_script(&script, "printf 'not a png' > \"$2\"");
+        write_provider(&data, &script, "application/pdf");
+
+        let pdf = root.path().join("broken.pdf");
+        fs::write(&pdf, b"%PDF-1.4\n").expect("PDF marker should be written");
+        let mut worker = ThumbnailWorker::spawn_with_provider_data_dirs(2, None, vec![data])
+            .expect("worker should start");
+        let generation = worker.begin_generation();
+        worker
+            .try_request(generation, provider_key(&pdf))
+            .expect("malformed provider request should enter queue");
+        assert!(matches!(
+            wait_for_response(&worker).result,
+            Err(ThumbnailError::Decode(_))
+        ));
+
+        let svg = root.path().join("blocked.svg");
+        fs::write(&svg, b"<svg/>").expect("SVG marker should be written");
+        worker
+            .try_request(generation, provider_key(&svg))
+            .expect("unsupported request should enter queue");
+        assert!(matches!(
+            wait_for_response(&worker).result,
+            Err(ThumbnailError::SystemThumbnailer(_))
+        ));
+    }
+
+    #[test]
+    fn phase_6l_integration_rejects_source_changes_and_cancels_stale_helpers() {
+        let root = tempdir().expect("temporary directory should be created");
+        let data = root.path().join("data");
+        let fixture = root.path().join("fixture.png");
+        fs::write(&fixture, PNG_1X1).expect("PNG fixture should be written");
+        let started = root.path().join("started");
+        let script = root.path().join("provider");
+        write_script(
+            &script,
+            &format!(
+                "printf started > '{}'\nsleep 0.15\ncp '{}' \"$2\"",
+                started.display(),
+                fixture.display()
+            ),
+        );
+        write_provider(&data, &script, "application/pdf");
+        let source = root.path().join("changing.pdf");
+        fs::write(&source, b"%PDF-1.4\n").expect("PDF marker should be written");
+        let key = provider_key(&source);
+        let mut worker =
+            ThumbnailWorker::spawn_with_provider_data_dirs(1, None, vec![data.clone()])
+                .expect("worker should start");
+        let generation = worker.begin_generation();
+        worker
+            .try_request(generation, key)
+            .expect("changing request should enter queue");
+        for _ in 0..200 {
+            if started.exists() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(started.exists());
+        fs::write(&source, b"%PDF-1.4 changed\n").expect("source should change");
+        assert!(matches!(
+            wait_for_response(&worker).result,
+            Err(ThumbnailError::SourceChanged)
+        ));
+
+        let stale_started = root.path().join("stale-started");
+        write_script(
+            &script,
+            &format!("printf started > '{}'\nsleep 10", stale_started.display()),
+        );
+        drop(worker);
+        let mut stale_worker = ThumbnailWorker::spawn_with_provider_data_dirs(1, None, vec![data])
+            .expect("stale worker should start");
+        let stale_key = provider_key(&source);
+        let generation = stale_worker.begin_generation();
+        stale_worker
+            .try_request(generation, stale_key)
+            .expect("stale request should enter queue");
+        for _ in 0..200 {
+            if stale_started.exists() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(stale_started.exists());
+        let cancelled_at = Instant::now();
+        stale_worker.begin_generation();
+        thread::sleep(Duration::from_millis(80));
+        assert!(stale_worker.try_response().is_none());
+        drop(stale_worker);
+        assert!(cancelled_at.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn phase_6l_integration_preserves_bounded_full_queue_fallback() {
+        let root = tempdir().expect("temporary directory should be created");
+        let source = root.path().join("queued.pdf");
+        fs::write(&source, b"%PDF-1.4\n").expect("PDF marker should be written");
+        let key = provider_key(&source);
+        let (gate_sender, gate_receiver) = mpsc::sync_channel(0);
+        let mut worker = ThumbnailWorker::spawn_with_configuration(
+            1,
+            Some(gate_receiver),
+            None,
+            Some(vec![PathBuf::from("/does/not/exist")]),
+        )
+        .expect("gated worker should start");
+        let generation = worker.begin_generation();
+        worker
+            .try_request(generation, key.clone())
+            .expect("first request should fill queue");
+        assert!(matches!(
+            worker.try_request(generation, key),
+            Err(ThumbnailSubmitError::Full(_))
+        ));
+        gate_sender.send(()).expect("worker should be released");
+        assert!(matches!(
+            wait_for_response(&worker).result,
+            Err(ThumbnailError::SystemThumbnailer(_))
+        ));
+    }
+}
+
+#[cfg(test)]
 #[path = "thumbnail_format_tests.rs"]
 mod phase_6f_tests;
 
@@ -539,8 +920,10 @@ mod tests {
         let key = ThumbnailKey::from_entry(entry_for(listing.entries(), &png_path))
             .expect("PNG should be eligible");
         assert_eq!(key.path(), png_path);
-        assert_eq!(key.format, ThumbnailFormat::Png);
-        assert!(ThumbnailKey::from_entry(entry_for(listing.entries(), &svg_path)).is_none());
+        assert_eq!(key.format, Some(ThumbnailFormat::Png));
+        let svg_key = ThumbnailKey::from_entry(entry_for(listing.entries(), &svg_path))
+            .expect("regular non-raster files should be eligible for provider lookup");
+        assert_eq!(svg_key.format, None);
         assert!(ThumbnailKey::from_entry(entry_for(listing.entries(), &link_path)).is_none());
     }
 

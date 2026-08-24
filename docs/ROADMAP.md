@@ -1,408 +1,339 @@
 # Floe Roadmap
 
-This roadmap summarizes implementation status. `AGENTS.md` remains the source
-of truth for sequencing and current-session handoff.
-
-## Completed
-
-### Phase 0 — Workspace and application bootstrap
-
-- Cargo workspace with `floe-core` and `floe-app`.
-- GTK4/libadwaita application shell, tracing, appearance presets, and XDG Places.
-- GTK-independent paths, models, errors, navigation, and tests.
-
-### Phase 1 — Read-only directory browsing
-
-- Non-recursive, cancellable background enumeration.
-- Back, forward, parent, location, and hidden-file navigation.
-- Virtualized list with bounded GTK insertion batches.
-- Resizable Places/content split pane and basic status/error/empty feedback.
-
-### Phase 2 — Selection and basic file interaction
-
-- Controller-owned single selection mirrored from GTK.
-- Enter/double-click and visible Open activation.
-- Asynchronous default-application launch through GIO.
-- Non-UTF-8 path preservation through the launch URI.
-
-### Phase 3 — Job lifecycle foundation
-
-- Strong logical-operation and execution-attempt identifiers.
-- Validated progress, structured failures, lifecycle commands, and events.
-- Tested legal queued/running/paused/terminal transitions.
-- Application-owned registry, event queue, and retry-attempt identity.
-- No mutation UI.
-
-### Phase 4A — Safe copy engine
-
-- Path-safe exact-source/exact-destination `CopyRequest` values.
-- Explicit `ConflictPolicy::FailIfExists`; overwrite is unavailable.
-- Explicit `SymlinkPolicy::Preserve` or `Reject`; links are never followed.
-- Recursive file/directory copy with chunk-level cancellation and cleanup.
-- Fixed-capacity, single-worker application executor connected to job events.
-- Temporary-directory tests for success, conflict, cancellation, capacity,
-  retry identity, symlinks, self-copy rejection, and non-UTF-8 names.
-
-### Phase 4B — Copy interaction and operation observation
-
-- Initial Floe-internal copy-only transfer buffer retaining original paths.
-- Ctrl+C/Ctrl+V staging and paste submission through application state.
-- Non-blocking structured job observation in a separate GTK controller.
-- Compact Operations Island with progress, cancellation, terminal feedback,
-  and destination refresh after completion.
-- Explicit fail-if-exists behavior; no silent overwrite.
-- Cross-application clipboard formats remain deferred.
-
-### Phase 4C — Move and rename foundation
-
-- Exact-path `MoveRequest` and same-parent `RenameRequest` models.
-- Raw `PathBuf`/`OsString` preservation, including non-UTF-8 names.
-- Linux atomic no-replace execution for files, directories, and symlinks.
-- Explicit cancellation boundary and structured cross-filesystem failure.
-- Fixed-capacity application executor with lifecycle events and shutdown.
-- Temporary-directory core and executor tests; no GTK controls yet.
-
-### Phase 4D — Move and rename interaction
-
-- Unified internal copy/move transfer buffer preserving original paths.
-- Ctrl+X/Ctrl+V move workflow and F2 rename command.
-- Visible file-actions menu as a pointer alternative to shortcuts.
-- Focused rename dialog with inline validation and retained focus on errors.
-- Generic copy/move/rename Operations Island feedback and cancellation.
-- Affected-directory refresh and recovery-oriented conflict/cross-device text.
-
-### Phase 4E — Trash foundation
-
-- Application-layer `TrashRequest` retaining the original `PathBuf`.
-- Bounded GIO trash worker using `gio::File::trash` and `gio::Cancellable`.
-- Structured missing-source, permission, unsupported, I/O, capacity, shutdown,
-  cancellation, and completion lifecycle behavior.
-- Shared application tracking and affected-parent refresh metadata.
-- Injected-backend tests that never modify real user Trash.
-- No Delete shortcut, restore UI, or permanent-delete action yet.
-
-### Phase 4F — Trash interaction
-
-- Explicitly labelled “Move to Trash” file-actions menu item.
-- Conventional Delete shortcut with native selection-sensitive action state.
-- Original selected `PathBuf` submitted through `ApplicationState` only.
-- Trash-specific Operations Island progress, completion, and recovery wording.
-- Affected-parent refresh after confirmed completion.
-- No confirmation for the recoverable Trash action; permanent delete,
-  Shift+Delete, bulk trash, restore UI, and undo remain unavailable.
-
-### Phase 5A — Operation resilience foundation
-
-- Retry dispatch for copy, move, rename, and trash through existing bounded
-  executors.
-- Stable logical `OperationId` and fresh `JobId` for every retry attempt.
-- Original path-safe operation requests retained without display-text rebuilds.
-- Sixty-four-entry terminal operation history with terminal registry pruning.
-- Completed and evicted entries reject retry explicitly.
-- No overwrite path or interactive conflict choice yet.
-
-### Phase 5B — Retry interaction
-
-- Accessible labelled Retry action for failed/cancelled Operations Island states.
-- Retry submission through `ApplicationState::retry_operation`.
-- Duplicate-click prevention while the new attempt is queued.
-- Completed operations remain non-retryable.
-
-### Phase 5C — Context menu
-
-- Native list-row popover with Open, Copy, Cut, Rename, and Move to Trash.
-- Secondary-click selects the exact pointer-targeted virtualized row first.
-- Shift+F10 and Menu-key access scoped to the focused file list.
-- Existing selection-sensitive `win.*` actions and original paths are reused.
-
-### Phase 5D — Open With and file associations
-
-- Asynchronous GIO content-type and compatible-application discovery.
-- Current default shown separately and selected initially.
-- Explicit Open and Set as Default actions with recoverable error feedback.
-- Regular-file and non-directory-link eligibility; original paths retained.
-
-### Phase 5E — Conflict interaction foundation
-
-- Distinct conflict terminal outcome; generic Retry cannot repeat the same destination.
-- Pending conflicts retain original paths plus job and operation IDs.
-- Explicit `KeepExisting` and `RetryWithName(OsString)` decisions only.
-- Revised copy/move/rename attempts remain fail-if-exists, retain logical operation ID, and receive a fresh job ID.
-- Resolution is single-use and bookkeeping follows bounded terminal-history eviction.
-- No overwrite, apply-to-all, trash-conflict, or GTK conflict-dialog path.
-
-### Phase 5F — Conflict interaction
-
-- Focused non-blocking conflict dialog with incoming/existing path context.
-- Empty-by-default retry field with inline accessible single-name validation.
-- Keep Existing submits no job; Retry with New Name returns to normal job feedback.
-- Dismissal leaves the conflict pending behind an Operations Island Resolve Conflict action.
-- Ordered pending conflicts and at most one active decision dialog.
-- No overwrite, apply-to-all, or trash-conflict option.
-
-### Phase 6A — List-view polish foundation
-
-- Compact fixed header with Name, Type, Size, and Modified hierarchy.
-- Textual file kinds distinguish folders, files, folder links, file links, and
-  special entries without relying on icon or color alone.
-- Decimal size formatting through exabytes and locale-aware modification time.
-- Bind-time metadata presentation preserves `GtkListView` virtualization and
-  bounded 256-entry main-loop insertion batches.
-- Centralized dim metadata, tabular figures, and explicit keyboard focus styling.
-- Original `PathBuf`/`OsString` ownership remains unchanged; thumbnails and a
-  separate grid remain deferred.
-
-### Phase 6B — List sorting
-
-- Native keyboard/pointer Name, Type, Size, and Modified heading controls.
-- Explicit ascending/descending arrows, accessible labels, and active pressed
-  state; a newly selected column starts ascending.
-- Navigable directories always remain first and missing optional metadata
-  remains last in either direction.
-- Comparisons run on the bounded directory worker using shared entries.
-- Selection restores by exact original `PathBuf`; `GtkListView` virtualization
-  and 256-entry main-loop insertion batches remain intact.
-- Thumbnail generation and a separate grid remain deferred.
-
-## Most recently completed
-
-### Phase 6C — Thumbnail foundation
-
-Implemented on `phase-6c-thumbnail-foundation` with a bounded, asynchronous
-thumbnail request/result boundary and safe cache identity without blocking GTK
-or executing active content. It provides the smallest useful image-thumbnail
-slice, preserve generic icons and readable fallback states, and keep a separate
-grid view deferred until the shared thumbnail path is verified.
-
-- Requests originate only from bound virtualized rows and keep stable generic
-  fallbacks for queued, unsupported, failed, stale, or disabled cases.
-- Exact path, enumerated size, and modification time form cache identity.
-- Regular PNG/JPEG files use no-follow opening plus encoded and decoded limits.
-- One fixed-capacity worker decodes/scales off GTK and skips stale generations.
-- GTK constructs textures from owned RGBA bytes on the main thread; completed
-  presentation state is capped at 256 entries.
-- A separate grid view and persistent disk cache remain deferred.
-
-### Phase 6D — Grid-view foundation
-
-Implemented on `phase-6d-grid-view-foundation` as a switchable native
-`GtkGridView` and existing `GtkListView` sharing one `GioListStore` and
-`GtkSingleSelection`.
-
-- List/grid mode changes preserve exact-path selection, activation, navigation,
-  sorting, and the existing context/window actions.
-- Grid thumbnails remain bound-cell-only and use requested edge size in the
-  bounded cache identity.
-- Seven discrete grid sizes cover 64 through 192 pixels, with native slider,
-  zoom buttons, and Ctrl+1/Ctrl+2/Ctrl+-/Ctrl++ shortcuts.
-- View mode and grid size load at startup and save atomically on a fixed-capacity
-  application worker; GTK performs no configuration-file I/O.
-- Persistent thumbnail caching and broader image formats remain deferred.
-
-### Phase 6E — Thumbnail-cache polish
-
-Implemented on `phase-6e-thumbnail-cache-polish` with a standards-conscious,
-bounded persistent thumbnail cache and explicit invalidation/cleanup policy.
-
-- Freedesktop `normal` and `large` PNG tiers use canonical absolute file URI
-  MD5 names and validate URI, Unix modification seconds, and source byte size.
-- Floe-owned PNGs add a private nanosecond field for exact same-second
-  invalidation without changing the standard shared-cache identity.
-- Source and cache files use no-follow opens and fixed encoded/decoded limits;
-  every cache path failure is nonfatal to source decoding.
-- Private directories and atomic files use 0700/0600 permissions.
-- Separate ownership markers let global 2,048-entry, 256-MiB, 90-day cleanup
-  prune only cache entries still carrying `Software=Floe`.
-- Lookup, writing, cleanup, decoding, and scaling remain on the existing
-  capacity-64 thumbnail worker; GTK still receives owned pixels only.
-
-### Phase 6F — Thumbnail format and orientation polish
-
-Implemented on `phase-6f-thumbnail-format-polish`.
-
-- Apply decoder-provided EXIF/TIFF orientation before scaling and cache writes.
-- Add reviewed WebP, GIF, BMP, TIFF, and ICO still thumbnails alongside
-  PNG/JPEG; animated containers expose one stable first frame only.
-- Retain the 32-MiB encoded, 128-MiB decoded, 65,535-pixel dimension,
-  no-follow, exact-source, and capacity-64 worker bounds.
-- Keep SVG, AVIF/HEIF, animation playback, and unreviewed formats on the generic
-  icon fallback.
-- Reuse oriented added-format pixels through the unchanged freedesktop cache.
-
-### Phase 6G — Iconography polish
-
-Implemented on `phase-6g-iconography-polish`.
-
-- Bundle one coherent 14-icon full-color SVG resource family rather than depend
-  on desktop-theme generic file artwork.
-- Give folders, links, documents, spreadsheets, presentations, images, audio,
-  video, archives, code, PDFs, executables, and unknown files distinct shapes.
-- Select icons from enumerated kind/executable metadata and a case-insensitive
-  extension policy without filesystem work in GTK or lossy path reconstruction.
-- Keep generic list icons at 28 pixels and bounded grid icon optics at 48-88
-  pixels while retaining independent 64-192 pixel image thumbnails.
-- Keep visible names and textual kinds authoritative, GTK decorative semantics,
-  and selection/focus states readable without color alone.
-
-### Phase 6H — Editable location bar
-
-Implemented on `phase-6h-editable-location-bar`.
-
-- Make the resting header path a native pointer-operable control while retaining Ctrl+L.
-- Seed and select the current path for immediate editing; Enter submits and Escape cancels.
-- Validate empty and relative text inline, then resolve directory access on the existing
-  bounded worker.
-- Restore the exact previous `NavigationState` when a submitted path is missing, unreadable,
-  or not a directory.
-- Keep original `PathBuf` state authoritative unless the user explicitly submits edited text.
-
-### Phase 6I — Open With fallback
-
-Implemented on `phase-6i-open-with-fallback`.
-
-- Resolve content type and compatible applications asynchronously through GIO before normal Open.
-- Launch the registered default when present.
-- Automatically present the existing chooser when no default exists.
-- Keep one-time Open and explicit Set as Default separate.
-- Preserve exact original paths and provide an actionable empty-applications fallback.
-
-### Phase 6J — Multi-selection and complete context surfaces
-
-Implemented on `phase-6j-multi-selection-context`.
-
-- Replace the shared single-selection model with `GtkMultiSelection`.
-- Support native Ctrl-toggle, Shift-range, Ctrl+A, Ctrl+Shift+A, Escape clearing,
-  and grid rubber-band selection.
-- Preserve multiple exact original `PathBuf` identities across worker sorting.
-- Keep Open, Open With, and Rename single-target; make Copy, Cut, and Trash batch-safe.
-- Preserve an existing multi-selection on secondary-click and retarget an
-  unselected entry before presenting its menu.
-- Add a distinct directory-background menu for Paste, Select All, Refresh, and
-  Edit Location.
-- Serialize application-owned batch jobs so large selections cannot overflow
-  bounded worker queues silently.
-
-### Phase 6K — Places, bookmarks, and devices
-
-Completed on `phase-6k-places-and-devices`.
-
-- Present Home and every distinct existing XDG Desktop, Documents, Downloads,
-  Music, Pictures, Public Share, Templates, and Videos directory.
-- Add exact raw-path user bookmarks with bounded asynchronous load/save, private
-  0700/0600 storage, and atomic replacement.
-- Observe deduplicated drive, volume, and mount snapshots through GIO
-  `VolumeMonitor` topology signals.
-- Expose asynchronous mount, unmount, and eject actions with mounted,
-  unmounted, busy, and unavailable states plus failed-action feedback.
-- Navigate mounted local filesystem roots while explicitly deferring
-  remote/network roots and multiple-root drive navigation.
-- Keep the compact, vertically scrollable sidebar user-resizable.
-
-### Phase 6K2 — Daily-driver sidebar and operation polish
-
-Completed on `phase-6k2-daily-driver-polish`.
-
-- Add persistent Compact, Balanced, and Comfortable sidebar density choices.
-- Persist a 128-480-pixel sidebar width after a 320 ms divider debounce; restore
-  it on launch and provide Reset Sidebar Width to use the appearance default.
-- Rebuild the Operations Island into separate title/cancel, detail, flexible
-  progress, and recovery rows so actions remain aligned and reachable.
-- Keep encrypted/password-protected mounting desktop-native with a
-  window-parented, credential-opaque `GtkMountOperation`.
-- Security-design **Open as Administrator...** around GFile/GVfs `admin://` and
-  polkit, but do not expose it until the provider's test and rollout gates pass.
-  Never elevate the whole Floe application.
-
-## Next
+This is Floe's authoritative implementation sequence. The exhaustive capability
+ledger is `docs/FEATURE_MATRIX.md`; security and privacy claims belong in
+`docs/PRIVACY_SECURITY.md`; interaction language belongs in `DESIGN.md`.
+`PLAN.md` remains the execution tree for one active implementation phase.
+
+Statuses are `COMPLETE`, `PARTIAL`, `NEXT`, `PLANNED`, `DEFERRED`, and
+`NOT APPLICABLE`. Code and tests, not documentation alone, determine completion.
+Exactly one phase is marked `NEXT`.
+
+## Phase gate
+
+Every implementation phase preserves exact Linux path identity, keeps filesystem
+and parser work off GTK, bounds concurrency and retained state, supports
+cancellation where meaningful, reports structured errors, and never silently
+overwrites data. The core remains GTK- and desktop-independent.
+
+Minimum verification:
+
+```text
+cargo fmt --all -- --check
+cargo check --workspace
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace
+```
+
+UI phases also need a native Wayland smoke where practical. Parser and security
+phases add hostile-input, failure-path, cache-leak, and claim-accuracy tests.
+
+## Completed history
+
+| Phase | Status | Delivered boundary |
+| --- | --- | --- |
+| 0 | COMPLETE | Workspace, GTK shell, core/app boundary, appearance foundation. |
+| 1 | COMPLETE | Background local browsing, navigation history, virtualized list. |
+| 2 | COMPLETE | Exact-path selection and asynchronous default-app opening. |
+| 3 | COMPLETE | Operation/job IDs, lifecycle, progress, structured failures. |
+| 4A | COMPLETE | Safe no-overwrite recursive copy with cancellation and cleanup. |
+| 4B | COMPLETE | Internal copy/paste and Operations Island observation. |
+| 4C | COMPLETE | Same-filesystem no-replace move and path-safe rename engine. |
+| 4D | COMPLETE | Cut/paste and validated F2 rename interaction. |
+| 4E | COMPLETE | Bounded cancellable GIO Trash executor. |
+| 4F | COMPLETE | Move to Trash action and Delete shortcut. |
+| 5A | COMPLETE | Retry identity and bounded terminal operation history. |
+| 5B | COMPLETE | Accessible retry interaction. |
+| 5C | COMPLETE | Selection-aware native item context menu. |
+| 5D | COMPLETE | Open With chooser and explicit default association change. |
+| 5E | COMPLETE | Conflict outcome, Keep Existing, Retry With New Name. |
+| 5F | COMPLETE | Non-blocking conflict resolution interaction. |
+| 6A | COMPLETE | Virtualized Name, Type, Size, Modified list details. |
+| 6B | COMPLETE | Worker-side four-column sorting and selection restoration. |
+| 6C | COMPLETE | Capacity-64 raster thumbnail worker and safe fallbacks. |
+| 6D | COMPLETE | Shared list/grid model, multi-selection, persistent grid zoom. |
+| 6E | COMPLETE | Validated bounded freedesktop thumbnail cache. |
+| 6F | COMPLETE | Orientation-aware reviewed raster formats. |
+| 6G | COMPLETE | Embedded semantic icon family. |
+| 6H | COMPLETE | Editable absolute local location entry and rollback. |
+| 6I | COMPLETE | Open routes to chooser when no default exists. |
+| 6J | COMPLETE | Multi-selection, batch actions, item/background menus. |
+| 6K | COMPLETE | XDG Places, raw-path bookmarks, live GIO devices. |
+| 6K2 | COMPLETE | Persistent sidebar density/width and mount-operation polish. |
+
+The actual completed phase is **Phase 6K2**.
+
+## Phase 6 — Finish browser and filesystem foundations
 
 ### Phase 6L — System thumbnailers
 
-Create `phase-6l-system-thumbnailers`.
+Status: **COMPLETE**
+Recommended branch: `phase-6l-system-thumbnailers`
 
-Consume reviewed freedesktop thumbnailer providers on the existing bounded,
-cancellable worker boundary for video frames, PDF pages, office documents
-including DOCX, fonts, text/code, embedded audio artwork, and archive previews.
-Never execute active content during thumbnailing.
+Goal: consume reviewed freedesktop thumbnailer providers through the existing
+request/result and cache boundary for video, PDF, office documents, fonts,
+text/code, audio artwork, and archive previews.
+
+- Scope: provider discovery, exact input identity, timeouts, cancellation,
+  bounded output, stale-result rejection, validated cache writes, safe fallback.
+- Excludes: Quick Preview, active content, provider installation, and any claim
+  that providers are sandboxed. Phase 18L owns isolation.
+- Dependencies: Phases 6C–6F.
+- Acceptance: malformed, missing, changed, oversized, timed-out, unsupported,
+  non-UTF-8, cancellation, and capacity cases retain a usable generic icon.
+- Verification: provider-policy and fixture tests, phase gate, native smoke.
 
 ### Phase 6M — Permanent deletion
 
-Create `phase-6m-permanent-delete`.
+Status: **NEXT**
+Recommended branch: `phase-6m-permanent-delete`
 
-Add a path-safe permanent-delete job and Shift+Delete interaction with exact
-targets, explicit irreversible confirmation, progress, cancellation where
-meaningful, partial-failure reporting, and retry policy. Label it “Delete
-Permanently”; do not claim secure erase because SSD wear-leveling, CoW filesystems,
-snapshots, and network storage make overwrite guarantees impossible.
+Goal: add path-safe multi-target permanent-delete jobs and Shift+Delete.
 
-## After the requested navigation and integration phases
+- Scope: exact-target preflight, irreversible confirmation, progress,
+  meaningful cancellation boundary, partial failures, conservative retry.
+- Excludes: secure erase and silent deletion of uncertain state.
+- Dependencies: Phases 4, 5, and 6J.
+- Acceptance: truthful “Delete Permanently” wording, symlink/mounted-root tests,
+  rich target context, no silent partial success, phase gate, native smoke.
 
-### Phase 7A — Tabs foundation
+### Remaining Phase 6 leaves
 
-Create `phase-7a-tabs-foundation`. Move navigation sessions into a bounded tab
-model that preserves each tab's exact current path, back/forward history,
-selection identity, sort, and view preferences. Add native keyboard/pointer tab
-creation, switching, reordering, and closing without duplicating filesystem
-workers or moving navigation ownership into widgets. Split view remains a
-separate Phase 7B branch after the tab state boundary is proven.
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 6N — Trash lifecycle | PLANNED | `phase-6n-trash-lifecycle` | Browse, restore, delete Trash items, Empty Trash, supported cleanup preferences. | 4E/4F/6M; no secure-erase claim; verify freedesktop metadata and restore conflicts. |
+| 6O — Transfer semantics | PLANNED | `phase-6o-transfer-semantics` | Cross-filesystem move, metadata-aware copy, space checks, external clipboard. | 4A–5F; no silent metadata loss; verify crash/cancel, symlinks and non-UTF-8 paths. |
+| 6P — Operation control | PLANNED | `phase-6p-operation-control` | Queueing, item progress, speed/ETA, truthful pause, richer conflicts, safe undo/history. | 6N/6O; irreversible work is not undoable; verify scoped batch policy and recovery. |
+| 6Q — Create/duplicate/links | PLANNED | `phase-6q-create-duplicate-links` | New folder/file, templates, duplicate, links, reveal target, copy path/name/URI. | 6P; no shell or privileged creation; verify collisions, broken links and raw names. |
+| 6R — Drag and drop | PLANNED | `phase-6r-drag-drop` | Internal/external drag, sidebar/Trash, modifiers, hover-open, autoscroll, highlighting. | 6O–6Q; no implicit overwrite; verify exact destinations and keyboard alternatives. |
+| 6S — File watching | PLANNED | `phase-6s-file-watching` | Coalesced external-change reconciliation, refresh, selection/scroll restoration. | 6P; no integrity-monitoring claim; verify storms, deletion, rename and 100k folders. |
+| 6T — Browser completeness | PLANNED | `phase-6t-browser-completeness` | Lazy metadata, sorting/grouping, columns, density, per-folder views, status/device detail. | 6S; no eager metadata storms; verify stable enrichment and preference migration. |
 
-## Later
+## Phase 7 — Tabs and split view
 
-### Remaining Phase 4 and Phase 5 — Mutations and resilience
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 7A — Tab/session model | PLANNED | `phase-7a-tabs-foundation` | Serializable browser sessions: path, history, selection, scroll, sort, view. | 6S/6T; no widgets or duplicated workers; verify exact GTK-independent state. |
+| 7B — Tab interaction | PLANNED | `phase-7b-tabs-interaction` | New, close, switch, duplicate, reorder, foreground/background open, middle-click. | 7A; no restore/split; verify pointer, keyboard, focus and native smoke. |
+| 7C — Closed tabs/restore | PLANNED | `phase-7c-tab-session-restore` | Reopen closed, close variants, optional names/pins, startup session restore. | 7A/7B; suppress private state; verify atomic versioned persistence and Ctrl+Shift+T. |
+| 7D — Split state | PLANNED | `phase-7d-split-state` | Two independent contexts, active side, histories, ratio and view modes. | 7A; widgets are not source of truth; verify serialization and focus identity. |
+| 7E — Split interaction | PLANNED | `phase-7e-split-interaction` | Toggle, close, swap, switch side, opposite-pane open and search/filter hooks. | 7D; no drag; active side uses non-color semantics and passes native smoke. |
+| 7F — Tab/split drag | PLANNED | `phase-7f-tab-split-drag` | Tab reorder/detach where supported and file operations between contexts. | 6R/7B/7E; no Miller drag; verify destinations, modifiers and keyboard alternatives. |
 
-- Trash restore/bulk workflows and cross-filesystem move recovery.
-- Pause where meaningful, richer retry, and conflict resolution.
-- Explicit overwrite policy and understandable partial-failure reporting.
+## Phase 8 — Miller and spatial navigation
 
-### Phase 6 — List/grid polish and thumbnails
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 8A — Column model | PLANNED | `phase-8a-miller-model` | Exact parent/selected-child chain and bounded retained columns. | 7A; no GTK; verify rename/delete/non-UTF-8 state transitions. |
+| 8B — Virtualized columns | PLANNED | `phase-8b-miller-ui` | Recyclable floating columns and adjustable widths. | 8A/6T; no detail column; verify bounded memory and no duplicate enumeration. |
+| 8C — Keyboard/trackpad | PLANNED | `phase-8c-miller-navigation` | Left/right, up/down and smooth horizontal trackpad interaction. | 8B; Vim stays 11D; verify RTL, focus, reduced motion and native smoke. |
+| 8D — Column actions | PLANNED | `phase-8d-miller-actions` | Selection-aware normal context actions in every column. | 8B/6P/6Q; verify exact active-column ownership and parity. |
+| 8E — Cross-column drag | PLANNED | `phase-8e-miller-drag-drop` | Drag/drop and hover navigation across columns, sidebar, tabs and panes. | 6R/8D; verify modifiers, autoscroll and no silent overwrite. |
+| 8F — Detail hooks | PLANNED | `phase-8f-miller-detail-hooks` | Optional final-column Preview/Inspector contracts. | 8B; Phases 9/10 own content; verify unsupported, focus and lifecycle states. |
 
-- Lazy bounded thumbnail generation and cache policy.
-- Denser metadata presentation and large-directory performance work.
-- Grid view sharing the same domain entries and selection model.
+Miller mode is generic Wayland functionality and must never require Niri.
 
-### Phase 7 — Tabs and split view
+## Phase 9 — Quick Preview
 
-Multiple browser contexts with clear active-view focus and independent history.
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 9A — Provider architecture | PLANNED | `phase-9a-preview-providers` | Typed, cancellable provider lifecycle, limits, cache policy and fallback. | 6L; no active content/sandbox claim; verify hostile, stale and failed providers. |
+| 9B — Images/text/code | PLANNED | `phase-9b-preview-images-text` | Images, bounded text, Markdown source, code, JSON and XML read-only preview. | 9A; no active HTML; verify encodings, huge files, malformed input and zoom. |
+| 9C — PDF/documents | PLANNED | `phase-9c-preview-documents` | Passive PDF and reviewed office/document rendering. | 9A/provider review; no macros; verify malformed documents, limits and cancellation. |
+| 9D — Audio/video | PLANNED | `phase-9d-preview-media` | Playback, seeking, metadata and poster frames. | 9A/6L; no codec installer; verify retired sources and resource release. |
+| 9E — Fonts/archives | PLANNED | `phase-9e-preview-fonts-archives` | Read-only font specimen and bounded archive listing. | 9A; no install/extract; verify bombs, traversal and malformed fonts. |
+| 9F — Preview polish | PLANNED | `phase-9f-preview-polish` | Space toggle, live navigation, fullscreen, HiDPI and privacy/cache hooks. | 9B–9E/8F; sandbox stays 18L; verify no jumps, accessibility and native smoke. |
 
-### Phase 8 — Miller/column navigation
+## Phase 10 — Inspector, properties, and metadata
 
-Floe's signature spatial, horizontal directory navigation for Niri, Plasma, and
-generic Wayland environments.
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 10A — Inspector foundation | PLANNED | `phase-10a-inspector-foundation` | Toggleable details, aggregate selection and Miller final-column surface. | 8F/9A; no edits; verify async selection, Ctrl+I and width persistence. |
+| 10B — Metadata providers | PLANNED | `phase-10b-metadata-providers` | Lazy dates, MIME, links, ownership, dimensions and folder counts/sizes. | 6T/9A; no eager recursion; verify bounds and disappearing files. |
+| 10C — Properties | PLANNED | `phase-10c-properties` | General, Open With, filesystem, mount and aggregate properties. | 10A/10B/5D; verify multi-item truth and native dialog smoke. |
+| 10D — Permissions | PLANNED | `phase-10d-permissions` | Executable, mode and explicit owner/group editing with recursive preflight. | 10C/6P; no root-process elevation; verify symlinks and partial failure. |
+| 10E — Checksums | PLANNED | `phase-10e-checksums` | SHA-256, SHA-512, legacy-labelled MD5, expected-digest verification. | Job boundary; no authenticity claim; verify vectors, huge files and cancellation. |
+| 10F — Advanced metadata | PLANNED | `phase-10f-advanced-metadata` | Safe EXIF, media/audio tags, duration and optional columns. | 10B; privacy findings stay 18O; verify malformed metadata and lazy sort stability. |
 
-### Phases 9–11 — Preview and keyboard tools
+## Phase 11 — Commands, keyboard, and terminal
 
-- Safe Quick Preview.
-- Inspector/properties.
-- Searchable command palette.
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 11A — Command registry | PLANNED | `phase-11a-command-registry` | Human-named commands, eligibility, shortcut and menu metadata. | Reuse app actions; no business-logic duplication; verify registry/action parity. |
+| 11B — Command palette | PLANNED | `phase-11b-command-palette` | Ctrl+Shift+P search and bounded recent commands. | 11A/privacy hooks; verify context, focus, screen reader and native smoke. |
+| 11C — Keybindings | PLANNED | `phase-11c-keybindings` | Custom bindings, conflicts, reset and discoverability. | 11A; destructive defaults conservative; verify parser/migration/conflicts. |
+| 11D — Optional Vim mode | PLANNED | `phase-11d-vim-mode` | Opt-in list/grid/Miller navigation mappings. | 11C/8C; never default; verify input fields and mode/focus transitions. |
+| 11E — Terminal integration | PLANNED | `phase-11e-terminal-integration` | Preferred terminal and Open Terminal Here using safe argv. | Generic integration as needed; no shell/password argv; embedded terminal deferred. |
 
-### Phases 12–13 — Archives and advanced search
+## Phase 12 — Productivity operations
 
-Job-backed archive operations plus cancellable, filterable filesystem search.
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 12A — Archive engine | PLANNED | `phase-12a-archive-engine` | ZIP, tar, tar.gz, tar.xz and reviewed 7z listing/extract/compress jobs. | 6P; no unsafe argv; verify traversal, bombs, links, conflicts and cleanup. |
+| 12B — Archive UX | PLANNED | `phase-12b-archive-ui` | Extract Here/To, compress, progress and safe backend password handoff. | 12A; verify destination preview, conflict, accessibility and native smoke. |
+| 12C — Batch rename | PLANNED | `phase-12c-batch-rename` | Previewed transforms, regex, sequences, metadata templates and undo. | 6P; verify whole-batch validation, collisions and non-UTF-8 policy. |
+| 12D — Create/templates polish | PLANNED | `phase-12d-create-templates` | Template discovery/management and immediate rename. | 6Q; no executable surprise; verify safe names, permissions and migration. |
+| 12E — Links/duplicate polish | PLANNED | `phase-12e-link-duplicate-polish` | Relative/absolute links, hard-link eligibility and duplicate naming. | 6Q; verify cross-filesystem and broken-link behavior. |
+| 12F — Action integration | PLANNED | `phase-12f-productivity-actions` | Context, palette and shortcut integration without a menu wall. | 11A/12A–E; verify eligibility and pointer/keyboard parity. |
 
-### Phase 14 — Desktop integration abstraction
+## Phase 13 — Filter and search
 
-Introduce the application-layer capability boundary after generic XDG/GIO/
-portal behavior is understood. Core types must remain desktop-neutral.
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 13A — Folder filter | PLANNED | `phase-13a-folder-filter` | Instant text/glob/regex filtering, count and Escape clear. | 6T; not recursive search; verify invalid patterns, focus and large folders. |
+| 13B — Filename search | PLANNED | `phase-13b-filename-search` | Streaming cancellable folder/subtree/location name search and reveal. | Worker boundary; no content scan; verify symlinks, permission and huge trees. |
+| 13C — Advanced filters | PLANNED | `phase-13c-search-filters` | Type, MIME, extension, size, date, owner, hidden and tag-ready filters. | 13B/10B; verify combined predicates and lazy metadata. |
+| 13D — Content search | PLANNED | `phase-13d-content-search` | Opt-in bounded text search with glob/regex/case controls. | 13B; no binary/secret upload; verify encodings, permission and cancellation. |
+| 13E — Saved searches | PLANNED | `phase-13e-saved-searches` | Versioned saved queries and privacy-aware history. | 13C/13D; verify migration, corruption and private suppression. |
+| 13F — Optional indexing | PLANNED | `phase-13f-search-indexing` | Capability-reviewed index with complete non-indexed fallback. | 13E/18J/18K; exclude locked/sensitive content by default; verify stale/fallback. |
 
-### Phases 15–16 — Optional Niri and KDE Plasma integration
+## Phases 14–17 — Desktop and location integration
 
-- Niri IPC and spatial workflow enhancements that fail gracefully.
-- Plasma-specific facilities only where standards provide no equivalent.
+### Phase 14 — Generic desktop integration framework
 
-### Phase 17 — Remote/network filesystems
+Status: **PLANNED**
+Recommended branch: `phase-14-generic-desktop-integration`
 
-Support justified GIO-backed or standards-based remote locations without making
-the local core depend on one desktop environment.
+Goal: create an application-layer capability boundary for GIO, XDG, portals,
+URI launch, mounts, notifications, Share, themes, credential stores, and reliable
+session-lock signals. It depends on stable app commands and location types. It
+excludes compositor branches or desktop types in core. Acceptance requires
+missing-capability fallback tests and generic Wayland plus first-class desktop
+smoke coverage.
 
-### Later customization track
+### Phase 15 — Niri integration
 
-- First-class appearance controls for Native, Glass, Frosted, Minimal, and
-  Compact themes plus durable custom theme tokens.
-- Accessible font-family and font-scale controls with safe system-font fallback.
-- Full MIME/file-association management: inspect defaults, choose Open With,
-  set or clear defaults explicitly, and manage user-added external tools without
-  shell interpolation.
+Status: **PLANNED**
+Recommended branch: `phase-15-niri-integration`
 
-### Phase 18 — Packaging and polish
+Goal: add optional detection/IPC, output/workspace awareness, spatial launch,
+and useful Miller enhancements behind Phase 14. Niri must never be required.
+Acceptance includes missing/stale socket, protocol failure, graceful fallback,
+and native Niri smoke tests.
 
-Distribution packaging, accessibility audit, profiling, performance tuning,
-documentation, recovery hardening, and release-quality visual polish.
+### Phase 16 — KDE Plasma integration
+
+Status: **PLANNED**
+Recommended branch: `phase-16-plasma-integration`
+
+Goal: add standards-first Plasma capability detection, KDE services only where
+useful, and KWallet only after secret-storage requirements are proven. KDE
+Frameworks are excluded for cosmetics. Acceptance requires generic fallback,
+service-unavailable tests, no KDE types in core, and Plasma Wayland smoke.
+
+### Phase 17 — Remote and external locations
+
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 17A — Remote model | PLANNED | `phase-17a-remote-location-model` | URI/location identity, capabilities, timeouts and offline state separate from local paths. | 14; no URI semantics in local core; verify redaction, reconnect and identity. |
+| 17B — GIO remote browsing | PLANNED | `phase-17b-gio-remote-browsing` | Reviewed GIO SFTP, SMB, WebDAV and NFS browsing/operations. | 17A; FTP deferred; no silent plaintext staging; verify timeout/partial failures. |
+| 17C — MTP/devices | PLANNED | `phase-17c-mtp-devices` | Android/MTP transfer and disconnect recovery; optional KDE Connect enhancement. | 17A/6K/14; generic path remains; verify disconnect, progress and cancellation. |
+| 17D — Remote recovery | PLANNED | `phase-17d-remote-recovery` | Retry/offline transitions, remote thumbnail policy, saved connections and credential abstraction. | 17B/17C/18J; no secret logs/plaintext cache; verify migration and reconnect. |
+
+## Phase 18 — Privacy, security, and data integrity
+
+No Phase 18 feature is implemented by this planning document. Every leaf follows
+`docs/PRIVACY_SECURITY.md`, and every security-critical dependency requires an
+implementation-time review. Security terms are not interchangeable.
+
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 18A — Threat model | PLANNED | `phase-18a-security-threat-model` | Revalidate formats, secrets, vaults, caches, sandbox and integrity design before code. | 14; research/docs only; require decision records, dependency rationale and test plan. |
+| 18B — Portable encryption engine | PLANNED | `phase-18b-portable-encryption` | Reviewed interoperable format, preferably `age` after review; streaming passphrase jobs. | Stable jobs; no custom crypto/shell/plaintext fallback; verify interop, auth, malformed input and cleanup. |
+| 18C — Encryption UI | PLANNED | `phase-18c-encryption-ui` | Encrypt/Decrypt prompts, conflicts, Operations Island and multi-selection. | 18B/Trash; original survives until authenticated completion; verify secret UX and leaks. |
+| 18D — Recipient encryption | PLANNED | `phase-18d-recipient-encryption` | Reviewed public identities, fingerprints, multiple recipients and safe identity handling. | 18B; no invented exchange/silent sync; verify interop, duplicates and secret storage. |
+| 18E — Privacy session | PLANNED | `phase-18e-privacy-session` | Non-persistent secret wrappers, timeout, Lock and Lock All. | 18A; not a universal password; verify lifetime, no Debug/log/persistence and focus. |
+| 18F — Vault crypto design | PLANNED | `phase-18f-vault-crypto` | Review vault format/backend, key hierarchy, password change, recovery and filename privacy. | 18A/18E; no plaintext folder plus dialog/custom crypto; require architecture review. |
+| 18G — Vault filesystem | PLANNED | `phase-18g-vault-filesystem` | Selected encrypted storage/virtual filesystem with complete large-file semantics. | 18F; FUSE not assumed, no plaintext temp; verify crash, concurrency, mounts and disconnect. |
+| 18H — Vault UI | PLANNED | `phase-18h-vault-ui` | Create/Add/Unlock/Lock/Lock All/change password/remove registration/recovery UX. | 18G/18E; removal is not deletion; verify non-color states, secrets and native smoke. |
+| 18I — Vault lifecycle | PLANNED | `phase-18i-vault-autolock` | Timeout, app close, reliable session lock/suspend, open handles and drive removal. | 18G/18H/14; no unsafe forced unmount; verify lifecycle races and truthful delay. |
+| 18J — Private cache/history | PLANNED | `phase-18j-private-cache-history` | Vault-safe thumbnails, preview, Recents, search, jobs, notifications and lock invalidation. | 18G/18I; verify cache/config/log/search leak audit and locking. |
+| 18K — Sensitive/Private modes | PLANNED | `phase-18k-sensitive-private-mode` | Sensitive Folder trace reduction and non-persistent Private Mode windows. | 18J; neither is encryption; verify history/cache/session suppression and limitation UX. |
+| 18L — Sandboxed providers | PLANNED | `phase-18l-sandboxed-previewers` | Target-only read, isolated temp, no unrelated files/network/vault, limits and termination. | 6L/9A/18A; helper execution is not sandboxing; verify policy and setup failure. |
+| 18M — Open Safely | PLANNED | `phase-18m-open-safely` | Constrained external launch with reviewed mechanism and persistent indicator. | 18L/14; never silently launch normally; verify policy, fallback and compatibility. |
+| 18N — Suspicious files | PLANNED | `phase-18n-suspicious-file-analysis` | Executable/double-extension, MIME mismatch, Unicode hazards and reliable origin evidence. | 10B/18A; no malware verdict; verify false positives and escaped filename display. |
+| 18O — Privacy Inspector | PLANNED | `phase-18o-privacy-inspector` | Format-specific GPS, EXIF, author, organization, app and embedded-thumbnail findings. | 10A/10B/10F; no exhaustive-removal claim; verify known corpus and malformed data. |
+| 18P — Metadata sanitization | PLANNED | `phase-18p-metadata-sanitization` | Sanitized copies, GPS/selected metadata removal and batch preview. | 18O/6P; preserve source; verify before/after, cancel and atomic finalization. |
+| 18Q — Secure Share | PLANNED | `phase-18q-secure-share` | Compose inspect, sanitize, password/recipient encryption and checksum. | 18B/18D/18O/18P; never alter original; verify step failures and output. |
+| 18R — Permission auditor | PLANNED | `phase-18r-permission-auditor` | Explain risky modes, ownership, ACL/xattr/capability exposure and conservative fixes. | 10D; no casual expert controls; verify evidence, symlinks and partial edits. |
+| 18S — Sensitive scanner | PLANNED | `phase-18s-sensitive-content-scanner` | Explicit local heuristic scan for keys, `.env`, tokens and credential dumps. | 18A/18J; no cloud/secret display/malware claim; verify redaction and false positives. |
+| 18T — Integrity tools | PLANNED | `phase-18t-integrity-tools` | Saved SHA fingerprints and portable `SHA256SUMS` generation/verification. | 10E; hash is not authenticity; verify path-safe manifests and changed/missing/new. |
+| 18U — Integrity monitoring | PLANNED | `phase-18u-integrity-monitoring` | Opt-in baselines and coalesced change reporting. | 6S/18T; not intrusion detection; verify storms, offline gaps and stale baselines. |
+| 18V — Verified copy | PLANNED | `phase-18v-verified-copy` | Optional Copy and Verify with source/destination digest. | 6O/10E; not default; verify changed source, corruption, flush, retry and cancel. |
+| 18W — Verified USB | PLANNED | `phase-18w-verified-usb-transfer` | Copy, Verify, Flush and Safe Eject as explicit staged workflow. | 18V/6K/14; no safe-removal claim before eject; verify partial-success states. |
+| 18X — Data-loss guardrails | PLANNED | `phase-18x-data-loss-guardrails` | Protected Folders and rich thresholded destructive preflight. | 6M/6P; mistake prevention only; verify mounted roots and huge operations. |
+| 18Y — Operation recovery | PLANNED | `phase-18y-operation-recovery` | Privacy-aware journal and conservative interrupted-job/partial-output recovery. | 6P/6O/18J; no secrets/silent deletion; verify crash and corrupt journal. |
+| 18Z — Security Center | PLANNED | `phase-18z-security-center` | Calm vault, sensitive, session, integrity and finding status/actions. | 18E/18H/18K/18N/18R/18T; no fear score; verify state and accessibility. |
+| 18AA — Security audit | PLANNED | `phase-18aa-security-audit` | Crypto, dependencies, secrets, caches, parsers, vaults, sandbox and recovery audit. | 18B–18Z; no stable Phase 18 claim before pass; close or record every finding. |
+
+Security phases preserve originals on failed encryption or sanitization, never
+log or pass secrets in process arguments, never silently downgrade protection,
+and add hostile-input and cache/notification/history leak tests.
+
+## Phase 19 — Extensibility and developer features
+
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 19A — Git awareness | PLANNED | `phase-19a-git-awareness` | Cheap opt-in repository root, branch, status badges and relative-path actions. | 6T/11E; no cost outside repositories; verify large repos and missing Git. |
+| 19B — Custom actions | PLANNED | `phase-19b-custom-actions` | Context/palette file-type actions with safe argv and eligibility. | 11A/14/18A; no shell or vault-key access; verify hostile paths and capabilities. |
+| 19C — Customization | PLANNED | `phase-19c-customization` | Theme tokens, templates, editor, compare and Share tools. | Appearance/12D/19B; no plugin runtime; verify validation, rollback and upgrades. |
+
+A general plugin runtime is **DEFERRED** until demonstrated demand and a
+capability, isolation, permission, and failure-containment design exist.
+
+## Phase 20 — Settings, visual, accessibility, and QoL audit
+
+Status: **PLANNED**
+Recommended branch: `phase-20-completeness-audit`
+
+Goal: close every remaining `FEATURE_MATRIX` gap across appearance, fonts,
+density, motion, views, previews, operations, shortcuts, applications, privacy,
+desktop settings, focus, Orca, high contrast, localization, RTL, HiDPI,
+fractional scaling, persistence, errors, and recorded daily-driver QoL.
+
+- Excludes: weakening secure defaults or exposing unnecessary crypto knobs.
+- Dependencies: all preceding user-facing families.
+- Acceptance: measured matrix audit, no accessibility-critical finding,
+  migration tests, phase gate, and Niri/Plasma/generic Wayland smoke where
+  environments are available.
+
+## Phase 21 — Performance, packaging, and release hardening
+
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 21A — Performance | PLANNED | `phase-21a-performance` | Profile 100k folders, thumbnails, search, operations, crypto, vault and integrity workloads. | Feature complete; no speculative rewrite; record CPU/memory/latency budgets. |
+| 21B — Packaging/migrations | PLANNED | `phase-21b-packaging` | Release profile, metadata, icons, MIME and selected Flatpak/Arch strategy. | 18AA/20; verify clean install, upgrade, rollback and cache/config/vault migrations. |
+| 21C — Release docs | PLANNED | `phase-21c-release-documentation` | User, admin, security, accessibility, recovery and debug-policy documentation. | 21B; verified claims only; run link, terminology and fresh-user walkthrough. |
+| 21D — Release candidate | PLANNED | `phase-21d-release-candidate` | Dependency/license/security follow-up, crash recovery and environment matrix. | 21A–21C; no known data-loss/security-critical defect; require reproducible artifacts. |
+
+## Deliberately deferred or not applicable
+
+- Secure erase is **NOT APPLICABLE**: permanent unlinking cannot guarantee
+  erasure on SSD, CoW, snapshot, remote, backup, or cached storage layers.
+- Antivirus, malware removal, intrusion detection, DRM/file expiration, and
+  protection from a compromised kernel or same-user malware are **NOT
+  APPLICABLE** without a separately reviewed mechanism.
+- FTP, embedded terminal, signed manifests, snapshot-manager integration,
+  advanced ACL/xattr editing, tab detachment, and a plugin runtime are
+  **DEFERRED** pending demand and architecture/security review.
+
+## Dependency spine
+
+```text
+6L–6T browser and operation completeness
+  -> 7 reusable tab/split sessions -> 8 Miller navigation
+  -> 9 provider-based Preview -> 10 Inspector and metadata
+     -> 11 shared commands -> 12 productivity -> 13 search
+14 generic desktop boundary -> 15 Niri / 16 Plasma / 17 remote
+jobs + providers + metadata + desktop facts -> 18 privacy/security/integrity
+18AA + 20 completeness -> 21 release hardening
+```
+
+Portable encryption depends on safe jobs and Trash. Recipient encryption depends
+on reviewed identity representation. Vault UI and auto-lock depend on proven
+storage/key and mount lifecycles. Private Preview and search depend on private
+cache/index policy. Secure Share composes inspection, sanitization, encryption,
+and checksums. Sandboxed Preview and Open Safely depend on explicit provider and
+policy boundaries. Integrity monitoring depends on coalesced file watching.
+Verified USB transfer depends on verified copy and safe device actions. Crash
+recovery depends on explicit operation semantics and privacy-aware journaling.

@@ -101,6 +101,7 @@ cargo test -p floe-core phase_6b
 cargo test -p floe-app phase_6b
 cargo test -p floe-app phase_6c
 cargo test -p floe-app phase_6d
+cargo test -p floe-app phase_6l_ -- --nocapture
 cargo test -p floe-app move_executor
 cargo check -p floe-core
 cargo tree -p floe-app --depth 1
@@ -224,10 +225,15 @@ session, so the layout audit uses deterministic geometry tests plus native
 action, persistence, and health verification rather than claiming screenshot
 evidence.
 
-After Phase 6K2, continue on `phase-6l-system-thumbnailers`: reviewed video
-frames, PDF pages, office/DOCX documents, fonts, text/code, embedded audio
-artwork, and archive previews on the bounded worker boundary without executing
-active content.
+Phase 6L enables rustix process-group support but adds no new crate. Run
+`cargo test -p floe-app phase_6l_ -- --nocapture` for provider precedence,
+definition/argv policy, non-UTF-8 identity, timeout/cancellation and process-tree
+termination, output limits, stale sources, queue fallback, and persistent-cache
+reuse. Runtime providers are discovered from freedesktop user/system data
+directories. Installed `.thumbnailer` helpers are supervised but not sandboxed;
+they retain normal user authority until Phase 18L. A missing, excluded, failed,
+or malformed provider must leave the generic icon usable. After Phase 6L,
+continue only on `phase-6m-permanent-delete`.
 
 ## Wayland environments
 

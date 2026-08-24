@@ -15,7 +15,7 @@ image = { version = "=0.25.9", default-features = false, features = ["bmp", "gif
 glib = "0.21"
 png = "0.18.1"
 thiserror = "2.0"
-rustix = { version = "1.1", features = ["fs"] }
+rustix = { version = "1.1", features = ["fs", "process"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
