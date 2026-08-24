@@ -6,7 +6,9 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{
     appearance::Appearance,
-    browser::BrowserController,
+    bookmarks::BookmarkWorker,
+    browser::{BrowserController, BrowserServices},
+    devices::DeviceMonitor,
     iconography, locations,
     operations::OperationController,
     preferences::{PreferenceWorker, ViewPreferences},
@@ -104,6 +106,20 @@ fn build_window(
             None
         }
     };
+    let bookmark_worker = match BookmarkWorker::spawn() {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            tracing::warn!(%error, "could not start bookmark worker");
+            widgets.toast_overlay.add_toast(
+                adw::Toast::builder()
+                    .title("Bookmarks are unavailable for this session")
+                    .timeout(6)
+                    .build(),
+            );
+            None
+        }
+    };
+    let device_monitor = DeviceMonitor::new();
     let application_state = match ApplicationState::new() {
         Ok(state) => Rc::new(state),
         Err(error) => {
@@ -128,10 +144,14 @@ fn build_window(
     let controller = BrowserController::new(
         widgets,
         initial_path,
-        worker,
-        thumbnail_worker,
+        BrowserServices::new(
+            worker,
+            thumbnail_worker,
+            bookmark_worker,
+            device_monitor,
+            preference_worker.borrow_mut().take(),
+        ),
         view_preferences,
-        preference_worker.borrow_mut().take(),
         Rc::clone(&application_state),
     );
     let browser = Rc::downgrade(&controller);

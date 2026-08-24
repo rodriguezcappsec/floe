@@ -22,10 +22,16 @@ required nor simulated.
 
 - Local read-only directory enumeration on a background worker
 - Back, forward, parent, location, and hidden-file navigation
-- XDG user locations
+- Home plus every existing, distinct XDG Desktop, Documents, Downloads, Music,
+  Pictures, Public Share, Templates, and Videos location
 - Switchable virtualized list/grid views sharing one multi-selection model and original `PathBuf` values
 - Fixed Name, Type, Size, and Modified columns using already-loaded metadata
-- Compact, user-resizable Places sidebar
+- Compact, vertically scrollable, user-resizable sidebar with separate
+  Places, Bookmarks, and Devices sections
+- Add/remove folder bookmarks loaded and saved asynchronously with exact Linux
+  path identity and private atomic persistence
+- Live GIO drive, volume, and mount rows with asynchronous mount, unmount, and
+  eject actions; mounted local filesystem roots navigate directly
 - Floe-owned scalable folder/file icon family with executable, link, document,
   media, archive, code, PDF, spreadsheet, and presentation distinctions
 - Lazy PNG/JPEG/WebP/GIF/BMP/TIFF/ICO thumbnails decoded on a bounded worker
@@ -156,8 +162,17 @@ and offers Paste, Select All, Refresh, and Edit Location. Copy, move, and Trash 
 an application-owned serial batch dispatcher, so selections larger than worker
 queue capacity are not silently dropped.
 
-The next branches are `phase-6k-places-and-devices`,
-`phase-6l-system-thumbnailers`, and `phase-6m-permanent-delete`. Phase 6M will use
+Phase 6K completes the first Places and storage-device pass. The sidebar shows
+all distinct existing XDG user folders, persists user-added folder bookmarks
+without reducing raw paths to display text, and observes GIO `VolumeMonitor`
+drive/volume/mount changes. Device rows expose honest mounted, unmounted, busy,
+unavailable, and failed-action feedback. Floe navigates mounted local filesystem
+roots; remote/network roots remain unavailable until the dedicated remote
+filesystem phase. Sidebar width remains user-resizable for the current window
+but is not persisted yet.
+
+Phase 6K is complete. The next branch is `phase-6l-system-thumbnailers`, followed
+by `phase-6m-permanent-delete`. Phase 6M will use
 the truthful label “Delete Permanently,” require explicit confirmation, and avoid
 claiming secure erase where storage cannot guarantee overwriting.
 

@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
+    path::PathBuf,
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -11,6 +12,10 @@ use gtk::{gio, glib};
 
 use crate::{
     appearance::Appearance,
+    devices::{
+        DeviceAction, DeviceActionStatus, DeviceActions, DeviceMountState, DeviceRootKind,
+        DeviceSnapshot,
+    },
     iconography::{EntryIcon, LIST_ICON_EDGE, grid_icon_edge, icon_for_entry},
     launcher::OpenWithOptions,
     locations::Location,
@@ -18,6 +23,109 @@ use crate::{
     thumbnail::{LIST_THUMBNAIL_EDGE, ThumbnailError, ThumbnailKey, ThumbnailPixels},
     view::{GRID_SIZES, GridSize, ViewMode},
 };
+
+pub const SIDEBAR_COMPACT_MIN_WIDTH: i32 = 128;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DeviceActivation {
+    Navigate(PathBuf),
+    Mount,
+    Unavailable(&'static str),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeviceRowPolicy {
+    pub status: String,
+    pub activation: DeviceActivation,
+    pub can_unmount: bool,
+    pub can_eject: bool,
+}
+
+pub fn device_row_policy(snapshot: &DeviceSnapshot) -> DeviceRowPolicy {
+    device_row_policy_for(
+        snapshot.mount_state,
+        snapshot.root_kind,
+        snapshot.actions,
+        snapshot.local_root(),
+    )
+}
+
+fn device_row_policy_for(
+    mount_state: DeviceMountState,
+    root_kind: DeviceRootKind,
+    actions: DeviceActions,
+    local_root: Option<&std::path::Path>,
+) -> DeviceRowPolicy {
+    let busy_action = [
+        DeviceAction::Mount,
+        DeviceAction::Unmount,
+        DeviceAction::Eject,
+    ]
+    .into_iter()
+    .find(|action| actions.status(*action) == DeviceActionStatus::Busy);
+
+    let activation = match (mount_state, root_kind) {
+        (DeviceMountState::Mounted, DeviceRootKind::Local) => local_root
+            .map(|path| DeviceActivation::Navigate(path.to_path_buf()))
+            .unwrap_or(DeviceActivation::Unavailable(
+                "The local mount path is unavailable.",
+            )),
+        (DeviceMountState::Mounted, DeviceRootKind::NonLocal) => {
+            DeviceActivation::Unavailable("Remote and network locations are not supported yet.")
+        }
+        (DeviceMountState::Mounted, DeviceRootKind::Multiple) => {
+            DeviceActivation::Unavailable("This drive has multiple mounted locations.")
+        }
+        (DeviceMountState::Mounted, DeviceRootKind::None) => {
+            DeviceActivation::Unavailable("The mounted location is unavailable.")
+        }
+        (DeviceMountState::Unmounted, _) => match actions.mount {
+            DeviceActionStatus::Available => DeviceActivation::Mount,
+            DeviceActionStatus::Busy => {
+                DeviceActivation::Unavailable("A storage action is already running.")
+            }
+            DeviceActionStatus::Unavailable(reason) => {
+                DeviceActivation::Unavailable(reason.message(DeviceAction::Mount))
+            }
+        },
+    };
+
+    let status = if let Some(action) = busy_action {
+        action.present_participle().to_owned()
+    } else {
+        match (mount_state, root_kind) {
+            (DeviceMountState::Unmounted, _) if actions.mount == DeviceActionStatus::Available => {
+                "Unmounted"
+            }
+            (DeviceMountState::Unmounted, _) => "Unavailable",
+            (DeviceMountState::Mounted, DeviceRootKind::Local) => "Mounted",
+            (DeviceMountState::Mounted, DeviceRootKind::NonLocal) => "Remote",
+            (DeviceMountState::Mounted, DeviceRootKind::Multiple) => "Multiple locations",
+            (DeviceMountState::Mounted, DeviceRootKind::None) => "Unavailable",
+        }
+        .to_owned()
+    };
+
+    DeviceRowPolicy {
+        status,
+        activation,
+        can_unmount: actions.unmount == DeviceActionStatus::Available,
+        can_eject: actions.eject == DeviceActionStatus::Available,
+    }
+}
+
+pub fn bookmark_paths_after_remove(paths: &[PathBuf], index: usize) -> Option<Vec<PathBuf>> {
+    if index >= paths.len() {
+        return None;
+    }
+    let mut revised = paths.to_vec();
+    revised.remove(index);
+    Some(revised)
+}
+
+pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
+    loaded && !save_in_flight
+}
 
 const FILE_CONTEXT_ACTIONS: [(&str, &str); 6] = [
     ("Open", "win.open"),
@@ -306,7 +414,18 @@ pub struct BrowserWidgets {
     pub sort_headers: Vec<SortHeaderWidgets>,
     pub thumbnails: ThumbnailPresentation,
     pub location_buttons: Vec<gtk::Button>,
+    pub bookmarks_box: gtk::Box,
+    pub add_bookmark_button: gtk::Button,
+    pub devices_box: gtk::Box,
     pub operations: OperationWidgets,
+}
+
+struct SidebarWidgets {
+    content: gtk::ScrolledWindow,
+    location_buttons: Vec<gtk::Button>,
+    bookmarks_box: gtk::Box,
+    add_bookmark_button: gtk::Button,
+    devices_box: gtk::Box,
 }
 
 struct DirectoryPanelWidgets {
@@ -552,7 +671,7 @@ pub fn build(
     header.pack_end(&grid_size_controls);
     header.pack_end(&view_controls);
 
-    let (sidebar, location_buttons) = build_sidebar(locations, appearance.sidebar_min_width());
+    let sidebar = build_sidebar(locations, appearance.sidebar_min_width());
     let DirectoryPanelWidgets {
         content,
         selection,
@@ -576,19 +695,19 @@ pub fn build(
         .orientation(gtk::Orientation::Horizontal)
         .position(appearance.sidebar_width())
         .wide_handle(true)
-        .resize_start_child(false)
+        .resize_start_child(true)
         .resize_end_child(true)
-        .shrink_start_child(false)
+        .shrink_start_child(true)
         .shrink_end_child(false)
         .hexpand(true)
         .vexpand(true)
         .build();
     workspace.add_css_class("floe-workspace");
-    workspace.set_start_child(Some(&sidebar));
+    workspace.set_start_child(Some(&sidebar.content));
     workspace.set_end_child(Some(&content));
 
     if !appearance.floating_panels() {
-        sidebar.remove_css_class("floe-panel");
+        sidebar.content.remove_css_class("floe-panel");
         content.remove_css_class("floe-panel");
     }
 
@@ -636,7 +755,10 @@ pub fn build(
         status_label,
         sort_headers,
         thumbnails,
-        location_buttons,
+        location_buttons: sidebar.location_buttons,
+        bookmarks_box: sidebar.bookmarks_box,
+        add_bookmark_button: sidebar.add_bookmark_button,
+        devices_box: sidebar.devices_box,
         operations,
     }
 }
@@ -998,24 +1120,19 @@ fn build_operations_island() -> OperationWidgets {
     }
 }
 
-fn build_sidebar(locations: &[Location], minimum_width: i32) -> (gtk::Box, Vec<gtk::Button>) {
+fn build_sidebar(locations: &[Location], minimum_width: i32) -> SidebarWidgets {
     let sidebar = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
-        .spacing(4)
-        .width_request(minimum_width)
+        .spacing(8)
+        .margin_top(10)
+        .margin_bottom(10)
+        .margin_start(8)
+        .margin_end(8)
         .vexpand(true)
         .build();
-    sidebar.add_css_class("floe-panel");
     sidebar.add_css_class("floe-sidebar");
 
-    let heading = gtk::Label::builder()
-        .label("Places")
-        .halign(gtk::Align::Start)
-        .margin_start(10)
-        .margin_bottom(6)
-        .build();
-    heading.add_css_class("heading");
-    sidebar.append(&heading);
+    sidebar.append(&sidebar_heading("Places"));
 
     let mut buttons = Vec::with_capacity(locations.len());
     for location in locations {
@@ -1040,20 +1157,73 @@ fn build_sidebar(locations: &[Location], minimum_width: i32) -> (gtk::Box, Vec<g
         buttons.push(button);
     }
 
-    let spacer = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    spacer.set_vexpand(true);
-    sidebar.append(&spacer);
+    let bookmark_heading = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(4)
+        .build();
+    bookmark_heading.append(&sidebar_heading("Bookmarks"));
+    let add_bookmark_button = gtk::Button::builder()
+        .icon_name("list-add-symbolic")
+        .has_frame(false)
+        .tooltip_text("Add current folder to Bookmarks")
+        .halign(gtk::Align::End)
+        .build();
+    set_accessible_label(&add_bookmark_button, "Add current folder to Bookmarks");
+    bookmark_heading.append(&add_bookmark_button);
+    sidebar.append(&bookmark_heading);
+
+    let bookmarks_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(2)
+        .build();
+    sidebar.append(&bookmarks_box);
+
+    sidebar.append(&sidebar_heading("Devices"));
+    let devices_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(2)
+        .build();
+    sidebar.append(&devices_box);
 
     let mode = gtk::Label::builder()
         .label("Local files · Generic Wayland")
         .halign(gtk::Align::Start)
-        .margin_start(10)
+        .margin_top(8)
         .wrap(true)
         .build();
     mode.add_css_class("floe-status");
     sidebar.append(&mode);
 
-    (sidebar, buttons)
+    let content = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .propagate_natural_height(true)
+        .width_request(minimum_width.max(SIDEBAR_COMPACT_MIN_WIDTH))
+        .vexpand(true)
+        .child(&sidebar)
+        .build();
+    content.add_css_class("floe-panel");
+
+    SidebarWidgets {
+        content,
+        location_buttons: buttons,
+        bookmarks_box,
+        add_bookmark_button,
+        devices_box,
+    }
+}
+
+fn sidebar_heading(label: &str) -> gtk::Label {
+    let heading = gtk::Label::builder()
+        .label(label)
+        .halign(gtk::Align::Start)
+        .hexpand(true)
+        .margin_start(2)
+        .margin_top(4)
+        .margin_bottom(2)
+        .build();
+    heading.add_css_class("heading");
+    heading
 }
 
 fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets {
@@ -1919,5 +2089,115 @@ mod tests {
                 .iter()
                 .all(|label| !label.contains("Overwrite") && !label.contains("Apply to All"))
         );
+    }
+
+    #[test]
+    fn phase_6k_sidebar_is_compact_and_bookmark_removal_is_explicit() {
+        let compact_width = std::hint::black_box(SIDEBAR_COMPACT_MIN_WIDTH);
+        assert!((124..=144).contains(&compact_width));
+        assert!(!bookmark_actions_enabled(false, false));
+        assert!(!bookmark_actions_enabled(true, true));
+        assert!(bookmark_actions_enabled(true, false));
+        let raw = PathBuf::from("/bookmarks/one");
+        let paths = vec![raw.clone(), PathBuf::from("/bookmarks/two")];
+        assert_eq!(
+            bookmark_paths_after_remove(&paths, 0),
+            Some(vec![paths[1].clone()])
+        );
+        assert_eq!(bookmark_paths_after_remove(&paths, 2), None);
+        assert_eq!(paths[0], raw, "removal policy must not rewrite exact paths");
+    }
+
+    #[test]
+    fn phase_6k_sidebar_device_policy_mounts_or_navigates_local_storage() {
+        let unavailable =
+            DeviceActionStatus::Unavailable(crate::devices::DeviceActionUnavailable::NotSupported);
+        let mountable = device_row_policy_for(
+            DeviceMountState::Unmounted,
+            DeviceRootKind::None,
+            DeviceActions {
+                mount: DeviceActionStatus::Available,
+                unmount: unavailable,
+                eject: DeviceActionStatus::Available,
+            },
+            None,
+        );
+        assert_eq!(mountable.status, "Unmounted");
+        assert_eq!(mountable.activation, DeviceActivation::Mount);
+        assert!(mountable.can_eject);
+
+        let root = PathBuf::from("/run/media/example");
+        let mounted = device_row_policy_for(
+            DeviceMountState::Mounted,
+            DeviceRootKind::Local,
+            DeviceActions {
+                mount: DeviceActionStatus::Unavailable(
+                    crate::devices::DeviceActionUnavailable::AlreadyMounted,
+                ),
+                unmount: DeviceActionStatus::Available,
+                eject: DeviceActionStatus::Available,
+            },
+            Some(&root),
+        );
+        assert_eq!(mounted.activation, DeviceActivation::Navigate(root));
+        assert!(mounted.can_unmount);
+        assert!(mounted.can_eject);
+    }
+
+    #[test]
+    fn phase_6k_sidebar_keeps_remote_and_busy_devices_honestly_unavailable() {
+        let remote = device_row_policy_for(
+            DeviceMountState::Mounted,
+            DeviceRootKind::NonLocal,
+            DeviceActions {
+                mount: DeviceActionStatus::Unavailable(
+                    crate::devices::DeviceActionUnavailable::AlreadyMounted,
+                ),
+                unmount: DeviceActionStatus::Available,
+                eject: DeviceActionStatus::Unavailable(
+                    crate::devices::DeviceActionUnavailable::NotSupported,
+                ),
+            },
+            None,
+        );
+        assert_eq!(remote.status, "Remote");
+        assert!(matches!(
+            remote.activation,
+            DeviceActivation::Unavailable(_)
+        ));
+
+        let busy = device_row_policy_for(
+            DeviceMountState::Unmounted,
+            DeviceRootKind::None,
+            DeviceActions {
+                mount: DeviceActionStatus::Busy,
+                unmount: DeviceActionStatus::Unavailable(
+                    crate::devices::DeviceActionUnavailable::NotMounted,
+                ),
+                eject: DeviceActionStatus::Busy,
+            },
+            None,
+        );
+        assert_eq!(busy.status, "Mounting");
+        assert!(matches!(busy.activation, DeviceActivation::Unavailable(_)));
+        assert!(!busy.can_eject);
+
+        let unavailable = device_row_policy_for(
+            DeviceMountState::Unmounted,
+            DeviceRootKind::None,
+            DeviceActions {
+                mount: DeviceActionStatus::Unavailable(
+                    crate::devices::DeviceActionUnavailable::NotSupported,
+                ),
+                unmount: DeviceActionStatus::Unavailable(
+                    crate::devices::DeviceActionUnavailable::NotMounted,
+                ),
+                eject: DeviceActionStatus::Unavailable(
+                    crate::devices::DeviceActionUnavailable::NotSupported,
+                ),
+            },
+            None,
+        );
+        assert_eq!(unavailable.status, "Unavailable");
     }
 }

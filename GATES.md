@@ -1,61 +1,61 @@
-# Gates: Floe Phase 6J multi-selection context surfaces
+# Gates: Floe Phase 6K places, bookmarks, and devices
 
-Scope: Path-safe multi-file selection, batch-safe actions, and distinct entry/background context menus.
+Scope: A compact resizable sidebar with standards-based places, exact-path bookmarks, and live GIO storage devices with recoverable mount actions.
 
-- [x] G1: The phase branch starts from completed Phase 6I.
-  CHECK: git branch --show-current && git merge-base --is-ancestor d7c9ccf HEAD
-  EXPECT: /phase-6j-multi-selection-context/
-  EVIDENCE: Current branch is `phase-6j-multi-selection-context`; `d7c9ccf` is its ancestor.
+- [x] G1: The dedicated phase branch starts from finalized Phase 6J on main.
+  CHECK: git branch --show-current && git merge-base --is-ancestor a0228e8 HEAD
+  EXPECT: /phase-6k-places-and-devices/
+  EVIDENCE: Current branch is `phase-6k-places-and-devices`; finalized Phase 6J commit `a0228e8` is its ancestor.
 
-- [x] G2: List and grid share native GTK multi-selection with select-all and clear-selection keyboard routes.
-  CHECK: rg -n 'MultiSelection' crates/app/src/ui.rs crates/app/src/browser.rs && rg -n 'select-all|clear-selection' crates/app/src/browser.rs
-  EXPECT: /MultiSelection[\s\S]*select-all[\s\S]*clear-selection/
-  EVIDENCE: Both views share `GtkMultiSelection`; Ctrl+A, Ctrl+Shift+A, and focused Escape routes are registered.
-
-- [x] G3: Sorting restores multiple selected exact paths, including colliding lossy non-UTF-8 names.
-  CHECK: cargo test -p floe-app phase_6j_selection_restoration -- --nocapture
+- [x] G2: Default Places include Home and every distinct existing XDG user directory without inventing or reconstructing paths from display text.
+  CHECK: cargo test -p floe-app phase_6k_standard_locations -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: The focused exact-path multi-selection restoration test passes.
+  EVIDENCE: Two focused tests pass for ordered existing XDG directories, omission, and exact-path deduplication.
 
-- [x] G4: Copy, move, and Trash accept complete selections through application-owned bounded serial batching.
-  CHECK: cargo test -p floe-app phase_6j_multi_ -- --nocapture
+- [x] G3: User bookmarks preserve exact Linux paths, persist atomically with private permissions, deduplicate, and reject invalid or missing directories without blocking GTK.
+  CHECK: cargo test -p floe-app phase_6k_bookmark -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: Focused batch tests pass, including copy beyond the eight-item worker queue capacity.
+  EVIDENCE: Seven bookmark tests pass for validation, non-UTF-8 binary round-trip, corrupt input, bounded queues, private atomic writes, structured failures, and shutdown.
 
-- [x] G5: Secondary-click preserves an existing selected group or retargets to one unselected entry.
-  CHECK: cargo test -p floe-app phase_6j_secondary_click -- --nocapture
+- [x] G4: The sidebar is compact and pointer-resizable, separates Places, Bookmarks, and Devices, and exposes add/remove bookmark actions with accessible labels.
+  CHECK: cargo test -p floe-app phase_6k_sidebar -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: The focused `Preserve` and `SelectOnly` policy test passes.
+  EVIDENCE: Four sidebar/controller tests pass; GtkPaned permits start-child resize/shrink with a 128-pixel floor and scrollable sections.
 
-- [x] G6: Directory-background context exposes only directory-scoped actions.
-  CHECK: cargo test -p floe-app phase_6j_background_context_menu -- --nocapture
+- [x] G5: GIO drive, volume, and mount snapshots use stable identities, distinguish mounted/unmounted/removable state, and update on VolumeMonitor signals.
+  CHECK: cargo test -p floe-app phase_6k_device -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: The focused menu-policy test verifies Paste, Select All, Refresh, and Edit Location only.
+  EVIDENCE: Ten device tests pass, including stable identity, monitor notification, and hierarchy collapse to one useful sidebar row.
 
-- [x] G7: Action policy restricts Open, Open With, and Rename to one target while allowing multi-target transfer and Trash actions.
-  CHECK: cargo test -p floe-app phase_6j_action_policy -- --nocapture
+- [x] G6: Mount, unmount, and eject requests go through an application-owned asynchronous device boundary with busy, success, and understandable failure states.
+  CHECK: cargo test -p floe-app phase_6k_device_action -- --nocapture
   EXPECT: /test result: ok/
-  EVIDENCE: The focused zero/one/many action-policy test passes.
+  EVIDENCE: Action tests and the safety scan pass; GIO async APIs reserve one action per device and return structured outcomes without shell or blocking filesystem calls.
 
-- [x] G8: Product documentation records Phase 6J and truthfully distinguishes permanent deletion from secure erase.
-  CHECK: rg -n 'Phase 6J|Phase 6K|Phase 6L|Phase 6M|Delete Permanently|secure erase' README.md DESIGN.md docs/ROADMAP.md AGENTS.md
-  EXPECT: /Delete Permanently/
-  EVIDENCE: README, DESIGN, ROADMAP, and AGENTS describe completed 6J, sequenced 6K-6M, and truthful permanent-delete wording.
+- [x] G7: Mounted local devices navigate by authoritative paths; unmounted rows mount first; unavailable/non-local roots never corrupt navigation state.
+  CHECK: cargo test -p floe-app phase_6k_sidebar_ -- --nocapture
+  EXPECT: /test result: ok/
+  EVIDENCE: Four sidebar/controller tests pass for exact non-UTF-8 navigation, mount-first activation, local navigation, and honest remote/busy/unavailable states.
 
-- [x] G9: Formatting, compilation, strict Clippy, all tests, and diff hygiene pass.
+- [x] G8: Formatting, compilation, strict Clippy, all tests, and diff hygiene pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && git diff --check
   EXPECT: /test result: ok/
-  EVIDENCE: All commands passed; 148 tests passed: 115 application and 33 core.
+  EVIDENCE: All commands passed; 171 tests passed: 138 application and 33 core.
 
-- [x] G10: Native Wayland smoke owns and releases the D-Bus name and activates the new selection actions.
-  EVIDENCE: Floe exported and activated `select-all` and `clear-selection`, remained healthy, exited zero through Quit, and released its D-Bus name; only known host warnings appeared.
+- [x] G9: Native Wayland smoke keeps Floe healthy while sidebar actions and device monitoring are active.
+  EVIDENCE: Floe owned `io.github.floe.FileManager`, exported 24 window actions, activated Refresh, answered D-Bus Ping, exited zero through Quit, and released its name; only known host warnings appeared.
 
-- [x] G11: The phase branch and main refs were committed, pushed, merged, and synchronized at the implementation checkpoint.
-  CHECK: git rev-parse main phase-6j-multi-selection-context origin/main origin/phase-6j-multi-selection-context
+- [x] G10: README, DESIGN, architecture, roadmap, development notes, and AGENTS status truthfully record Phase 6K behavior and limitations.
+  CHECK: rg -n 'Phase 6K|Places|Bookmarks|Devices|VolumeMonitor' README.md DESIGN.md docs/ARCHITECTURE.md docs/ROADMAP.md docs/DEVELOPMENT.md AGENTS.md
+  EXPECT: /Phase 6K/
+  EVIDENCE: Documentation records implemented behavior, 171 measured tests, remote-root and sidebar-width limitations, and Phase 6L as next.
+
+- [ ] G11: The phase branch and main are committed, pushed, merged, and synchronized.
+  CHECK: git rev-parse main phase-6k-places-and-devices origin/main origin/phase-6k-places-and-devices
   EXPECT: /^([0-9a-f]{40})\n\1\n\1\n\1$/
-  EVIDENCE: Before this ledger-only finalization, all four refs resolved to `a9a09fae61cedafa4d4e0a70c9912dcedef275bf`.
+  EVIDENCE: pending
 
-- [x] G12: The gate checker reports every Phase 6J gate met.
+- [ ] G12: The gate checker reports every Phase 6K gate met.
   CHECK: node <unlazy-skill-dir>/scripts/gate-check.mjs --status GATES.md
   EXPECT: /ALL MET/
-  EVIDENCE: The status-only gate checker reported `ALL MET` after the ledger was repaired.
+  EVIDENCE: pending
