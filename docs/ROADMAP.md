@@ -199,14 +199,30 @@ Implemented on `phase-6d-grid-view-foundation` as a switchable native
   application worker; GTK performs no configuration-file I/O.
 - Persistent thumbnail caching and broader image formats remain deferred.
 
-## Next
-
 ### Phase 6E — Thumbnail-cache polish
 
-Create branch `phase-6e-thumbnail-cache-polish`. Add a standards-conscious,
-bounded persistent thumbnail cache with explicit invalidation and cleanup
-policy, keeping decoding and cache I/O off GTK. Preserve the Phase 6D shared
-model/selection contract and stable generic fallback behavior.
+Implemented on `phase-6e-thumbnail-cache-polish` with a standards-conscious,
+bounded persistent thumbnail cache and explicit invalidation/cleanup policy.
+
+- Freedesktop `normal` and `large` PNG tiers use canonical absolute file URI
+  MD5 names and validate URI, Unix modification seconds, and source byte size.
+- Floe-owned PNGs add a private nanosecond field for exact same-second
+  invalidation without changing the standard shared-cache identity.
+- Source and cache files use no-follow opens and fixed encoded/decoded limits;
+  every cache path failure is nonfatal to source decoding.
+- Private directories and atomic files use 0700/0600 permissions.
+- Separate ownership markers let global 2,048-entry, 256-MiB, 90-day cleanup
+  prune only cache entries still carrying `Software=Floe`.
+- Lookup, writing, cleanup, decoding, and scaling remain on the existing
+  capacity-64 thumbnail worker; GTK still receives owned pixels only.
+
+## Next
+
+### Phase 6F — Thumbnail format and orientation polish
+
+Create `phase-6f-thumbnail-format-polish`. Apply embedded image orientation
+without mutating originals, expand the deliberately reviewed safe static image
+format set, and retain bounded decode/cache behavior plus generic fallbacks.
 
 ## Later
 

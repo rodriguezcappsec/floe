@@ -16,6 +16,8 @@ use image::{ImageFormat, ImageReader, Limits};
 use rustix::fs::{Mode, OFlags};
 use thiserror::Error;
 
+use crate::thumbnail_cache::{CacheTier, ThumbnailCache, ThumbnailCacheConfig};
+
 pub const LIST_THUMBNAIL_EDGE: u16 = 32;
 pub const MIN_THUMBNAIL_EDGE: u16 = LIST_THUMBNAIL_EDGE;
 pub const MAX_THUMBNAIL_EDGE: u16 = 192;
@@ -87,14 +89,41 @@ impl ThumbnailKey {
         &self.path
     }
 
+    pub(crate) const fn size(&self) -> u64 {
+        self.size
+    }
+
+    pub(crate) const fn modified(&self) -> SystemTime {
+        self.modified
+    }
+
+    pub(crate) const fn edge(&self) -> u16 {
+        self.edge
+    }
+
     #[cfg(test)]
     pub(crate) fn for_test(path: PathBuf, size: u64) -> Self {
+        Self::for_test_at_size(path, size, LIST_THUMBNAIL_EDGE)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test_at_size(path: PathBuf, size: u64, edge: u16) -> Self {
+        Self::for_test_with_modified(path, size, SystemTime::UNIX_EPOCH, edge)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test_with_modified(
+        path: PathBuf,
+        size: u64,
+        modified: SystemTime,
+        edge: u16,
+    ) -> Self {
         Self {
             path,
             size,
-            modified: SystemTime::UNIX_EPOCH,
+            modified,
             format: ThumbnailFormat::Png,
-            edge: LIST_THUMBNAIL_EDGE,
+            edge,
         }
     }
 }
@@ -168,10 +197,23 @@ pub struct ThumbnailWorker {
 
 impl ThumbnailWorker {
     pub fn spawn() -> io::Result<Self> {
-        Self::spawn_internal(WORK_QUEUE_CAPACITY, None)
+        Self::spawn_with_cache(
+            WORK_QUEUE_CAPACITY,
+            None,
+            ThumbnailCacheConfig::from_environment(),
+        )
     }
 
+    #[cfg(test)]
     fn spawn_internal(capacity: usize, start_gate: Option<Receiver<()>>) -> io::Result<Self> {
+        Self::spawn_with_cache(capacity, start_gate, None)
+    }
+
+    fn spawn_with_cache(
+        capacity: usize,
+        start_gate: Option<Receiver<()>>,
+        cache_config: Option<ThumbnailCacheConfig>,
+    ) -> io::Result<Self> {
         let (request_sender, request_receiver) = mpsc::sync_channel::<ThumbnailRequest>(capacity);
         let (response_sender, response_receiver) = mpsc::channel();
         let latest_generation = Arc::new(AtomicU64::new(0));
@@ -181,6 +223,12 @@ impl ThumbnailWorker {
         let worker = thread::Builder::new()
             .name("floe-thumbnail-worker".to_owned())
             .spawn(move || {
+                let mut thumbnail_cache = cache_config.map(ThumbnailCache::new);
+                if let Some(cache) = thumbnail_cache.as_mut()
+                    && let Err(error) = cache.initialize()
+                {
+                    tracing::debug!(%error, "thumbnail cache cleanup was unavailable");
+                }
                 if let Some(start_gate) = start_gate
                     && start_gate.recv().is_err()
                 {
@@ -193,7 +241,8 @@ impl ThumbnailWorker {
                     if worker_generation.load(Ordering::Acquire) != request.generation {
                         continue;
                     }
-                    let result = decode_thumbnail(&request.key);
+                    let result =
+                        decode_thumbnail_with_cache(&request.key, thumbnail_cache.as_mut());
                     if worker_shutdown.load(Ordering::Acquire)
                         || worker_generation.load(Ordering::Acquire) != request.generation
                     {
@@ -263,7 +312,15 @@ impl Drop for ThumbnailWorker {
     }
 }
 
+#[cfg(test)]
 fn decode_thumbnail(key: &ThumbnailKey) -> Result<ThumbnailPixels, ThumbnailError> {
+    decode_thumbnail_with_cache(key, None)
+}
+
+fn decode_thumbnail_with_cache(
+    key: &ThumbnailKey,
+    mut cache: Option<&mut ThumbnailCache>,
+) -> Result<ThumbnailPixels, ThumbnailError> {
     let descriptor = rustix::fs::open(
         key.path(),
         OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
@@ -282,6 +339,16 @@ fn decode_thumbnail(key: &ThumbnailKey) -> Result<ThumbnailPixels, ThumbnailErro
         return Err(ThumbnailError::SourceChanged);
     }
 
+    if let Some(cache) = cache.as_deref_mut() {
+        match cache.load(key) {
+            Ok(Some(image)) => return pixels_from_image(image, key.edge),
+            Ok(None) => {}
+            Err(error) => {
+                tracing::debug!(%error, "persistent thumbnail cache read failed; decoding source");
+            }
+        }
+    }
+
     let mut encoded = Vec::with_capacity(metadata.len().min(MAX_SOURCE_BYTES) as usize);
     source
         .by_ref()
@@ -289,6 +356,12 @@ fn decode_thumbnail(key: &ThumbnailKey) -> Result<ThumbnailPixels, ThumbnailErro
         .read_to_end(&mut encoded)?;
     if encoded.len() as u64 > MAX_SOURCE_BYTES {
         return Err(ThumbnailError::SourceTooLarge);
+    }
+    let metadata_after_read = source.metadata()?;
+    if key.size != metadata_after_read.len()
+        || metadata_after_read.modified().ok() != Some(key.modified)
+    {
+        return Err(ThumbnailError::SourceChanged);
     }
 
     let mut reader = ImageReader::with_format(Cursor::new(encoded), key.format.image_format());
@@ -300,11 +373,35 @@ fn decode_thumbnail(key: &ThumbnailKey) -> Result<ThumbnailPixels, ThumbnailErro
     let decoded = reader
         .decode()
         .map_err(|error| ThumbnailError::Decode(error.to_string()))?;
-    let edge = u32::from(key.edge);
-    let thumbnail = if decoded.width() <= edge && decoded.height() <= edge {
-        decoded.into_rgba8()
+    let tier_edge = CacheTier::from_edge(key.edge).edge();
+    let decoded = decoded.into_rgba8();
+    let tier_thumbnail = if decoded.width() <= tier_edge && decoded.height() <= tier_edge {
+        decoded
     } else {
-        decoded.thumbnail(edge, edge).into_rgba8()
+        image::DynamicImage::ImageRgba8(decoded)
+            .thumbnail(tier_edge, tier_edge)
+            .into_rgba8()
+    };
+
+    if let Some(cache) = cache
+        && let Err(error) = cache.store(key, &tier_thumbnail)
+    {
+        tracing::debug!(%error, "persistent thumbnail cache write failed; using decoded source");
+    }
+    pixels_from_image(tier_thumbnail, key.edge)
+}
+
+fn pixels_from_image(
+    image: image::RgbaImage,
+    requested_edge: u16,
+) -> Result<ThumbnailPixels, ThumbnailError> {
+    let edge = u32::from(requested_edge);
+    let thumbnail = if image.width() <= edge && image.height() <= edge {
+        image
+    } else {
+        image::DynamicImage::ImageRgba8(image)
+            .thumbnail(edge, edge)
+            .into_rgba8()
     };
     let width =
         i32::try_from(thumbnail.width()).map_err(|_| ThumbnailError::UnsupportedPixelLayout)?;
@@ -547,5 +644,84 @@ mod tests {
         ));
         gate_sender.send(()).expect("worker should be released");
         assert!(wait_for_response(&worker).result.is_ok());
+    }
+
+    #[test]
+    fn phase_6e_worker_cache_failure_is_nonfatal() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("image.png");
+        fs::write(&path, PNG_1X1).expect("PNG should be written");
+        let listing = enumerate_directory(directory.path()).expect("directory should enumerate");
+        let key = ThumbnailKey::from_entry(entry_for(listing.entries(), &path))
+            .expect("PNG should be eligible");
+        let cache_home = directory.path().join("cache-home");
+        fs::write(&cache_home, b"not a directory").expect("broken cache root should be written");
+        let config = ThumbnailCacheConfig::for_test(cache_home);
+        let mut worker = ThumbnailWorker::spawn_with_cache(1, None, Some(config))
+            .expect("worker should start despite broken cache");
+        let generation = worker.begin_generation();
+        worker
+            .try_request(generation, key)
+            .expect("request should enter queue");
+        assert!(wait_for_response(&worker).result.is_ok());
+    }
+
+    #[test]
+    fn phase_6e_worker_reuses_persistent_cache_before_source_decode() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("image.png");
+        fs::write(&path, PNG_1X1).expect("PNG should be written");
+        let listing = enumerate_directory(directory.path()).expect("directory should enumerate");
+        let key = ThumbnailKey::from_entry(entry_for(listing.entries(), &path))
+            .expect("PNG should be eligible");
+        let cache_home = directory.path().join("cache");
+        let config = ThumbnailCacheConfig::for_test(cache_home.clone());
+
+        let mut first_worker = ThumbnailWorker::spawn_with_cache(1, None, Some(config.clone()))
+            .expect("first worker should start");
+        let first_generation = first_worker.begin_generation();
+        first_worker
+            .try_request(first_generation, key.clone())
+            .expect("first request should enter queue");
+        assert!(wait_for_response(&first_worker).result.is_ok());
+        drop(first_worker);
+        assert_eq!(
+            fs::read_dir(cache_home.join("thumbnails/normal"))
+                .expect("normal thumbnail tier should exist")
+                .filter_map(Result::ok)
+                .count(),
+            1
+        );
+
+        let original_time = key
+            .modified
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("test source time should follow the epoch");
+        fs::write(&path, vec![b'x'; PNG_1X1.len()])
+            .expect("source should become invalid without changing size");
+        let source = File::open(&path).expect("source should reopen");
+        let timestamp = rustix::fs::Timespec {
+            tv_sec: i64::try_from(original_time.as_secs()).expect("test timestamp should fit"),
+            tv_nsec: i64::from(original_time.subsec_nanos()),
+        };
+        rustix::fs::futimens(
+            &source,
+            &rustix::fs::Timestamps {
+                last_access: timestamp,
+                last_modification: timestamp,
+            },
+        )
+        .expect("source modification time should be restored");
+
+        let mut second_worker = ThumbnailWorker::spawn_with_cache(1, None, Some(config))
+            .expect("second worker should start");
+        let second_generation = second_worker.begin_generation();
+        second_worker
+            .try_request(second_generation, key)
+            .expect("second request should enter queue");
+        assert!(
+            wait_for_response(&second_worker).result.is_ok(),
+            "a cache miss would attempt to decode the intentionally invalid source"
+        );
     }
 }

@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid polish and thumbnails (Phase 6D complete)
+Phase 6 — List/grid polish and thumbnails (Phase 6E complete)
 ```
 
 Status:
@@ -1180,8 +1180,8 @@ A fixed-capacity single worker opens regular files with no-follow semantics,
 rejects stale or oversized sources, applies explicit decoder limits, and returns
 owned RGBA bytes for main-thread GTK textures. Exact path, size, and modification
 time form cache identity. Pending, failed, unsupported, and disabled cases keep
-generic icons; completed presentation state is capped at 256 entries. A
-persistent disk cache is not implemented.
+generic icons; completed presentation state is capped at 256 entries. Phase 6C
+initially kept this cache in memory only.
 
 Phase 6D adds a native virtualized grid with seven discrete thumbnail sizes
 from 64 through 192 pixels. List and grid share one `GioListStore`, one
@@ -1190,6 +1190,17 @@ and file actions. Only bound grid cells request requested-size thumbnails; the
 edge is part of bounded cache identity. Ctrl+1/Ctrl+2 switch views and
 Ctrl+-/Ctrl++ adjust size. View mode and grid size load at startup and save
 atomically through a fixed-capacity application worker, never GTK file I/O.
+
+Phase 6E adds freedesktop-compatible persistent thumbnail reuse with standard
+`normal` and `large` tiers. Canonical absolute file URI MD5 names plus
+`Thumb::URI`, `Thumb::MTime`, and `Thumb::Size` validation reject stale or
+mismatched entries. Floe-owned PNGs also verify `Floe::MTimeNsec` for exact
+same-second invalidation. Source/cache no-follow reads, bounded decoding, private
+0700 directories, 0600 atomic PNG writes, and nonfatal fallbacks preserve the
+existing safety contract. Separate Floe ownership markers allow one global
+2,048-entry, 256-MiB, 90-day cleanup policy to remove only shared-cache entries
+still carrying `Software=Floe`. All cache lookup, writes, and cleanup stay on
+the capacity-64 thumbnail worker.
 ```
 
 Established product decisions:
@@ -1222,17 +1233,22 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6D is complete. The next coherent branch is
-`phase-6e-thumbnail-cache-polish`, adding a bounded persistent thumbnail cache
-with explicit invalidation and cleanup while preserving the shared view model,
-exact-path identity, and stable generic fallbacks.
+Phase 6E is complete. The next coherent branch is
+`phase-6f-thumbnail-format-polish`, applying image orientation and carefully
+expanding safe static image formats while preserving bounded decoding,
+persistent-cache validation, exact-path identity, and generic fallbacks.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-113 tests pass: thirty-three core and eighty application tests. Eight focused
+124 tests pass: thirty-three core and ninety-one application tests. Eleven focused
+Phase 6E tests cover canonical non-UTF-8 URI/digest identity, tier mapping,
+required metadata and invalidation, corrupt/oversized/symlink rejection,
+same-second subsecond invalidation, private atomic writes, global Floe-only
+age/count/byte cleanup, nonfatal cache
+failure, and persistent worker reuse. Eight focused
 Phase 6D tests cover strict view modes, bounded zoom steps, persisted values,
 stable action names, requested-edge cache identity, invalid edge rejection,
 nonblocking queue capacity, latest shutdown submission, and atomic persistence.
@@ -1257,7 +1273,13 @@ deduplicated application ordering, and chooser/default button sensitivity.
 Three focused Phase 5C tests cover the complete action mapping, rejection of an
 unbound virtualized row, and lock-state-safe keyboard shortcuts. Two focused
 Phase 5B tests cover retryable outcomes and preservation of pending retry state
-while another job completes. A native Wayland Phase 6D build registered the
+while another job completes. A two-run native Wayland Phase 6E smoke used
+temporary home/cache/config roots, created a private standard cache entry on
+the first run, reused the same thumbnail inode and modification time on the
+second while refreshing only its ownership marker, owned the expected D-Bus
+name, remained healthy, and released the name after intentional shutdown. It
+emitted only the known host RADV/Vulkan suboptimal-swapchain warning.
+A native Wayland Phase 6D build registered the
 expected D-Bus application owner, switched live List/Grid modes, persisted
 112/128/160-pixel steps, loaded bound-cell thumbnails, preserved selection
 across grid-factory rebinding, and remained healthy until stopped. It emitted
@@ -1284,9 +1306,10 @@ GtkSettings/libadwaita and Vulkan suboptimal-swapchain warnings; neither
 originates from Floe logic.
 GIO trash cancellation is cooperative and cannot reverse a move after the
 desktop service commits it. Floe does not yet expose trash restore/browsing UI.
-Phase 6D thumbnails are memory-only and limited to regular PNG/JPEG sources;
-EXIF orientation, persistent freedesktop thumbnail caching, and additional
-formats remain unavailable.
+Phase 6E thumbnails remain limited to regular PNG/JPEG sources. EXIF
+orientation and additional safe static image formats remain unavailable. Cache
+interoperability is intentionally limited to the freedesktop normal/large tiers
+needed by Floe's current 32-192 pixel requests.
 ```
 
 Deferred:
@@ -1295,7 +1318,7 @@ Deferred:
 Cross-application clipboard support, overwrite and apply-to-all conflict policy,
 cross-filesystem moves, trash restore/bulk UI, permanent delete,
 metadata-complete copies, job
-persistence/history UI, drag and drop, persistent/broader-format thumbnails,
+persistence/history UI, drag and drop, broader-format/oriented thumbnails,
 tabs, split view, Miller columns, previews, archives, search, device
 management, Niri IPC, KDE-specific APIs, and network filesystems.
 ```
@@ -1431,15 +1454,26 @@ Completed this session:
 * Added focused Phase 6D coverage for modes, zoom bounds, persisted values,
   action mapping, thumbnail-size identity, invalid sizes, queue capacity, and
   preference persistence.
+* Added canonical non-UTF-8-safe file URI and MD5 cache identity using standard
+  freedesktop `normal`/`large` tier paths and required source metadata.
+* Added no-follow bounded cache reads, 8-bit RGBA PNG metadata validation, and
+  private same-directory atomic 0600 writes under 0700 cache directories.
+* Added separate Floe ownership markers and global age/count/byte cleanup that
+  verifies `Software=Floe` before pruning any shared thumbnail.
+* Integrated persistent lookup/write/cleanup into the existing capacity-64
+  thumbnail worker with source revalidation and nonfatal cache fallbacks.
+* Added focused Phase 6E coverage for URI/tier identity, metadata invalidation,
+  corrupt/oversized/symlink rejection, permissions/atomicity, ownership-safe
+  cleanup, cache-root failure, and reuse across worker restarts.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-6e-thumbnail-cache-polish` and add a bounded persistent thumbnail
-cache with explicit invalidation and cleanup. Keep cache I/O off GTK, preserve
-the Phase 6D shared list/grid model and exact-path identity, and retain stable
-generic fallbacks for misses and failures.
+Create `phase-6f-thumbnail-format-polish` and apply embedded image orientation
+while deliberately expanding safe static thumbnail formats. Keep decoding and
+cache I/O bounded and off GTK, preserve the shared list/grid exact-path model,
+and retain stable generic fallbacks on misses or failures.
 ```
 
 ---

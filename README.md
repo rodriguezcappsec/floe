@@ -27,6 +27,8 @@ required nor simulated.
 - Fixed Name, Type, Size, and Modified columns using already-loaded metadata
 - Compact, user-resizable Places sidebar
 - Lazy PNG/JPEG thumbnails decoded on a bounded worker at list or selected grid size
+- Freedesktop-compatible persistent `normal`/`large` thumbnail cache with
+  strict source invalidation and Floe-owned bounded cleanup
 - Discrete 64-192 pixel grid sizing with pointer/keyboard controls and persisted view preferences
 - Explicit selection with Enter/double-click activation
 - Asynchronous regular-file opening through GIO's default application
@@ -107,10 +109,22 @@ view and Ctrl+-/Ctrl++ adjust the grid. View preferences are loaded at startup
 and atomically saved by a fixed-capacity application worker; GTK callbacks never
 perform configuration-file I/O.
 
+Phase 6E adds persistent image-thumbnail reuse under
+`$XDG_CACHE_HOME/thumbnails` (or `$HOME/.cache/thumbnails`). Cache filenames
+are the MD5 of the canonical absolute file URI and PNG metadata verifies URI,
+source modification time, and byte size before reuse. Private 0700 directories,
+0600 atomic files, no-follow reads, decoder limits, and exact source
+revalidation keep malformed or stale entries as safe misses. Floe tracks its
+own shared-cache entries separately and prunes only entries still marked
+`Software=Floe`, with global limits of 2,048 entries, 256 MiB, and 90 days.
+Lookup, writes, cleanup, source decoding, and scaling all remain on the bounded
+thumbnail worker; cache failures retain the normal generic-icon/source-decode
+fallback.
+
 Cross-application clipboard formats, overwrite, apply-to-all,
 cross-filesystem copy-delete moves, trash restore/bulk UI, permanent
-deletion, previews, tabs, split view, Miller columns, persistent/broader
-thumbnail support, and environment-specific integrations remain deferred.
+deletion, previews, tabs, split view, Miller columns, broader thumbnail formats
+and EXIF orientation, and environment-specific integrations remain deferred.
 
 ## Project documentation
 

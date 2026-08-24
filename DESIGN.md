@@ -71,7 +71,14 @@ selection behavior. Only bound rows lazily request regular PNG/JPEG images.
 Generic symbolic icons remain stable while work is queued and whenever a source
 is unsupported, stale, oversized, unreadable, or malformed. Completed textures
 use a 5-pixel radius and a 256-entry in-memory cache. There is intentionally no
-spinner per row or persistent disk cache.
+spinner per row.
+
+Phase 6E keeps those same bound-row/cell presentation rules while adding
+persistent freedesktop thumbnail reuse. The worker selects the standard
+`normal` tier through 128 pixels and `large` above it, validates the
+canonical file URI plus enumerated modification time and size, and returns to
+the stable generic icon or source decode on any cache fault. Cache maintenance
+has no visible modal state and never competes for GTK ownership.
 
 Phase 6D adds a native virtualized grid beside the list. Both views share one
 `GioListStore` and `GtkSingleSelection`; switching presentation never forks

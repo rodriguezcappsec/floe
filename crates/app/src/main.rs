@@ -10,6 +10,7 @@ mod operations;
 mod preferences;
 pub mod state;
 mod thumbnail;
+mod thumbnail_cache;
 pub mod trash_executor;
 mod ui;
 mod view;
