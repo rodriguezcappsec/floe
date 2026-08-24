@@ -1,38 +1,35 @@
-# Plan: Floe Phase 6K places, bookmarks, and devices
+# Plan: Floe Phase 6K2 daily-driver polish
 
 Depth: tree 4
 
 Mode: orchestrated
 
-Budget note: This sidebar subsystem spans exact-path persistence, GIO lifecycle integration, GTK presentation, navigation wiring, and native verification.
+Budget note: This phase crosses preference persistence, GTK layout/state, operation feedback, authentication UX, documentation, and native runtime verification.
 
 ## Contract
 
-- Interfaces: `locations` owns standards-based local places; `bookmarks` owns exact-path persistence; `devices` owns GIO objects and asynchronous storage actions; `ui` presents rows; `browser` translates user intent into application-owned services and navigation.
-- Data ownership: place/bookmark, device, UI integration, and documentation leaves own disjoint files.
-- Paths: `PathBuf` remains authoritative. Display labels may be lossy, but no path is reconstructed from a label. Bookmark persistence round-trips raw Unix `OsStr` bytes.
-- Responsiveness: bookmark I/O runs on a bounded worker; GIO mount operations use asynchronous APIs and report structured completion.
-- Device scope: local mounted roots are navigable. Non-local roots remain visible but unavailable because remote browsing is a later phase.
+- Interfaces: `preferences` owns parsed, clamped, asynchronously persisted sidebar density and width; `ui` owns presentation; `browser` owns debounced user-intent wiring; `operations` owns feedback state only.
+- Data ownership: preference leaf owns `preferences.rs`; integration leaf owns `appearance.rs`, `application.rs`, `browser.rs`, `operations.rs`, and `ui.rs`; documentation leaf owns persistent Markdown files and AGENTS status. No concurrent leaf edits overlap.
+- Density: three explicit choices use a 4/8-based rhythm. Compact is the daily-driver default; Balanced and Comfortable remain available.
+- Width: authoritative values are clamped to a safe desktop range and persisted off the GTK thread. Divider drags coalesce rather than writing every pixel.
+- Authentication: encrypted/password-protected storage continues through window-parented `GtkMountOperation`. Floe never handles, stores, or logs the password itself.
+- Privilege: never run the whole GTK application as root. A future Open as Administrator action requires GFile-native `admin://` browsing and operation boundaries before it is exposed.
+- Thumbnails: system thumbnailer work remains the immediately following dedicated branch for video, PDF, office, font, audio, text/code, and archive formats.
 
 ## Tree
 
-- 1 Phase 6K places, bookmarks, and devices ........ `GATES.md`
-  - 1.1 Local navigation sources .................... `gates/node-1.1.md`
-    - 1.1.1 XDG places and bookmark persistence ..... `gates/leaf-1.1.1.md`
-  - 1.2 Storage integration ......................... `gates/node-1.2.md`
-    - 1.2.1 GIO device monitor and actions .......... `gates/leaf-1.2.1.md`
-  - 1.3 Sidebar integration ......................... `gates/node-1.3.md`
-    - 1.3.1 GTK presentation and browser wiring ..... `gates/leaf-1.3.1.md`
-  - 1.4 Product integration ......................... `gates/node-1.4.md`
-    - 1.4.1 Documentation, native smoke, final QA .... `gates/leaf-1.4.1.md`
+- 1 Phase 6K2 daily-driver polish ................. `GATES.md`
+  - 1.1 Preference foundation ...................... `gates/node-6k2-1.1.md`
+    - 1.1.1 Sidebar preference model/persistence ... `gates/leaf-6k2-1.1.1.md`
+    - 1.1.2 Privileged browsing security design .... `gates/leaf-6k2-1.1.2.md`
+  - 1.2 GTK and operation integration .............. `gates/node-6k2-1.2.md`
+    - 1.2.1 Sidebar/settings/auth/feedback UI ....... `gates/leaf-6k2-1.2.1.md`
+  - 1.3 Product integration ........................ `gates/node-6k2-1.3.md`
+    - 1.3.1 Documentation/native QA ................ `gates/leaf-6k2-1.3.1.md`
 
 ## Status log
 
-- 2026-08-24 plan written; contracts fixed before leaf implementation.
-- 2026-08-24 leaves 1.1.1 and 1.2.1 started in parallel.
-- 2026-08-24 leaf 1.3.1 integrated stable backend interfaces.
-- 2026-08-24 parent review collapsed duplicate GIO hierarchy rows.
-- 2026-08-24 leaves 1.1.1, 1.2.1, and 1.3.1 parent-verified.
-- 2026-08-24 native Wayland smoke passed ownership, Refresh, liveness, clean Quit, and name release.
-- 2026-08-24 leaf 1.4.1 documented and verified Phase 6K at 8/8 gates.
-- 2026-08-24 implementation refs synchronized at `e6a28b4`; root ledger reached 12/12 gates.
+- 2026-08-24 plan written and contracts fixed before implementation.
+- 2026-08-24 preference and privileged-browsing design leaves started in parallel.
+- 2026-08-24 parent verification accepted preference, privileged-access design, and GTK integration leaves; node 1.1 and 1.2 gates are complete.
+- 2026-08-24 documentation/native QA completed after an isolated Niri smoke found and fixed startup allocation rewriting sidebar width; node 1.3 is complete.

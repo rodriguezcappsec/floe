@@ -188,7 +188,46 @@ and answered `Peer.Ping` afterward. Its `quit` action returned successfully, the
 process exited 0, and the D-Bus name was released. Only the documented host
 libadwaita and RADV warnings appeared.
 
-After Phase 6K, continue on `phase-6l-system-thumbnailers`.
+Phase 6K2 adds no dependency. Run
+`cargo test -p floe-app phase_6k2 -- --nocapture` for persisted density/width,
+complete preference-state, 128-480 clamping, 320 ms debounce/reset policy,
+window-parented credential-opaque mount authentication, menu mapping, and
+Operations Island geometry. Runtime view preferences remain at
+`floe/view-preferences.conf`; legacy files without sidebar keys still load with
+Compact density and the active appearance's default width.
+
+The Phase 6K2 full gate passes formatting, workspace check, strict Clippy, and
+181 tests: 148 application plus 33 core. Ten application tests are focused on
+Phase 6K2.
+
+Encrypted or password-protected devices use a `GtkMountOperation` parented to
+the Floe window. The desktop owns any password/passphrase prompt. Do not add
+password fields, log credentials, or replace this flow with shell elevation.
+**Open as Administrator...** is intentionally not a live action: its GFile/GVfs
+`admin://` and polkit architecture must pass the test and rollout gates in
+`docs/PRIVILEGED_ACCESS.md`. Never run the whole Floe application as root.
+
+The Phase 6K2 Niri/Wayland action smoke exported 26 window actions, including
+`sidebar-density` and `reset-sidebar-width`. Balanced and Comfortable applied
+live and Compact restored. An isolated two-launch persistence smoke started
+with Comfortable density and width 333; allocation left width exactly 333.
+Reset removed `sidebar-width` while preserving view, grid size, and density, and
+clean Quit kept it absent. A second launch with no width kept it absent through
+allocation and shutdown. Both isolated instances answered
+`org.freedesktop.DBus.Peer.Ping`, exited 0, and released
+`io.github.floe.FileManager`; only the known RADV/Vulkan
+`VK_SUBOPTIMAL_KHR` host warning appeared. The earlier action smoke also emitted
+the documented Adwaita dark-setting warning.
+
+Both Spectacle and ImageMagick screenshot attempts were unavailable in this
+session, so the layout audit uses deterministic geometry tests plus native
+action, persistence, and health verification rather than claiming screenshot
+evidence.
+
+After Phase 6K2, continue on `phase-6l-system-thumbnailers`: reviewed video
+frames, PDF pages, office/DOCX documents, fonts, text/code, embedded audio
+artwork, and archive previews on the bounded worker boundary without executing
+active content.
 
 ## Wayland environments
 

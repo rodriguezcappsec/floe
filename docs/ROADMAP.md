@@ -296,8 +296,22 @@ Completed on `phase-6k-places-and-devices`.
   unmounted, busy, and unavailable states plus failed-action feedback.
 - Navigate mounted local filesystem roots while explicitly deferring
   remote/network roots and multiple-root drive navigation.
-- Keep the compact, vertically scrollable sidebar user-resizable; persisted
-  sidebar width remains future work.
+- Keep the compact, vertically scrollable sidebar user-resizable.
+
+### Phase 6K2 — Daily-driver sidebar and operation polish
+
+Completed on `phase-6k2-daily-driver-polish`.
+
+- Add persistent Compact, Balanced, and Comfortable sidebar density choices.
+- Persist a 128-480-pixel sidebar width after a 320 ms divider debounce; restore
+  it on launch and provide Reset Sidebar Width to use the appearance default.
+- Rebuild the Operations Island into separate title/cancel, detail, flexible
+  progress, and recovery rows so actions remain aligned and reachable.
+- Keep encrypted/password-protected mounting desktop-native with a
+  window-parented, credential-opaque `GtkMountOperation`.
+- Security-design **Open as Administrator...** around GFile/GVfs `admin://` and
+  polkit, but do not expose it until the provider's test and rollout gates pass.
+  Never elevate the whole Floe application.
 
 ## Next
 
@@ -306,8 +320,9 @@ Completed on `phase-6k-places-and-devices`.
 Create `phase-6l-system-thumbnailers`.
 
 Consume reviewed freedesktop thumbnailer providers on the existing bounded,
-cancellable worker boundary for PDF/document pages, video frames, audio art,
-fonts, text/code, and archives. Never execute active content during thumbnailing.
+cancellable worker boundary for video frames, PDF pages, office documents
+including DOCX, fonts, text/code, embedded audio artwork, and archive previews.
+Never execute active content during thumbnailing.
 
 ### Phase 6M — Permanent deletion
 
@@ -377,6 +392,15 @@ portal behavior is understood. Core types must remain desktop-neutral.
 
 Support justified GIO-backed or standards-based remote locations without making
 the local core depend on one desktop environment.
+
+### Later customization track
+
+- First-class appearance controls for Native, Glass, Frosted, Minimal, and
+  Compact themes plus durable custom theme tokens.
+- Accessible font-family and font-scale controls with safe system-font fallback.
+- Full MIME/file-association management: inspect defaults, choose Open With,
+  set or clear defaults explicitly, and manage user-added external tools without
+  shell interpolation.
 
 ### Phase 18 — Packaging and polish
 

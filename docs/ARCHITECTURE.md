@@ -248,6 +248,20 @@ operation persistence, history UI, and overwrite policy are not implemented.
 
 ### `ui.rs`
 
+Phase 6K2 keeps the sidebar widget tree shared while applying Compact,
+Balanced, or Comfortable metric classes. `BrowserController` observes the
+paned position only after the first allocated idle, clamps it to 128-480 pixels,
+replaces a 320 ms debounce source, and submits complete `ViewPreferences`
+through `PreferenceWorker`. The paned start child does not absorb window
+allocation; labels ellipsize and the scroller does not propagate natural width,
+so startup layout cannot overwrite an explicit preference. Resetting
+stores no width override and reapplies the active appearance default.
+
+The Operations Island uses a 340-pixel bounded surface with 12-pixel insets.
+Title/cancel, detail, flexible progress, and recovery actions occupy separate
+rows, removing the old fixed-progress/action overflow while preserving the same
+application-owned operation commands.
+
 `ui::build` constructs the header, `GtkPaned` sidebar/content layout, a compact
 vertically scrollable Places/Bookmarks/Devices surface, `GtkListView`, empty
 overlay, status strip, toast overlay, and compact
@@ -420,19 +434,32 @@ and mount signals. Stable opaque IDs are separate from user-facing labels.
 
 The snapshot policy distinguishes mounted/unmounted, removable, local,
 non-local, multiple-root, unavailable, and busy states. GIO mount, unmount, and
-eject calls are asynchronous and accept `GtkMountOperation` for desktop-native
-authentication. In-flight actions remain busy until their callback resolves;
+eject calls are asynchronous and accept a window-parented `GtkMountOperation`
+for desktop-native authentication. Passwords and passphrases remain opaque to
+Floe and belong to the desktop prompt. In-flight actions remain busy until their
+callback resolves;
 completion refreshes snapshots and structured failures become actionable UI
 feedback. Only a single mounted local filesystem root becomes a `PathBuf`
 navigation target. Remote/network roots remain typed as non-local and are
 deferred rather than lossily converted into local paths.
+
+### Privileged access boundary
+
+Privileged browsing is design-only. **Open as Administrator...** must remain
+unexposed until the GFile/GVfs `admin://` provider and the test/rollout gates in
+`docs/PRIVILEGED_ACCESS.md` pass. Current local `PathBuf` navigation and job
+types cannot preserve administrator authority. The future provider will use
+polkit/GVfs without elevating the whole Floe process, receiving passwords, or
+building shell commands.
 
 ### `appearance.rs`
 
 `Appearance` centralizes preset-level radius, gap, opacity, row padding, shadow,
 floating-panel, and sidebar-width values. It generates GTK CSS using libadwaita
 semantic colors. Phase 6A adds shared list-heading, secondary metadata, tabular
-figure, and focus-visible rules without forking widget trees by preset. Frosted
+figure, and focus-visible rules without forking widget trees by preset. Phase
+6K2 adds shared sidebar-density and Operations Island action-size rules without
+forking the navigation widgets. Frosted
 is the default; `FLOE_APPEARANCE` selects Native, Glass, Frosted, Minimal, or
 Compact. Blur and settings persistence do not exist.
 
@@ -555,8 +582,11 @@ Phase 6H adds `location_input.rs` as a GTK-independent input and recovery policy
 
 Phase 6I reuses the existing asynchronous GIO launcher/chooser boundary. `launcher::launch_default` now returns `DefaultLaunch::Launched` or `DefaultLaunch::NoDefault(OpenWithOptions)` after content-type/application resolution. `BrowserController` presents the existing chooser for the latter; the UI never infers or mutates a default association. Exact original paths continue through `gio::File` URIs.
 
-Phase 6K completes the standards-based Places, bookmarks, and device boundary.
-The next branch is `phase-6l-system-thumbnailers`.
+Phase 6K2 completes density, persisted-width, native mount-authentication, and
+Operations Island layout polish. The immediate next branch is
+`phase-6l-system-thumbnailers`, covering reviewed video-frame, PDF-page,
+office/DOCX, font, text/code, embedded-audio-artwork, and archive-preview
+providers on the existing bounded worker boundary.
 
 ## Known architectural debt
 
@@ -567,8 +597,8 @@ The next branch is `phase-6l-system-thumbnailers`.
   restore the complete `NavigationState` after the bounded directory worker responds.
 - Appearance values are partly centralized while local widget margins remain in
   `ui.rs`.
-- Sidebar width, appearance, hidden-file visibility, selection, and scroll
-  position are not persisted.
+- Sidebar width and density are persisted. Appearance, hidden-file visibility,
+  selection, and scroll position are not yet persisted.
 - MIME and permissions data remain incomplete. Remote roots, device details
-  beyond the current GIO snapshot, and persistent sidebar width remain deferred.
+  beyond the current GIO snapshot remain deferred.
 - There is no file-watching reconciliation for external changes.

@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid, thumbnails, navigation, and interaction polish (Phase 6K complete)
+Phase 6 — List/grid, thumbnails, navigation, and interaction polish (Phase 6K2 complete)
 ```
 
 Status:
@@ -1254,6 +1254,20 @@ mounted, unmounted, busy, and unavailable states; asynchronous mount, unmount,
 and eject actions surface structured failure feedback. Mounted local filesystem
 roots navigate normally; remote/network roots remain explicitly unavailable and
 deferred.
+
+Phase 6K2 makes that sidebar daily-driver configurable. Compact, Balanced, and
+Comfortable density choices apply live and persist. Divider width is clamped to
+128-480 pixels, saved after a 320 ms debounce, restored at startup, and can be
+reset to the active appearance preset. The Operations Island now separates its
+title/cancel, detail, flexible progress, and recovery-action rows inside bounded
+340-pixel geometry so Retry and conflict actions remain aligned and reachable.
+Device authentication uses a window-parented `GtkMountOperation`; the desktop
+owns password prompts and Floe remains credential-opaque.
+
+`Open as Administrator...` is security-designed but intentionally not exposed.
+It requires the documented GFile/GVfs `admin://` provider, polkit flow, visible
+Administrator state, and all test/rollout gates. Floe must never elevate its
+whole GTK process or interpolate paths into shell elevation commands.
 ```
 
 Established product decisions:
@@ -1286,9 +1300,11 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6K is complete. The next coherent branch is
+Phase 6K2 is complete. The next coherent branch is
 `phase-6l-system-thumbnailers`, consuming reviewed freedesktop thumbnailer
-providers on the existing bounded thumbnail boundary. Phase 6M then adds
+providers for video frames, PDF pages, office/DOCX documents, fonts, text/code,
+embedded audio artwork, and archive previews on the existing bounded thumbnail
+boundary. Phase 6M then adds
 truthfully labelled, confirmed “Delete Permanently” jobs and Shift+Delete without
 claiming secure erase.
 ```
@@ -1297,7 +1313,11 @@ Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-171 tests pass: thirty-three core and 138 application tests. Nineteen focused Phase 6K
+181 tests pass: thirty-three core and 148 application tests. Ten focused Phase
+6K2 tests cover stable density names, backward-compatible complete preference
+state, clamped/restored/reset width, divider resize policy, mount-authentication
+ownership, Operations Island bounds/recovery rows, and action/spacing mappings.
+Nineteen focused Phase 6K
 tests cover XDG ordering/deduplication; raw non-UTF-8 bookmark validation,
 versioned encoding, private atomic persistence and bounded worker behavior;
 deduplicated GIO snapshot/action policy; exact local navigation; compact sidebar
@@ -1347,7 +1367,18 @@ deduplicated application ordering, and chooser/default button sensitivity.
 Three focused Phase 5C tests cover the complete action mapping, rejection of an
 unbound virtualized row, and lock-state-safe keyboard shortcuts. Two focused
 Phase 5B tests cover retryable outcomes and preservation of pending retry state
-while another job completes. A native Wayland Phase 6J smoke owned the expected
+while another job completes.
+A native Niri/Wayland Phase 6K2 action smoke exported 26 window actions,
+including `sidebar-density` and `reset-sidebar-width`; Balanced and Comfortable
+applied live and Compact restored. An isolated two-launch persistence smoke
+held Comfortable width 333 exactly through allocation, then Reset removed the
+width while preserving view/grid/density. Clean shutdown kept it absent; a
+second launch kept it absent through allocation and shutdown. Both isolated
+instances answered D-Bus Peer.Ping, exited 0, and released the application name.
+Screenshot tooling was unavailable, so deterministic layout tests and native
+action/persistence/health checks are the evidence. Only documented host Adwaita
+and RADV/Vulkan warnings appeared across the smokes.
+A native Wayland Phase 6J smoke owned the expected
 D-Bus name, exported and activated Select All and Clear Selection, remained
 healthy, exited 0 through Quit, and released the name. It emitted only the known
 host libadwaita and RADV/Vulkan warnings. A native Wayland Phase 6G smoke used isolated
@@ -1402,8 +1433,7 @@ the coarse Directory/File/Link model. Phase 6F does not thumbnail SVG,
 AVIF/HEIF, RAW camera formats, or animation
 beyond the first still frame. Cache interoperability remains intentionally
 limited to the freedesktop normal/large tiers needed by Floe's current 32-192
-pixel requests. Sidebar width is resizable for the current window but is not
-persisted. Remote and network mount roots are shown as unavailable; browsing
+pixel requests. Remote and network mount roots are shown as unavailable; browsing
 them remains deferred.
 ```
 
@@ -1416,6 +1446,8 @@ metadata-complete copies, job
 persistence/history UI, drag and drop, heavyweight/RAW/vector thumbnails,
 tabs, split view, Miller columns, previews, archives, search, richer device
 details, Niri IPC, KDE-specific APIs, and network filesystems.
+First-class theme/font customization, full file-association/external-tool
+management, and privileged GFile browsing remain explicit later milestones.
 ```
 
 Completed this session:
@@ -1609,7 +1641,16 @@ Completed this session:
 * Added application-owned GIO drive/volume/mount snapshots refreshed from
   `VolumeMonitor` signals, asynchronous mount/unmount/eject actions, explicit
   busy/failure states, and exact local mounted-root navigation.
-* Kept remote/network-root browsing and persistent sidebar width deferred.
+* Kept remote/network-root browsing deferred.
+* Added persistent Compact/Balanced/Comfortable sidebar density and a clamped,
+  debounced, restorable, resettable sidebar width preference.
+* Rebuilt the Operations Island into aligned title/cancel, detail, flexible
+  progress, and recovery rows with bounded geometry.
+* Kept mount authentication window-parented and credential-opaque through native
+  `GtkMountOperation` desktop prompts.
+* Added `docs/PRIVILEGED_ACCESS.md`: Open as Administrator is designed around
+  GFile/GVfs `admin://` and polkit but intentionally remains unexposed until its
+  security test and rollout gates pass; whole-process elevation is prohibited.
 ```
 
 Recommended next task:
@@ -1617,8 +1658,9 @@ Recommended next task:
 ```text
 Create `phase-6l-system-thumbnailers` and consume reviewed freedesktop
 thumbnailer providers on the existing bounded, cancellable worker boundary.
-Prioritize safe PDF/document pages, video frames, audio art, fonts, text/code,
-and archives without executing active content.
+Prioritize safe video frames, PDF pages, office documents including DOCX,
+fonts, text/code, embedded audio artwork, and archive previews without executing
+active content.
 ```
 
 ---
