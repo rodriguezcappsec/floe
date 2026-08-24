@@ -111,6 +111,14 @@ disables immediately after submission to prevent duplicate attempts, and hides
 when the fresh job enters its running state. Completed operations remain
 non-retryable and dismiss after the existing terminal delay.
 
+Phase 5E separates destination conflicts from ordinary failures. Generic Retry
+is intentionally unavailable for a conflict because it would resubmit the same
+destination. Application state retains exact source/destination paths and
+offers only two explicit decisions: keep the existing destination, or retry
+with one validated sibling filename. Revised attempts retain the logical
+operation ID and receive a fresh job ID. Overwrite, apply-to-all, and the GTK
+conflict dialog remain deferred.
+
 ### Trash job foundation
 
 Phase 4E adds the application-owned backend contract for moving one original

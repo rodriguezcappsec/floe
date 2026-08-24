@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 5 — Progress, cancellation, and contextual interaction (Phase 5D complete)
+Phase 5 — Progress, cancellation, and conflict handling (Phase 5E complete)
 ```
 
 Status:
@@ -1153,6 +1153,10 @@ keyboard access. Menu commands reuse existing application actions.
 Open With asynchronously resolves GIO content type and compatible applications,
 shows the current default, launches the explicit choice, and changes default
 associations only through a separate user action.
+Destination conflicts are distinct terminal outcomes. Generic Retry cannot
+blindly repeat them; application state exposes keep-existing or validated
+retry-with-name decisions for copy, move, and rename while preserving the
+logical operation ID and never overwriting an existing destination.
 ```
 
 Established product decisions:
@@ -1185,16 +1189,20 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 5D is complete. The next coherent branch is
-`phase-5e-conflict-foundation`, modelling explicit fail-if-exists decisions
-without enabling silent overwrite.
+Phase 5E is complete. The next coherent branch is
+`phase-5f-conflict-interaction`, presenting the established decision contract
+through a focused non-blocking GTK surface without enabling overwrite.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-seventy-five tests pass: twenty-eight core and forty-seven application tests.
+eighty-one tests pass: twenty-eight core and fifty-three application tests.
+Six focused Phase 5E tests cover distinct conflict outcome, blind-retry
+rejection, raw-path identity, validation, revised copy/move/rename attempts,
+keep-existing, single-use resolution, trash rejection, no overwrite, and
+history-eviction cleanup.
 Three focused Phase 5D tests cover eligible file kinds, default-first
 deduplicated application ordering, and chooser/default button sensitivity.
 Three focused Phase 5C tests cover the complete action mapping, rejection of an
@@ -1227,7 +1235,7 @@ desktop service commits it. Floe does not yet expose trash restore/browsing UI.
 Deferred:
 
 ```text
-Cross-application clipboard support, overwrite/conflict resolution,
+Cross-application clipboard support, overwrite, conflict decision UI,
 cross-filesystem moves, trash restore/bulk UI, permanent delete,
 metadata-complete copies, job
 persistence/history UI, drag and drop, thumbnails, tabs, split view, Miller
@@ -1312,16 +1320,20 @@ Completed this session:
 * Added asynchronous GIO Open With discovery, default-first compatible app
   ordering, explicit launching, and explicit Set as Default behavior.
 * Kept original paths intact and added no shell-command execution.
-* Kept overwrite, pause/resume controls, interactive conflict choices, and
-  permanent deletion deferred.
+* Added distinct destination-conflict terminal outcomes and blocked blind
+  generic Retry for conflicts.
+* Added original-path pending conflict data with stable operation identity.
+* Added single-use keep-existing and validated retry-with-name decisions for
+  copy, move, and rename; revised attempts remain fail-if-exists.
+* Added no overwrite, apply-to-all, trash-conflict, or GTK conflict-dialog path.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-5e-conflict-foundation` and model explicit conflict decisions for
-fail-if-exists jobs in application/job state. Do not enable silent overwrite;
-establish the non-blocking resolution contract before richer conflict UI.
+Create `phase-5f-conflict-interaction` and present the Phase 5E decision
+contract through a focused non-blocking GTK surface. Offer keep-existing and
+validated retry-name actions only; do not enable overwrite or apply-to-all.
 ```
 
 ---

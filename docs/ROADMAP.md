@@ -122,14 +122,23 @@ of truth for sequencing and current-session handoff.
 - Explicit Open and Set as Default actions with recoverable error feedback.
 - Regular-file and non-directory-link eligibility; original paths retained.
 
-## Next
-
 ### Phase 5E — Conflict interaction foundation
 
-Create branch `phase-5e-conflict-foundation`. Model explicit conflict decisions
-for fail-if-exists jobs without enabling silent overwrite. Keep resolution in
-application/job state and expose a small non-blocking interaction contract
-before adding richer overwrite or apply-to-all UI.
+- Distinct conflict terminal outcome; generic Retry cannot repeat the same destination.
+- Pending conflicts retain original paths plus job and operation IDs.
+- Explicit `KeepExisting` and `RetryWithName(OsString)` decisions only.
+- Revised copy/move/rename attempts remain fail-if-exists, retain logical operation ID, and receive a fresh job ID.
+- Resolution is single-use and bookkeeping follows bounded terminal-history eviction.
+- No overwrite, apply-to-all, trash-conflict, or GTK conflict-dialog path.
+
+## Next
+
+### Phase 5F — Conflict interaction
+
+Create branch `phase-5f-conflict-interaction`. Present the Phase 5E decision
+contract through a focused non-blocking GTK conflict surface. Offer
+keep-existing and validated retry-name actions only; do not add overwrite or
+apply-to-all behavior.
 
 ## Later
 

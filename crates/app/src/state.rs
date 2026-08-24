@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     ffi::{OsStr, OsString},
     os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
@@ -87,7 +87,40 @@ pub const MAX_TERMINAL_HISTORY: usize = 64;
 pub enum TerminalOutcome {
     Completed,
     Cancelled,
+    Conflict,
     Failed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConflictDecision {
+    KeepExisting,
+    RetryWithName(OsString),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingConflict {
+    job_id: JobId,
+    operation_id: OperationId,
+    source: PathBuf,
+    destination: PathBuf,
+}
+
+impl PendingConflict {
+    pub const fn job_id(&self) -> JobId {
+        self.job_id
+    }
+
+    pub const fn operation_id(&self) -> OperationId {
+        self.operation_id
+    }
+
+    pub fn source(&self) -> &Path {
+        &self.source
+    }
+
+    pub fn destination(&self) -> &Path {
+        &self.destination
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -162,6 +195,12 @@ pub enum RetrySubmission {
     Trash(TrashSubmission),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ConflictResolution {
+    KeptExisting,
+    Retried(RetrySubmission),
+}
+
 impl RetrySubmission {
     pub const fn operation_id(self) -> OperationId {
         match self {
@@ -224,6 +263,14 @@ pub enum CopyInteractionError {
     RetryNotFound(JobId),
     #[error("completed job {0:?} cannot be retried")]
     RetryCompleted(JobId),
+    #[error("job {0:?} needs an explicit conflict decision")]
+    ConflictDecisionRequired(JobId),
+    #[error("job {0:?} does not have a pending destination conflict")]
+    ConflictNotFound(JobId),
+    #[error("the conflict for job {0:?} has already been resolved")]
+    ConflictAlreadyResolved(JobId),
+    #[error("job {0:?} does not support destination conflict resolution")]
+    ConflictUnsupported(JobId),
 }
 
 #[derive(Debug, Error)]
@@ -246,6 +293,7 @@ pub struct ApplicationState {
     transfer_buffer: RefCell<TransferBuffer>,
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
     terminal_history: RefCell<VecDeque<TerminalOperation>>,
+    resolved_conflicts: RefCell<HashSet<JobId>>,
 }
 
 impl ApplicationState {
@@ -262,6 +310,7 @@ impl ApplicationState {
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
+            resolved_conflicts: RefCell::new(HashSet::new()),
         })
     }
 
@@ -390,6 +439,9 @@ impl ApplicationState {
             let mut history = self.terminal_history.borrow_mut();
             if history.len() == MAX_TERMINAL_HISTORY {
                 if let Some(evicted) = history.pop_front() {
+                    self.resolved_conflicts
+                        .borrow_mut()
+                        .remove(&evicted.job_id());
                     lock(&self.jobs).forget_terminal(evicted.job_id());
                 }
             }
@@ -420,6 +472,11 @@ impl ApplicationState {
             .ok_or(CopyInteractionError::RetryNotFound(failed_job_id))?;
         if terminal.outcome() == TerminalOutcome::Completed {
             return Err(CopyInteractionError::RetryCompleted(failed_job_id));
+        }
+        if terminal.outcome() == TerminalOutcome::Conflict {
+            return Err(CopyInteractionError::ConflictDecisionRequired(
+                failed_job_id,
+            ));
         }
 
         match terminal.operation().clone() {
@@ -494,6 +551,152 @@ impl ApplicationState {
         }
     }
 
+    pub fn pending_conflict(&self, job_id: JobId) -> Result<PendingConflict, CopyInteractionError> {
+        let terminal = self.pending_conflict_operation(job_id)?;
+        let destination = match terminal.operation() {
+            TrackedOperation::Copy(request) => request.destination().to_path_buf(),
+            TrackedOperation::Move(request) => request.destination().to_path_buf(),
+            TrackedOperation::Rename(request) => request
+                .source()
+                .parent()
+                .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?
+                .join(request.new_name()),
+            TrackedOperation::Trash(_) => {
+                return Err(CopyInteractionError::ConflictUnsupported(job_id));
+            }
+        };
+
+        Ok(PendingConflict {
+            job_id,
+            operation_id: terminal.operation_id(),
+            source: terminal.operation().source().to_path_buf(),
+            destination,
+        })
+    }
+
+    pub fn resolve_conflict(
+        &self,
+        job_id: JobId,
+        decision: ConflictDecision,
+    ) -> Result<ConflictResolution, CopyInteractionError> {
+        let terminal = self.pending_conflict_operation(job_id)?;
+        if matches!(terminal.operation(), TrackedOperation::Trash(_)) {
+            return Err(CopyInteractionError::ConflictUnsupported(job_id));
+        }
+
+        match decision {
+            ConflictDecision::KeepExisting => {
+                self.resolved_conflicts.borrow_mut().insert(job_id);
+                Ok(ConflictResolution::KeptExisting)
+            }
+            ConflictDecision::RetryWithName(new_name) => {
+                validate_rename_name(&new_name)?;
+                let submission =
+                    self.submit_conflict_retry(job_id, terminal.operation(), new_name)?;
+                self.resolved_conflicts.borrow_mut().insert(job_id);
+                Ok(ConflictResolution::Retried(submission))
+            }
+        }
+    }
+
+    fn pending_conflict_operation(
+        &self,
+        job_id: JobId,
+    ) -> Result<TerminalOperation, CopyInteractionError> {
+        let terminal = self
+            .terminal_history
+            .borrow()
+            .iter()
+            .find(|entry| entry.job_id() == job_id)
+            .cloned()
+            .ok_or(CopyInteractionError::ConflictNotFound(job_id))?;
+        if terminal.outcome() != TerminalOutcome::Conflict {
+            return Err(CopyInteractionError::ConflictNotFound(job_id));
+        }
+        if self.resolved_conflicts.borrow().contains(&job_id) {
+            return Err(CopyInteractionError::ConflictAlreadyResolved(job_id));
+        }
+        Ok(terminal)
+    }
+
+    fn submit_conflict_retry(
+        &self,
+        failed_job_id: JobId,
+        operation: &TrackedOperation,
+        new_name: OsString,
+    ) -> Result<RetrySubmission, CopyInteractionError> {
+        match operation {
+            TrackedOperation::Copy(request) => {
+                let destination =
+                    retry_destination(request.destination(), &new_name, failed_job_id)?;
+                let revised = CopyRequest::new(
+                    request.source(),
+                    destination,
+                    ConflictPolicy::FailIfExists,
+                    request.symlink_policy(),
+                );
+                match self
+                    .copy_executor
+                    .submit_retry(failed_job_id, revised.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Copy(revised));
+                        Ok(RetrySubmission::Copy(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Copy(revised));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
+            TrackedOperation::Move(request) => {
+                let destination =
+                    retry_destination(request.destination(), &new_name, failed_job_id)?;
+                let revised =
+                    MoveRequest::new(request.source(), destination, ConflictPolicy::FailIfExists);
+                match self
+                    .move_executor
+                    .submit_move_retry(failed_job_id, revised.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Move(revised));
+                        Ok(RetrySubmission::Move(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Move(revised));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
+            TrackedOperation::Rename(request) => {
+                let revised =
+                    RenameRequest::new(request.source(), new_name, ConflictPolicy::FailIfExists);
+                match self
+                    .move_executor
+                    .submit_rename_retry(failed_job_id, revised.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Rename(revised));
+                        Ok(RetrySubmission::Move(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Rename(revised));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
+            TrackedOperation::Trash(_) => {
+                Err(CopyInteractionError::ConflictUnsupported(failed_job_id))
+            }
+        }
+    }
+
     pub fn cancel_operation(&self, job_id: JobId) -> Result<(), CopyInteractionError> {
         match self.operation_request(job_id) {
             Some(TrackedOperation::Copy(_)) => self.copy_executor.cancel(job_id)?,
@@ -532,6 +735,7 @@ impl ApplicationState {
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
+            resolved_conflicts: RefCell::new(HashSet::new()),
         })
     }
 
@@ -559,6 +763,17 @@ impl ApplicationState {
         self.track(submission.job_id(), TrackedOperation::Copy(request));
         Ok(TransferSubmission::Copy(submission))
     }
+}
+
+fn retry_destination(
+    destination: &Path,
+    new_name: &OsStr,
+    job_id: JobId,
+) -> Result<PathBuf, CopyInteractionError> {
+    destination
+        .parent()
+        .map(|parent| parent.join(new_name))
+        .ok_or(CopyInteractionError::ConflictUnsupported(job_id))
 }
 
 fn transfer_destination(
@@ -1061,6 +1276,280 @@ mod tests {
         assert!(matches!(
             state.retry_operation(last_job.expect("last job")),
             Err(CopyInteractionError::RetryCompleted(_))
+        ));
+    }
+
+    #[test]
+    fn phase_5e_copy_conflict_requires_a_decision_and_retries_with_raw_name() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source_directory = fixture.path().join("source");
+        let destination_directory = fixture.path().join("destination");
+        fs::create_dir(&source_directory).expect("source directory");
+        fs::create_dir(&destination_directory).expect("destination directory");
+        let source = source_directory.join("item");
+        let destination = destination_directory.join("item");
+        fs::write(&source, b"new").expect("source fixture");
+        fs::write(&destination, b"keep").expect("conflict fixture");
+
+        let state = ApplicationState::new().expect("application state should start");
+        state.stage_copy(source.clone()).expect("copy should stage");
+        let failed = state
+            .submit_paste(&destination_directory)
+            .expect("conflicting copy should submit");
+        assert_eq!(wait_for_terminal(&state, failed.job_id()), JobState::Failed);
+        state.finish_operation(failed.job_id(), TerminalOutcome::Conflict);
+
+        let pending = state
+            .pending_conflict(failed.job_id())
+            .expect("copy conflict should be pending");
+        assert_eq!(pending.job_id(), failed.job_id());
+        assert_eq!(pending.operation_id(), failed.operation_id());
+        assert_eq!(pending.source(), source);
+        assert_eq!(pending.destination(), destination);
+        assert!(matches!(
+            state.retry_operation(failed.job_id()),
+            Err(CopyInteractionError::ConflictDecisionRequired(job_id))
+                if job_id == failed.job_id()
+        ));
+
+        assert!(matches!(
+            state.resolve_conflict(
+                failed.job_id(),
+                ConflictDecision::RetryWithName(OsString::from("nested/name")),
+            ),
+            Err(CopyInteractionError::InvalidRenameName)
+        ));
+        assert!(state.pending_conflict(failed.job_id()).is_ok());
+
+        let revised_name = OsString::from_vec(b"item-\xff".to_vec());
+        let resolution = state
+            .resolve_conflict(
+                failed.job_id(),
+                ConflictDecision::RetryWithName(revised_name.clone()),
+            )
+            .expect("valid revised copy should submit");
+        let ConflictResolution::Retried(retried) = resolution else {
+            panic!("copy conflict should create a revised retry");
+        };
+        assert_eq!(retried.operation_id(), failed.operation_id());
+        assert_ne!(retried.job_id(), failed.job_id());
+        assert_eq!(
+            wait_for_terminal(&state, retried.job_id()),
+            JobState::Completed
+        );
+        assert_eq!(fs::read(&destination).expect("existing item"), b"keep");
+        assert_eq!(
+            fs::read(destination_directory.join(&revised_name)).expect("revised copy"),
+            b"new"
+        );
+        assert!(matches!(
+            state.resolve_conflict(failed.job_id(), ConflictDecision::KeepExisting),
+            Err(CopyInteractionError::ConflictAlreadyResolved(job_id))
+                if job_id == failed.job_id()
+        ));
+    }
+
+    #[test]
+    fn phase_5e_move_and_rename_conflicts_retry_as_siblings_without_overwrite() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let state = ApplicationState::new().expect("application state should start");
+
+        let move_source_directory = fixture.path().join("move-source");
+        let move_destination_directory = fixture.path().join("move-destination");
+        fs::create_dir(&move_source_directory).expect("move source directory");
+        fs::create_dir(&move_destination_directory).expect("move destination directory");
+        let move_source = move_source_directory.join("item");
+        let move_destination = move_destination_directory.join("item");
+        fs::write(&move_source, b"move-new").expect("move source fixture");
+        fs::write(&move_destination, b"move-keep").expect("move conflict fixture");
+        state
+            .stage_move(move_source.clone())
+            .expect("move should stage");
+        let failed_move = state
+            .submit_paste(&move_destination_directory)
+            .expect("conflicting move should submit");
+        assert_eq!(
+            wait_for_terminal(&state, failed_move.job_id()),
+            JobState::Failed
+        );
+        state.finish_operation(failed_move.job_id(), TerminalOutcome::Conflict);
+        let moved_name = OsString::from("moved-item");
+        let ConflictResolution::Retried(retried_move) = state
+            .resolve_conflict(
+                failed_move.job_id(),
+                ConflictDecision::RetryWithName(moved_name.clone()),
+            )
+            .expect("revised move should submit")
+        else {
+            panic!("move conflict should create a revised retry");
+        };
+        assert_eq!(retried_move.operation_id(), failed_move.operation_id());
+        assert_eq!(
+            wait_for_terminal(&state, retried_move.job_id()),
+            JobState::Completed
+        );
+        assert!(!move_source.exists());
+        assert_eq!(
+            fs::read(&move_destination).expect("existing move item"),
+            b"move-keep"
+        );
+        assert_eq!(
+            fs::read(move_destination_directory.join(moved_name)).expect("revised move"),
+            b"move-new"
+        );
+
+        let rename_source = fixture.path().join("rename-source");
+        let rename_destination = fixture.path().join("rename-target");
+        fs::write(&rename_source, b"rename-new").expect("rename source fixture");
+        fs::write(&rename_destination, b"rename-keep").expect("rename conflict fixture");
+        let failed_rename = state
+            .submit_rename(rename_source.clone(), OsString::from("rename-target"))
+            .expect("conflicting rename should submit");
+        assert_eq!(
+            wait_for_terminal(&state, failed_rename.job_id()),
+            JobState::Failed
+        );
+        state.finish_operation(failed_rename.job_id(), TerminalOutcome::Conflict);
+        let pending = state
+            .pending_conflict(failed_rename.job_id())
+            .expect("rename conflict should be pending");
+        assert_eq!(pending.source(), rename_source);
+        assert_eq!(pending.destination(), rename_destination);
+        let ConflictResolution::Retried(retried_rename) = state
+            .resolve_conflict(
+                failed_rename.job_id(),
+                ConflictDecision::RetryWithName(OsString::from("renamed-item")),
+            )
+            .expect("revised rename should submit")
+        else {
+            panic!("rename conflict should create a revised retry");
+        };
+        assert_eq!(retried_rename.operation_id(), failed_rename.operation_id());
+        assert_eq!(
+            wait_for_terminal(&state, retried_rename.job_id()),
+            JobState::Completed
+        );
+        assert_eq!(
+            fs::read(&rename_destination).expect("existing rename item"),
+            b"rename-keep"
+        );
+        assert_eq!(
+            fs::read(fixture.path().join("renamed-item")).expect("revised rename"),
+            b"rename-new"
+        );
+    }
+
+    #[test]
+    fn phase_5e_keep_existing_submits_nothing_and_is_single_use() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source_directory = fixture.path().join("source");
+        let destination_directory = fixture.path().join("destination");
+        fs::create_dir(&source_directory).expect("source directory");
+        fs::create_dir(&destination_directory).expect("destination directory");
+        let source = source_directory.join("item");
+        let destination = destination_directory.join("item");
+        fs::write(&source, b"new").expect("source fixture");
+        fs::write(&destination, b"keep").expect("conflict fixture");
+        let state = ApplicationState::new().expect("application state should start");
+        state.stage_copy(source.clone()).expect("copy should stage");
+        let failed = state
+            .submit_paste(&destination_directory)
+            .expect("conflicting copy should submit");
+        assert_eq!(wait_for_terminal(&state, failed.job_id()), JobState::Failed);
+        state.drain_job_events();
+        state.finish_operation(failed.job_id(), TerminalOutcome::Conflict);
+
+        assert_eq!(
+            state
+                .resolve_conflict(failed.job_id(), ConflictDecision::KeepExisting)
+                .expect("keep-existing should resolve conflict"),
+            ConflictResolution::KeptExisting
+        );
+        assert!(state.drain_job_events().is_empty());
+        assert_eq!(state.terminal_history().len(), 1);
+        assert_eq!(fs::read(source).expect("source remains"), b"new");
+        assert_eq!(fs::read(destination).expect("destination remains"), b"keep");
+        assert!(matches!(
+            state.pending_conflict(failed.job_id()),
+            Err(CopyInteractionError::ConflictAlreadyResolved(job_id))
+                if job_id == failed.job_id()
+        ));
+    }
+
+    #[test]
+    fn phase_5e_trash_conflicts_are_unsupported() {
+        let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
+            .expect("application state should start");
+        let submission = state
+            .submit_trash(PathBuf::from("/virtual/conflict"))
+            .expect("trash should submit");
+        assert_eq!(
+            wait_for_terminal(&state, submission.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(submission.job_id(), TerminalOutcome::Conflict);
+
+        assert!(matches!(
+            state.pending_conflict(submission.job_id()),
+            Err(CopyInteractionError::ConflictUnsupported(job_id))
+                if job_id == submission.job_id()
+        ));
+        assert!(matches!(
+            state.resolve_conflict(submission.job_id(), ConflictDecision::KeepExisting),
+            Err(CopyInteractionError::ConflictUnsupported(job_id))
+                if job_id == submission.job_id()
+        ));
+    }
+
+    #[test]
+    fn phase_5e_terminal_eviction_clears_conflict_resolution_bookkeeping() {
+        let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
+            .expect("application state should start");
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source_directory = fixture.path().join("source");
+        let destination_directory = fixture.path().join("destination");
+        fs::create_dir(&source_directory).expect("source directory");
+        fs::create_dir(&destination_directory).expect("destination directory");
+        let source = source_directory.join("item");
+        fs::write(&source, b"new").expect("source fixture");
+        fs::write(destination_directory.join("item"), b"keep").expect("conflict fixture");
+        state.stage_copy(source).expect("copy should stage");
+        let conflict = state
+            .submit_paste(&destination_directory)
+            .expect("conflicting copy should submit");
+        assert_eq!(
+            wait_for_terminal(&state, conflict.job_id()),
+            JobState::Failed
+        );
+        state.finish_operation(conflict.job_id(), TerminalOutcome::Conflict);
+        assert_eq!(
+            state
+                .resolve_conflict(conflict.job_id(), ConflictDecision::KeepExisting)
+                .expect("keep-existing should resolve conflict"),
+            ConflictResolution::KeptExisting
+        );
+
+        for index in 0..MAX_TERMINAL_HISTORY {
+            let submission = state
+                .submit_trash(PathBuf::from(format!("/virtual/evict-{index}")))
+                .expect("trash should submit");
+            assert_eq!(
+                wait_for_terminal(&state, submission.job_id()),
+                JobState::Completed
+            );
+            state.finish_operation(submission.job_id(), TerminalOutcome::Completed);
+        }
+
+        assert!(
+            !state
+                .resolved_conflicts
+                .borrow()
+                .contains(&conflict.job_id())
+        );
+        assert!(matches!(
+            state.pending_conflict(conflict.job_id()),
+            Err(CopyInteractionError::ConflictNotFound(job_id))
+                if job_id == conflict.job_id()
         ));
     }
 }

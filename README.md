@@ -46,6 +46,8 @@ required nor simulated.
   rename, and trash with stable logical operation identity
 - Persistent accessible Retry control for failed or cancelled Operations Island
   jobs
+- Explicit destination-conflict decisions to keep existing or retry with a
+  validated sibling filename; generic Retry cannot repeat a conflict
 - Native row context menu with Open, Copy, Cut, Rename, and Move to Trash
 - Asynchronous GIO Open With discovery, explicit app launching, and default
   association changes
@@ -65,10 +67,14 @@ selection-sensitive window actions. Open follows the current GIO default
 application. Phase 5D adds Open With for regular files and non-directory links:
 it resolves the content type asynchronously, identifies the current default,
 lists compatible desktop applications, and changes the default only through an
-explicit button. Custom external tools remain future work.
-Cross-application clipboard formats, overwrite, cross-filesystem copy-delete
-moves, trash restore/bulk UI, permanent deletion, previews, tabs, split view,
-Miller columns, and environment-specific integrations remain deferred.
+explicit button. Custom external tools remain future work. Phase 5E adds an
+application-layer conflict contract retaining exact paths and stable logical
+operation identity. Revised copy/move/rename attempts receive a fresh job ID
+and remain fail-if-exists.
+Cross-application clipboard formats, overwrite, apply-to-all, the GTK conflict
+dialog, cross-filesystem copy-delete moves, trash restore/bulk UI, permanent
+deletion, previews, tabs, split view, Miller columns, and environment-specific
+integrations remain deferred.
 
 ## Project documentation
 
