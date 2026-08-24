@@ -798,16 +798,26 @@ impl BrowserController {
 
     fn launch_file(&self, entry: &DirectoryEntry) {
         let display_name = entry.display_name_lossy();
+        let window = self.widgets.window.clone();
         let toast_overlay = self.widgets.toast_overlay.clone();
         launcher::launch_default(entry.path(), move |result| {
-            if let Err(error) = result {
-                tracing::warn!(%error, "default application launch failed");
-                toast_overlay.add_toast(
-                    adw::Toast::builder()
-                        .title(format!("Could not open {display_name}: {error}"))
-                        .timeout(6)
-                        .build(),
-                );
+            if !window.is_visible() {
+                return;
+            }
+            match result {
+                Ok(launcher::DefaultLaunch::Launched) => {}
+                Ok(launcher::DefaultLaunch::NoDefault(options)) => {
+                    present_or_report_open_with(&window, &toast_overlay, &display_name, options);
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "default application launch failed");
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not open {display_name}: {error}"))
+                            .timeout(6)
+                            .build(),
+                    );
+                }
             }
         });
     }
@@ -936,7 +946,7 @@ impl BrowserController {
                     );
                 }
                 Ok(options) => {
-                    present_open_with_dialog(&window, &toast_overlay, &display_name, options)
+                    present_or_report_open_with(&window, &toast_overlay, &display_name, options)
                 }
                 Err(error) => {
                     tracing::warn!(%error, "Open With application discovery failed");
@@ -1179,6 +1189,25 @@ fn chooser_action_sensitivity(selected: Option<usize>, default: Option<usize>) -
         selected.is_some(),
         selected.is_some() && selected != default,
     )
+}
+
+fn present_or_report_open_with(
+    window: &adw::ApplicationWindow,
+    toast_overlay: &adw::ToastOverlay,
+    display_name: &str,
+    options: launcher::OpenWithOptions,
+) {
+    if options.applications.is_empty() {
+        toast_overlay.add_toast(
+            adw::Toast::builder()
+                .title("No compatible applications found")
+                .timeout(6)
+                .build(),
+        );
+        return;
+    }
+
+    present_open_with_dialog(window, toast_overlay, display_name, options);
 }
 
 fn present_open_with_dialog(

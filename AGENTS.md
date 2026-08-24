@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid, thumbnails, and navigation polish (Phase 6H complete)
+Phase 6 — List/grid, thumbnails, navigation, and launch polish (Phase 6I complete)
 ```
 
 Status:
@@ -1225,6 +1225,11 @@ It seeds and selects the current display path, validates explicit absolute-path
 text inline, and sends directory access to the bounded browser worker. Failed
 direct submissions restore the exact previous `NavigationState`; successful
 responses close the editor and return focus to the active list/grid view.
+
+Phase 6I resolves normal Open through asynchronous GIO content-type/application
+discovery. Registered defaults launch normally; missing defaults return the
+already-discovered `OpenWithOptions` and automatically present the existing
+chooser. One-time Open remains separate from explicit Set as Default.
 ```
 
 Established product decisions:
@@ -1257,16 +1262,18 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6H is complete. The next coherent branch is
-`phase-6i-open-with-fallback`, routing normal Open to the existing asynchronous
-application chooser whenever GIO reports no default application.
+Phase 6I is complete. The next coherent branch is
+`phase-6j-places-and-devices`, adding standards-based XDG Places, persisted user
+bookmarks, and GIO volume/drive/mount observation.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-139 tests pass: thirty-three core and 106 application tests. Five focused Phase
+141 tests pass: thirty-three core and 108 application tests. Two focused Phase
+6I tests cover registered-default and no-default routing with exact path
+retention. Five focused Phase
 6H tests cover empty/relative validation, trimmed absolute input,
 file-versus-directory recovery, non-UTF-8 display ownership, and exact
 navigation-snapshot rollback. Five focused
@@ -1543,15 +1550,19 @@ Completed this session:
   rollback after missing, unreadable, or non-directory worker results.
 * Preserved exact existing `PathBuf` navigation ownership; lossy displayed text
   becomes authoritative only after explicit user submission.
+* Added a distinct default-launch outcome so normal Open automatically reuses
+  the application chooser when no GIO default is registered.
+* Kept application resolution/launch asynchronous, exact-path based, and kept
+  one-time Open separate from explicit association changes.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-6i-open-with-fallback` and route normal Open into the existing
-asynchronous chooser whenever no GIO default application exists. Keep one-time
-Open and explicit Set as Default separate, preserve exact original paths, then
-continue with Places/devices/bookmarks and system thumbnailer phases.
+Create `phase-6j-places-and-devices` and expand the sidebar with valid XDG user
+directories, persisted exact-path user bookmarks, and asynchronously observed
+GIO drives/volumes/mounts. Keep mount work outside GTK callbacks and provide
+clear unavailable/unmounted recovery states.
 ```
 
 ---

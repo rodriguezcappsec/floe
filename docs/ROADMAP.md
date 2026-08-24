@@ -256,14 +256,24 @@ Implemented on `phase-6h-editable-location-bar`.
   or not a directory.
 - Keep original `PathBuf` state authoritative unless the user explicitly submits edited text.
 
-## Next
-
 ### Phase 6I — Open With fallback
 
-Create `phase-6i-open-with-fallback`. When normal Open finds no registered default
-application, route directly into the existing asynchronous compatible-application chooser
-instead of ending with an error. Keep explicit Set as Default separate from one-time Open and
-retain exact original paths through GIO.
+Implemented on `phase-6i-open-with-fallback`.
+
+- Resolve content type and compatible applications asynchronously through GIO before normal Open.
+- Launch the registered default when present.
+- Automatically present the existing chooser when no default exists.
+- Keep one-time Open and explicit Set as Default separate.
+- Preserve exact original paths and provide an actionable empty-applications fallback.
+
+## Next
+
+### Phase 6J — Places, bookmarks, and devices
+
+Create `phase-6j-places-and-devices`. Expand standards-based Places with valid XDG user
+directories, user-managed folder bookmarks, and GIO `VolumeMonitor` drives/volumes/mounts.
+Keep mounting asynchronous, preserve exact paths, and distinguish unavailable devices with
+recoverable actions rather than hiding them.
 
 ## After the requested navigation and integration phases
 
