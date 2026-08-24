@@ -144,6 +144,11 @@ the logical `OperationId`, receives a new `JobId`, and tracks the same raw
 request. Eviction also forgets only the corresponding terminal job record;
 active records are never pruned.
 
+Phase 5B exposes retry through `OperationController`: only failed and cancelled
+terminal outcomes retain a retryable `JobId`, the button submits through
+`ApplicationState::retry_operation`, and fresh structured events replace the
+terminal presentation. GTK still observes and submits commands only.
+
 The transfer buffer is Floe-internal only. Cross-application clipboard formats,
 operation persistence, history UI, and overwrite policy are not implemented.
 
@@ -284,7 +289,7 @@ No desktop integration trait or Niri/Plasma backend exists. The app uses generic
 GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
 detection and compositor APIs must eventually stay under `crates/app`.
 
-### Filesystem jobs through Phase 5A
+### Filesystem jobs through Phase 5B
 
 Identity, lifecycle, progress, failure, retry-attempt, registry, and event
 foundations now exist. `floe-core::copy` adds the first path-safe operation
@@ -340,8 +345,9 @@ Trash action has no confirmation dialog; restore/bulk UI, Shift+Delete, undo,
 and permanent deletion remain deferred.
 
 Phase 5A generalizes retry dispatch and bounds application terminal history.
-There is no retry control in GTK yet; overwrite, interactive conflict choices,
-pause/resume controls, and permanent deletion remain deferred.
+Phase 5B adds the Operations Island Retry control for failed and cancelled
+attempts. Overwrite, interactive conflict choices, pause/resume controls, and
+permanent deletion remain deferred.
 
 ## Known architectural debt
 

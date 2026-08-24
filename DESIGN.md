@@ -91,6 +91,12 @@ non-modal toasts with a concrete recovery action. The directory refreshes after
 a successful copy, move, or rename affecting the visible location. Move and
 rename remain same-filesystem only; overwrite is unavailable.
 
+Phase 5B keeps failed and cancelled terminal jobs visible and adds a labelled
+Retry button in the Operations Island. The control uses native keyboard focus,
+disables immediately after submission to prevent duplicate attempts, and hides
+when the fresh job enters its running state. Completed operations remain
+non-retryable and dismiss after the existing terminal delay.
+
 ### Trash job foundation
 
 Phase 4E adds the application-owned backend contract for moving one original
