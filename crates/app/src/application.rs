@@ -1,12 +1,19 @@
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use adw::prelude::*;
 use gtk::{gio, glib};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
-    appearance::Appearance, browser::BrowserController, locations, operations::OperationController,
-    state::ApplicationState, thumbnail::ThumbnailWorker, ui, worker::BrowserWorker,
+    appearance::Appearance,
+    browser::BrowserController,
+    locations,
+    operations::OperationController,
+    preferences::{PreferenceWorker, ViewPreferences},
+    state::ApplicationState,
+    thumbnail::ThumbnailWorker,
+    ui,
+    worker::BrowserWorker,
 };
 
 const APPLICATION_ID: &str = "io.github.floe.FileManager";
@@ -14,12 +21,28 @@ const APPLICATION_ID: &str = "io.github.floe.FileManager";
 pub fn run() -> glib::ExitCode {
     init_logging();
 
+    let (view_preferences, preference_worker) = match PreferenceWorker::spawn() {
+        Ok(preferences) => (preferences.0, Some(preferences.1)),
+        Err(error) => {
+            tracing::warn!(%error, "could not start view preference worker; using defaults");
+            (ViewPreferences::default(), None)
+        }
+    };
+    let preference_worker = Rc::new(RefCell::new(preference_worker));
+
     let application = adw::Application::builder()
         .application_id(APPLICATION_ID)
         .flags(gio::ApplicationFlags::FLAGS_NONE)
         .build();
 
-    application.connect_activate(build_window);
+    let preference_worker_for_activate = Rc::clone(&preference_worker);
+    application.connect_activate(move |application| {
+        build_window(
+            application,
+            view_preferences,
+            &preference_worker_for_activate,
+        );
+    });
 
     let quit = gio::SimpleAction::new("quit", None);
     let application_weak = application.downgrade();
@@ -34,7 +57,11 @@ pub fn run() -> glib::ExitCode {
     application.run()
 }
 
-fn build_window(application: &adw::Application) {
+fn build_window(
+    application: &adw::Application,
+    view_preferences: ViewPreferences,
+    preference_worker: &Rc<RefCell<Option<PreferenceWorker>>>,
+) {
     if let Some(window) = application.active_window() {
         window.present();
         return;
@@ -48,7 +75,7 @@ fn build_window(application: &adw::Application) {
         .first()
         .map(|place| place.path.clone())
         .unwrap_or_else(glib::home_dir);
-    let widgets = ui::build(application, &places, appearance);
+    let widgets = ui::build(application, &places, appearance, view_preferences);
     let worker = match BrowserWorker::spawn() {
         Ok(worker) => worker,
         Err(error) => {
@@ -100,6 +127,8 @@ fn build_window(application: &adw::Application) {
         initial_path,
         worker,
         thumbnail_worker,
+        view_preferences,
+        preference_worker.borrow_mut().take(),
         Rc::clone(&application_state),
     );
     let browser = Rc::downgrade(&controller);

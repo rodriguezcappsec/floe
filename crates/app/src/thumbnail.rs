@@ -16,7 +16,9 @@ use image::{ImageFormat, ImageReader, Limits};
 use rustix::fs::{Mode, OFlags};
 use thiserror::Error;
 
-pub const THUMBNAIL_EDGE: i32 = 32;
+pub const LIST_THUMBNAIL_EDGE: u16 = 32;
+pub const MIN_THUMBNAIL_EDGE: u16 = LIST_THUMBNAIL_EDGE;
+pub const MAX_THUMBNAIL_EDGE: u16 = 192;
 pub const MAX_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
 pub const WORK_QUEUE_CAPACITY: usize = 64;
 
@@ -48,19 +50,28 @@ impl ThumbnailFormat {
 
 /// Exact, metadata-sensitive identity for one in-memory thumbnail.
 ///
-/// The original path is never reconstructed from display text. Phase 6C only
-/// accepts enumerated regular files, so links are not followed for thumbnails.
+/// The original path is never reconstructed from display text. Only enumerated
+/// regular files are accepted, so links are not followed for thumbnails. The
+/// requested edge is part of the key so list and grid cache entries cannot be
+/// confused.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ThumbnailKey {
     path: PathBuf,
     size: u64,
     modified: SystemTime,
     format: ThumbnailFormat,
+    edge: u16,
 }
 
 impl ThumbnailKey {
     pub fn from_entry(entry: &DirectoryEntry) -> Option<Self> {
-        if entry.kind() != EntryKind::RegularFile {
+        Self::from_entry_at_size(entry, LIST_THUMBNAIL_EDGE)
+    }
+
+    pub fn from_entry_at_size(entry: &DirectoryEntry, edge: u16) -> Option<Self> {
+        if entry.kind() != EntryKind::RegularFile
+            || !(MIN_THUMBNAIL_EDGE..=MAX_THUMBNAIL_EDGE).contains(&edge)
+        {
             return None;
         }
         Some(Self {
@@ -68,6 +79,7 @@ impl ThumbnailKey {
             size: entry.size()?,
             modified: entry.modified()?,
             format: ThumbnailFormat::from_path(entry.path())?,
+            edge,
         })
     }
 
@@ -82,6 +94,7 @@ impl ThumbnailKey {
             size,
             modified: SystemTime::UNIX_EPOCH,
             format: ThumbnailFormat::Png,
+            edge: LIST_THUMBNAIL_EDGE,
         }
     }
 }
@@ -287,7 +300,7 @@ fn decode_thumbnail(key: &ThumbnailKey) -> Result<ThumbnailPixels, ThumbnailErro
     let decoded = reader
         .decode()
         .map_err(|error| ThumbnailError::Decode(error.to_string()))?;
-    let edge = THUMBNAIL_EDGE as u32;
+    let edge = u32::from(key.edge);
     let thumbnail = if decoded.width() <= edge && decoded.height() <= edge {
         decoded.into_rgba8()
     } else {
@@ -395,6 +408,25 @@ mod tests {
             decode_thumbnail(&first_key),
             Err(ThumbnailError::SourceChanged)
         ));
+    }
+
+    #[test]
+    fn phase_6d_requested_edge_is_bounded_and_part_of_cache_identity() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let path = directory.path().join("image.png");
+        fs::write(&path, PNG_1X1).expect("PNG should be written");
+        let listing = enumerate_directory(directory.path()).expect("directory should enumerate");
+        let entry = entry_for(listing.entries(), &path);
+
+        let list_key = ThumbnailKey::from_entry_at_size(entry, LIST_THUMBNAIL_EDGE)
+            .expect("list-size PNG should be eligible");
+        let grid_key = ThumbnailKey::from_entry_at_size(entry, MAX_THUMBNAIL_EDGE)
+            .expect("grid-size PNG should be eligible");
+        assert_ne!(list_key, grid_key);
+        assert_eq!(list_key.edge, LIST_THUMBNAIL_EDGE);
+        assert_eq!(grid_key.edge, MAX_THUMBNAIL_EDGE);
+        assert!(ThumbnailKey::from_entry_at_size(entry, MIN_THUMBNAIL_EDGE - 1).is_none());
+        assert!(ThumbnailKey::from_entry_at_size(entry, MAX_THUMBNAIL_EDGE + 1).is_none());
     }
 
     #[cfg(unix)]

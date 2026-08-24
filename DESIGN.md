@@ -71,7 +71,17 @@ selection behavior. Only bound rows lazily request regular PNG/JPEG images.
 Generic symbolic icons remain stable while work is queued and whenever a source
 is unsupported, stale, oversized, unreadable, or malformed. Completed textures
 use a 5-pixel radius and a 256-entry in-memory cache. There is intentionally no
-spinner per row, persistent disk cache, or separate grid yet.
+spinner per row or persistent disk cache.
+
+Phase 6D adds a native virtualized grid beside the list. Both views share one
+`GioListStore` and `GtkSingleSelection`; switching presentation never forks
+directory state or reconstructs a path from a label. Grid cells use centered,
+two-line ellipsized names and the same activation and context actions as list
+rows. Native header toggles expose List/Grid mode, while a keyboard-operable
+scale and zoom buttons select discrete 64, 80, 96, 112, 128, 160, or 192 pixel
+thumbnail edges. Hover, selection, and focus-visible treatments are consistent
+across both views. View mode and grid size persist across launches through an
+application-layer worker rather than GTK file I/O.
 
 ### Selection and activation
 
@@ -262,8 +272,7 @@ The following are direction, not current functionality:
   names rather than internal identifiers.
 - **Tabs and split view:** multiple browser contexts with independent history
   and clear focus ownership.
-- **Grid view:** visual browsing that reuses the Phase 6C bounded, path-safe
-  thumbnail boundary and the same domain entries and selection semantics as
-  list view.
+- **Grid polish:** continue refining large-directory layout and persistent
+  thumbnail-cache behavior without changing the shared model/selection contract.
 
 None of these planned surfaces should move filesystem operation code into GTK.
