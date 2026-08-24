@@ -244,7 +244,28 @@ Implemented on `phase-6g-iconography-polish`.
 - Keep visible names and textual kinds authoritative, GTK decorative semantics,
   and selection/focus states readable without color alone.
 
+### Phase 6H — Editable location bar
+
+Implemented on `phase-6h-editable-location-bar`.
+
+- Make the resting header path a native pointer-operable control while retaining Ctrl+L.
+- Seed and select the current path for immediate editing; Enter submits and Escape cancels.
+- Validate empty and relative text inline, then resolve directory access on the existing
+  bounded worker.
+- Restore the exact previous `NavigationState` when a submitted path is missing, unreadable,
+  or not a directory.
+- Keep original `PathBuf` state authoritative unless the user explicitly submits edited text.
+
 ## Next
+
+### Phase 6I — Open With fallback
+
+Create `phase-6i-open-with-fallback`. When normal Open finds no registered default
+application, route directly into the existing asynchronous compatible-application chooser
+instead of ending with an error. Keep explicit Set as Default separate from one-time Open and
+retain exact original paths through GIO.
+
+## After the requested navigation and integration phases
 
 ### Phase 7A — Tabs foundation
 

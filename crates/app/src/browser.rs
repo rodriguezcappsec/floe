@@ -16,6 +16,9 @@ use gtk::{gio, glib};
 
 use crate::{
     launcher,
+    location_input::{
+        PendingLocation, location_failure_message, location_text, resolve_location_input,
+    },
     locations::Location,
     preferences::{PreferenceSubmitError, PreferenceWorker, ViewPreferences},
     state::{ApplicationState, TransferIntent, validate_rename_name},
@@ -46,6 +49,7 @@ pub struct BrowserController {
     grid_size: Cell<GridSize>,
     preference_worker: RefCell<Option<PreferenceWorker>>,
     pending_preferences: Cell<Option<ViewPreferences>>,
+    pending_location: RefCell<Option<PendingLocation>>,
     application_state: Rc<ApplicationState>,
 }
 
@@ -94,6 +98,7 @@ impl BrowserController {
             grid_size: Cell::new(view_preferences.grid_size),
             preference_worker: RefCell::new(preference_worker),
             pending_preferences: Cell::new(None),
+            pending_location: RefCell::new(None),
             application_state,
         })
     }
@@ -150,11 +155,7 @@ impl BrowserController {
         let controller = Rc::downgrade(self);
         self.widgets.location_entry.connect_activate(move |entry| {
             if let Some(controller) = controller.upgrade() {
-                let text = entry.text();
-                if !text.is_empty() {
-                    controller.navigate_to(PathBuf::from(text.as_str()));
-                }
-                controller.hide_location_entry();
+                controller.submit_location_entry(entry.text().as_str());
             }
         });
     }
@@ -207,7 +208,7 @@ impl BrowserController {
         self.add_action("parent", |controller| controller.go_parent());
         self.add_action("location", |controller| controller.show_location_entry());
         self.add_action("cancel-location", |controller| {
-            controller.hide_location_entry();
+            controller.cancel_location_entry();
         });
         self.add_action("hidden", |controller| controller.toggle_hidden());
         for (name, command) in VIEW_ACTIONS {
@@ -266,30 +267,35 @@ impl BrowserController {
     }
 
     fn navigate_to(&self, destination: PathBuf) {
+        self.restore_pending_navigation();
         if self.navigation.borrow_mut().navigate_to(destination) {
             self.load_current();
         }
     }
 
     fn go_back(&self) {
+        self.restore_pending_navigation();
         if self.navigation.borrow_mut().go_back() {
             self.load_current();
         }
     }
 
     fn go_forward(&self) {
+        self.restore_pending_navigation();
         if self.navigation.borrow_mut().go_forward() {
             self.load_current();
         }
     }
 
     fn go_parent(&self) {
+        self.restore_pending_navigation();
         if self.navigation.borrow_mut().go_parent() {
             self.load_current();
         }
     }
 
     fn toggle_hidden(&self) {
+        self.restore_pending_navigation();
         let show_hidden = !self.show_hidden.get();
         self.show_hidden.set(show_hidden);
         self.widgets.hidden_button.set_active(show_hidden);
@@ -452,17 +458,97 @@ impl BrowserController {
     }
 
     fn show_location_entry(&self) {
-        self.widgets.location_entry.set_text("");
+        if self.pending_location.borrow().is_some() {
+            self.restore_pending_navigation();
+            self.load_current();
+        }
+        let current = self.navigation.borrow().current().to_path_buf();
+        self.clear_location_error();
+        self.widgets
+            .location_entry
+            .set_text(&location_text(&current));
         self.widgets.path_stack.set_visible_child_name("entry");
         self.widgets.location_entry.grab_focus();
+        self.widgets.location_entry.select_region(0, -1);
     }
 
     fn hide_location_entry(&self) {
+        self.clear_location_error();
         self.widgets.path_stack.set_visible_child_name("path");
         self.widgets.focus_view(self.view_mode.get());
     }
 
-    fn load_current(&self) {
+    fn cancel_location_entry(&self) {
+        if self.pending_location.borrow().is_some() {
+            self.restore_pending_navigation();
+            self.load_current();
+        }
+        self.hide_location_entry();
+    }
+
+    fn restore_pending_navigation(&self) {
+        if let Some(pending) = self.pending_location.borrow_mut().take() {
+            self.navigation.replace(pending.previous_navigation);
+        }
+    }
+
+    fn submit_location_entry(&self, input: &str) {
+        let current = self.navigation.borrow().current().to_path_buf();
+        let destination = match resolve_location_input(input, &current) {
+            Ok(path) => path,
+            Err(error) => {
+                self.show_location_error(&error.to_string());
+                return;
+            }
+        };
+
+        if destination == self.navigation.borrow().current() {
+            self.hide_location_entry();
+            return;
+        }
+
+        let previous_navigation = self.navigation.borrow().clone();
+        if !self.navigation.borrow_mut().navigate_to(destination) {
+            self.hide_location_entry();
+            return;
+        }
+
+        self.clear_location_error();
+        self.widgets.location_entry.set_sensitive(false);
+        let generation = self.load_current();
+        self.pending_location.replace(Some(PendingLocation {
+            generation,
+            previous_navigation,
+            submitted_text: input.trim().to_owned(),
+        }));
+    }
+
+    fn clear_location_error(&self) {
+        self.widgets.location_entry.remove_css_class("error");
+        self.widgets.location_entry.set_sensitive(true);
+        self.widgets
+            .location_entry
+            .update_property(&[gtk::accessible::Property::Description(
+                "Enter an absolute folder path",
+            )]);
+        self.widgets.location_error.set_label("");
+        self.widgets.location_error.set_visible(false);
+    }
+
+    fn show_location_error(&self, message: &str) {
+        self.widgets.location_entry.set_sensitive(true);
+        self.widgets.location_entry.add_css_class("error");
+        self.widgets
+            .location_entry
+            .update_property(&[gtk::accessible::Property::Description(message)]);
+        self.widgets.location_error.set_label(message);
+        self.widgets.location_error.set_visible(true);
+        self.widgets.path_stack.set_visible_child_name("entry");
+        self.widgets.location_entry.grab_focus();
+        self.widgets.location_entry.select_region(0, -1);
+    }
+
+    fn load_current(&self) -> u64 {
         self.widgets.thumbnails.begin_generation();
         let thumbnail_generation = self
             .thumbnail_worker
@@ -515,6 +601,7 @@ impl BrowserController {
         self.widgets.spinner.start();
         self.widgets.status_label.set_label("Loading directory…");
         self.update_navigation_controls();
+        generation
     }
 
     fn update_navigation_controls(&self) {
@@ -539,11 +626,23 @@ impl BrowserController {
             self.widgets.spinner.stop();
             match response.kind {
                 ResponseKind::Listing(Ok(entries)) => {
+                    if self
+                        .pending_location
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|pending| pending.matches(response.generation))
+                    {
+                        self.pending_location.borrow_mut().take();
+                        self.hide_location_entry();
+                    }
                     self.set_sort_controls_sensitive(true);
                     self.show_listing(entries);
                 }
                 ResponseKind::Listing(Err(DirectoryError::Cancelled)) => {}
                 ResponseKind::Listing(Err(error)) => {
+                    if self.restore_failed_location(response.generation, &error) {
+                        continue;
+                    }
                     tracing::warn!(path = ?response.path, %error, "directory enumeration failed");
                     self.set_sort_controls_sensitive(true);
                     self.widgets.set_views_sensitive(true);
@@ -565,6 +664,26 @@ impl BrowserController {
                 }
             }
         }
+    }
+
+    fn restore_failed_location(&self, generation: u64, error: &DirectoryError) -> bool {
+        let is_pending = self
+            .pending_location
+            .borrow()
+            .as_ref()
+            .is_some_and(|pending| pending.matches(generation));
+        if !is_pending {
+            return false;
+        }
+
+        let Some(pending) = self.pending_location.borrow_mut().take() else {
+            return false;
+        };
+        let submitted_text = pending.restore(&mut self.navigation.borrow_mut());
+        self.load_current();
+        self.widgets.location_entry.set_text(&submitted_text);
+        self.show_location_error(&location_failure_message(error));
+        true
     }
 
     fn show_listing(&self, entries: Vec<DirectoryEntry>) {
