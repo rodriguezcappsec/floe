@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 5 — Progress, cancellation, and conflict handling (Phase 5F complete)
+Phase 6 — List/grid polish and thumbnails (Phase 6A complete)
 ```
 
 Status:
@@ -1161,6 +1161,12 @@ Phase 5F presents those decisions in a focused non-blocking dialog with exact
 request paths as context, inline filename validation, and no overwrite option.
 Dismissal leaves an accessible Resolve Conflict action in the Operations
 Island; revised attempts return to normal progress handling.
+
+Phase 6A gives the existing virtualized list a compact Name, Type, Size, and
+Modified hierarchy using metadata already captured by directory enumeration.
+Formatting occurs only for bound visible rows, 256-entry model insertion batches
+remain intact, keyboard focus is explicit, and original `PathBuf`/`OsString`
+values remain authoritative. Thumbnails and a separate grid are not implemented.
 ```
 
 Established product decisions:
@@ -1193,16 +1199,18 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 5F is complete. The next coherent branch is
-`phase-6a-list-view-polish`, improving the existing virtualized list's
-information hierarchy and density before thumbnails or a separate grid view.
+Phase 6A is complete. The next coherent branch is `phase-6b-list-sorting`,
+making the visible metadata headings operable while preserving directories-first
+ordering, selection identity, virtualization, and original path ownership.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-eighty-five tests pass: twenty-eight core and fifty-seven application tests.
+eighty-nine tests pass: twenty-eight core and sixty-one application tests. Four
+focused Phase 6A tests cover stable column semantics, text-only kind distinctions,
+size-unit boundaries through exabytes, and signed modified-time formatting.
 Four focused Phase 5F tests cover conflict-action priority, dismissal/reopen,
 single-dialog state, exact filename validation, keep-existing and fresh retry
 submission, retry fallback, and the absence of overwrite/apply-to-all decisions.
@@ -1215,8 +1223,10 @@ deduplicated application ordering, and chooser/default button sensitivity.
 Three focused Phase 5C tests cover the complete action mapping, rejection of an
 unbound virtualized row, and lock-state-safe keyboard shortcuts. Two focused
 Phase 5B tests cover retryable outcomes and preservation of pending retry state
-while another job completes. Native Wayland smoke launched and remained healthy
-until timeout. Ten focused Phase 4E tests cover original
+while another job completes. A native Wayland Phase 6A build registered the
+expected D-Bus application owner and remained healthy until stopped, emitting
+only the known host Vulkan suboptimal-swapchain warning. Ten focused Phase 4E
+tests cover original
 non-UTF-8 paths, GIO error mapping, success, cancellation, structured failures,
 capacity, shutdown, state tracking, and recovery feedback without touching real
 user Trash. Phase 4F has one focused interaction-wording test. Four focused
@@ -1339,15 +1349,25 @@ Completed this session:
 * Routed Keep Existing and Retry with New Name through `ApplicationState` only;
   GTK callbacks perform no filesystem work.
 * Added no overwrite, apply-to-all, or trash-conflict path.
+* Added compact aligned Name, Type, Size, and Modified list columns using
+  metadata already owned by `DirectoryEntry`.
+* Kept metadata formatting inside virtualized row binding and retained bounded
+  256-entry GTK model insertion batches.
+* Added textual folder/file/link/special kinds, exabyte-safe decimal sizes,
+  locale-aware modified times, stable tabular figures, and visible keyboard
+  focus styling.
+* Kept original `PathBuf`/`OsString` identity authoritative and deferred
+  thumbnail generation, a separate grid, and interactive sorting.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-6a-list-view-polish` and improve the existing virtualized list's
-information hierarchy and density using available entry metadata. Preserve
-large-directory responsiveness and original path ownership; do not add
-thumbnail generation or a separate grid implementation in the same slice.
+Create `phase-6b-list-sorting` and make the visible Name, Type, Size, and
+Modified headings keyboard/pointer operable with explicit ascending/descending
+state. Preserve directories-first behavior, selection by original path, and
+virtualization; keep sort logic outside GTK callbacks. Do not add thumbnails or
+a separate grid in the same slice.
 ```
 
 ---

@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use adw::prelude::*;
 use floe_core::{DirectoryEntry, EntryKind};
 use gtk::{gio, glib};
@@ -14,6 +16,10 @@ const FILE_CONTEXT_ACTIONS: [(&str, &str); 6] = [
 ];
 
 const CONFLICT_DECISION_LABELS: [&str; 2] = ["Keep Existing", "Retry with New Name"];
+const LIST_COLUMN_LABELS: [&str; 4] = ["Name", "Type", "Size", "Modified"];
+const TYPE_COLUMN_WIDTH: i32 = 11;
+const SIZE_COLUMN_WIDTH: i32 = 10;
+const MODIFIED_COLUMN_WIDTH: i32 = 18;
 
 pub struct OpenWithDialogWidgets {
     pub dialog: adw::Dialog,
@@ -666,15 +672,36 @@ fn build_directory_panel() -> (
             .single_line_mode(true)
             .build();
         name.add_css_class("floe-entry-name");
-        let detail = gtk::Label::builder()
-            .halign(gtk::Align::End)
-            .width_chars(13)
-            .xalign(1.0)
+        let entry_type = gtk::Label::builder()
+            .halign(gtk::Align::Start)
+            .width_chars(TYPE_COLUMN_WIDTH)
+            .max_width_chars(TYPE_COLUMN_WIDTH)
+            .xalign(0.0)
+            .single_line_mode(true)
             .build();
-        detail.add_css_class("floe-entry-detail");
+        entry_type.add_css_class("floe-entry-type");
+        let size = gtk::Label::builder()
+            .halign(gtk::Align::End)
+            .width_chars(SIZE_COLUMN_WIDTH)
+            .max_width_chars(SIZE_COLUMN_WIDTH)
+            .xalign(1.0)
+            .single_line_mode(true)
+            .build();
+        size.add_css_class("floe-entry-size");
+        let modified = gtk::Label::builder()
+            .halign(gtk::Align::End)
+            .width_chars(MODIFIED_COLUMN_WIDTH)
+            .max_width_chars(MODIFIED_COLUMN_WIDTH)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .xalign(1.0)
+            .single_line_mode(true)
+            .build();
+        modified.add_css_class("floe-entry-modified");
         row.append(&icon);
         row.append(&name);
-        row.append(&detail);
+        row.append(&entry_type);
+        row.append(&size);
+        row.append(&modified);
 
         let secondary_click = gtk::GestureClick::new();
         secondary_click.set_button(gtk::gdk::BUTTON_SECONDARY);
@@ -725,7 +752,13 @@ fn build_directory_panel() -> (
         let Some(name) = icon.next_sibling().and_downcast::<gtk::Label>() else {
             return;
         };
-        let Some(detail) = name.next_sibling().and_downcast::<gtk::Label>() else {
+        let Some(entry_type) = name.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(size) = entry_type.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(modified) = size.next_sibling().and_downcast::<gtk::Label>() else {
             return;
         };
         let Some(object) = list_item.item().and_downcast::<glib::BoxedAnyObject>() else {
@@ -736,7 +769,14 @@ fn build_directory_panel() -> (
         name.set_label(&display_name);
         name.set_tooltip_text(Some(&display_name));
         icon.set_icon_name(Some(icon_name(entry.kind())));
-        detail.set_label(&entry_detail(&entry));
+        entry_type.set_label(entry_type_label(entry.kind()));
+        size.set_label(&entry.size().map(format_size).unwrap_or_default());
+        let modified_text = entry
+            .modified()
+            .and_then(format_modified)
+            .unwrap_or_default();
+        modified.set_label(&modified_text);
+        modified.set_tooltip_text((!modified_text.is_empty()).then_some(modified_text.as_str()));
     });
 
     let list_view = gtk::ListView::new(Some(selection.clone()), Some(factory));
@@ -799,6 +839,8 @@ fn build_directory_panel() -> (
         .vexpand(true)
         .build();
     panel.add_css_class("floe-panel");
+    panel.append(&build_list_header());
+    panel.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     panel.append(&overlay);
     panel.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     panel.append(&status);
@@ -871,17 +913,61 @@ fn icon_name(kind: EntryKind) -> &'static str {
     }
 }
 
-fn entry_detail(entry: &DirectoryEntry) -> String {
-    match entry.kind() {
-        EntryKind::Directory => "Folder".into(),
-        EntryKind::SymbolicLink { .. } => "Link".into(),
-        EntryKind::Other => "Special".into(),
-        EntryKind::RegularFile => entry.size().map(format_size).unwrap_or_default(),
+fn build_list_header() -> gtk::Box {
+    let header = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(12)
+        .build();
+    header.add_css_class("floe-list-header");
+
+    header.append(&gtk::Box::builder().width_request(24).build());
+    for (index, (label, width)) in LIST_COLUMN_LABELS
+        .into_iter()
+        .zip([
+            None,
+            Some(TYPE_COLUMN_WIDTH),
+            Some(SIZE_COLUMN_WIDTH),
+            Some(MODIFIED_COLUMN_WIDTH),
+        ])
+        .enumerate()
+    {
+        let heading = gtk::Label::builder()
+            .label(label)
+            .halign(if index < 2 {
+                gtk::Align::Start
+            } else {
+                gtk::Align::End
+            })
+            .hexpand(index == 0)
+            .xalign(if index < 2 { 0.0 } else { 1.0 })
+            .single_line_mode(true)
+            .build();
+        if let Some(width) = width {
+            heading.set_width_chars(width);
+            heading.set_max_width_chars(width);
+        }
+        header.append(&heading);
+    }
+
+    header
+}
+
+fn entry_type_label(kind: EntryKind) -> &'static str {
+    match kind {
+        EntryKind::Directory => "Folder",
+        EntryKind::RegularFile => "File",
+        EntryKind::SymbolicLink {
+            target_is_directory: true,
+        } => "Folder link",
+        EntryKind::SymbolicLink {
+            target_is_directory: false,
+        } => "File link",
+        EntryKind::Other => "Special",
     }
 }
 
 fn format_size(bytes: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    const UNITS: [&str; 7] = ["B", "KB", "MB", "GB", "TB", "PB", "EB"];
     let mut value = bytes as f64;
     let mut unit = 0;
     while value >= 1000.0 && unit < UNITS.len() - 1 {
@@ -895,9 +981,70 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
+fn format_modified(modified: SystemTime) -> Option<String> {
+    let seconds = match modified.duration_since(UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_secs()).ok()?,
+        Err(error) => i64::try_from(error.duration().as_secs())
+            .ok()?
+            .checked_neg()?,
+    };
+    let local = glib::DateTime::from_unix_local(seconds).ok()?;
+    local
+        .format("%x · %R")
+        .ok()
+        .map(|formatted| formatted.to_string())
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+
+    #[test]
+    fn phase_6a_columns_have_stable_scannable_semantics() {
+        assert_eq!(LIST_COLUMN_LABELS, ["Name", "Type", "Size", "Modified"]);
+    }
+
+    #[test]
+    fn phase_6a_kind_labels_distinguish_links_without_color_or_icons() {
+        assert_eq!(entry_type_label(EntryKind::Directory), "Folder");
+        assert_eq!(entry_type_label(EntryKind::RegularFile), "File");
+        assert_eq!(
+            entry_type_label(EntryKind::SymbolicLink {
+                target_is_directory: true,
+            }),
+            "Folder link"
+        );
+        assert_eq!(
+            entry_type_label(EntryKind::SymbolicLink {
+                target_is_directory: false,
+            }),
+            "File link"
+        );
+        assert_eq!(entry_type_label(EntryKind::Other), "Special");
+    }
+
+    #[test]
+    fn phase_6a_size_formatting_is_compact_at_unit_boundaries() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(999), "999 B");
+        assert_eq!(format_size(1_000), "1.0 KB");
+        assert_eq!(format_size(1_500_000), "1.5 MB");
+        assert_eq!(format_size(u64::MAX), "18.4 EB");
+    }
+
+    #[test]
+    fn phase_6a_modified_formatting_handles_epoch_and_pre_epoch_times() {
+        let rendered = format_modified(UNIX_EPOCH).expect("Unix epoch should be representable");
+        assert!(!rendered.trim().is_empty());
+
+        let pre_epoch = UNIX_EPOCH
+            .checked_sub(Duration::from_secs(1))
+            .expect("one second before epoch should be representable");
+        let rendered = format_modified(pre_epoch).expect("pre-epoch times should be representable");
+        assert!(!rendered.trim().is_empty());
+    }
 
     #[test]
     fn phase_5c_context_menu_reuses_complete_existing_action_mapping() {

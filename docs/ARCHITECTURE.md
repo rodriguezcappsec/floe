@@ -158,9 +158,14 @@ operation persistence, history UI, and overwrite policy are not implemented.
 `GtkListView`, empty overlay, status strip, toast overlay, and compact
 Operations Island in a non-modal `GtkOverlay`. A
 `GtkSignalListItemFactory` binds boxed `DirectoryEntry` values to virtualized
-rows. The module also builds the visible file-actions menu and focused rename
-dialog with inline error text. Symbolic icon buttons have tooltips and
-accessible labels, including the generic operation-cancellation control.
+rows. Phase 6A keeps presentation inside that bind boundary and exposes aligned
+Name, Type, Size, and Modified columns from metadata already owned by directory
+enumeration;
+it does not create a parallel presentation model or eagerly format a full
+directory result. The module also builds the visible file-actions menu and
+focused rename dialog with inline error text. Symbolic icon buttons have
+tooltips and accessible labels, including the generic operation-cancellation
+control.
 
 Phase 5C also constructs one native `GtkPopoverMenu` parented to the list view.
 Virtualized row setup adds only a secondary-click selection/presentation
@@ -281,8 +286,10 @@ mounts, and network locations are not implemented.
 
 `Appearance` centralizes preset-level radius, gap, opacity, row padding, shadow,
 floating-panel, and sidebar-width values. It generates GTK CSS using libadwaita
-semantic colors. Frosted is the default; `FLOE_APPEARANCE` selects Native,
-Glass, Frosted, Minimal, or Compact. Blur and settings persistence do not exist.
+semantic colors. Phase 6A adds shared list-heading, secondary metadata, tabular
+figure, and focus-visible rules without forking widget trees by preset. Frosted
+is the default; `FLOE_APPEARANCE` selects Native, Glass, Frosted, Minimal, or
+Compact. Blur and settings persistence do not exist.
 
 ## Keyboard input
 

@@ -96,13 +96,17 @@ cargo test -p floe-app phase_5c
 cargo test -p floe-app phase_5d
 cargo test -p floe-app phase_5e
 cargo test -p floe-app phase_5f
+cargo test -p floe-app phase_6a
 cargo test -p floe-app move_executor
 cargo check -p floe-core
 cargo tree -p floe-app --depth 1
 ```
 
 Use `cargo fmt --all` to apply formatting. Core tests use temporary directories
-and must never target real user data.
+and must never target real user data. Phase 6A presentation tests are
+locale-independent: they verify stable column semantics, kind text, size
+boundaries, and successful timestamp conversion without asserting a
+host-specific rendered date string.
 
 ## Wayland environments
 
