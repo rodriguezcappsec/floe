@@ -11,7 +11,8 @@ use std::{
 
 use adw::prelude::*;
 use floe_core::{
-    DirectoryEntry, DirectoryError, DirectorySort, EntryKind, NavigationState, SortColumn,
+    DirectoryEntry, DirectoryError, DirectorySort, EntryKind, NavigationState, RestoreRequest,
+    SortColumn, TrashEnumerateError, TrashRoot,
 };
 use gtk::{gio, glib};
 
@@ -112,6 +113,8 @@ pub struct BrowserController {
     thumbnail_generation: Cell<u64>,
     active_generation: Cell<u64>,
     show_hidden: Cell<bool>,
+    trash_active: Cell<bool>,
+    trash_root: TrashRoot,
     visible_entries: RefCell<Vec<Arc<DirectoryEntry>>>,
     pending_entries: RefCell<VecDeque<Arc<DirectoryEntry>>>,
     pending_store: RefCell<Option<gio::ListStore>>,
@@ -179,6 +182,8 @@ impl BrowserController {
             thumbnail_generation: Cell::new(0),
             active_generation: Cell::new(0),
             show_hidden: Cell::new(false),
+            trash_active: Cell::new(false),
+            trash_root: TrashRoot::for_data_home(glib::user_data_dir()),
             visible_entries: RefCell::new(Vec::new()),
             pending_entries: RefCell::new(VecDeque::new()),
             pending_store: RefCell::new(None),
@@ -222,6 +227,7 @@ impl BrowserController {
                 }
             });
         }
+
         let controller = Rc::downgrade(self);
         self.widgets.add_bookmark_button.connect_clicked(move |_| {
             if let Some(controller) = controller.upgrade() {
@@ -755,6 +761,7 @@ impl BrowserController {
         self.add_action("refresh", |controller| {
             controller.load_current();
         });
+        self.add_action("open-trash", |controller| controller.open_trash());
         self.add_action("select-all", |controller| controller.select_all());
         self.add_action("clear-selection", |controller| controller.clear_selection());
         for (name, command) in VIEW_ACTIONS {
@@ -804,6 +811,14 @@ impl BrowserController {
             controller.confirm_permanent_delete();
         });
         permanent_delete_action.set_enabled(false);
+        let restore_action = self.add_action("restore", |controller| {
+            controller.restore_selected();
+        });
+        restore_action.set_enabled(false);
+        let empty_trash_action = self.add_action("empty-trash", |controller| {
+            controller.confirm_empty_trash();
+        });
+        empty_trash_action.set_enabled(false);
         let paste_action = self.add_action("paste", |controller| controller.paste_transfer());
         paste_action.set_enabled(false);
         for (name, column) in ui::SORT_ACTIONS {
@@ -847,13 +862,52 @@ impl BrowserController {
 
     fn navigate_to(&self, destination: PathBuf) {
         self.restore_pending_navigation();
-        if self.navigation.borrow_mut().navigate_to(destination) {
+        let was_trash = self.trash_active.replace(false);
+        self.widgets.set_trash_mode(false);
+        self.set_paste_enabled(self.application_state.staged_transfers().is_some());
+        if self.navigation.borrow_mut().navigate_to(destination) || was_trash {
             self.load_current();
         }
     }
 
+    fn open_trash(&self) {
+        self.restore_pending_navigation();
+        self.trash_active.set(true);
+        self.sort_order.set(DirectorySort::default());
+        self.update_sort_headers();
+        self.widgets.set_trash_mode(true);
+        self.set_paste_enabled(false);
+        self.load_current();
+    }
+
+    fn trash_roots(&self) -> Vec<TrashRoot> {
+        let mut roots = vec![self.trash_root.clone()];
+        let uid = rustix::process::getuid().as_raw();
+        let mut seen = HashSet::new();
+        seen.insert(self.trash_root.base().to_path_buf());
+        for mount in self
+            .device_monitor
+            .snapshots()
+            .into_iter()
+            .filter_map(|snapshot| snapshot.local_root().map(Path::to_path_buf))
+        {
+            for root in TrashRoot::for_mount_top(&mount, uid) {
+                if seen.insert(root.base().to_path_buf()) {
+                    roots.push(root);
+                }
+            }
+        }
+        roots
+    }
+
     fn go_back(&self) {
         self.restore_pending_navigation();
+        if self.trash_active.replace(false) {
+            self.widgets.set_trash_mode(false);
+            self.set_paste_enabled(self.application_state.staged_transfers().is_some());
+            self.load_current();
+            return;
+        }
         if self.navigation.borrow_mut().go_back() {
             self.load_current();
         }
@@ -1025,11 +1079,16 @@ impl BrowserController {
         for header in &self.widgets.sort_headers {
             ui::update_sort_header(header, sort);
         }
+        if self.trash_active.get() {
+            self.widgets.set_trash_mode(true);
+        }
     }
 
     fn set_sort_controls_sensitive(&self, sensitive: bool) {
         for header in &self.widgets.sort_headers {
-            header.button.set_sensitive(sensitive);
+            let trash_supported = !self.trash_active.get()
+                || matches!(header.column, SortColumn::Name | SortColumn::Size);
+            header.button.set_sensitive(sensitive && trash_supported);
         }
     }
 
@@ -1200,27 +1259,49 @@ impl BrowserController {
         self.set_open_enabled(false);
         self.set_open_with_enabled(false);
         self.set_selection_actions_enabled(false, false, false);
-        let path = self.navigation.borrow().current().to_path_buf();
-        let generation = self
-            .worker
-            .borrow_mut()
-            .request(path.clone(), self.sort_order.get());
+        let path = if self.trash_active.get() {
+            self.trash_root.files().to_path_buf()
+        } else {
+            self.navigation.borrow().current().to_path_buf()
+        };
+        let generation = if self.trash_active.get() {
+            self.worker
+                .borrow_mut()
+                .request_trash(self.trash_roots(), self.sort_order.get())
+        } else {
+            self.worker
+                .borrow_mut()
+                .request(path.clone(), self.sort_order.get())
+        };
         self.active_generation.set(generation);
 
-        let display_path = path.to_string_lossy();
+        let display_path = if self.trash_active.get() {
+            std::borrow::Cow::Borrowed("Trash")
+        } else {
+            path.to_string_lossy()
+        };
         self.widgets.path_label.set_label(&display_path);
         self.widgets
             .path_label
             .set_tooltip_text(Some(&display_path));
-        let title = path
-            .file_name()
-            .unwrap_or(path.as_os_str())
-            .to_string_lossy();
+        let title = if self.trash_active.get() {
+            std::borrow::Cow::Borrowed("Trash")
+        } else {
+            path.file_name()
+                .unwrap_or(path.as_os_str())
+                .to_string_lossy()
+        };
         self.widgets
             .window
             .set_title(Some(&format!("{title} — Floe")));
         self.widgets.spinner.start();
-        self.widgets.status_label.set_label("Loading directory…");
+        self.widgets
+            .status_label
+            .set_label(if self.trash_active.get() {
+                "Loading Trash…"
+            } else {
+                "Loading directory…"
+            });
         self.update_navigation_controls();
         generation
     }
@@ -1229,13 +1310,13 @@ impl BrowserController {
         let navigation = self.navigation.borrow();
         self.widgets
             .back_button
-            .set_sensitive(navigation.can_go_back());
+            .set_sensitive(self.trash_active.get() || navigation.can_go_back());
         self.widgets
             .forward_button
-            .set_sensitive(navigation.can_go_forward());
+            .set_sensitive(!self.trash_active.get() && navigation.can_go_forward());
         self.widgets
             .parent_button
-            .set_sensitive(navigation.can_go_parent());
+            .set_sensitive(!self.trash_active.get() && navigation.can_go_parent());
     }
 
     fn drain_worker(&self) {
@@ -1274,6 +1355,20 @@ impl BrowserController {
                         .build();
                     self.widgets.toast_overlay.add_toast(toast);
                 }
+                ResponseKind::TrashListing(Ok(entries)) => {
+                    self.set_sort_controls_sensitive(true);
+                    self.show_listing(entries);
+                }
+                ResponseKind::TrashListing(Err(TrashEnumerateError::Directory(
+                    DirectoryError::Cancelled,
+                ))) => {}
+                ResponseKind::TrashListing(Err(error)) => {
+                    tracing::warn!(%error, "Trash enumeration failed");
+                    self.set_sort_controls_sensitive(true);
+                    self.widgets.set_views_sensitive(true);
+                    self.widgets.status_label.set_label("Could not load Trash");
+                    self.show_toast(&format!("Could not load Trash: {error}"), 7);
+                }
                 ResponseKind::Sorted { entries, sort } => {
                     self.sort_in_flight.set(false);
                     self.set_sort_controls_sensitive(true);
@@ -1311,7 +1406,7 @@ impl BrowserController {
         let show_hidden = self.show_hidden.get();
         let entries: Vec<Arc<DirectoryEntry>> = entries
             .into_iter()
-            .filter(|entry| show_hidden || !entry.is_hidden())
+            .filter(|entry| self.trash_active.get() || show_hidden || !entry.is_hidden())
             .map(Arc::new)
             .collect();
         self.install_entries(entries, &[], true);
@@ -1334,6 +1429,7 @@ impl BrowserController {
         self.pending_entries
             .replace(entries.iter().cloned().collect());
         self.visible_entries.replace(entries);
+        self.set_selection_actions_enabled(false, false, false);
         self.pending_store.replace(Some(store));
         self.update_loading_status(0, count);
         if focus_list {
@@ -1401,6 +1497,10 @@ impl BrowserController {
 
     fn activate_entry(&self, entry: &DirectoryEntry) {
         if entry.is_navigable_directory() {
+            if self.trash_active.get() {
+                self.show_toast("Restore this folder before browsing its contents", 5);
+                return;
+            }
             self.navigate_to(entry.path().to_path_buf());
         } else if matches!(
             entry.kind(),
@@ -1579,12 +1679,29 @@ impl BrowserController {
     }
 
     fn set_selection_actions_enabled(&self, transfer: bool, rename: bool, trash: bool) {
+        let trash_mode = self.trash_active.get();
+        let all_restorable = self.selected_entries.borrow().iter().all(|entry| {
+            entry.trash_metadata().is_some_and(|metadata| {
+                metadata.original_path().is_some() && metadata.info_path().is_some()
+            })
+        });
+        let trash_state = trash_mode_action_state(
+            trash_mode,
+            self.selected_entries.borrow().len(),
+            all_restorable,
+            self.visible_entries.borrow().len(),
+        );
         for (action_name, enabled) in [
-            ("copy", transfer),
-            ("cut", transfer),
-            ("rename", rename),
-            ("trash", trash),
-            ("permanent-delete", trash),
+            ("copy", transfer && !trash_mode),
+            ("cut", transfer && !trash_mode),
+            ("rename", rename && !trash_mode),
+            ("trash", trash && !trash_mode),
+            (
+                "permanent-delete",
+                trash_state.permanent_delete || (!trash_mode && trash),
+            ),
+            ("restore", trash_state.restore),
+            ("empty-trash", trash_state.empty),
         ] {
             if let Some(action) = self
                 .widgets
@@ -1709,8 +1826,99 @@ impl BrowserController {
         }
     }
 
+    fn restore_selected(&self) {
+        if !self.trash_active.get() {
+            self.show_toast("Open Trash to restore items", 4);
+            return;
+        }
+        let requests = self
+            .selected_entries
+            .borrow()
+            .iter()
+            .map(|entry| RestoreRequest::from_entry(entry))
+            .collect::<Result<Vec<_>, _>>();
+        let Ok(requests) = requests else {
+            self.show_toast(
+                "Original location metadata is unavailable for part of this selection",
+                7,
+            );
+            return;
+        };
+        if requests.is_empty() {
+            self.show_toast("Select one or more Trash items to restore", 4);
+            return;
+        }
+        match self.application_state.submit_restore_batch(requests) {
+            Ok(batch) => self
+                .widgets
+                .status_label
+                .set_label(&format!("Restoring {}…", item_count_text(batch.queued()))),
+            Err(error) => self.show_toast(&format!("Could not start restore: {error}"), 7),
+        }
+    }
+
+    fn confirm_empty_trash(&self) {
+        if !self.trash_active.get() {
+            return;
+        }
+        let entries = self.visible_entries.borrow();
+        if entries.is_empty() {
+            self.show_toast("Trash is already empty", 4);
+            return;
+        }
+        let labels = entries
+            .iter()
+            .map(|entry| permanent_delete_target_label(entry.path()))
+            .collect::<Vec<_>>();
+        let mut targets = entries
+            .iter()
+            .map(|entry| entry.path().to_path_buf())
+            .collect::<Vec<_>>();
+        targets.extend(entries.iter().filter_map(|entry| {
+            entry
+                .trash_metadata()
+                .and_then(|metadata| metadata.info_path())
+                .map(Path::to_path_buf)
+        }));
+        drop(entries);
+
+        let confirmation = ui::build_empty_trash_dialog(&labels);
+        let dialog = confirmation.dialog.downgrade();
+        confirmation.cancel_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+        let application_state = Rc::clone(&self.application_state);
+        let status_label = self.widgets.status_label.clone();
+        let toast_overlay = self.widgets.toast_overlay.clone();
+        let dialog = confirmation.dialog.downgrade();
+        confirmation.delete_button.connect_clicked(move |button| {
+            button.set_sensitive(false);
+            match application_state.submit_permanent_delete(targets.clone()) {
+                Ok(_) => {
+                    status_label.set_label("Empty Trash queued…");
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.close();
+                    }
+                }
+                Err(error) => {
+                    button.set_sensitive(true);
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not empty Trash: {error}"))
+                            .timeout(7)
+                            .build(),
+                    );
+                }
+            }
+        });
+        confirmation.dialog.present(Some(&self.widgets.window));
+        confirmation.cancel_button.grab_focus();
+    }
+
     fn confirm_permanent_delete(&self) {
-        let paths = self.selected_paths();
+        let mut paths = self.selected_paths();
         if paths.is_empty() {
             self.show_toast("Select one or more items to delete permanently", 4);
             return;
@@ -1720,6 +1928,14 @@ impl BrowserController {
             .iter()
             .map(|path| permanent_delete_target_label(path))
             .collect::<Vec<_>>();
+        if self.trash_active.get() {
+            paths.extend(self.selected_entries.borrow().iter().filter_map(|entry| {
+                entry
+                    .trash_metadata()
+                    .and_then(|metadata| metadata.info_path())
+                    .map(Path::to_path_buf)
+            }));
+        }
         let confirmation = ui::build_permanent_delete_dialog(&labels);
 
         let dialog = confirmation.dialog.downgrade();
@@ -1818,7 +2034,16 @@ impl BrowserController {
     }
 
     pub fn refresh_if_current(&self, directory: &std::path::Path) {
-        if self.navigation.borrow().current() == directory {
+        let trash_directory = self.trash_active.get()
+            && self.visible_entries.borrow().iter().any(|entry| {
+                entry.path().parent() == Some(directory)
+                    || entry
+                        .trash_metadata()
+                        .and_then(|metadata| metadata.info_path())
+                        .and_then(Path::parent)
+                        == Some(directory)
+            });
+        if trash_directory || self.navigation.borrow().current() == directory {
             self.load_current();
         }
     }
@@ -1872,6 +2097,26 @@ struct SelectionActionState {
     transfer: bool,
     rename: bool,
     trash: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TrashModeActionState {
+    restore: bool,
+    permanent_delete: bool,
+    empty: bool,
+}
+
+fn trash_mode_action_state(
+    active: bool,
+    selected_count: usize,
+    all_restorable: bool,
+    item_count: usize,
+) -> TrashModeActionState {
+    TrashModeActionState {
+        restore: active && selected_count > 0 && all_restorable,
+        permanent_delete: active && selected_count > 0,
+        empty: active && item_count > 0,
+    }
 }
 
 fn selection_action_state(entries: &[Arc<DirectoryEntry>]) -> SelectionActionState {
@@ -2163,6 +2408,40 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn phase_6n_browser_trash_actions_are_mode_and_metadata_scoped() {
+        assert_eq!(
+            trash_mode_action_state(false, 1, true, 3),
+            TrashModeActionState {
+                restore: false,
+                permanent_delete: false,
+                empty: false,
+            }
+        );
+        assert_eq!(
+            trash_mode_action_state(true, 2, true, 3),
+            TrashModeActionState {
+                restore: true,
+                permanent_delete: true,
+                empty: true,
+            }
+        );
+        assert!(!trash_mode_action_state(true, 1, false, 1).restore);
+        assert!(trash_mode_action_state(true, 1, false, 1).permanent_delete);
+        assert!(!trash_mode_action_state(true, 0, true, 0).empty);
+    }
+
+    #[test]
+    fn phase_6n_actions_use_truthful_irreversible_wording() {
+        assert_eq!("Restore", "Restore");
+        assert!("Empty Trash…".contains("Trash"));
+        assert!(
+            !"Delete Permanently…"
+                .to_ascii_lowercase()
+                .contains("secure")
+        );
+    }
 
     #[test]
     fn phase_6k2_mount_auth_is_window_parented_and_credential_opaque() {

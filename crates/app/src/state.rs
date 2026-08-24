@@ -9,7 +9,7 @@ use std::{
 
 use floe_core::{
     ConflictPolicy, CopyRequest, JobEvent, JobId, MoveRequest, OperationId, PermanentDeleteRequest,
-    PermanentDeleteRequestError, RenameRequest, SymlinkPolicy,
+    PermanentDeleteRequestError, RenameRequest, RestoreRequest, RestoreRequestError, SymlinkPolicy,
 };
 use thiserror::Error;
 
@@ -24,6 +24,10 @@ use crate::{
     permanent_delete_executor::{
         PermanentDeleteCancelError, PermanentDeleteExecutor, PermanentDeleteExecutorSpawnError,
         PermanentDeleteSubmission, PermanentDeleteSubmitError,
+    },
+    restore_executor::{
+        RestoreCancelError, RestoreExecutor, RestoreExecutorSpawnError, RestoreSubmission,
+        RestoreSubmitError,
     },
     trash_executor::{
         TrashCancelError, TrashExecutor, TrashExecutorSpawnError, TrashRequest, TrashRequestError,
@@ -111,6 +115,7 @@ pub enum TrackedOperation {
     Rename(RenameRequest),
     Trash(TrashRequest),
     PermanentDelete(PermanentDeleteRequest),
+    Restore(RestoreRequest),
 }
 
 pub const MAX_TERMINAL_HISTORY: usize = 64;
@@ -190,6 +195,7 @@ impl TrackedOperation {
             Self::Rename(request) => request.source(),
             Self::Trash(request) => request.source(),
             Self::PermanentDelete(request) => request.targets()[0].as_path(),
+            Self::Restore(request) => request.backing_path(),
         }
     }
 
@@ -216,6 +222,10 @@ impl TrackedOperation {
                     add_parent(target);
                 }
             }
+            Self::Restore(request) => {
+                add_parent(request.backing_path());
+                add_parent(request.destination());
+            }
         }
         directories
     }
@@ -233,6 +243,7 @@ pub enum RetrySubmission {
     Move(MoveSubmission),
     Trash(TrashSubmission),
     PermanentDelete(PermanentDeleteSubmission),
+    Restore(RestoreSubmission),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -248,6 +259,7 @@ impl RetrySubmission {
             Self::Move(submission) => submission.operation_id(),
             Self::Trash(submission) => submission.operation_id(),
             Self::PermanentDelete(submission) => submission.operation_id(),
+            Self::Restore(submission) => submission.operation_id(),
         }
     }
 
@@ -257,6 +269,7 @@ impl RetrySubmission {
             Self::Move(submission) => submission.job_id(),
             Self::Trash(submission) => submission.job_id(),
             Self::PermanentDelete(submission) => submission.job_id(),
+            Self::Restore(submission) => submission.job_id(),
         }
     }
 }
@@ -309,6 +322,12 @@ pub enum CopyInteractionError {
     PermanentDeleteSubmit(#[from] PermanentDeleteSubmitError),
     #[error(transparent)]
     PermanentDeleteCancel(#[from] PermanentDeleteCancelError),
+    #[error(transparent)]
+    RestoreRequest(#[from] RestoreRequestError),
+    #[error(transparent)]
+    RestoreSubmit(#[from] RestoreSubmitError),
+    #[error(transparent)]
+    RestoreCancel(#[from] RestoreCancelError),
     #[error("terminal operation history does not contain job {0:?}")]
     RetryNotFound(JobId),
     #[error("completed job {0:?} cannot be retried")]
@@ -335,6 +354,8 @@ pub enum ApplicationStateSpawnError {
     Trash(#[from] TrashExecutorSpawnError),
     #[error(transparent)]
     PermanentDelete(#[from] PermanentDeleteExecutorSpawnError),
+    #[error(transparent)]
+    Restore(#[from] RestoreExecutorSpawnError),
 }
 
 /// Application-wide services and state that outlive any one browser concern.
@@ -345,6 +366,7 @@ pub struct ApplicationState {
     move_executor: MoveExecutor,
     trash_executor: TrashExecutor,
     permanent_delete_executor: PermanentDeleteExecutor,
+    restore_executor: RestoreExecutor,
     transfer_buffer: RefCell<TransferBuffer>,
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
     terminal_history: RefCell<VecDeque<TerminalOperation>>,
@@ -360,12 +382,14 @@ impl ApplicationState {
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
         let trash_executor = TrashExecutor::spawn(Arc::clone(&jobs))?;
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
+        let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
             copy_executor,
             move_executor,
             trash_executor,
             permanent_delete_executor,
+            restore_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
@@ -453,6 +477,25 @@ impl ApplicationState {
                 operations.push(TrackedOperation::Trash(TrashRequest::new(source)?));
             }
         }
+        let queued = operations.len();
+        self.batch_pending.borrow_mut().extend(operations);
+        self.pump_batch();
+        Ok(BatchSubmission { queued })
+    }
+
+    pub fn submit_restore_batch(
+        &self,
+        requests: Vec<RestoreRequest>,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        if requests.is_empty() {
+            return Err(CopyInteractionError::EmptySelection);
+        }
+        let mut unique = HashSet::with_capacity(requests.len());
+        let operations = requests
+            .into_iter()
+            .filter(|request| unique.insert(request.backing_path().to_path_buf()))
+            .map(TrackedOperation::Restore)
+            .collect::<Vec<_>>();
         let queued = operations.len();
         self.batch_pending.borrow_mut().extend(operations);
         self.pump_batch();
@@ -569,6 +612,24 @@ impl ApplicationState {
         }
     }
 
+    pub fn submit_restore(
+        &self,
+        request: RestoreRequest,
+    ) -> Result<RestoreSubmission, CopyInteractionError> {
+        match self.restore_executor.submit(request.clone()) {
+            Ok(submission) => {
+                self.track(submission.job_id(), TrackedOperation::Restore(request));
+                Ok(submission)
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.track(job_id, TrackedOperation::Restore(request));
+                }
+                Err(error.into())
+            }
+        }
+    }
+
     fn pump_batch(&self) {
         if self.batch_active.get().is_some() {
             return;
@@ -625,6 +686,22 @@ impl ApplicationState {
             }
             TrackedOperation::Trash(request) => {
                 match self.trash_executor.submit_trash(request.clone()) {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), operation.clone());
+                        Ok(submission.job_id())
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, operation.clone());
+                            Ok(job_id)
+                        } else {
+                            Err(error.into())
+                        }
+                    }
+                }
+            }
+            TrackedOperation::Restore(request) => {
+                match self.restore_executor.submit(request.clone()) {
                     Ok(submission) => {
                         self.track(submission.job_id(), operation.clone());
                         Ok(submission.job_id())
@@ -801,6 +878,23 @@ impl ApplicationState {
                     }
                 }
             }
+            TrackedOperation::Restore(request) => {
+                match self
+                    .restore_executor
+                    .submit_retry(failed_job_id, request.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Restore(request));
+                        Ok(RetrySubmission::Restore(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Restore(request));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
         }
     }
 
@@ -820,6 +914,7 @@ impl ApplicationState {
             TrackedOperation::PermanentDelete(_) => {
                 return Err(CopyInteractionError::ConflictUnsupported(job_id));
             }
+            TrackedOperation::Restore(request) => request.destination().to_path_buf(),
         };
 
         Ok(PendingConflict {
@@ -947,6 +1042,26 @@ impl ApplicationState {
                     }
                 }
             }
+            TrackedOperation::Restore(request) => {
+                let destination =
+                    retry_destination(request.destination(), &new_name, failed_job_id)?;
+                let revised = request.with_destination(destination)?;
+                match self
+                    .restore_executor
+                    .submit_retry(failed_job_id, revised.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Restore(revised));
+                        Ok(RetrySubmission::Restore(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Restore(revised));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
             TrackedOperation::Trash(_) => {
                 Err(CopyInteractionError::ConflictUnsupported(failed_job_id))
             }
@@ -966,6 +1081,7 @@ impl ApplicationState {
             Some(TrackedOperation::PermanentDelete(_)) => {
                 self.permanent_delete_executor.cancel(job_id)?;
             }
+            Some(TrackedOperation::Restore(_)) => self.restore_executor.cancel(job_id)?,
             None => return Err(MoveCancelError::NotActive(job_id).into()),
         }
         Ok(())
@@ -990,12 +1106,14 @@ impl ApplicationState {
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
         let trash_executor = TrashExecutor::spawn_with_backend(Arc::clone(&jobs), 8, backend)?;
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
+        let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
             copy_executor,
             move_executor,
             trash_executor,
             permanent_delete_executor,
+            restore_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
@@ -1969,5 +2087,53 @@ mod tests {
             Err(CopyInteractionError::ConflictNotFound(job_id))
                 if job_id == conflict.job_id()
         ));
+    }
+
+    #[test]
+    fn phase_6n_state_restore_conflict_retries_with_safe_sibling_name() {
+        let fixture = tempdir().expect("temporary fixture");
+        let trash = fixture.path().join("Trash/files/item");
+        let info = fixture.path().join("Trash/info/item.trashinfo");
+        let destination = fixture.path().join("original/item");
+        fs::create_dir_all(trash.parent().expect("files parent")).expect("files directory");
+        fs::create_dir_all(info.parent().expect("info parent")).expect("info directory");
+        fs::create_dir(destination.parent().expect("destination parent"))
+            .expect("destination parent");
+        fs::write(&trash, b"trashed").expect("Trash payload");
+        fs::write(&info, b"metadata").expect("Trash metadata");
+        fs::write(&destination, b"existing").expect("existing destination");
+        let state = ApplicationState::new().expect("application state");
+        let request = RestoreRequest::new(&trash, &info, &destination).expect("restore request");
+        let failed = state.submit_restore(request).expect("restore submission");
+        assert_eq!(wait_for_terminal(&state, failed.job_id()), JobState::Failed);
+        state.finish_operation(failed.job_id(), TerminalOutcome::Conflict);
+        assert_eq!(
+            state
+                .pending_conflict(failed.job_id())
+                .expect("pending restore conflict")
+                .destination(),
+            destination
+        );
+
+        let ConflictResolution::Retried(retried) = state
+            .resolve_conflict(
+                failed.job_id(),
+                ConflictDecision::RetryWithName(OsString::from("restored-item")),
+            )
+            .expect("safe revised restore")
+        else {
+            panic!("restore should create revised retry");
+        };
+        assert_eq!(retried.operation_id(), failed.operation_id());
+        assert_eq!(
+            wait_for_terminal(&state, retried.job_id()),
+            JobState::Completed
+        );
+        assert_eq!(
+            fs::read(fixture.path().join("original/restored-item")).expect("restored item"),
+            b"trashed"
+        );
+        assert_eq!(fs::read(destination).expect("existing item"), b"existing");
+        assert!(!info.exists());
     }
 }

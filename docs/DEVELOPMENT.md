@@ -233,7 +233,19 @@ reuse. Runtime providers are discovered from freedesktop user/system data
 directories. Installed `.thumbnailer` helpers are supervised but not sandboxed;
 they retain normal user authority until Phase 18L. A missing, excluded, failed,
 or malformed provider must leave the generic icon usable. After Phase 6L,
-continue only on `phase-6m-permanent-delete`.
+Phase 6N adds no dependency. Focused checks are:
+
+```bash
+cargo test -p floe-core phase_6n -- --nocapture
+cargo test -p floe-app phase_6n -- --nocapture
+```
+
+Trash tests must use temporary `Trash/files` and `Trash/info` roots and must
+never enumerate, restore, empty, or permanently delete the real user Trash.
+Native smoke should override `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, and
+`XDG_CACHE_HOME`, use a private D-Bus session, activate `open-trash`, and verify
+restore/confirmation actions against only that fixture. After verified Phase
+6N, continue only on `phase-6o-transfer-semantics`.
 
 ## Wayland environments
 

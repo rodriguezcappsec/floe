@@ -1,51 +1,73 @@
-# Plan: Floe Phase 6M permanent deletion
+# Plan: Floe Phase 6N Trash lifecycle
 
-Mode: solo, depth 3.
+Mode: solo, depth 4.
 
 ## Contract
 
-- `floe-core` owns exact multi-target validation, whole-batch no-follow
-  preflight, mount/root refusal, deterministic postorder deletion, identity
-  revalidation, progress, and the irreversible cancellation boundary.
-- The application owns a fixed-capacity worker, job lifecycle mapping,
-  request tracking, cancellation, and conservative retry policy.
-- GTK gathers authoritative selected `PathBuf` values, presents one explicit
-  irreversible confirmation, and submits an application command only.
-- User-visible language is “Delete Permanently.” Floe does not claim secure
-  erase, offer undo, or call committed partial deletion cancelled.
-- Phase 6N Trash browsing, restore, Empty Trash, retention, and later roadmap
-  work remain out of scope.
+- `floe-core` owns exact Trash entry metadata, freedesktop `.trashinfo` parsing,
+  no-overwrite restore requests, and isolated local Trash-root discovery.
+- The application owns bounded Trash enumeration/restore workers, operation
+  lifecycle mapping, permanent-delete reuse, and aggregate Empty Trash state.
+- GTK owns only Trash navigation, selection-aware actions, confirmations, and
+  status/error presentation. GTK callbacks perform no filesystem work.
+- Backing Trash paths and decoded original paths remain exact `PathBuf` values;
+  lossy labels are display-only and never reconstruct filesystem targets.
+- Restore never overwrites. Destination conflicts remain explicit. Empty Trash
+  requires one aggregate irreversible confirmation and uses the verified Phase
+  6M permanent-delete engine.
+- Floe makes no secure-erasure claim. Cleanup/retention preferences, Trash undo,
+  remote Trash, Phase 6O transfer semantics, and later roadmap work stay out of
+  scope.
 
 ## Depth tree
 
-1. Core destructive boundary
-   - Validate raw paths and reject empty, relative, root, unnormalized,
-     duplicate, and nested targets.
-   - Preflight every selected tree without following symlinks or crossing
-     mounts; revalidate device/inode/kind before removal.
-   - Allow cancellation only before the first removal; afterward finish or
-     report exact non-retryable partial failure.
-2. Application boundary
-   - Run requests on a named fixed-capacity worker.
-   - Map queued/running/progress/completed/cancelled/partial/failed states into
-     the shared job model.
-   - Track affected directories and reject generic retry after partial commit.
-3. GTK interaction and verification
-   - Add selection-aware “Delete Permanently…” and `Shift+Delete`.
-   - Make Cancel the initial/default focus; show target count and escaped exact
-     paths in a scrollable copyable surface.
-   - Verify focused tests, full Rust gates, isolated native Wayland smoke, and
-     update the persistent project documentation.
+1. Standards and core model
+   - Discover only supported local freedesktop Trash roots without scanning user
+     data or following symlinked metadata roots.
+   - Parse `[Trash Info]`, percent-encoded `Path`, and `DeletionDate` with
+     bounded metadata reads and exact byte preservation where representable.
+   - Enumerate backing entries and pair them with safe metadata; malformed or
+     orphaned entries remain visible with unavailable restore metadata.
+   - Restore through an exact no-replace request, reject unsafe destinations,
+     and remove `.trashinfo` only after the payload move succeeds.
+2. Application services
+   - Add fixed-capacity, cancellable Trash browse/restore worker requests.
+   - Map restore jobs into the shared job registry and Operations Island without
+     adding GTK filesystem work.
+   - Route individual Delete Permanently and confirmed Empty Trash batches to
+     the existing Phase 6M executor.
+3. Browser and interaction
+   - Add a first-class Trash sidebar destination and explicit browser mode.
+   - Show deletion date and original location from standards metadata when
+     available, retaining normal list/grid virtualization and selection.
+   - In Trash mode expose Restore, Delete Permanently, and Empty Trash; suppress
+     inapplicable normal-location mutation actions.
+   - Refresh Trash after restore/deletion and preserve responsive navigation.
+4. Verification and persistence
+   - Add core, worker, state, policy, and UI-surface tests using temporary Trash
+     roots only.
+   - Run formatting, workspace check, strict Clippy, all tests, diff checks, and
+     isolated native Wayland smoke without touching the real user Trash.
+   - Update persistent architecture, roadmap, feature, design, privacy/security,
+     gates, and project-status documentation; set exactly one next phase.
 
 ## Status log
 
-- 2026-08-24: Created `phase-6m-permanent-delete` from synchronized `main` and
-  defined the phase contract and gates before coding.
-- 2026-08-24: Core planner/executor, application tracking, confirmation UI,
-  truthful feedback, and focused tests implemented.
-- 2026-08-24: Formatting, workspace check, strict Clippy, all 205 tests, and
-  diff hygiene pass. Two isolated native Wayland action smokes proved the
-  selection-enabled action, confirmation activation without deletion, D-Bus
-  health, fixture preservation, clean exit, and name release.
-- 2026-08-24: Persistent documentation now records Phase 6M COMPLETE and Phase
-  6N Trash lifecycle as the sole NEXT phase. Phase 6M is complete.
+- 2026-08-24: Created `phase-6n-trash-lifecycle` from synchronized `main` at
+  `942a0c0`; inspected Phase 6M deletion, GIO Trash, application state, browser,
+  operations, sidebar, model, worker, roadmap, and privacy/security boundaries.
+- 2026-08-24: Phase contract and executable gates defined before coding.
+- 2026-08-24: Added local home/mounted Trash discovery, bounded no-follow
+  `.trashinfo` parsing, exact metadata-bearing entries, and no-replace restore.
+- 2026-08-24: Added fixed-capacity restore execution, shared job/conflict/batch
+  state, first-class Trash mode, Restore/Delete Permanently/Empty Trash actions,
+  metadata cleanup, and aggregate safe-focus confirmation.
+- 2026-08-24: Verified 220 tests, formatting, check, strict Clippy, diff hygiene,
+  isolated native Trash/Empty Trash action smoke, and an isolated end-to-end
+  restore that removed matching metadata without touching real user Trash.
+- 2026-08-24: Updated persistent project documentation and selected only Phase
+  6O transfer semantics as NEXT.
+
+## Status
+
+COMPLETE

@@ -20,6 +20,43 @@ pub enum ThumbnailState {
     NotRequested,
 }
 
+/// Standards metadata attached to an item enumerated from a local Trash root.
+///
+/// Every path remains an exact platform path. Display code may render it
+/// lossily, but must never recreate a restore target from that rendering.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TrashMetadata {
+    original_path: Option<PathBuf>,
+    deletion_date: Option<String>,
+    info_path: Option<PathBuf>,
+}
+
+impl TrashMetadata {
+    pub fn new(
+        original_path: Option<PathBuf>,
+        deletion_date: Option<String>,
+        info_path: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            original_path,
+            deletion_date,
+            info_path,
+        }
+    }
+
+    pub fn original_path(&self) -> Option<&Path> {
+        self.original_path.as_deref()
+    }
+
+    pub fn deletion_date(&self) -> Option<&str> {
+        self.deletion_date.as_deref()
+    }
+
+    pub fn info_path(&self) -> Option<&Path> {
+        self.info_path.as_deref()
+    }
+}
+
 /// A local directory entry that always retains its original platform path.
 #[derive(Clone, Debug)]
 pub struct DirectoryEntry {
@@ -32,6 +69,7 @@ pub struct DirectoryEntry {
     hidden: bool,
     executable: bool,
     thumbnail: ThumbnailState,
+    trash: Option<TrashMetadata>,
 }
 
 impl DirectoryEntry {
@@ -57,7 +95,13 @@ impl DirectoryEntry {
             hidden,
             executable,
             thumbnail,
+            trash: None,
         }
+    }
+
+    pub(crate) fn with_trash_metadata(mut self, metadata: TrashMetadata) -> Self {
+        self.trash = Some(metadata);
+        self
     }
 
     pub fn path(&self) -> &Path {
@@ -98,6 +142,10 @@ impl DirectoryEntry {
 
     pub fn thumbnail_state(&self) -> ThumbnailState {
         self.thumbnail
+    }
+
+    pub fn trash_metadata(&self) -> Option<&TrashMetadata> {
+        self.trash.as_ref()
     }
 
     pub fn is_navigable_directory(&self) -> bool {
