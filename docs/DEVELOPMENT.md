@@ -100,6 +100,7 @@ cargo test -p floe-app phase_6a
 cargo test -p floe-core phase_6b
 cargo test -p floe-app phase_6b
 cargo test -p floe-app phase_6c
+cargo test -p floe-app phase_6d
 cargo test -p floe-app move_executor
 cargo check -p floe-core
 cargo tree -p floe-app --depth 1
@@ -123,6 +124,13 @@ stale navigation generations, non-blocking queue capacity, pending deduplication
 and the 256-entry presentation-cache bound. The MSRV-compatible `image 0.25.9`
 release is pinned with default features disabled and only PNG/JPEG decoders
 enabled; it adds no external image decoder system package requirement.
+
+Phase 6D tests cover strict view preference parsing, bounded discrete grid zoom,
+stable action names, requested thumbnail-edge cache identity, invalid edge
+rejection, fixed-capacity nonblocking preference submission, and atomic
+persistence. Runtime view preferences live below GLib's user configuration
+directory at `floe/view-preferences.conf`; tests use temporary directories and
+never write the real user preference file.
 
 ## Wayland environments
 

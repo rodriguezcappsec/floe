@@ -17,9 +17,11 @@ use gtk::{gio, glib};
 use crate::{
     launcher,
     locations::Location,
+    preferences::{PreferenceSubmitError, PreferenceWorker, ViewPreferences},
     state::{ApplicationState, TransferIntent, validate_rename_name},
     thumbnail::{ThumbnailSubmitError, ThumbnailWorker},
     ui::{self, BrowserWidgets},
+    view::{GridSize, VIEW_ACTIONS, ViewCommand, ViewMode},
     worker::{BrowserWorker, ResponseKind},
 };
 
@@ -40,7 +42,25 @@ pub struct BrowserController {
     sort_order: Cell<DirectorySort>,
     sort_in_flight: Cell<bool>,
     sort_selection_path: RefCell<Option<PathBuf>>,
+    view_mode: Cell<ViewMode>,
+    grid_size: Cell<GridSize>,
+    preference_worker: RefCell<Option<PreferenceWorker>>,
+    pending_preferences: Cell<Option<ViewPreferences>>,
     application_state: Rc<ApplicationState>,
+}
+
+impl Drop for BrowserController {
+    fn drop(&mut self) {
+        let Some(preferences) = self.pending_preferences.take() else {
+            return;
+        };
+        let Some(worker) = self.preference_worker.get_mut().as_ref() else {
+            return;
+        };
+        if let Err(error) = worker.save_before_shutdown(preferences) {
+            tracing::warn!(%error, "could not submit final view preferences");
+        }
+    }
 }
 
 impl BrowserController {
@@ -49,6 +69,8 @@ impl BrowserController {
         initial_path: PathBuf,
         worker: BrowserWorker,
         thumbnail_worker: Option<ThumbnailWorker>,
+        view_preferences: ViewPreferences,
+        preference_worker: Option<PreferenceWorker>,
         application_state: Rc<ApplicationState>,
     ) -> Rc<Self> {
         Rc::new(Self {
@@ -68,6 +90,10 @@ impl BrowserController {
             sort_order: Cell::new(DirectorySort::default()),
             sort_in_flight: Cell::new(false),
             sort_selection_path: RefCell::new(None),
+            view_mode: Cell::new(view_preferences.mode),
+            grid_size: Cell::new(view_preferences.grid_size),
+            preference_worker: RefCell::new(preference_worker),
+            pending_preferences: Cell::new(None),
             application_state,
         })
     }
@@ -92,6 +118,12 @@ impl BrowserController {
                 controller.activate(position);
             }
         });
+        let controller = Rc::downgrade(self);
+        self.widgets.grid_view.connect_activate(move |_, position| {
+            if let Some(controller) = controller.upgrade() {
+                controller.activate(position);
+            }
+        });
 
         let controller = Rc::downgrade(self);
         self.widgets.selection.connect_selected_notify(move |_| {
@@ -100,9 +132,40 @@ impl BrowserController {
             }
         });
 
-        let file_list_shortcuts = gtk::EventControllerKey::new();
+        self.install_file_view_shortcuts(&self.widgets.list_view);
+        self.install_file_view_shortcuts(&self.widgets.grid_view);
+
         let controller = Rc::downgrade(self);
-        file_list_shortcuts.connect_key_pressed(move |_, key, _, modifiers| {
+        self.widgets
+            .grid_size_scale
+            .connect_value_changed(move |scale| {
+                let index = scale.value().round() as usize;
+                if let Some(controller) = controller.upgrade()
+                    && let Some(size) = GridSize::from_index(index)
+                {
+                    controller.change_grid_size(size);
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        self.widgets.location_entry.connect_activate(move |entry| {
+            if let Some(controller) = controller.upgrade() {
+                let text = entry.text();
+                if !text.is_empty() {
+                    controller.navigate_to(PathBuf::from(text.as_str()));
+                }
+                controller.hide_location_entry();
+            }
+        });
+    }
+
+    fn install_file_view_shortcuts<W>(self: &Rc<Self>, view: &W)
+    where
+        W: IsA<gtk::Widget>,
+    {
+        let shortcuts = gtk::EventControllerKey::new();
+        let controller = Rc::downgrade(self);
+        shortcuts.connect_key_pressed(move |_, key, _, modifiers| {
             if key == gtk::gdk::Key::Delete && modifiers.is_empty() {
                 if let Some(controller) = controller.upgrade() {
                     controller.trash_selected();
@@ -117,18 +180,7 @@ impl BrowserController {
                 glib::Propagation::Proceed
             }
         });
-        self.widgets.list_view.add_controller(file_list_shortcuts);
-
-        let controller = Rc::downgrade(self);
-        self.widgets.location_entry.connect_activate(move |entry| {
-            if let Some(controller) = controller.upgrade() {
-                let text = entry.text();
-                if !text.is_empty() {
-                    controller.navigate_to(PathBuf::from(text.as_str()));
-                }
-                controller.hide_location_entry();
-            }
-        });
+        view.add_controller(shortcuts);
     }
 
     pub fn present_and_start(self: &Rc<Self>) {
@@ -144,6 +196,7 @@ impl BrowserController {
             controller.pump_pending_entries();
             controller.submit_thumbnail_requests();
             controller.drain_thumbnail_worker();
+            controller.flush_pending_preferences();
             glib::ControlFlow::Continue
         });
     }
@@ -157,6 +210,11 @@ impl BrowserController {
             controller.hide_location_entry();
         });
         self.add_action("hidden", |controller| controller.toggle_hidden());
+        for (name, command) in VIEW_ACTIONS {
+            self.add_action(name, move |controller| {
+                controller.apply_view_command(command);
+            });
+        }
         let open_action = self.add_action("open", |controller| controller.activate_selected());
         open_action.set_enabled(false);
         let open_with_action =
@@ -186,6 +244,10 @@ impl BrowserController {
         application.set_accels_for_action("win.cut", &["<Control>x"]);
         application.set_accels_for_action("win.paste", &["<Control>v"]);
         application.set_accels_for_action("win.rename", &["F2"]);
+        application.set_accels_for_action("win.view-list", &["<Control>1"]);
+        application.set_accels_for_action("win.view-grid", &["<Control>2"]);
+        application.set_accels_for_action("win.zoom-out", &["<Control>minus"]);
+        application.set_accels_for_action("win.zoom-in", &["<Control>plus", "<Control>equal"]);
     }
 
     fn add_action<F>(self: &Rc<Self>, name: &str, callback: F) -> gio::SimpleAction
@@ -234,6 +296,64 @@ impl BrowserController {
         self.load_current();
     }
 
+    fn change_view_mode(&self, mode: ViewMode) {
+        self.widgets.popdown_context_menus();
+        self.widgets.set_view_mode(mode);
+        self.widgets.focus_view(mode);
+        if self.view_mode.replace(mode) != mode {
+            self.queue_preferences();
+        }
+    }
+
+    fn apply_view_command(&self, command: ViewCommand) {
+        match command {
+            ViewCommand::List => self.change_view_mode(ViewMode::List),
+            ViewCommand::Grid => self.change_view_mode(ViewMode::Grid),
+            ViewCommand::ZoomIn => self.change_grid_size(self.grid_size.get().zoom_in()),
+            ViewCommand::ZoomOut => self.change_grid_size(self.grid_size.get().zoom_out()),
+        }
+    }
+
+    fn change_grid_size(&self, size: GridSize) {
+        if self.grid_size.replace(size) == size {
+            return;
+        }
+        self.widgets.popdown_context_menus();
+        self.widgets.set_grid_size(size);
+        if self.view_mode.get() == ViewMode::Grid {
+            self.widgets.focus_view(ViewMode::Grid);
+        }
+        self.queue_preferences();
+    }
+
+    fn queue_preferences(&self) {
+        self.pending_preferences.set(Some(ViewPreferences {
+            mode: self.view_mode.get(),
+            grid_size: self.grid_size.get(),
+        }));
+        self.flush_pending_preferences();
+    }
+
+    fn flush_pending_preferences(&self) {
+        let Some(preferences) = self.pending_preferences.take() else {
+            return;
+        };
+        let result = {
+            let worker = self.preference_worker.borrow();
+            worker.as_ref().map(|worker| worker.try_save(preferences))
+        };
+        match result {
+            Some(Ok(())) | None => {}
+            Some(Err(PreferenceSubmitError::Full(preferences))) => {
+                self.pending_preferences.set(Some(preferences));
+            }
+            Some(Err(PreferenceSubmitError::Disconnected)) => {
+                tracing::warn!("view preference worker disconnected; persistence disabled");
+                self.preference_worker.borrow_mut().take();
+            }
+        }
+    }
+
     fn change_sort(&self, column: SortColumn) {
         if self.sort_in_flight.get() {
             return;
@@ -257,8 +377,8 @@ impl BrowserController {
         self.pending_entries.borrow_mut().clear();
         self.pending_store.borrow_mut().take();
         self.pending_selection_index.set(None);
-        self.widgets.context_menu.popdown();
-        self.widgets.list_view.set_sensitive(false);
+        self.widgets.popdown_context_menus();
+        self.widgets.set_views_sensitive(false);
         self.sort_in_flight.set(true);
         self.set_sort_controls_sensitive(false);
         self.widgets.spinner.start();
@@ -339,7 +459,7 @@ impl BrowserController {
 
     fn hide_location_entry(&self) {
         self.widgets.path_stack.set_visible_child_name("path");
-        self.widgets.list_view.grab_focus();
+        self.widgets.focus_view(self.view_mode.get());
     }
 
     fn load_current(&self) {
@@ -362,13 +482,13 @@ impl BrowserController {
         self.sort_selection_path.borrow_mut().take();
         self.sort_in_flight.set(false);
         self.set_sort_controls_sensitive(false);
-        self.widgets.context_menu.popdown();
+        self.widgets.popdown_context_menus();
         self.selected_entry.borrow_mut().take();
         self.widgets.selection.unselect_all();
         self.widgets
             .selection
             .set_model(Some(&gio::ListStore::new::<glib::BoxedAnyObject>()));
-        self.widgets.list_view.set_sensitive(false);
+        self.widgets.set_views_sensitive(false);
         self.widgets.empty_state.set_visible(false);
         self.set_open_enabled(false);
         self.set_open_with_enabled(false);
@@ -426,7 +546,7 @@ impl BrowserController {
                 ResponseKind::Listing(Err(error)) => {
                     tracing::warn!(path = ?response.path, %error, "directory enumeration failed");
                     self.set_sort_controls_sensitive(true);
-                    self.widgets.list_view.set_sensitive(true);
+                    self.widgets.set_views_sensitive(true);
                     self.widgets.status_label.set_label("Could not load folder");
                     let toast = adw::Toast::builder()
                         .title(format!("Could not open folder: {error}"))
@@ -468,7 +588,7 @@ impl BrowserController {
             selected_path.and_then(|path| selection_index_for_path(&entries, path));
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
         self.widgets.selection.set_model(Some(&store));
-        self.widgets.list_view.set_sensitive(true);
+        self.widgets.set_views_sensitive(true);
         self.widgets.empty_state.set_visible(count == 0);
         self.pending_total.set(count);
         self.pending_selection_index.set(selection_index);
@@ -478,7 +598,7 @@ impl BrowserController {
         self.pending_store.replace(Some(store));
         self.update_loading_status(0, count);
         if focus_list {
-            self.widgets.list_view.grab_focus();
+            self.widgets.focus_view(self.view_mode.get());
         }
     }
 
@@ -596,8 +716,9 @@ impl BrowserController {
         if self.selected_entry().is_none() {
             return;
         }
-        self.widgets.context_menu.set_pointing_to(None);
-        self.widgets.context_menu.popup();
+        let context_menu = self.widgets.context_menu(self.view_mode.get());
+        context_menu.set_pointing_to(None);
+        context_menu.popup();
     }
 
     fn selected_model_entry(&self) -> Option<Arc<DirectoryEntry>> {

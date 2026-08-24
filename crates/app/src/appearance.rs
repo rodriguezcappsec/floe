@@ -170,6 +170,34 @@ impl Appearance {
                 box-shadow: inset 0 0 0 2px alpha(@accent_color, 0.76);
             }}
 
+            .floe-directory-grid {{
+                padding: 8px;
+            }}
+
+            .floe-directory-grid child {{
+                border-radius: 10px;
+            }}
+
+            .floe-directory-grid child:hover {{
+                background-color: alpha(@accent_bg_color, 0.08);
+            }}
+
+            .floe-directory-grid child:selected {{
+                background-color: alpha(@accent_bg_color, 0.20);
+            }}
+
+            .floe-directory-grid child:focus-visible {{
+                box-shadow: inset 0 0 0 2px alpha(@accent_color, 0.76);
+            }}
+
+            .floe-grid-cell {{
+                padding: 6px;
+            }}
+
+            .floe-grid-name {{
+                font-weight: 500;
+            }}
+
             .floe-list-header {{
                 padding: 7px 12px 6px;
             }}

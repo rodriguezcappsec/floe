@@ -183,15 +183,30 @@ grid view deferred until the shared thumbnail path is verified.
   presentation state is capped at 256 entries.
 - A separate grid view and persistent disk cache remain deferred.
 
-## Next
-
 ### Phase 6D — Grid-view foundation
 
-Create branch `phase-6d-grid-view-foundation`. Add a switchable virtualized grid
-that reuses the existing `DirectoryEntry`, selection, activation, navigation,
-context-action, and Phase 6C thumbnail boundaries. Preserve exact-path identity,
-bounded model delivery, keyboard focus, and stable generic fallbacks; do not
-fork filesystem state or introduce eager thumbnail generation.
+Implemented on `phase-6d-grid-view-foundation` as a switchable native
+`GtkGridView` and existing `GtkListView` sharing one `GioListStore` and
+`GtkSingleSelection`.
+
+- List/grid mode changes preserve exact-path selection, activation, navigation,
+  sorting, and the existing context/window actions.
+- Grid thumbnails remain bound-cell-only and use requested edge size in the
+  bounded cache identity.
+- Seven discrete grid sizes cover 64 through 192 pixels, with native slider,
+  zoom buttons, and Ctrl+1/Ctrl+2/Ctrl+-/Ctrl++ shortcuts.
+- View mode and grid size load at startup and save atomically on a fixed-capacity
+  application worker; GTK performs no configuration-file I/O.
+- Persistent thumbnail caching and broader image formats remain deferred.
+
+## Next
+
+### Phase 6E — Thumbnail-cache polish
+
+Create branch `phase-6e-thumbnail-cache-polish`. Add a standards-conscious,
+bounded persistent thumbnail cache with explicit invalidation and cleanup
+policy, keeping decoding and cache I/O off GTK. Preserve the Phase 6D shared
+model/selection contract and stable generic fallback behavior.
 
 ## Later
 

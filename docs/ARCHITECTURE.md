@@ -127,11 +127,20 @@ context.
 `main.rs` declares modules and starts `application::run`. `application.rs`
 creates application ID `io.github.floe.FileManager`, installs Ctrl+Q, selects
 appearance and XDG locations, builds the window, starts `BrowserWorker` and the
-optional `ThumbnailWorker`, and surfaces browser-worker start failure.
+optional `ThumbnailWorker`, starts the view-preference worker, and surfaces
+browser-worker start failure.
 Thumbnail-worker start failure is non-fatal and leaves generic icons. It also
 creates the shared `ApplicationState`
 that owns the job registry boundary. `tracing-subscriber` reads `RUST_LOG` and
 defaults to `floe=info`.
+
+### `view.rs` and `preferences.rs`
+
+Phase 6D keeps List/Grid policy independent of GTK. `ViewMode` and `GridSize`
+define strict persisted values and seven bounded zoom steps. `PreferenceWorker`
+loads startup preferences and owns a fixed-capacity channel plus atomic
+configuration-file writes. GTK actions submit current values non-blockingly;
+they never read or write the configuration file directly.
 
 ### `thumbnail.rs`
 
@@ -140,8 +149,9 @@ separate from GTK and the filesystem mutation executors. `ThumbnailKey` retains
 the exact `PathBuf`, enumerated byte size, modification time, and whitelisted
 PNG/JPEG format. Only regular files qualify. The worker opens with `O_NOFOLLOW`,
 rejects sources larger than 32 MiB or changed since enumeration, applies
-explicit decoder dimension/allocation limits, and scales to a 32-pixel edge
-with the pure-Rust `image` decoder. Old navigation generations are skipped.
+explicit decoder dimension/allocation limits, and scales to the requested
+32-192 pixel edge with the pure-Rust `image` decoder. The requested edge is part
+of cache identity. Old navigation generations are skipped.
 Only owned RGBA bytes cross back to the GTK thread; the worker creates or uses
 no GTK object.
 
@@ -218,6 +228,11 @@ entries. The controller submits requests without blocking, retries a full queue
 on a later main-loop tick, drops stale-generation responses, and creates
 `GdkMemoryTexture` objects only on the GTK main thread.
 
+Phase 6D adds a `GtkGridView` and a second popover presentation while reusing
+the same `GioListStore`, `GtkSingleSelection`, action names, and exact-path
+entries as the list. Replacing the grid factory at a discrete size change
+rebinds visible cells only; no eager directory-wide thumbnail pass is created.
+
 ### `browser.rs`
 
 `BrowserController` is the current application-state coordinator. It owns:
@@ -225,6 +240,7 @@ on a later main-loop tick, drops stale-generation responses, and creates
 - `NavigationState`;
 - the currently selected `DirectoryEntry` mirrored from GTK selection;
 - hidden-file preference for the current process;
+- current List/Grid mode, bounded grid size, and pending nonblocking preference save;
 - request generation and pending listing batches;
 - enabled state for navigation and Open actions.
 
@@ -343,6 +359,10 @@ Current application/window actions are:
 | Alt+Up | Parent |
 | Ctrl+L | Show local path entry |
 | Ctrl+H | Toggle hidden entries |
+| Ctrl+1 | List view |
+| Ctrl+2 | Grid view |
+| Ctrl+- | Decrease grid thumbnail size |
+| Ctrl++ | Increase grid thumbnail size |
 | Ctrl+C | Stage selected entry for copying in Floe's internal buffer |
 | Ctrl+X | Stage selected entry for moving in Floe's internal buffer |
 | Ctrl+V | Paste staged entry into the current directory |
@@ -351,7 +371,7 @@ Current application/window actions are:
 | Shift+F10 / Menu | Open the selected row's native context menu |
 | Escape | Leave path entry |
 | Ctrl+Q | Quit |
-| Enter / double-click | Activate selected list row |
+| Enter / double-click | Activate selected list or grid item |
 
 Open is also a visible header action. There is no configurable keymap or Vim
 mode yet.

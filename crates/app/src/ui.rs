@@ -13,7 +13,9 @@ use crate::{
     appearance::Appearance,
     launcher::OpenWithOptions,
     locations::Location,
-    thumbnail::{THUMBNAIL_EDGE, ThumbnailError, ThumbnailKey, ThumbnailPixels},
+    preferences::ViewPreferences,
+    thumbnail::{LIST_THUMBNAIL_EDGE, ThumbnailError, ThumbnailKey, ThumbnailPixels},
+    view::{GRID_SIZES, GridSize, ViewMode},
 };
 
 const FILE_CONTEXT_ACTIONS: [(&str, &str); 6] = [
@@ -93,6 +95,10 @@ impl ThumbnailPresentation {
     }
 
     fn request_thumbnail(&self, image: &gtk::Image, entry: &DirectoryEntry) {
+        self.request_thumbnail_at_size(image, entry, LIST_THUMBNAIL_EDGE);
+    }
+
+    fn request_thumbnail_at_size(&self, image: &gtk::Image, entry: &DirectoryEntry, edge: u16) {
         image.remove_css_class("floe-thumbnail");
         image.set_icon_name(Some(icon_name(entry.kind())));
 
@@ -103,7 +109,12 @@ impl ThumbnailPresentation {
         if state.disabled {
             return;
         }
-        let Some(key) = ThumbnailKey::from_entry(entry) else {
+        let key = if edge == LIST_THUMBNAIL_EDGE {
+            ThumbnailKey::from_entry(entry)
+        } else {
+            ThumbnailKey::from_entry_at_size(entry, edge)
+        };
+        let Some(key) = key else {
             return;
         };
         match state.completed.get(&key).cloned() {
@@ -248,7 +259,15 @@ pub struct BrowserWidgets {
     pub location_entry: gtk::Entry,
     pub selection: gtk::SingleSelection,
     pub list_view: gtk::ListView,
-    pub context_menu: gtk::PopoverMenu,
+    pub grid_view: gtk::GridView,
+    pub view_stack: gtk::Stack,
+    pub list_header: gtk::Box,
+    pub list_context_menu: gtk::PopoverMenu,
+    pub grid_context_menu: gtk::PopoverMenu,
+    pub list_view_button: gtk::ToggleButton,
+    pub grid_view_button: gtk::ToggleButton,
+    pub grid_size_controls: gtk::Box,
+    pub grid_size_scale: gtk::Scale,
     pub empty_state: gtk::Box,
     pub spinner: gtk::Spinner,
     pub status_label: gtk::Label,
@@ -258,10 +277,79 @@ pub struct BrowserWidgets {
     pub operations: OperationWidgets,
 }
 
+struct DirectoryPanelWidgets {
+    content: gtk::Box,
+    selection: gtk::SingleSelection,
+    list_view: gtk::ListView,
+    grid_view: gtk::GridView,
+    view_stack: gtk::Stack,
+    list_header: gtk::Box,
+    list_context_menu: gtk::PopoverMenu,
+    grid_context_menu: gtk::PopoverMenu,
+    empty_state: gtk::Box,
+    spinner: gtk::Spinner,
+    status_label: gtk::Label,
+    sort_headers: Vec<SortHeaderWidgets>,
+    thumbnails: ThumbnailPresentation,
+}
+
+impl BrowserWidgets {
+    pub fn set_view_mode(&self, mode: ViewMode) {
+        self.view_stack.set_visible_child_name(mode.stack_name());
+        self.list_header.set_visible(mode == ViewMode::List);
+        self.grid_size_controls.set_visible(mode == ViewMode::Grid);
+        self.list_view_button.set_active(mode == ViewMode::List);
+        self.grid_view_button.set_active(mode == ViewMode::Grid);
+    }
+
+    pub fn set_grid_size(&self, size: GridSize) {
+        self.grid_size_scale.set_value(size.index() as f64);
+        let label = format!("Grid icon size: {} pixels", size.edge());
+        self.grid_size_scale.set_tooltip_text(Some(&label));
+        set_accessible_label(&self.grid_size_scale, &label);
+        let factory = build_grid_factory(
+            &self.selection,
+            &self.grid_context_menu,
+            &self.thumbnails,
+            size,
+        );
+        self.grid_view.set_factory(Some(&factory));
+    }
+
+    pub fn focus_view(&self, mode: ViewMode) {
+        match mode {
+            ViewMode::List => {
+                self.list_view.grab_focus();
+            }
+            ViewMode::Grid => {
+                self.grid_view.grab_focus();
+            }
+        }
+    }
+
+    pub fn set_views_sensitive(&self, sensitive: bool) {
+        self.list_view.set_sensitive(sensitive);
+        self.grid_view.set_sensitive(sensitive);
+    }
+
+    pub fn popdown_context_menus(&self) {
+        self.list_context_menu.popdown();
+        self.grid_context_menu.popdown();
+    }
+
+    pub fn context_menu(&self, mode: ViewMode) -> &gtk::PopoverMenu {
+        match mode {
+            ViewMode::List => &self.list_context_menu,
+            ViewMode::Grid => &self.grid_context_menu,
+        }
+    }
+}
+
 pub fn build(
     application: &adw::Application,
     locations: &[Location],
     appearance: Appearance,
+    preferences: ViewPreferences,
 ) -> BrowserWidgets {
     let window = adw::ApplicationWindow::builder()
         .application(application)
@@ -335,22 +423,81 @@ pub fn build(
         .menu_model(&file_actions_model)
         .build();
     set_accessible_label(&file_actions, "File actions");
+
+    let list_view_button = gtk::ToggleButton::builder()
+        .icon_name("view-list-symbolic")
+        .tooltip_text("List view (Ctrl+1)")
+        .action_name("win.view-list")
+        .build();
+    set_accessible_label(&list_view_button, "List view");
+    let grid_view_button = gtk::ToggleButton::builder()
+        .icon_name("view-grid-symbolic")
+        .tooltip_text("Grid view (Ctrl+2)")
+        .action_name("win.view-grid")
+        .group(&list_view_button)
+        .build();
+    set_accessible_label(&grid_view_button, "Grid view");
+    list_view_button.set_active(preferences.mode == ViewMode::List);
+    grid_view_button.set_active(preferences.mode == ViewMode::Grid);
+    let view_controls = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    view_controls.add_css_class("linked");
+    view_controls.append(&list_view_button);
+    view_controls.append(&grid_view_button);
+
+    let zoom_out_button = icon_button(
+        "zoom-out-symbolic",
+        "Decrease grid icon size (Ctrl+-)",
+        "win.zoom-out",
+    );
+    let zoom_in_button = icon_button(
+        "zoom-in-symbolic",
+        "Increase grid icon size (Ctrl++)",
+        "win.zoom-in",
+    );
+    let grid_size_scale = gtk::Scale::with_range(
+        gtk::Orientation::Horizontal,
+        0.0,
+        (GRID_SIZES.len() - 1) as f64,
+        1.0,
+    );
+    grid_size_scale.set_value(preferences.grid_size.index() as f64);
+    grid_size_scale.set_draw_value(false);
+    grid_size_scale.set_digits(0);
+    grid_size_scale.set_width_request(112);
+    grid_size_scale.set_tooltip_text(Some("Grid icon size"));
+    set_accessible_label(&grid_size_scale, "Grid icon size");
+    let grid_size_controls = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(2)
+        .build();
+    grid_size_controls.add_css_class("linked");
+    grid_size_controls.append(&zoom_out_button);
+    grid_size_controls.append(&grid_size_scale);
+    grid_size_controls.append(&zoom_in_button);
+    grid_size_controls.set_visible(preferences.mode == ViewMode::Grid);
+
     header.pack_end(&hidden_button);
     header.pack_end(&open_button);
     header.pack_end(&file_actions);
+    header.pack_end(&grid_size_controls);
+    header.pack_end(&view_controls);
 
     let (sidebar, location_buttons) = build_sidebar(locations, appearance.sidebar_min_width());
-    let (
+    let DirectoryPanelWidgets {
         content,
         selection,
         list_view,
-        context_menu,
+        grid_view,
+        view_stack,
+        list_header,
+        list_context_menu,
+        grid_context_menu,
         empty_state,
         spinner,
         status_label,
         sort_headers,
         thumbnails,
-    ) = build_directory_panel();
+    } = build_directory_panel(preferences);
 
     content.set_width_request(420);
     let workspace = gtk::Paned::builder()
@@ -400,7 +547,15 @@ pub fn build(
         location_entry,
         selection,
         list_view,
-        context_menu,
+        grid_view,
+        view_stack,
+        list_header,
+        list_context_menu,
+        grid_context_menu,
+        list_view_button,
+        grid_view_button,
+        grid_size_controls,
+        grid_size_scale,
         empty_state,
         spinner,
         status_label,
@@ -826,29 +981,21 @@ fn build_sidebar(locations: &[Location], minimum_width: i32) -> (gtk::Box, Vec<g
     (sidebar, buttons)
 }
 
-fn build_directory_panel() -> (
-    gtk::Box,
-    gtk::SingleSelection,
-    gtk::ListView,
-    gtk::PopoverMenu,
-    gtk::Box,
-    gtk::Spinner,
-    gtk::Label,
-    Vec<SortHeaderWidgets>,
-    ThumbnailPresentation,
-) {
+fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets {
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
     let selection = gtk::SingleSelection::new(Some(store));
     selection.set_autoselect(false);
     selection.set_can_unselect(true);
 
-    let context_menu = gtk::PopoverMenu::from_model(Some(&build_file_context_menu_model()));
-    context_menu.set_has_arrow(false);
+    let list_context_menu = gtk::PopoverMenu::from_model(Some(&build_file_context_menu_model()));
+    list_context_menu.set_has_arrow(false);
+    let grid_context_menu = gtk::PopoverMenu::from_model(Some(&build_file_context_menu_model()));
+    grid_context_menu.set_has_arrow(false);
 
     let thumbnails = ThumbnailPresentation::new();
     let factory = gtk::SignalListItemFactory::new();
     let row_selection = selection.clone();
-    let row_context_menu = context_menu.clone();
+    let row_context_menu = list_context_menu.clone();
     factory.connect_setup(move |_, object| {
         let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
             return;
@@ -857,7 +1004,9 @@ fn build_directory_panel() -> (
             .orientation(gtk::Orientation::Horizontal)
             .spacing(12)
             .build();
-        let icon = gtk::Image::builder().pixel_size(THUMBNAIL_EDGE).build();
+        let icon = gtk::Image::builder()
+            .pixel_size(i32::from(LIST_THUMBNAIL_EDGE))
+            .build();
         let name = gtk::Label::builder()
             .halign(gtk::Align::Start)
             .hexpand(true)
@@ -990,14 +1139,40 @@ fn build_directory_panel() -> (
     list_view.add_css_class("floe-directory-list");
     list_view.set_single_click_activate(false);
     list_view.set_vexpand(true);
-    context_menu.set_parent(&list_view);
+    list_context_menu.set_parent(&list_view);
 
-    let scroller = gtk::ScrolledWindow::builder()
+    let list_scroller = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .child(&list_view)
         .vexpand(true)
         .build();
+    let grid_factory = build_grid_factory(
+        &selection,
+        &grid_context_menu,
+        &thumbnails,
+        preferences.grid_size,
+    );
+    let grid_view = gtk::GridView::new(Some(selection.clone()), Some(grid_factory));
+    grid_view.add_css_class("floe-directory-grid");
+    grid_view.set_single_click_activate(false);
+    grid_view.set_enable_rubberband(true);
+    grid_view.set_min_columns(1);
+    grid_view.set_max_columns(24);
+    grid_view.set_vexpand(true);
+    grid_context_menu.set_parent(&grid_view);
+    let grid_scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .child(&grid_view)
+        .vexpand(true)
+        .build();
+    let view_stack = gtk::Stack::new();
+    view_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+    view_stack.add_named(&list_scroller, Some("list"));
+    view_stack.add_named(&grid_scroller, Some("grid"));
+    view_stack.set_visible_child_name(preferences.mode.stack_name());
+    view_stack.set_vexpand(true);
 
     let empty_icon = gtk::Image::builder()
         .icon_name("folder-symbolic")
@@ -1017,7 +1192,7 @@ fn build_directory_panel() -> (
     empty_state.set_visible(false);
 
     let overlay = gtk::Overlay::new();
-    overlay.set_child(Some(&scroller));
+    overlay.set_child(Some(&view_stack));
     overlay.add_overlay(&empty_state);
     overlay.set_vexpand(true);
 
@@ -1047,23 +1222,154 @@ fn build_directory_panel() -> (
         .build();
     panel.add_css_class("floe-panel");
     let (list_header, sort_headers) = build_list_header();
+    list_header.set_visible(preferences.mode == ViewMode::List);
     panel.append(&list_header);
     panel.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     panel.append(&overlay);
     panel.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     panel.append(&status);
 
-    (
-        panel,
+    DirectoryPanelWidgets {
+        content: panel,
         selection,
         list_view,
-        context_menu,
+        grid_view,
+        view_stack,
+        list_header,
+        list_context_menu,
+        grid_context_menu,
         empty_state,
         spinner,
         status_label,
         sort_headers,
         thumbnails,
-    )
+    }
+}
+
+fn build_grid_factory(
+    selection: &gtk::SingleSelection,
+    context_menu: &gtk::PopoverMenu,
+    thumbnails: &ThumbnailPresentation,
+    grid_size: GridSize,
+) -> gtk::SignalListItemFactory {
+    let factory = gtk::SignalListItemFactory::new();
+    let row_selection = selection.clone();
+    let row_context_menu = context_menu.clone();
+    let edge = grid_size.edge();
+    let tile_width = grid_size.tile_width();
+    factory.connect_setup(move |_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let cell = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(8)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Start)
+            .width_request(tile_width)
+            .margin_top(8)
+            .margin_bottom(8)
+            .margin_start(4)
+            .margin_end(4)
+            .build();
+        cell.add_css_class("floe-grid-cell");
+        let icon = gtk::Image::builder()
+            .pixel_size(i32::from(edge))
+            .width_request(i32::from(edge))
+            .height_request(i32::from(edge))
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .build();
+        let name = gtk::Label::builder()
+            .halign(gtk::Align::Fill)
+            .justify(gtk::Justification::Center)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .wrap(true)
+            .wrap_mode(gtk::pango::WrapMode::WordChar)
+            .lines(2)
+            .width_request(tile_width - 16)
+            .xalign(0.5)
+            .build();
+        name.add_css_class("floe-grid-name");
+        cell.append(&icon);
+        cell.append(&name);
+
+        let secondary_click = gtk::GestureClick::new();
+        secondary_click.set_button(gtk::gdk::BUTTON_SECONDARY);
+        let list_item_weak = list_item.downgrade();
+        let selection = row_selection.clone();
+        let context_menu = row_context_menu.clone();
+        secondary_click.connect_pressed(move |gesture, _, x, y| {
+            let Some(list_item) = list_item_weak.upgrade() else {
+                return;
+            };
+            let position = list_item.position();
+            if !is_bound_list_position(position) {
+                return;
+            }
+            selection.set_selected(position);
+            let Some(cell) = gesture.widget() else {
+                return;
+            };
+            let Some(parent) = gtk::prelude::WidgetExt::parent(&context_menu) else {
+                return;
+            };
+            let Some(point) =
+                cell.compute_point(&parent, &gtk::graphene::Point::new(x as f32, y as f32))
+            else {
+                return;
+            };
+            context_menu.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
+                point.x().round() as i32,
+                point.y().round() as i32,
+                1,
+                1,
+            )));
+            context_menu.popup();
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        cell.add_controller(secondary_click);
+        list_item.set_child(Some(&cell));
+    });
+
+    let thumbnails_for_bind = thumbnails.clone();
+    factory.connect_bind(move |_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let Some(cell) = list_item.child().and_downcast::<gtk::Box>() else {
+            return;
+        };
+        let Some(icon) = cell.first_child().and_downcast::<gtk::Image>() else {
+            return;
+        };
+        let Some(name) = icon.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(object) = list_item.item().and_downcast::<glib::BoxedAnyObject>() else {
+            return;
+        };
+        let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
+        let display_name = entry.display_name_lossy();
+        name.set_label(&display_name);
+        name.set_tooltip_text(Some(&display_name));
+        thumbnails_for_bind.request_thumbnail_at_size(&icon, &entry, edge);
+    });
+
+    let thumbnails_for_unbind = thumbnails.clone();
+    factory.connect_unbind(move |_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let Some(cell) = list_item.child().and_downcast::<gtk::Box>() else {
+            return;
+        };
+        let Some(icon) = cell.first_child().and_downcast::<gtk::Image>() else {
+            return;
+        };
+        thumbnails_for_unbind.unbind(&icon);
+    });
+    factory
 }
 
 fn build_file_context_menu_model() -> gio::Menu {
@@ -1130,7 +1436,11 @@ fn build_list_header() -> (gtk::Box, Vec<SortHeaderWidgets>) {
         .build();
     header.add_css_class("floe-list-header");
 
-    header.append(&gtk::Box::builder().width_request(THUMBNAIL_EDGE).build());
+    header.append(
+        &gtk::Box::builder()
+            .width_request(i32::from(LIST_THUMBNAIL_EDGE))
+            .build(),
+    );
     let mut widgets = Vec::with_capacity(SortColumn::ALL.len());
     for (index, ((column, label), width)) in SortColumn::ALL
         .into_iter()

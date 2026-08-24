@@ -23,10 +23,11 @@ required nor simulated.
 - Local read-only directory enumeration on a background worker
 - Back, forward, parent, location, and hidden-file navigation
 - XDG user locations
-- Virtualized list rows backed by original `PathBuf` values
+- Switchable virtualized list/grid views sharing one model, selection, and original `PathBuf` values
 - Fixed Name, Type, Size, and Modified columns using already-loaded metadata
 - Compact, user-resizable Places sidebar
-- Lazy 32-pixel PNG/JPEG list thumbnails decoded on a bounded worker
+- Lazy PNG/JPEG thumbnails decoded on a bounded worker at list or selected grid size
+- Discrete 64-192 pixel grid sizing with pointer/keyboard controls and persisted view preferences
 - Explicit selection with Enter/double-click activation
 - Asynchronous regular-file opening through GIO's default application
 - GTK-independent path-safe copy requests with explicit fail-on-conflict and
@@ -98,10 +99,18 @@ to present on the main thread. Exact path, size, and modification time form the
 cache identity. Unsupported, stale, failed, and queued requests keep their
 stable generic icons; the in-memory presentation cache is capped at 256 entries.
 
+Phase 6D adds a native `GtkGridView` without creating a second filesystem model.
+List and grid share one `GioListStore` and `GtkSingleSelection`, so mode changes
+retain selection, activation, navigation, sorting, and file actions. The header
+exposes List/Grid controls plus seven bounded grid sizes. Ctrl+1/Ctrl+2 change
+view and Ctrl+-/Ctrl++ adjust the grid. View preferences are loaded at startup
+and atomically saved by a fixed-capacity application worker; GTK callbacks never
+perform configuration-file I/O.
+
 Cross-application clipboard formats, overwrite, apply-to-all,
 cross-filesystem copy-delete moves, trash restore/bulk UI, permanent
-deletion, previews, tabs, split view, Miller columns, a separate grid, broader
-thumbnail formats, and environment-specific integrations remain deferred.
+deletion, previews, tabs, split view, Miller columns, persistent/broader
+thumbnail support, and environment-specific integrations remain deferred.
 
 ## Project documentation
 
