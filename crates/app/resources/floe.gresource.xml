@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/io/github/floe/FileManager">
+    <file alias="icons/scalable/mimetypes/floe-folder.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-folder-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-folder-link.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-folder-link-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-generic.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-generic-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-link.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-link-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-document.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-document-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-spreadsheet.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-spreadsheet-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-presentation.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-presentation-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-image.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-image-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-audio.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-audio-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-video.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-video-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-archive.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-archive-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-code.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-code-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-pdf.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-pdf-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-executable.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-executable-symbolic.svg</file>
+  </gresource>
+</gresources>

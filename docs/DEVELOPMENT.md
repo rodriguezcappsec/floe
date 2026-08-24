@@ -149,6 +149,14 @@ malformed WebP fallback, aspect-preserving scaling, real JPEG EXIF orientation
 before cache storage, and added-format reuse across worker restarts. SVG,
 AVIF/HEIF, animation playback, and unreviewed formats remain disabled.
 
+Phase 6G uses `glib-build-tools 0.21` to compile
+`resources/floe.gresource.xml`; this is the matching gtk-rs helper and invokes
+the GLib resource compiler already supplied by the GTK/GLib development
+environment. No runtime icon files are read from the checkout. Focused tests
+cover all semantic families, extension case, exact non-UTF-8 paths, directory,
+file-link, folder-link and executable precedence, bounded list/grid optical
+sizes, and all fourteen registered full-color SVG resource aliases.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

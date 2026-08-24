@@ -11,6 +11,7 @@ use gtk::{gio, glib};
 
 use crate::{
     appearance::Appearance,
+    iconography::{EntryIcon, LIST_ICON_EDGE, grid_icon_edge, icon_for_entry},
     launcher::OpenWithOptions,
     locations::Location,
     preferences::ViewPreferences,
@@ -95,12 +96,22 @@ impl ThumbnailPresentation {
     }
 
     fn request_thumbnail(&self, image: &gtk::Image, entry: &DirectoryEntry) {
-        self.request_thumbnail_at_size(image, entry, LIST_THUMBNAIL_EDGE);
+        self.request_thumbnail_with_icon_size(image, entry, LIST_THUMBNAIL_EDGE, LIST_ICON_EDGE);
     }
 
     fn request_thumbnail_at_size(&self, image: &gtk::Image, entry: &DirectoryEntry, edge: u16) {
+        self.request_thumbnail_with_icon_size(image, entry, edge, grid_icon_edge(edge));
+    }
+
+    fn request_thumbnail_with_icon_size(
+        &self,
+        image: &gtk::Image,
+        entry: &DirectoryEntry,
+        edge: u16,
+        icon_edge: i32,
+    ) {
         image.remove_css_class("floe-thumbnail");
-        image.set_icon_name(Some(icon_name(entry.kind())));
+        apply_entry_icon(image, entry, icon_edge);
 
         let mut state = self.state.borrow_mut();
         state
@@ -119,8 +130,7 @@ impl ThumbnailPresentation {
         };
         match state.completed.get(&key).cloned() {
             Some(CachedThumbnail::Ready(texture)) => {
-                image.set_paintable(Some(&texture));
-                image.add_css_class("floe-thumbnail");
+                apply_thumbnail(image, &texture, edge);
             }
             Some(CachedThumbnail::Fallback) => {}
             None => {
@@ -181,8 +191,7 @@ impl ThumbnailPresentation {
             };
             if bound_key == &key {
                 if let CachedThumbnail::Ready(texture) = &cached {
-                    image.set_paintable(Some(texture));
-                    image.add_css_class("floe-thumbnail");
+                    apply_thumbnail(&image, texture, key.edge());
                 }
                 return false;
             }
@@ -1004,9 +1013,8 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
             .orientation(gtk::Orientation::Horizontal)
             .spacing(12)
             .build();
-        let icon = gtk::Image::builder()
-            .pixel_size(i32::from(LIST_THUMBNAIL_EDGE))
-            .build();
+        let icon = gtk::Image::builder().pixel_size(LIST_ICON_EDGE).build();
+        icon.set_accessible_role(gtk::AccessibleRole::Presentation);
         let name = gtk::Label::builder()
             .halign(gtk::Align::Start)
             .hexpand(true)
@@ -1274,12 +1282,13 @@ fn build_grid_factory(
             .build();
         cell.add_css_class("floe-grid-cell");
         let icon = gtk::Image::builder()
-            .pixel_size(i32::from(edge))
+            .pixel_size(grid_icon_edge(edge))
             .width_request(i32::from(edge))
             .height_request(i32::from(edge))
             .halign(gtk::Align::Center)
             .valign(gtk::Align::Center)
             .build();
+        icon.set_accessible_role(gtk::AccessibleRole::Presentation);
         let name = gtk::Label::builder()
             .halign(gtk::Align::Fill)
             .justify(gtk::Justification::Center)
@@ -1420,13 +1429,24 @@ fn set_accessible_label(widget: &impl IsA<gtk::Accessible>, label: &str) {
     widget.update_property(&[gtk::accessible::Property::Label(label)]);
 }
 
-fn icon_name(kind: EntryKind) -> &'static str {
-    match kind {
-        EntryKind::Directory => "folder-symbolic",
-        EntryKind::RegularFile => "text-x-generic-symbolic",
-        EntryKind::SymbolicLink { .. } => "emblem-symbolic-link-symbolic",
-        EntryKind::Other => "application-x-generic-symbolic",
+fn apply_entry_icon(image: &gtk::Image, entry: &DirectoryEntry, pixel_size: i32) {
+    for icon in EntryIcon::ALL {
+        image.remove_css_class(icon.css_class());
     }
+    let icon = icon_for_entry(entry);
+    image.add_css_class("floe-entry-icon");
+    image.add_css_class(icon.css_class());
+    image.set_pixel_size(pixel_size);
+    image.set_icon_name(Some(icon.icon_name()));
+}
+
+fn apply_thumbnail(image: &gtk::Image, texture: &gtk::gdk::Texture, edge: u16) {
+    for icon in EntryIcon::ALL {
+        image.remove_css_class(icon.css_class());
+    }
+    image.set_pixel_size(i32::from(edge));
+    image.set_paintable(Some(texture));
+    image.add_css_class("floe-thumbnail");
 }
 
 fn build_list_header() -> (gtk::Box, Vec<SortHeaderWidgets>) {

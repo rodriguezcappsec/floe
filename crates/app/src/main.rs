@@ -2,6 +2,7 @@ mod appearance;
 mod application;
 mod browser;
 pub mod copy_executor;
+mod iconography;
 pub mod job_manager;
 mod launcher;
 mod locations;

@@ -1,7 +1,7 @@
 use std::{ffi::OsStr, fs, path::Path};
 
 #[cfg(unix)]
-use std::os::unix::ffi::OsStrExt;
+use std::os::unix::{ffi::OsStrExt, fs::PermissionsExt};
 
 use crate::{
     DirectoryEntry, DirectoryError, DirectoryListing, DirectorySort, EntryKind, ThumbnailState,
@@ -60,6 +60,11 @@ pub fn enumerate_directory_with_cancel(
         let hidden = is_hidden(&name);
         let size = matches!(kind, EntryKind::RegularFile).then_some(metadata.len());
         let modified = metadata.modified().ok();
+        #[cfg(unix)]
+        let executable =
+            matches!(kind, EntryKind::RegularFile) && metadata.permissions().mode() & 0o111 != 0;
+        #[cfg(not(unix))]
+        let executable = false;
 
         entries.push(DirectoryEntry::new(
             entry_path,
@@ -69,6 +74,7 @@ pub fn enumerate_directory_with_cancel(
             modified,
             None,
             hidden,
+            executable,
             ThumbnailState::NotRequested,
         ));
     }

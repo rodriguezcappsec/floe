@@ -48,7 +48,7 @@ persisted across launches.
 
 The directory surface is a virtualized `GtkListView` backed by
 `GioListStore<glib::BoxedAnyObject>`. Phase 6A adds a compact header and aligned
-Name, Type, Size, and Modified columns. Each row displays a symbolic file-kind
+Name, Type, Size, and Modified columns. Each row displays a Floe-owned vector file-kind
 icon or eligible image thumbnail, a lossy display label, a textual kind that
 does not rely on icon or color,
 an available regular-file size, and locale-aware modification time. The
@@ -68,7 +68,7 @@ path for visible/reused rows instead of eagerly for the full directory result.
 
 Phase 6C adds a 32-pixel thumbnail slot without changing row identity or
 selection behavior. Only bound rows lazily request regular PNG/JPEG images.
-Generic symbolic icons remain stable while work is queued and whenever a source
+Generic Floe icons remain stable while work is queued and whenever a source
 is unsupported, stale, oversized, unreadable, or malformed. Completed textures
 use a 5-pixel radius and a 256-entry in-memory cache. There is intentionally no
 spinner per row.
@@ -85,11 +85,16 @@ adds reviewed static raster thumbnails for WebP, GIF, BMP, TIFF, and ICO.
 Animated files show a stable first frame rather than motion in the directory
 surface; vector/active and unreviewed content retains the generic icon.
 
-The current generic folder/file symbolic icons are functionally clear but not
-yet at Floe's intended visual quality. Phase 6G is a dedicated iconography pass:
-folder and file hierarchy, optical sizing, alignment, selected/focused-state
-contrast, and consistent list/grid presentation will be reviewed together
-rather than patched one icon at a time.
+Phase 6G introduces one bundled full-color SVG family with a blue dimensional
+folder silhouette and a shared folded-page construction for files. Interior
+glyphs distinguish links, documents, spreadsheets, presentations, images,
+audio, video, archives, code, PDFs, and executables by both shape and restrained
+category accents. Generic files remain deliberately quieter. List icons use a
+28-pixel optical size; grid icons grow only from 48 to 88 pixels while image
+thumbnails retain their independent 64-192 pixel scale. The visible name and
+textual type remain authoritative, every decorative image exposes the GTK
+Presentation role, and selected/focused state remains visible through semantic
+GTK background, opacity, and focus-ring styling rather than color alone.
 
 Phase 6D adds a native virtualized grid beside the list. Both views share one
 `GioListStore` and `GtkSingleSelection`; switching presentation never forks
