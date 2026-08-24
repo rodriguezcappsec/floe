@@ -8,6 +8,7 @@ mod locations;
 pub mod move_executor;
 mod operations;
 pub mod state;
+mod thumbnail;
 pub mod trash_executor;
 mod ui;
 mod worker;

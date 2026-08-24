@@ -11,6 +11,7 @@ rust-version = "1.85"
 floe-core = { path = "crates/core" }
 gtk = { package = "gtk4", version = "0.10", features = ["v4_14"] }
 adw = { package = "libadwaita", version = "0.8", features = ["v1_5"] }
+image = { version = "=0.25.9", default-features = false, features = ["jpeg", "png"] }
 thiserror = "2.0"
 rustix = { version = "1.1", features = ["fs"] }
 tracing = "0.1"

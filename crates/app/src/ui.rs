@@ -1,10 +1,20 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet, VecDeque},
+    rc::Rc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use adw::prelude::*;
 use floe_core::{DirectoryEntry, DirectorySort, EntryKind, SortColumn, SortDirection};
 use gtk::{gio, glib};
 
-use crate::{appearance::Appearance, launcher::OpenWithOptions, locations::Location};
+use crate::{
+    appearance::Appearance,
+    launcher::OpenWithOptions,
+    locations::Location,
+    thumbnail::{THUMBNAIL_EDGE, ThumbnailError, ThumbnailKey, ThumbnailPixels},
+};
 
 const FILE_CONTEXT_ACTIONS: [(&str, &str); 6] = [
     ("Open", "win.open"),
@@ -20,12 +30,166 @@ const LIST_COLUMN_LABELS: [&str; 4] = ["Name", "Type", "Size", "Modified"];
 const TYPE_COLUMN_WIDTH: i32 = 11;
 const SIZE_COLUMN_WIDTH: i32 = 10;
 const MODIFIED_COLUMN_WIDTH: i32 = 18;
+const THUMBNAIL_CACHE_CAPACITY: usize = 256;
 pub const SORT_ACTIONS: [(&str, SortColumn); 4] = [
     ("sort-name", SortColumn::Name),
     ("sort-type", SortColumn::Type),
     ("sort-size", SortColumn::Size),
     ("sort-modified", SortColumn::Modified),
 ];
+
+#[derive(Clone)]
+enum CachedThumbnail {
+    Ready(gtk::gdk::Texture),
+    Fallback,
+}
+
+struct ThumbnailPresentationState {
+    disabled: bool,
+    completed: HashMap<ThumbnailKey, CachedThumbnail>,
+    cache_order: VecDeque<ThumbnailKey>,
+    pending: HashSet<ThumbnailKey>,
+    requests: VecDeque<ThumbnailKey>,
+    bindings: Vec<(glib::WeakRef<gtk::Image>, ThumbnailKey)>,
+}
+
+impl ThumbnailPresentationState {
+    fn enqueue(&mut self, key: ThumbnailKey) {
+        if self.pending.insert(key.clone()) {
+            self.requests.push_back(key);
+        }
+    }
+
+    fn insert_completed(&mut self, key: ThumbnailKey, cached: CachedThumbnail) {
+        self.cache_order.retain(|cached_key| cached_key != &key);
+        self.cache_order.push_back(key.clone());
+        self.completed.insert(key, cached);
+        while self.completed.len() > THUMBNAIL_CACHE_CAPACITY {
+            let Some(expired) = self.cache_order.pop_front() else {
+                break;
+            };
+            self.completed.remove(&expired);
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ThumbnailPresentation {
+    state: Rc<RefCell<ThumbnailPresentationState>>,
+}
+
+impl ThumbnailPresentation {
+    fn new() -> Self {
+        Self {
+            state: Rc::new(RefCell::new(ThumbnailPresentationState {
+                disabled: false,
+                completed: HashMap::new(),
+                cache_order: VecDeque::new(),
+                pending: HashSet::new(),
+                requests: VecDeque::new(),
+                bindings: Vec::new(),
+            })),
+        }
+    }
+
+    fn request_thumbnail(&self, image: &gtk::Image, entry: &DirectoryEntry) {
+        image.remove_css_class("floe-thumbnail");
+        image.set_icon_name(Some(icon_name(entry.kind())));
+
+        let mut state = self.state.borrow_mut();
+        state
+            .bindings
+            .retain(|(weak, _)| weak.upgrade().is_some_and(|bound| bound != *image));
+        if state.disabled {
+            return;
+        }
+        let Some(key) = ThumbnailKey::from_entry(entry) else {
+            return;
+        };
+        match state.completed.get(&key).cloned() {
+            Some(CachedThumbnail::Ready(texture)) => {
+                image.set_paintable(Some(&texture));
+                image.add_css_class("floe-thumbnail");
+            }
+            Some(CachedThumbnail::Fallback) => {}
+            None => {
+                state.bindings.push((image.downgrade(), key.clone()));
+                state.enqueue(key);
+            }
+        }
+    }
+
+    fn unbind(&self, image: &gtk::Image) {
+        self.state
+            .borrow_mut()
+            .bindings
+            .retain(|(weak, _)| weak.upgrade().is_some_and(|bound| bound != *image));
+    }
+
+    pub fn take_request(&self) -> Option<ThumbnailKey> {
+        self.state.borrow_mut().requests.pop_front()
+    }
+
+    pub fn retry_request(&self, key: ThumbnailKey) {
+        let mut state = self.state.borrow_mut();
+        if !state.disabled && state.pending.contains(&key) {
+            state.requests.push_front(key);
+        }
+    }
+
+    pub fn begin_generation(&self) {
+        let mut state = self.state.borrow_mut();
+        state.disabled = false;
+        state.pending.clear();
+        state.requests.clear();
+        state.bindings.clear();
+    }
+
+    pub fn disable(&self) {
+        let mut state = self.state.borrow_mut();
+        state.disabled = true;
+        state.pending.clear();
+        state.requests.clear();
+        state.bindings.clear();
+    }
+
+    pub fn complete(&self, key: ThumbnailKey, result: Result<ThumbnailPixels, ThumbnailError>) {
+        let cached = match result {
+            Ok(pixels) => CachedThumbnail::Ready(texture_from_pixels(pixels)),
+            Err(error) => {
+                tracing::debug!(%error, "thumbnail unavailable; retaining generic file icon");
+                CachedThumbnail::Fallback
+            }
+        };
+        let mut state = self.state.borrow_mut();
+        state.pending.remove(&key);
+        state.insert_completed(key.clone(), cached.clone());
+        state.bindings.retain(|(weak, bound_key)| {
+            let Some(image) = weak.upgrade() else {
+                return false;
+            };
+            if bound_key == &key {
+                if let CachedThumbnail::Ready(texture) = &cached {
+                    image.set_paintable(Some(texture));
+                    image.add_css_class("floe-thumbnail");
+                }
+                return false;
+            }
+            true
+        });
+    }
+}
+
+fn texture_from_pixels(pixels: ThumbnailPixels) -> gtk::gdk::Texture {
+    let (width, height, rowstride, has_alpha, pixels) = pixels.into_parts();
+    let format = if has_alpha {
+        gtk::gdk::MemoryFormat::R8g8b8a8
+    } else {
+        gtk::gdk::MemoryFormat::R8g8b8
+    };
+    let bytes = glib::Bytes::from_owned(pixels);
+    gtk::gdk::MemoryTexture::new(width, height, format, &bytes, rowstride).upcast()
+}
 
 #[derive(Clone)]
 pub struct SortHeaderWidgets {
@@ -89,6 +253,7 @@ pub struct BrowserWidgets {
     pub spinner: gtk::Spinner,
     pub status_label: gtk::Label,
     pub sort_headers: Vec<SortHeaderWidgets>,
+    pub thumbnails: ThumbnailPresentation,
     pub location_buttons: Vec<gtk::Button>,
     pub operations: OperationWidgets,
 }
@@ -184,6 +349,7 @@ pub fn build(
         spinner,
         status_label,
         sort_headers,
+        thumbnails,
     ) = build_directory_panel();
 
     content.set_width_request(420);
@@ -239,6 +405,7 @@ pub fn build(
         spinner,
         status_label,
         sort_headers,
+        thumbnails,
         location_buttons,
         operations,
     }
@@ -668,6 +835,7 @@ fn build_directory_panel() -> (
     gtk::Spinner,
     gtk::Label,
     Vec<SortHeaderWidgets>,
+    ThumbnailPresentation,
 ) {
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
     let selection = gtk::SingleSelection::new(Some(store));
@@ -677,6 +845,7 @@ fn build_directory_panel() -> (
     let context_menu = gtk::PopoverMenu::from_model(Some(&build_file_context_menu_model()));
     context_menu.set_has_arrow(false);
 
+    let thumbnails = ThumbnailPresentation::new();
     let factory = gtk::SignalListItemFactory::new();
     let row_selection = selection.clone();
     let row_context_menu = context_menu.clone();
@@ -688,7 +857,7 @@ fn build_directory_panel() -> (
             .orientation(gtk::Orientation::Horizontal)
             .spacing(12)
             .build();
-        let icon = gtk::Image::builder().pixel_size(24).build();
+        let icon = gtk::Image::builder().pixel_size(THUMBNAIL_EDGE).build();
         let name = gtk::Label::builder()
             .halign(gtk::Align::Start)
             .hexpand(true)
@@ -763,7 +932,8 @@ fn build_directory_panel() -> (
         row.add_controller(secondary_click);
         list_item.set_child(Some(&row));
     });
-    factory.connect_bind(|_, object| {
+    let thumbnails_for_bind = thumbnails.clone();
+    factory.connect_bind(move |_, object| {
         let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
             return;
         };
@@ -792,7 +962,7 @@ fn build_directory_panel() -> (
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
         name.set_tooltip_text(Some(&display_name));
-        icon.set_icon_name(Some(icon_name(entry.kind())));
+        thumbnails_for_bind.request_thumbnail(&icon, &entry);
         entry_type.set_label(entry_type_label(entry.kind()));
         size.set_label(&entry.size().map(format_size).unwrap_or_default());
         let modified_text = entry
@@ -801,6 +971,19 @@ fn build_directory_panel() -> (
             .unwrap_or_default();
         modified.set_label(&modified_text);
         modified.set_tooltip_text((!modified_text.is_empty()).then_some(modified_text.as_str()));
+    });
+    let thumbnails_for_unbind = thumbnails.clone();
+    factory.connect_unbind(move |_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let Some(row) = list_item.child().and_downcast::<gtk::Box>() else {
+            return;
+        };
+        let Some(icon) = row.first_child().and_downcast::<gtk::Image>() else {
+            return;
+        };
+        thumbnails_for_unbind.unbind(&icon);
     });
 
     let list_view = gtk::ListView::new(Some(selection.clone()), Some(factory));
@@ -879,6 +1062,7 @@ fn build_directory_panel() -> (
         spinner,
         status_label,
         sort_headers,
+        thumbnails,
     )
 }
 
@@ -946,7 +1130,7 @@ fn build_list_header() -> (gtk::Box, Vec<SortHeaderWidgets>) {
         .build();
     header.add_css_class("floe-list-header");
 
-    header.append(&gtk::Box::builder().width_request(24).build());
+    header.append(&gtk::Box::builder().width_request(THUMBNAIL_EDGE).build());
     let mut widgets = Vec::with_capacity(SortColumn::ALL.len());
     for (index, ((column, label), width)) in SortColumn::ALL
         .into_iter()
@@ -1092,7 +1276,7 @@ fn format_modified(modified: SystemTime) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{path::PathBuf, time::Duration};
 
     use super::*;
 
@@ -1112,6 +1296,35 @@ mod tests {
             "Modified ↓"
         );
         assert_eq!(sort_heading_text(SortColumn::Size, None), "Size");
+    }
+
+    #[test]
+    fn phase_6c_presentation_deduplicates_pending_and_bounds_completed_cache() {
+        let presentation = ThumbnailPresentation::new();
+        let pending_key = ThumbnailKey::for_test(PathBuf::from("/virtual/pending.png"), 1);
+        {
+            let mut state = presentation.state.borrow_mut();
+            state.enqueue(pending_key.clone());
+            state.enqueue(pending_key);
+            assert_eq!(state.pending.len(), 1);
+            assert_eq!(state.requests.len(), 1);
+
+            for index in 0..=THUMBNAIL_CACHE_CAPACITY {
+                state.insert_completed(
+                    ThumbnailKey::for_test(
+                        PathBuf::from(format!("/virtual/{index}.png")),
+                        index as u64,
+                    ),
+                    CachedThumbnail::Fallback,
+                );
+            }
+            assert_eq!(state.completed.len(), THUMBNAIL_CACHE_CAPACITY);
+            assert!(
+                !state
+                    .completed
+                    .contains_key(&ThumbnailKey::for_test(PathBuf::from("/virtual/0.png"), 0))
+            );
+        }
     }
 
     #[test]

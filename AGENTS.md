@@ -1124,12 +1124,12 @@ Architecture and correctness are more important than rigid phase numbering.
 
 Last updated:
 
-`2026-08-23`
+`2026-08-24`
 
 Current phase:
 
 ```text
-Phase 6 — List/grid polish and thumbnails (Phase 6B complete)
+Phase 6 — List/grid polish and thumbnails (Phase 6C complete)
 ```
 
 Status:
@@ -1174,6 +1174,14 @@ The GTK-independent policy keeps navigable directories first, unknown optional
 metadata last, and raw path values as deterministic tie-breakers. Sorting runs
 on the bounded directory worker using shared entries; model rebuilds retain
 256-entry batches and restore selection by exact original `PathBuf`.
+
+Phase 6C adds lazy 32-pixel PNG/JPEG thumbnails to bound virtualized list rows.
+A fixed-capacity single worker opens regular files with no-follow semantics,
+rejects stale or oversized sources, applies explicit decoder limits, and returns
+owned RGBA bytes for main-thread GTK textures. Exact path, size, and modification
+time form cache identity. Pending, failed, unsupported, and disabled cases keep
+generic icons; completed presentation state is capped at 256 entries. A separate
+grid view and persistent disk cache are not implemented.
 ```
 
 Established product decisions:
@@ -1206,16 +1214,21 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6B is complete. The next coherent branch is
-`phase-6c-thumbnail-foundation`, establishing bounded asynchronous image
-thumbnail requests and safe fallback behavior before a separate grid view.
+Phase 6C is complete. The next coherent branch is
+`phase-6d-grid-view-foundation`, adding a switchable virtualized grid that
+reuses the existing directory, selection, activation, context-action, and
+bounded thumbnail boundaries without duplicating filesystem state.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-ninety-seven tests pass: thirty-three core and sixty-four application tests.
+105 tests pass: thirty-three core and seventy-two application tests. Eight
+focused Phase 6C tests cover PNG/JPEG eligibility and decoding, bounded scaling,
+exact non-UTF-8 identity, metadata invalidation, symlink-replacement no-follow
+safety, source limits, stale generations, non-blocking queue capacity, pending
+deduplication, and the 256-entry cache bound.
 Eight focused Phase 6B tests cover direction cycling, directories-first ordering,
 unknown metadata, raw non-UTF-8 identity, worker dispatch, visible arrows, and
 exact-path selection restoration. Four focused Phase 6A tests cover stable column
@@ -1233,9 +1246,10 @@ deduplicated application ordering, and chooser/default button sensitivity.
 Three focused Phase 5C tests cover the complete action mapping, rejection of an
 unbound virtualized row, and lock-state-safe keyboard shortcuts. Two focused
 Phase 5B tests cover retryable outcomes and preservation of pending retry state
-while another job completes. A native Wayland Phase 6B build registered the
+while another job completes. A native Wayland Phase 6C build registered the
 expected D-Bus application owner and remained healthy until stopped, emitting
-only the known host Vulkan suboptimal-swapchain warning. Ten focused Phase 4E
+only the documented host libadwaita, RADV, and Vulkan suboptimal-swapchain
+warnings. Ten focused Phase 4E
 tests cover original
 non-UTF-8 paths, GIO error mapping, success, cancellation, structured failures,
 capacity, shutdown, state tracking, and recovery feedback without touching real
@@ -1257,6 +1271,9 @@ GtkSettings/libadwaita and Vulkan suboptimal-swapchain warnings; neither
 originates from Floe logic.
 GIO trash cancellation is cooperative and cannot reverse a move after the
 desktop service commits it. Floe does not yet expose trash restore/browsing UI.
+Phase 6C thumbnails are memory-only and limited to regular PNG/JPEG sources;
+EXIF orientation, persistent freedesktop thumbnail caching, additional formats,
+and a separate grid view remain unavailable.
 ```
 
 Deferred:
@@ -1265,9 +1282,9 @@ Deferred:
 Cross-application clipboard support, overwrite and apply-to-all conflict policy,
 cross-filesystem moves, trash restore/bulk UI, permanent delete,
 metadata-complete copies, job
-persistence/history UI, drag and drop, thumbnails, tabs, split view, Miller
-columns, previews, archives, search, device management, Niri IPC, KDE-specific
-APIs, and network filesystems.
+persistence/history UI, drag and drop, persistent/broader-format thumbnails,
+grid view, tabs, split view, Miller columns, previews, archives, search, device
+management, Niri IPC, KDE-specific APIs, and network filesystems.
 ```
 
 Completed this session:
@@ -1376,16 +1393,28 @@ Completed this session:
   retaining virtualized 256-entry main-loop insertion batches.
 * Preserved selection across reordered models by exact original `PathBuf`,
   including colliding lossy non-UTF-8 display names.
+* Added exact-path, size, and modification-sensitive thumbnail keys for regular
+  PNG/JPEG files, with no-follow opening and explicit encoded/decoded limits.
+* Added a fixed-capacity single thumbnail worker with stale-generation skipping,
+  non-blocking queue-full behavior, clean shutdown, and owned RGBA responses.
+* Added bound-row-only list thumbnail requests, unbind-safe weak presentation
+  bindings, stable generic fallbacks, main-thread `GdkMemoryTexture` creation,
+  and a 256-entry in-memory presentation cache.
+* Added focused Phase 6C coverage for non-UTF-8 paths, metadata invalidation,
+  symlink replacement, PNG/JPEG decoding/scaling, limits, stale generations,
+  queue capacity, deduplication, and cache bounds.
+* Pinned the pure-Rust `image 0.25.9` decoder with only PNG/JPEG features to
+  preserve Floe's declared Rust 1.85 minimum toolchain.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-6c-thumbnail-foundation` and define a bounded asynchronous
-thumbnail request/result boundary plus safe cache identity. Begin with the
-smallest useful image-thumbnail slice, retain generic icon and readable failure
-fallbacks, and do not introduce a separate grid until the shared thumbnail path
-is verified.
+Create `phase-6d-grid-view-foundation` and add a switchable virtualized grid
+that reuses the current `DirectoryEntry`, navigation, selection, activation,
+context-action, and Phase 6C thumbnail boundaries. Preserve exact-path identity,
+bounded delivery, keyboard focus, and generic fallbacks without duplicating
+filesystem state or eagerly requesting every thumbnail.
 ```
 
 ---
