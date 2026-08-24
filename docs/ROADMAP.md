@@ -216,13 +216,29 @@ bounded persistent thumbnail cache and explicit invalidation/cleanup policy.
 - Lookup, writing, cleanup, decoding, and scaling remain on the existing
   capacity-64 thumbnail worker; GTK still receives owned pixels only.
 
-## Next
-
 ### Phase 6F — Thumbnail format and orientation polish
 
-Create `phase-6f-thumbnail-format-polish`. Apply embedded image orientation
-without mutating originals, expand the deliberately reviewed safe static image
-format set, and retain bounded decode/cache behavior plus generic fallbacks.
+Implemented on `phase-6f-thumbnail-format-polish`.
+
+- Apply decoder-provided EXIF/TIFF orientation before scaling and cache writes.
+- Add reviewed WebP, GIF, BMP, TIFF, and ICO still thumbnails alongside
+  PNG/JPEG; animated containers expose one stable first frame only.
+- Retain the 32-MiB encoded, 128-MiB decoded, 65,535-pixel dimension,
+  no-follow, exact-source, and capacity-64 worker bounds.
+- Keep SVG, AVIF/HEIF, animation playback, and unreviewed formats on the generic
+  icon fallback.
+- Reuse oriented added-format pixels through the unchanged freedesktop cache.
+
+## Next
+
+### Phase 6G — Iconography polish
+
+Create `phase-6g-iconography-polish`. Replace the weak generic folder/file
+presentation with a cohesive Floe icon system. Audit system-theme symbolic
+assets versus app-owned vector assets, then refine optical sizing, folder/file
+hierarchy, MIME-family differentiation, alignment, selected/focused-state
+contrast, and consistent list/grid behavior without encoding meaning by color
+alone. Keep exact paths and file-kind text authoritative.
 
 ## Later
 

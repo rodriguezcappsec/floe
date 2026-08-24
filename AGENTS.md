@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid polish and thumbnails (Phase 6E complete)
+Phase 6 — List/grid polish and thumbnails (Phase 6F complete)
 ```
 
 Status:
@@ -1201,6 +1201,14 @@ existing safety contract. Separate Floe ownership markers allow one global
 2,048-entry, 256-MiB, 90-day cleanup policy to remove only shared-cache entries
 still carrying `Software=Floe`. All cache lookup, writes, and cleanup stay on
 the capacity-64 thumbnail worker.
+
+Phase 6F applies decoder-provided EXIF/TIFF orientation before scaling and
+persistent-cache storage. The reviewed raster policy now accepts PNG, JPEG,
+WebP, GIF, BMP, TIFF, and ICO case-insensitively; animated containers contribute
+one still frame. SVG, AVIF/HEIF, and unreviewed formats retain generic icons.
+The worker explicitly checks decoded dimensions and total bytes before
+allocation while preserving encoded limits, no-follow opening, exact source
+revalidation, capacity 64, aspect ratio, cache reuse, and GTK-free execution.
 ```
 
 Established product decisions:
@@ -1233,18 +1241,21 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6E is complete. The next coherent branch is
-`phase-6f-thumbnail-format-polish`, applying image orientation and carefully
-expanding safe static image formats while preserving bounded decoding,
-persistent-cache validation, exact-path identity, and generic fallbacks.
+Phase 6F is complete. The next coherent branch is
+`phase-6g-iconography-polish`, replacing the weak generic folder/file
+presentation with a cohesive, accessible Floe icon system across list and grid.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-124 tests pass: thirty-three core and ninety-one application tests. Eleven focused
-Phase 6E tests cover canonical non-UTF-8 URI/digest identity, tier mapping,
+129 tests pass: thirty-three core and ninety-six application tests. Five focused
+Phase 6F tests cover reviewed mixed-case format policy, WebP/GIF/BMP/TIFF/ICO
+decoding, malformed input, aspect preservation, real JPEG EXIF orientation
+before scaling/cache storage, and added-format cache reuse across worker
+restarts. Eleven focused Phase 6E tests cover canonical non-UTF-8 URI/digest
+identity, tier mapping,
 required metadata and invalidation, corrupt/oversized/symlink rejection,
 same-second subsecond invalidation, private atomic writes, global Floe-only
 age/count/byte cleanup, nonfatal cache
@@ -1273,7 +1284,13 @@ deduplicated application ordering, and chooser/default button sensitivity.
 Three focused Phase 5C tests cover the complete action mapping, rejection of an
 unbound virtualized row, and lock-state-safe keyboard shortcuts. Two focused
 Phase 5B tests cover retryable outcomes and preservation of pending retry state
-while another job completes. A two-run native Wayland Phase 6E smoke used
+while another job completes. A native Wayland Phase 6F smoke used isolated
+temporary home/cache/config roots and a real 96x24 WebP fixture. The live app
+owned the expected D-Bus name, generated the corresponding freedesktop PNG and
+Floe ownership marker, remained healthy, exited with status 0 through its Quit
+action, released the name, and left no temporary artifacts. It emitted only the
+known host RADV/Vulkan suboptimal-swapchain warnings. A two-run native Wayland
+Phase 6E smoke used
 temporary home/cache/config roots, created a private standard cache entry on
 the first run, reused the same thumbnail inode and modification time on the
 second while refreshing only its ownership marker, owned the expected D-Bus
@@ -1306,10 +1323,11 @@ GtkSettings/libadwaita and Vulkan suboptimal-swapchain warnings; neither
 originates from Floe logic.
 GIO trash cancellation is cooperative and cannot reverse a move after the
 desktop service commits it. Floe does not yet expose trash restore/browsing UI.
-Phase 6E thumbnails remain limited to regular PNG/JPEG sources. EXIF
-orientation and additional safe static image formats remain unavailable. Cache
-interoperability is intentionally limited to the freedesktop normal/large tiers
-needed by Floe's current 32-192 pixel requests.
+Phase 6F does not thumbnail SVG, AVIF/HEIF, RAW camera formats, or animation
+beyond the first still frame. Cache interoperability remains intentionally
+limited to the freedesktop normal/large tiers needed by Floe's current 32-192
+pixel requests. Generic folder/file icons are visually weak and are the next
+explicit product-quality target.
 ```
 
 Deferred:
@@ -1318,7 +1336,7 @@ Deferred:
 Cross-application clipboard support, overwrite and apply-to-all conflict policy,
 cross-filesystem moves, trash restore/bulk UI, permanent delete,
 metadata-complete copies, job
-persistence/history UI, drag and drop, broader-format/oriented thumbnails,
+persistence/history UI, drag and drop, heavyweight/RAW/vector thumbnails,
 tabs, split view, Miller columns, previews, archives, search, device
 management, Niri IPC, KDE-specific APIs, and network filesystems.
 ```
@@ -1465,15 +1483,26 @@ Completed this session:
 * Added focused Phase 6E coverage for URI/tier identity, metadata invalidation,
   corrupt/oversized/symlink rejection, permissions/atomicity, ownership-safe
   cleanup, cache-root failure, and reuse across worker restarts.
+* Expanded the deliberate thumbnail policy to WebP, GIF, BMP, TIFF, and ICO
+  alongside PNG/JPEG while continuing to reject SVG and unreviewed formats.
+* Applied decoder-provided EXIF/TIFF orientation before aspect-preserving tier
+  scaling and persistent cache storage.
+* Kept added formats inside existing source/decoded/dimension limits, exact
+  source revalidation, capacity-64 worker, stale-generation, and GTK-free
+  response boundaries.
+* Added focused Phase 6F coverage for mixed-case format policy, all five added
+  decoders, malformed input, real JPEG orientation, oriented cache pixels,
+  aspect ratio, and added-format cache reuse across worker restarts.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-6f-thumbnail-format-polish` and apply embedded image orientation
-while deliberately expanding safe static thumbnail formats. Keep decoding and
-cache I/O bounded and off GTK, preserve the shared list/grid exact-path model,
-and retain stable generic fallbacks on misses or failures.
+Create `phase-6g-iconography-polish` and replace the weak generic folder/file
+presentation with a cohesive Floe icon system. Audit theme versus app-owned
+vector assets, then refine optical sizing, hierarchy, MIME-family distinction,
+alignment, selected/focused contrast, and list/grid consistency while retaining
+textual file kinds and exact paths as authoritative.
 ```
 
 ---

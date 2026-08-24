@@ -26,7 +26,8 @@ required nor simulated.
 - Switchable virtualized list/grid views sharing one model, selection, and original `PathBuf` values
 - Fixed Name, Type, Size, and Modified columns using already-loaded metadata
 - Compact, user-resizable Places sidebar
-- Lazy PNG/JPEG thumbnails decoded on a bounded worker at list or selected grid size
+- Lazy PNG/JPEG/WebP/GIF/BMP/TIFF/ICO thumbnails decoded on a bounded worker
+  at list or selected grid size, with embedded orientation applied
 - Freedesktop-compatible persistent `normal`/`large` thumbnail cache with
   strict source invalidation and Floe-owned bounded cleanup
 - Discrete 64-192 pixel grid sizing with pointer/keyboard controls and persisted view preferences
@@ -121,10 +122,17 @@ Lookup, writes, cleanup, source decoding, and scaling all remain on the bounded
 thumbnail worker; cache failures retain the normal generic-icon/source-decode
 fallback.
 
+Phase 6F applies decoder-provided EXIF/TIFF orientation before scaling and
+persistent-cache storage. The reviewed raster set now includes WebP, GIF, BMP,
+TIFF, and ICO alongside PNG/JPEG; animated containers contribute only their
+first still frame. SVG, AVIF, HEIF, and unreviewed extensions keep the generic
+icon. The same 32-MiB encoded, 128-MiB decoded, 65,535-pixel dimension,
+no-follow, exact-source, capacity-64 worker limits remain in force.
+
 Cross-application clipboard formats, overwrite, apply-to-all,
 cross-filesystem copy-delete moves, trash restore/bulk UI, permanent
-deletion, previews, tabs, split view, Miller columns, broader thumbnail formats
-and EXIF orientation, and environment-specific integrations remain deferred.
+deletion, previews, tabs, split view, Miller columns, additional heavyweight
+thumbnail codecs, and environment-specific integrations remain deferred.
 
 ## Project documentation
 

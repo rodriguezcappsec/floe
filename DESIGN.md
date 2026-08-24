@@ -80,6 +80,17 @@ canonical file URI plus enumerated modification time and size, and returns to
 the stable generic icon or source decode on any cache fault. Cache maintenance
 has no visible modal state and never competes for GTK ownership.
 
+Phase 6F corrects camera-authored orientation before any list/grid scaling and
+adds reviewed static raster thumbnails for WebP, GIF, BMP, TIFF, and ICO.
+Animated files show a stable first frame rather than motion in the directory
+surface; vector/active and unreviewed content retains the generic icon.
+
+The current generic folder/file symbolic icons are functionally clear but not
+yet at Floe's intended visual quality. Phase 6G is a dedicated iconography pass:
+folder and file hierarchy, optical sizing, alignment, selected/focused-state
+contrast, and consistent list/grid presentation will be reviewed together
+rather than patched one icon at a time.
+
 Phase 6D adds a native virtualized grid beside the list. Both views share one
 `GioListStore` and `GtkSingleSelection`; switching presentation never forks
 directory state or reconstructs a path from a label. Grid cells use centered,

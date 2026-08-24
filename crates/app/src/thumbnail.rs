@@ -12,7 +12,7 @@ use std::{
 };
 
 use floe_core::{DirectoryEntry, EntryKind};
-use image::{ImageFormat, ImageReader, Limits};
+use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits, metadata::Orientation};
 use rustix::fs::{Mode, OFlags};
 use thiserror::Error;
 
@@ -22,30 +22,58 @@ pub const LIST_THUMBNAIL_EDGE: u16 = 32;
 pub const MIN_THUMBNAIL_EDGE: u16 = LIST_THUMBNAIL_EDGE;
 pub const MAX_THUMBNAIL_EDGE: u16 = 192;
 pub const MAX_SOURCE_BYTES: u64 = 32 * 1024 * 1024;
+pub const MAX_DECODED_BYTES: u64 = 128 * 1024 * 1024;
 pub const WORK_QUEUE_CAPACITY: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ThumbnailFormat {
     Png,
     Jpeg,
+    WebP,
+    Gif,
+    Bmp,
+    Tiff,
+    Ico,
 }
 
 impl ThumbnailFormat {
     fn from_path(path: &Path) -> Option<Self> {
         let extension = path.extension()?.to_str()?;
         if extension.eq_ignore_ascii_case("png") {
-            Some(Self::Png)
-        } else if extension.eq_ignore_ascii_case("jpg") || extension.eq_ignore_ascii_case("jpeg") {
-            Some(Self::Jpeg)
-        } else {
-            None
+            return Some(Self::Png);
         }
+        if extension.eq_ignore_ascii_case("jpg") || extension.eq_ignore_ascii_case("jpeg") {
+            return Some(Self::Jpeg);
+        }
+        if extension.eq_ignore_ascii_case("webp") {
+            return Some(Self::WebP);
+        }
+        if extension.eq_ignore_ascii_case("gif") {
+            return Some(Self::Gif);
+        }
+        if extension.eq_ignore_ascii_case("bmp") {
+            return Some(Self::Bmp);
+        }
+        if extension.eq_ignore_ascii_case("tif") || extension.eq_ignore_ascii_case("tiff") {
+            return Some(Self::Tiff);
+        }
+        if extension.eq_ignore_ascii_case("ico") {
+            return Some(Self::Ico);
+        }
+        // SVG is deliberately excluded because it can reference active or
+        // external content. Unreviewed formats keep the generic file icon.
+        None
     }
 
     const fn image_format(self) -> ImageFormat {
         match self {
             Self::Png => ImageFormat::Png,
             Self::Jpeg => ImageFormat::Jpeg,
+            Self::WebP => ImageFormat::WebP,
+            Self::Gif => ImageFormat::Gif,
+            Self::Bmp => ImageFormat::Bmp,
+            Self::Tiff => ImageFormat::Tiff,
+            Self::Ico => ImageFormat::Ico,
         }
     }
 }
@@ -364,15 +392,7 @@ fn decode_thumbnail_with_cache(
         return Err(ThumbnailError::SourceChanged);
     }
 
-    let mut reader = ImageReader::with_format(Cursor::new(encoded), key.format.image_format());
-    let mut limits = Limits::default();
-    limits.max_image_width = Some(65_535);
-    limits.max_image_height = Some(65_535);
-    limits.max_alloc = Some(128 * 1024 * 1024);
-    reader.limits(limits);
-    let decoded = reader
-        .decode()
-        .map_err(|error| ThumbnailError::Decode(error.to_string()))?;
+    let decoded = decode_source_image(encoded, key.format)?;
     let tier_edge = CacheTier::from_edge(key.edge).edge();
     let decoded = decoded.into_rgba8();
     let tier_thumbnail = if decoded.width() <= tier_edge && decoded.height() <= tier_edge {
@@ -389,6 +409,40 @@ fn decode_thumbnail_with_cache(
         tracing::debug!(%error, "persistent thumbnail cache write failed; using decoded source");
     }
     pixels_from_image(tier_thumbnail, key.edge)
+}
+
+fn decode_source_image(
+    encoded: Vec<u8>,
+    format: ThumbnailFormat,
+) -> Result<DynamicImage, ThumbnailError> {
+    let mut reader = ImageReader::with_format(Cursor::new(encoded), format.image_format());
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(65_535);
+    limits.max_image_height = Some(65_535);
+    limits.max_alloc = Some(MAX_DECODED_BYTES);
+    reader.limits(limits);
+
+    // ImageDecoder exposes one still image. Animated GIF/WebP files therefore
+    // contribute only their first frame and never animate during browsing.
+    let mut decoder = reader
+        .into_decoder()
+        .map_err(|error| ThumbnailError::Decode(error.to_string()))?;
+    let (width, height) = decoder.dimensions();
+    if width == 0
+        || height == 0
+        || width > 65_535
+        || height > 65_535
+        || decoder.total_bytes() > MAX_DECODED_BYTES
+    {
+        return Err(ThumbnailError::Decode(
+            "decoded image exceeds thumbnail safety limits".to_owned(),
+        ));
+    }
+    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    let mut decoded = DynamicImage::from_decoder(decoder)
+        .map_err(|error| ThumbnailError::Decode(error.to_string()))?;
+    decoded.apply_orientation(orientation);
+    Ok(decoded)
 }
 
 fn pixels_from_image(
@@ -419,6 +473,10 @@ fn pixels_from_image(
         pixels: thumbnail.into_raw(),
     })
 }
+
+#[cfg(test)]
+#[path = "thumbnail_format_tests.rs"]
+mod phase_6f_tests;
 
 #[cfg(test)]
 mod tests {
@@ -471,10 +529,10 @@ mod tests {
         let directory = tempdir().expect("temporary directory should be created");
         let raw_name = OsString::from_vec(vec![b'i', 0x80, b'.', b'p', b'n', b'g']);
         let png_path = directory.path().join(&raw_name);
-        let gif_path = directory.path().join("ignored.gif");
+        let svg_path = directory.path().join("ignored.svg");
         let link_path = directory.path().join("link.png");
         fs::write(&png_path, PNG_1X1).expect("PNG should be written");
-        fs::write(&gif_path, b"GIF89a").expect("GIF marker should be written");
+        fs::write(&svg_path, b"<svg/>").expect("SVG marker should be written");
         symlink(&png_path, &link_path).expect("symlink should be created");
         let listing = enumerate_directory(directory.path()).expect("directory should enumerate");
 
@@ -482,7 +540,7 @@ mod tests {
             .expect("PNG should be eligible");
         assert_eq!(key.path(), png_path);
         assert_eq!(key.format, ThumbnailFormat::Png);
-        assert!(ThumbnailKey::from_entry(entry_for(listing.entries(), &gif_path)).is_none());
+        assert!(ThumbnailKey::from_entry(entry_for(listing.entries(), &svg_path)).is_none());
         assert!(ThumbnailKey::from_entry(entry_for(listing.entries(), &link_path)).is_none());
     }
 
