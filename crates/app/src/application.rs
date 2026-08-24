@@ -7,7 +7,7 @@ use tracing_subscriber::EnvFilter;
 use crate::{
     appearance::Appearance,
     browser::BrowserController,
-    locations,
+    iconography, locations,
     operations::OperationController,
     preferences::{PreferenceWorker, ViewPreferences},
     state::ApplicationState,
@@ -69,6 +69,9 @@ fn build_window(
 
     let appearance = Appearance::from_environment();
     appearance.install();
+    if let Some(display) = gtk::gdk::Display::default() {
+        iconography::register(&display);
+    }
 
     let places = locations::standard_locations();
     let initial_path = places

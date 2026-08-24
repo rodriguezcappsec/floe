@@ -30,6 +30,7 @@ pub struct DirectoryEntry {
     modified: Option<SystemTime>,
     mime_type: Option<String>,
     hidden: bool,
+    executable: bool,
     thumbnail: ThumbnailState,
 }
 
@@ -43,6 +44,7 @@ impl DirectoryEntry {
         modified: Option<SystemTime>,
         mime_type: Option<String>,
         hidden: bool,
+        executable: bool,
         thumbnail: ThumbnailState,
     ) -> Self {
         Self {
@@ -53,6 +55,7 @@ impl DirectoryEntry {
             modified,
             mime_type,
             hidden,
+            executable,
             thumbnail,
         }
     }
@@ -87,6 +90,10 @@ impl DirectoryEntry {
 
     pub fn is_hidden(&self) -> bool {
         self.hidden
+    }
+
+    pub fn is_executable(&self) -> bool {
+        self.executable
     }
 
     pub fn thumbnail_state(&self) -> ThumbnailState {

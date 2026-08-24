@@ -186,6 +186,25 @@ bytes are checked before allocation in addition to the existing encoded-source
 limit; oriented pixels continue through the unchanged freedesktop cache and
 owned-RGBA response boundaries.
 
+### `iconography.rs` and embedded resources
+
+Phase 6G centralizes generic presentation in a GTK-independent `EntryIcon`
+policy. Enumerated `EntryKind` and executable permission metadata take
+precedence; a case-insensitive extension policy then selects document, media,
+archive, code, PDF, spreadsheet, presentation, or stable generic families.
+Classification uses the original `Path` extension and never reconstructs a path
+from lossy display text. Directory enumeration captures only an inexpensive
+executable bit; icon selection performs no filesystem I/O.
+
+Fourteen app-owned SVGs compile into one GResource at build time and register as
+a non-symbolic icon-theme resource before list/grid factories bind. Both views
+call the same policy and CSS-family mapping. Generic list icons use 28 pixels;
+grid generic icons use bounded 48-88 pixel optical sizes independently of the
+64-192 pixel thumbnail request. A ready thumbnail still replaces the icon, and
+any unsupported/failed thumbnail returns to the same semantic fallback. File
+icons are decorative GTK Presentation nodes beside authoritative filename and
+text-kind labels.
+
 ### `state.rs` and `job_manager.rs`
 
 `ApplicationState`, separate from `BrowserController`, owns the

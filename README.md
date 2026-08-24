@@ -26,6 +26,8 @@ required nor simulated.
 - Switchable virtualized list/grid views sharing one model, selection, and original `PathBuf` values
 - Fixed Name, Type, Size, and Modified columns using already-loaded metadata
 - Compact, user-resizable Places sidebar
+- Floe-owned scalable folder/file icon family with executable, link, document,
+  media, archive, code, PDF, spreadsheet, and presentation distinctions
 - Lazy PNG/JPEG/WebP/GIF/BMP/TIFF/ICO thumbnails decoded on a bounded worker
   at list or selected grid size, with embedded orientation applied
 - Freedesktop-compatible persistent `normal`/`large` thumbnail cache with
@@ -128,6 +130,14 @@ TIFF, and ICO alongside PNG/JPEG; animated containers contribute only their
 first still frame. SVG, AVIF, HEIF, and unreviewed extensions keep the generic
 icon. The same 32-MiB encoded, 128-MiB decoded, 65,535-pixel dimension,
 no-follow, exact-source, capacity-64 worker limits remain in force.
+
+Phase 6G replaces theme-dependent generic glyphs with a bundled 14-icon SVG
+family. Exact enumerated kind and executable metadata take precedence, then a
+case-insensitive extension policy selects readable file-family marks. List
+icons use a compact 28-pixel optical size; grid icons scale from 48 to 88 pixels
+independently of 64-192 pixel thumbnail edges. File names and textual kinds
+remain authoritative, while thumbnails continue to replace eligible image
+icons only after the bounded worker returns pixels.
 
 Cross-application clipboard formats, overwrite, apply-to-all,
 cross-filesystem copy-delete moves, trash restore/bulk UI, permanent

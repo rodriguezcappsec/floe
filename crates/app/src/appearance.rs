@@ -194,11 +194,35 @@ impl Appearance {
                 padding: 6px;
             }}
 
-            .floe-grid-name {{
-                font-weight: 500;
-            }}
+.floe-grid-name {{
+  font-weight: 500;
+}}
 
-            .floe-list-header {{
+.floe-entry-icon {{
+  opacity: 0.90;
+}}
+
+.floe-entry-icon.floe-icon-folder,
+.floe-entry-icon.floe-icon-media,
+.floe-entry-icon.floe-icon-code {{
+  opacity: 1;
+}}
+
+.floe-entry-icon.floe-icon-document,
+.floe-entry-icon.floe-icon-archive {{
+  opacity: 0.92;
+}}
+
+.floe-entry-icon.floe-icon-generic {{
+  opacity: 0.72;
+}}
+
+.floe-directory-list row:selected .floe-entry-icon,
+.floe-directory-grid child:selected .floe-entry-icon {{
+  opacity: 1;
+}}
+
+.floe-list-header {{
                 padding: 7px 12px 6px;
             }}
 

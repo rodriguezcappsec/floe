@@ -161,6 +161,7 @@ mod tests {
             modified_seconds.map(|seconds| UNIX_EPOCH + Duration::from_secs(seconds)),
             None,
             false,
+            false,
             ThumbnailState::NotRequested,
         )
     }

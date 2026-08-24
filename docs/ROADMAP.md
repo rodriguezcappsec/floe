@@ -229,16 +229,31 @@ Implemented on `phase-6f-thumbnail-format-polish`.
   icon fallback.
 - Reuse oriented added-format pixels through the unchanged freedesktop cache.
 
-## Next
-
 ### Phase 6G — Iconography polish
 
-Create `phase-6g-iconography-polish`. Replace the weak generic folder/file
-presentation with a cohesive Floe icon system. Audit system-theme symbolic
-assets versus app-owned vector assets, then refine optical sizing, folder/file
-hierarchy, MIME-family differentiation, alignment, selected/focused-state
-contrast, and consistent list/grid behavior without encoding meaning by color
-alone. Keep exact paths and file-kind text authoritative.
+Implemented on `phase-6g-iconography-polish`.
+
+- Bundle one coherent 14-icon full-color SVG resource family rather than depend
+  on desktop-theme generic file artwork.
+- Give folders, links, documents, spreadsheets, presentations, images, audio,
+  video, archives, code, PDFs, executables, and unknown files distinct shapes.
+- Select icons from enumerated kind/executable metadata and a case-insensitive
+  extension policy without filesystem work in GTK or lossy path reconstruction.
+- Keep generic list icons at 28 pixels and bounded grid icon optics at 48-88
+  pixels while retaining independent 64-192 pixel image thumbnails.
+- Keep visible names and textual kinds authoritative, GTK decorative semantics,
+  and selection/focus states readable without color alone.
+
+## Next
+
+### Phase 7A — Tabs foundation
+
+Create `phase-7a-tabs-foundation`. Move navigation sessions into a bounded tab
+model that preserves each tab's exact current path, back/forward history,
+selection identity, sort, and view preferences. Add native keyboard/pointer tab
+creation, switching, reordering, and closing without duplicating filesystem
+workers or moving navigation ownership into widgets. Split view remains a
+separate Phase 7B branch after the tab state boundary is proven.
 
 ## Later
 

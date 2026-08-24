@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid polish and thumbnails (Phase 6F complete)
+Phase 6 — List/grid polish and thumbnails (Phase 6G complete)
 ```
 
 Status:
@@ -1209,6 +1209,16 @@ one still frame. SVG, AVIF/HEIF, and unreviewed formats retain generic icons.
 The worker explicitly checks decoded dimensions and total bytes before
 allocation while preserving encoded limits, no-follow opening, exact source
 revalidation, capacity 64, aspect ratio, cache reuse, and GTK-free execution.
+
+Phase 6G replaces weak desktop-theme generic glyphs with a bundled fourteen-icon
+full-color SVG family. Exact enumerated kind and executable metadata take
+precedence, followed by a case-insensitive extension policy for document, media,
+archive, code, PDF, spreadsheet, presentation, and generic families. List icons
+use a 28-pixel optical size and grid icons stay within 48-88 pixels independently
+of thumbnail edges. Both factories share one policy and fallback; ready
+thumbnails still replace icons. File images are decorative GTK Presentation
+nodes beside authoritative names/types, selection/focus remains semantic, and
+no GTK callback performs icon filesystem I/O.
 ```
 
 Established product decisions:
@@ -1241,17 +1251,21 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6F is complete. The next coherent branch is
-`phase-6g-iconography-polish`, replacing the weak generic folder/file
-presentation with a cohesive, accessible Floe icon system across list and grid.
+Phase 6G is complete. The next coherent branch is
+`phase-7a-tabs-foundation`, moving per-tab navigation/history/selection state
+behind an application-owned model before a separate split-view phase.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-129 tests pass: thirty-three core and ninety-six application tests. Five focused
-Phase 6F tests cover reviewed mixed-case format policy, WebP/GIF/BMP/TIFF/ICO
+134 tests pass: thirty-three core and 101 application tests. Five focused Phase
+6G tests cover all fourteen semantic icon families, mixed-case extensions,
+exact non-UTF-8 identity, directory/file-link/folder-link/executable precedence,
+generic fallback, bounded list/grid optical sizes, non-symbolic aliases, and all
+embedded SVG resources. Five focused Phase 6F tests cover reviewed mixed-case
+format policy, WebP/GIF/BMP/TIFF/ICO
 decoding, malformed input, aspect preservation, real JPEG EXIF orientation
 before scaling/cache storage, and added-format cache reuse across worker
 restarts. Eleven focused Phase 6E tests cover canonical non-UTF-8 URI/digest
@@ -1284,7 +1298,14 @@ deduplicated application ordering, and chooser/default button sensitivity.
 Three focused Phase 5C tests cover the complete action mapping, rejection of an
 unbound virtualized row, and lock-state-safe keyboard shortcuts. Two focused
 Phase 5B tests cover retryable outcomes and preservation of pending retry state
-while another job completes. A native Wayland Phase 6F smoke used isolated
+while another job completes. A native Wayland Phase 6G smoke used isolated
+temporary home/cache/config roots with fourteen representative entries. Settled
+list and grid captures showed the full-color SVG family, bounded optical sizes,
+link/executable/file-family marks, and real WebP thumbnail replacement. Floe
+owned its expected D-Bus name, remained healthy, created both normal/large cache
+entries, switched views through native actions, exited 0 through Quit, released
+the name, and left no fixture/screenshots. Only the known host RADV/Vulkan
+suboptimal-swapchain warning appeared. A native Wayland Phase 6F smoke used isolated
 temporary home/cache/config roots and a real 96x24 WebP fixture. The live app
 owned the expected D-Bus name, generated the corresponding freedesktop PNG and
 Floe ownership marker, remained healthy, exited with status 0 through its Quit
@@ -1323,11 +1344,13 @@ GtkSettings/libadwaita and Vulkan suboptimal-swapchain warnings; neither
 originates from Floe logic.
 GIO trash cancellation is cooperative and cannot reverse a move after the
 desktop service commits it. Floe does not yet expose trash restore/browsing UI.
-Phase 6F does not thumbnail SVG, AVIF/HEIF, RAW camera formats, or animation
+Phase 6G icons deliberately use a compact reviewed extension policy rather than
+full shared-mime-info resolution; authoritative textual kind currently remains
+the coarse Directory/File/Link model. Phase 6F does not thumbnail SVG,
+AVIF/HEIF, RAW camera formats, or animation
 beyond the first still frame. Cache interoperability remains intentionally
 limited to the freedesktop normal/large tiers needed by Floe's current 32-192
-pixel requests. Generic folder/file icons are visually weak and are the next
-explicit product-quality target.
+pixel requests.
 ```
 
 Deferred:
@@ -1493,16 +1516,28 @@ Completed this session:
 * Added focused Phase 6F coverage for mixed-case format policy, all five added
   decoders, malformed input, real JPEG orientation, oriented cache pixels,
   aspect ratio, and added-format cache reuse across worker restarts.
+* Added a bundled fourteen-icon full-color SVG family with coherent folder/page
+  construction and distinct link, document, media, archive, code, PDF,
+  spreadsheet, presentation, executable, and generic marks.
+* Added GTK-independent icon classification from exact enumerated kind,
+  executable metadata, and case-insensitive path extensions without lossy path
+  reconstruction or GTK filesystem work.
+* Shared one icon/fallback policy between list and grid, added bounded 28/48-88
+  pixel optical sizing, preserved thumbnail replacement, and marked decorative
+  images with GTK Presentation semantics.
+* Added focused Phase 6G coverage for family policy, non-UTF-8 identity,
+  directory/link/executable precedence, bounded sizes, and all embedded resource
+  aliases, plus native list/grid visual verification.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-6g-iconography-polish` and replace the weak generic folder/file
-presentation with a cohesive Floe icon system. Audit theme versus app-owned
-vector assets, then refine optical sizing, hierarchy, MIME-family distinction,
-alignment, selected/focused contrast, and list/grid consistency while retaining
-textual file kinds and exact paths as authoritative.
+Create `phase-7a-tabs-foundation` and move navigation sessions into an
+application-owned tab model. Preserve exact current paths, back/forward history,
+selection, sort, and view preferences per tab; add keyboard/pointer tab creation,
+switching, reordering, and closing without duplicating filesystem workers. Keep
+split view separate until the tab state boundary is verified.
 ```
 
 ---
