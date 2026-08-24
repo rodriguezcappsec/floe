@@ -238,6 +238,25 @@ never performs filesystem work in GTK, offers no undo, and never claims secure
 erase. Operations Island distinguishes preparing, deleting, cancelled before
 deletion, completed, and non-retryable partial failure.
 
+### Trash lifecycle
+
+Phase 6N adds Trash as a normal Place with an explicit special-location state.
+List rows replace Type and Modified with Original and Deleted values only when
+valid freedesktop metadata exists; exact backing/original paths remain tooltips
+and operation identity. Malformed or orphaned payloads stay visible with
+“Original location unavailable” so deletion remains possible without inventing
+restore data. Direct activation can open files, while trashed folders must be
+restored before browsing their contents.
+
+Trash item menus contain Restore and Delete Permanently rather than normal
+copy/cut/rename/trash actions. Restore is enabled only when every selected item
+has matching original-path and `.trashinfo` metadata. Existing destinations
+open the established non-modal conflict dialog; overwrite is never offered.
+Empty Trash is a background/header action, requires aggregate safe-focus
+irreversible confirmation, and remains available without selecting every item.
+All destructive language says Delete Permanently or Empty Trash, never secure
+erase. Cancel remains initial focus.
+
 ## Implemented appearance system
 
 `crates/app/src/appearance.rs` defines `AppearancePreset` and one shared token

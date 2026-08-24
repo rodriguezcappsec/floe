@@ -1160,12 +1160,19 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — Browser filesystem foundations (Phase 6M complete)
+Phase 6 — Browser filesystem foundations (Phase 6N complete)
 ```
 
 Status:
 
 ```text
+Phase 6N adds first-class local Trash browsing for home and mounted-volume
+freedesktop roots, standards metadata display, bounded no-overwrite restore,
+per-item permanent deletion, and confirmed Empty Trash. Exact paths remain
+authoritative; GTK submits commands only. Restore conflicts reuse the existing
+explicit decision flow, cleanup partials are non-retryable, and no secure-erase
+claim is made.
+
 Phases 0-4 and Phase 5D are complete. One application-owned transfer buffer
 supports Ctrl+C copy and Ctrl+X move followed by Ctrl+V paste. F2 and the
 file-actions menu open a validated rename dialog. Copy, move, and rename use
@@ -1344,16 +1351,24 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6M is complete. The one recommended next branch is
-`phase-6n-trash-lifecycle`, adding standards-correct Trash browsing, restore,
-per-item permanent deletion, and Empty Trash without secure-erase claims.
+Phase 6N is complete. The one recommended next branch is
+`phase-6o-transfer-semantics`, adding cross-filesystem move recovery,
+metadata-aware copy, destination-space checks, and an interoperable external
+clipboard without silent data or metadata loss.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-205 tests pass: forty core and 165 application tests. Thirteen focused Phase 6M
+220 tests pass: forty-eight core and 172 application tests. Fifteen focused
+Phase 6N tests cover raw percent-decoded paths, mounted relative metadata,
+malformed/orphan handling, symlinked roots, safe restore, no-overwrite conflict,
+bounded worker dispatch, exact conflict retry, Trash-mode action policy, and
+truthful destructive wording. Isolated native Wayland smokes opened Trash,
+exported enabled Empty Trash, restored one temporary GIO-trashed item through
+Floe, removed its matching metadata, answered D-Bus health checks, and never
+touched the real user Trash. Thirteen focused Phase 6M
 tests cover exact non-UTF-8 request identity, unsafe batch rejection, recursive
 no-follow deletion, whole-batch preflight, mount refusal, pre/post-commit
 cancellation, identity revalidation, exact partial failure, mountinfo decoding,
@@ -1481,7 +1496,9 @@ cross-filesystem copy-delete recovery is not implemented. Native smoke runs may 
 GtkSettings/libadwaita and Vulkan suboptimal-swapchain warnings; neither
 originates from Floe logic.
 GIO trash cancellation is cooperative and cannot reverse a move after the
-desktop service commits it. Floe does not yet expose trash restore/browsing UI.
+desktop service commits it. Phase 6N Trash browsing and original-location
+restore are local-filesystem only; Restore Elsewhere, cleanup preferences, and
+browsing inside a trashed directory remain deferred.
 Phase 6G icons deliberately use a compact reviewed extension policy rather than
 full shared-mime-info resolution; authoritative textual kind currently remains
 the coarse Directory/File/Link model. Phase 6F does not thumbnail SVG,
@@ -1504,7 +1521,7 @@ Deferred:
 
 ```text
 Cross-application clipboard support, overwrite and apply-to-all conflict policy,
-cross-filesystem moves, trash restore/bulk UI and Empty Trash,
+cross-filesystem moves, Restore Elsewhere and Trash cleanup preferences,
 metadata-complete copies, job
 persistence/history UI, drag and drop, heavyweight/RAW/vector thumbnails,
 tabs, split view, Miller columns, previews, archives, search, richer device
@@ -1516,7 +1533,15 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
-* Completed Phase 6M permanent deletion on `phase-6m-permanent-delete`.
+* Completed Phase 6N Trash lifecycle on `phase-6n-trash-lifecycle`.
+* Added first-class home and mounted-volume local Trash browsing with bounded,
+  no-follow freedesktop metadata parsing and exact original/backing paths.
+* Added fixed-capacity no-overwrite restore jobs, conflict-safe revised-name
+  retry, metadata-after-payload cleanup, and explicit cleanup partial failure.
+* Added Trash-only Restore/Delete Permanently menus, aggregate confirmed Empty
+  Trash, companion metadata deletion through Phase 6M, and no secure-erase claim.
+* Verified 219 tests and isolated native Wayland Trash/restore action smokes.
+* Previously completed Phase 6M permanent deletion on `phase-6m-permanent-delete`.
 * Added exact multi-target request validation, full no-follow postorder
   preflight, root/mount refusal, device/inode/kind revalidation, and truthful
   pre-commit cancellation versus committed partial-failure semantics.
@@ -1528,7 +1553,7 @@ Completed this session:
   only application commands and never performs deletion work.
 * Added the exhaustive code-audited `docs/FEATURE_MATRIX.md` capability ledger.
 * Rebuilt `docs/ROADMAP.md` as the bounded dependency-aware sequence through
-  Phase 21; Phase 6L is complete and Phase 6M is the sole next phase.
+  Phase 21; subsequent Phases 6M and 6N are now complete.
 * Added `docs/PRIVACY_SECURITY.md` with implemented/planned separation, threat
   boundaries, cryptographic rules, cache/sandbox/vault/integrity architecture,
   and prohibited claims.
@@ -1745,9 +1770,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-6n-trash-lifecycle` and add standards-correct Trash browsing,
-restore with conflict handling, per-item permanent deletion through Phase 6M,
-and explicitly confirmed Empty Trash without secure-erase claims.
+Create `phase-6o-transfer-semantics` and add cross-filesystem move recovery,
+metadata-aware copy semantics, destination-space checks, and interoperable
+external clipboard formats without silent overwrite or metadata-loss claims.
 ```
 
 ---

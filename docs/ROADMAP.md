@@ -63,7 +63,7 @@ phases add hostile-input, failure-path, cache-leak, and claim-accuracy tests.
 | 6L | COMPLETE | Supervised freedesktop system-thumbnailer providers with bounded cache integration. |
 | 6M | COMPLETE | Confirmed multi-target permanent deletion with mount/symlink safety and truthful partial failure. |
 
-The actual completed phase is **Phase 6M**.
+The actual completed phase is **Phase 6N**.
 
 ## Phase 6 — Finish browser and filesystem foundations
 
@@ -106,12 +106,32 @@ Goal: add path-safe multi-target permanent-delete jobs and Shift+Delete.
 - Cancellation is successful only before the first removal. Once mutation has
   committed, the worker finishes or reports the exact removed/planned count.
 
+### Phase 6N — Trash lifecycle
+
+Status: **COMPLETE**
+
+Recommended branch: `phase-6n-trash-lifecycle`
+
+Goal: make standards-correct local Trash a first-class Floe location.
+
+- Home and mounted-volume freedesktop Trash roots are enumerated on the bounded
+  browser worker. Bounded no-follow `.trashinfo` parsing retains exact backing
+  and original paths; orphan/malformed payloads remain visible and deletable.
+- Restore uses a fixed-capacity executor and atomic no-replace move. Conflicts
+  reuse Keep Existing / Retry with New Name. Metadata is removed only after the
+  payload move; cleanup failure is an explicit non-retryable partial result.
+- Individual Delete Permanently and aggregate Empty Trash include companion
+  metadata and reuse Phase 6M. Empty Trash always requires aggregate safe-focus
+  confirmation; neither action claims secure erase.
+- Cleanup preferences and Restore Elsewhere remain deferred until a predictable
+  portable desktop policy and destination workflow exist.
+
 ### Remaining Phase 6 leaves
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 6N — Trash lifecycle | NEXT | `phase-6n-trash-lifecycle` | Browse, restore, delete Trash items, Empty Trash, supported cleanup preferences. | 4E/4F/6M; no secure-erase claim; verify freedesktop metadata and restore conflicts. |
-| 6O — Transfer semantics | PLANNED | `phase-6o-transfer-semantics` | Cross-filesystem move, metadata-aware copy, space checks, external clipboard. | 4A–5F; no silent metadata loss; verify crash/cancel, symlinks and non-UTF-8 paths. |
+| 6N — Trash lifecycle | COMPLETE | `phase-6n-trash-lifecycle` | Local standards Trash browsing, metadata, restore, permanent delete, Empty Trash. | 4E/4F/6M; verified no-overwrite restore and no secure-erase claim. |
+| 6O — Transfer semantics | NEXT | `phase-6o-transfer-semantics` | Cross-filesystem move, metadata-aware copy, space checks, external clipboard. | 4A–6N; no silent metadata loss; verify crash/cancel, symlinks and non-UTF-8 paths. |
 | 6P — Operation control | PLANNED | `phase-6p-operation-control` | Queueing, item progress, speed/ETA, truthful pause, richer conflicts, safe undo/history. | 6N/6O; irreversible work is not undoable; verify scoped batch policy and recovery. |
 | 6Q — Create/duplicate/links | PLANNED | `phase-6q-create-duplicate-links` | New folder/file, templates, duplicate, links, reveal target, copy path/name/URI. | 6P; no shell or privileged creation; verify collisions, broken links and raw names. |
 | 6R — Drag and drop | PLANNED | `phase-6r-drag-drop` | Internal/external drag, sidebar/Trash, modifiers, hover-open, autoscroll, highlighting. | 6O–6Q; no implicit overwrite; verify exact destinations and keyboard alternatives. |

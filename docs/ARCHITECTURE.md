@@ -209,7 +209,7 @@ text-kind labels.
 ### `state.rs` and `job_manager.rs`
 
 `ApplicationState`, separate from `BrowserController`, owns the
-`ApplicationJobManager`, bounded copy/move/trash/permanent-delete executors, internal
+`ApplicationJobManager`, bounded copy/move/trash/restore/permanent-delete executors, internal
 `TransferBuffer`, and `TrackedOperation` values keyed by `JobId`. The manager
 allocates operation/job IDs, stores core `JobRecord` values, applies core lifecycle
 commands, queues observable events, and creates retries under the original
@@ -332,6 +332,13 @@ filesystem work. “Move to Trash” remains the recoverable action.
 escaped exact target labels; its GTK callback submits preserved `PathBuf`
 values and performs no filesystem work.
 
+Phase 6N adds an explicit Trash browser mode without replacing local
+`NavigationState` identity. A sidebar action requests supported home and
+mounted-volume Trash roots from `BrowserWorker`; exact backing paths remain the
+selection identity while decoded original paths and deletion dates are display
+metadata only. Trash mode swaps context policies to Restore, Delete
+Permanently, Empty Trash, and Refresh, and disables inapplicable mutations.
+
 Navigation queues a worker request, disables stale interaction, and ignores
 responses whose generation is no longer active. Results are filtered for hidden
 entries and fed to a new `GioListStore` in batches of 256.
@@ -345,8 +352,8 @@ remove periodic polling.
 `OperationController` polls structured application job events every 50 ms,
 maps queued/running/progress/terminal states into the Operations Island, and
 submits generic cancellation intent through `ApplicationState`. Completion
-refreshes every affected visible directory for copy, move, rename, trash, or
-permanent deletion. Permanent-delete cancellation is pre-commit only; a
+refreshes every affected visible directory for copy, move, rename, trash,
+restore, or permanent deletion. Permanent-delete cancellation is pre-commit only; a
 `Partial` failure refreshes affected directories and remains non-retryable.
 Conflict, permission, cross-filesystem, unsupported-trash, and general failures
 produce recovery-oriented toasts. Terminal status remains
@@ -405,6 +412,24 @@ Cancellation can produce `Cancelled` only before the first removal. After
 commit, execution finishes or produces `JobFailureKind::Partial` with exact
 removed/planned counts. Application retry rejects that partial outcome; safe
 preflight failures and pre-commit cancellation retain normal retry identity.
+
+### `trash_lifecycle.rs` and `restore_executor.rs`
+
+`floe-core::trash_lifecycle` models supported local freedesktop Trash roots,
+bounded no-follow `.trashinfo` parsing, exact payload/metadata/original paths,
+and atomic no-replace restore. Home Trash and `.Trash/$uid` / `.Trash-$uid`
+mounted-volume candidates are explicit. Symlinked roots, non-sticky shared
+roots, oversized or malformed metadata, NUL, invalid percent encoding, and
+non-normalized destinations do not become restore targets. Payloads with
+missing metadata remain visible so users can still delete them.
+
+`RestoreExecutor` is a fixed-capacity application worker using the shared job
+registry. It removes matching `.trashinfo` only after the payload move succeeds.
+Existing destinations become normal conflict outcomes; cleanup after a
+committed move becomes an explicit non-retryable partial failure. GTK submits
+`RestoreRequest` through `ApplicationState` and performs no filesystem work.
+Trash permanent deletion and Empty Trash reuse Phase 6M for both payload and
+companion metadata.
 
 ### `worker.rs`
 
@@ -574,7 +599,7 @@ floe-core legal state transitions (implemented)
 floe-core path-safe copy model and engine (implemented)
        |
        v
-bounded copy, move/rename, GIO trash, and permanent-delete executors (implemented)
+bounded copy, move/rename, GIO trash, restore, and permanent-delete executors (implemented)
 ```
 
 Phase 4D exposes the Phase 4C move/rename models through application-owned
@@ -588,16 +613,17 @@ Phase 4E implements the separate XDG/GIO trash job boundary. Phase 4F exposes
 it through one selection-sensitive “Move to Trash” action and Delete shortcut.
 The callback submits through `ApplicationState`; no direct GIO work appears in
 widgets and the read-only browser worker remains separate. The recoverable
-Trash action has no confirmation dialog; restore/bulk UI, Shift+Delete, undo,
-and permanent deletion remain deferred.
+Trash action has no confirmation dialog. Phase 6M later adds Shift+Delete and
+permanent deletion; Phase 6N adds Trash browsing, restore, and Empty Trash.
+Undo remains deferred to Phase 6P.
 
 Phase 5A generalizes retry dispatch and bounds application terminal history.
 Phase 5B adds the Operations Island Retry control for failed and cancelled
 attempts. Phase 5E prevents generic retries for destination conflicts and
 establishes explicit keep-existing/retry-with-name decisions without enabling
 overwrite. Phase 5F adds the focused, dismissible conflict interaction and
-recoverable Operations Island action. Overwrite, pause/resume controls, and
-permanent deletion remain deferred.
+recoverable Operations Island action. Overwrite and pause/resume controls remain
+deferred; Phase 6M later implements permanent deletion.
 
 Phase 6H adds `location_input.rs` as a GTK-independent input and recovery policy. GTK only captures explicit text and submits it to `BrowserController`; absolute-path syntax is checked immediately, directory enumeration remains on `BrowserWorker`, and failed submissions restore the exact previous navigation snapshot. Existing non-UTF-8 `PathBuf` state is used directly until the user explicitly submits edited UTF-8 entry text.
 
@@ -614,8 +640,9 @@ terminate the process group on cancellation/timeout, accept only no-follow
 regular output under 32 MiB, decode it as bounded passive PNG, revalidate the
 source, and reuse the existing cache/pixel result boundary. GTK observes only
 owned pixels or failure and retains generic icons. These helpers are supervised
-but not sandboxed; Phase 18L owns isolation. Phase 6M permanent deletion is the
-sole next phase.
+but not sandboxed; Phase 18L owns isolation. Phase 6N adds standards-correct
+local Trash browsing and restore; Phase 6O transfer semantics is the sole next
+phase.
 
 ## Known architectural debt
 

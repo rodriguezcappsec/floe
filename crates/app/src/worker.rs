@@ -8,7 +8,10 @@ use std::{
     },
 };
 
-use floe_core::{DirectoryEntry, DirectoryError, DirectorySort, enumerate_directory_with_cancel};
+use floe_core::{
+    DirectoryEntry, DirectoryError, DirectorySort, TrashEnumerateError, TrashRoot,
+    enumerate_directory_with_cancel, enumerate_trash_with_cancel,
+};
 
 enum RequestKind {
     Enumerate {
@@ -16,6 +19,10 @@ enum RequestKind {
     },
     Sort {
         entries: Vec<Arc<DirectoryEntry>>,
+        sort: DirectorySort,
+    },
+    EnumerateTrash {
+        roots: Vec<TrashRoot>,
         sort: DirectorySort,
     },
 }
@@ -28,6 +35,7 @@ struct Request {
 
 pub enum ResponseKind {
     Listing(Result<Vec<DirectoryEntry>, DirectoryError>),
+    TrashListing(Result<Vec<DirectoryEntry>, TrashEnumerateError>),
     Sorted {
         entries: Vec<Arc<DirectoryEntry>>,
         sort: DirectorySort,
@@ -81,6 +89,29 @@ impl BrowserWorker {
                             entries.sort_by(|left, right| sort.compare_entries(left, right));
                             ResponseKind::Sorted { entries, sort }
                         }
+                        RequestKind::EnumerateTrash { roots, sort } => {
+                            let mut combined = Vec::new();
+                            let mut result = Ok(());
+                            for (index, root) in roots.into_iter().enumerate() {
+                                match enumerate_trash_with_cancel(&root, || {
+                                    worker_generation.load(Ordering::Acquire) != generation
+                                }) {
+                                    Ok(mut entries) => combined.append(&mut entries),
+                                    Err(error) if index == 0 => {
+                                        result = Err(error);
+                                        break;
+                                    }
+                                    Err(error) => {
+                                        tracing::debug!(%error, "optional mounted Trash root unavailable");
+                                    }
+                                }
+                            }
+                            let result = result.map(|()| {
+                                    sort.sort_entries(&mut combined);
+                                    combined
+                                });
+                            ResponseKind::TrashListing(result)
+                        }
                     };
 
                     if worker_generation.load(Ordering::Acquire) != generation {
@@ -118,6 +149,14 @@ impl BrowserWorker {
         sort: DirectorySort,
     ) -> u64 {
         self.submit(path, RequestKind::Sort { entries, sort })
+    }
+
+    pub fn request_trash(&mut self, roots: Vec<TrashRoot>, sort: DirectorySort) -> u64 {
+        let path = roots
+            .first()
+            .map(|root| root.files().to_path_buf())
+            .unwrap_or_default();
+        self.submit(path, RequestKind::EnumerateTrash { roots, sort })
     }
 
     fn submit(&mut self, path: PathBuf, kind: RequestKind) -> u64 {
@@ -188,5 +227,41 @@ mod tests {
             .map(|entry| entry.display_name_lossy())
             .collect();
         assert_eq!(names, ["folder", "large", "small"]);
+    }
+
+    #[test]
+    fn phase_6n_worker_enumerates_trash_metadata_off_the_gtk_thread() {
+        let directory = tempdir().expect("temporary Trash root");
+        let root = floe_core::TrashRoot::new(directory.path().join("Trash"), None);
+        fs::create_dir_all(root.files()).expect("files directory");
+        fs::create_dir_all(root.info()).expect("info directory");
+        fs::write(root.files().join("item"), b"payload").expect("payload");
+        fs::write(
+            root.info().join("item.trashinfo"),
+            b"[Trash Info]\nPath=/tmp/original\nDeletionDate=2026-08-24T10:00:00\n",
+        )
+        .expect("metadata");
+        let mut worker = BrowserWorker::spawn().expect("worker");
+        let generation = worker.request_trash(vec![root], DirectorySort::default());
+        let response = (0..100)
+            .find_map(|_| {
+                let response = worker.try_response();
+                if response.is_none() {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                response
+            })
+            .expect("Trash response");
+        assert_eq!(response.generation, generation);
+        let ResponseKind::TrashListing(Ok(entries)) = response.kind else {
+            panic!("expected successful Trash listing");
+        };
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0]
+                .trash_metadata()
+                .and_then(|metadata| metadata.original_path()),
+            Some(std::path::Path::new("/tmp/original"))
+        );
     }
 }

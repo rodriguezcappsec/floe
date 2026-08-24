@@ -9,6 +9,7 @@ mod move_operation;
 mod navigation;
 mod permanent_delete;
 mod sorting;
+mod trash_lifecycle;
 
 pub use copy::{
     ConflictPolicy, CopyCancellation, CopyError, CopyOutcome, CopyProgress, CopyRequest,
@@ -20,7 +21,7 @@ pub use jobs::{
     InvalidJobProgress, JobCommand, JobCommandKind, JobEvent, JobEventKind, JobFailure,
     JobFailureKind, JobId, JobProgress, JobRecord, JobState, JobTransitionError, OperationId,
 };
-pub use model::{DirectoryEntry, DirectoryListing, EntryKind, ThumbnailState};
+pub use model::{DirectoryEntry, DirectoryListing, EntryKind, ThumbnailState, TrashMetadata};
 pub use move_operation::{
     MoveCancellation, MoveError, MoveOutcome, MoveRequest, RenameRequest, execute_move,
     execute_rename,
@@ -31,3 +32,7 @@ pub use permanent_delete::{
     PermanentDeleteRequestError, execute_permanent_delete,
 };
 pub use sorting::{DirectorySort, SortColumn, SortDirection};
+pub use trash_lifecycle::{
+    RestoreError, RestoreOutcome, RestoreRequest, RestoreRequestError, TrashEnumerateError,
+    TrashRoot, enumerate_trash_with_cancel, execute_restore,
+};

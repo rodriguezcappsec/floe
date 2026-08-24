@@ -235,6 +235,10 @@ const FILE_CONTEXT_ACTIONS: [(&str, &str); 7] = [
     ("Move to Trash", "win.trash"),
     ("Delete Permanently…", "win.permanent-delete"),
 ];
+const TRASH_CONTEXT_ACTIONS: [(&str, &str); 2] = [
+    ("Restore", "win.restore"),
+    ("Delete Permanently…", "win.permanent-delete"),
+];
 const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Paste", "win.paste"),
     ("Select All", "win.select-all"),
@@ -610,6 +614,51 @@ impl BrowserWidgets {
         self.grid_view.set_sensitive(sensitive);
     }
 
+    pub fn set_trash_mode(&self, active: bool) {
+        let file_model = if active {
+            build_trash_context_menu_model()
+        } else {
+            build_file_context_menu_model()
+        };
+        let background_model = if active {
+            build_trash_background_context_menu_model()
+        } else {
+            build_background_context_menu_model()
+        };
+        self.list_context_menu.set_menu_model(Some(&file_model));
+        self.grid_context_menu.set_menu_model(Some(&file_model));
+        self.list_background_menu
+            .set_menu_model(Some(&background_model));
+        self.grid_background_menu
+            .set_menu_model(Some(&background_model));
+        self.hidden_button.set_sensitive(!active);
+        self.add_bookmark_button.set_sensitive(!active);
+        if let Some(icon) = self.empty_state.first_child().and_downcast::<gtk::Image>() {
+            icon.set_icon_name(Some(if active {
+                "user-trash-symbolic"
+            } else {
+                "folder-symbolic"
+            }));
+            if let Some(label) = icon.next_sibling().and_downcast::<gtk::Label>() {
+                label.set_label(if active {
+                    "Trash is empty"
+                } else {
+                    "This folder is empty"
+                });
+            }
+        }
+        for header in &self.sort_headers {
+            match (active, header.column) {
+                (true, SortColumn::Type) => header.label.set_label("Original"),
+                (true, SortColumn::Modified) => header.label.set_label("Deleted"),
+                (false, SortColumn::Type | SortColumn::Modified) => {
+                    header.label.set_label(header.column.label());
+                }
+                _ => {}
+            }
+        }
+    }
+
     pub fn popdown_context_menus(&self) {
         self.list_context_menu.popdown();
         self.grid_context_menu.popdown();
@@ -732,6 +781,8 @@ pub fn build(
     file_actions_model.append(Some("Rename…"), Some("win.rename"));
     file_actions_model.append(Some("Move to Trash"), Some("win.trash"));
     file_actions_model.append(Some("Delete Permanently…"), Some("win.permanent-delete"));
+    file_actions_model.append(Some("Restore"), Some("win.restore"));
+    file_actions_model.append(Some("Empty Trash…"), Some("win.empty-trash"));
 
     let sidebar_density_model = gio::Menu::new();
     for (label, action) in SIDEBAR_DENSITY_MENU_ITEMS {
@@ -1067,6 +1118,12 @@ pub fn build_permanent_delete_dialog(target_labels: &[String]) -> PermanentDelet
         cancel_button,
         delete_button,
     }
+}
+
+pub fn build_empty_trash_dialog(target_labels: &[String]) -> PermanentDeleteDialogWidgets {
+    let widgets = build_permanent_delete_dialog(target_labels);
+    widgets.dialog.set_title("Empty Trash");
+    widgets
 }
 
 pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDialogWidgets {
@@ -1423,6 +1480,25 @@ fn build_sidebar(
         places_box.append(&button);
         buttons.push(button);
     }
+    let trash_content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(10)
+        .build();
+    trash_content.append(&gtk::Image::from_icon_name("user-trash-symbolic"));
+    trash_content.append(
+        &gtk::Label::builder()
+            .label("Trash")
+            .halign(gtk::Align::Start)
+            .hexpand(true)
+            .build(),
+    );
+    let trash_button = gtk::Button::builder()
+        .child(&trash_content)
+        .has_frame(false)
+        .action_name("win.open-trash")
+        .build();
+    set_accessible_label(&trash_button, "Trash");
+    places_box.append(&trash_button);
     sidebar.append(&places_box);
 
     let bookmark_heading = gtk::Box::builder()
@@ -1634,14 +1710,42 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
         let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
-        name.set_tooltip_text(Some(&display_name));
+        let tooltip = entry
+            .trash_metadata()
+            .and_then(|trash| trash.original_path())
+            .map_or_else(
+                || display_name.clone(),
+                |original| format!("{display_name}\nOriginal: {}", original.to_string_lossy()),
+            );
+        name.set_tooltip_text(Some(&tooltip));
         thumbnails_for_bind.request_thumbnail(&icon, &entry);
-        entry_type.set_label(entry_type_label(entry.kind()));
+        if let Some(trash) = entry.trash_metadata() {
+            let original = trash
+                .original_path()
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Original location unavailable".to_owned());
+            entry_type.set_label(&original);
+            entry_type.set_tooltip_text(Some(&original));
+            name.set_tooltip_text(Some(&format!("{display_name}\nOriginal: {original}")));
+        } else {
+            entry_type.set_label(entry_type_label(entry.kind()));
+            entry_type.set_tooltip_text(None);
+        }
         size.set_label(&entry.size().map(format_size).unwrap_or_default());
-        let modified_text = entry
-            .modified()
-            .and_then(format_modified)
-            .unwrap_or_default();
+        let modified_text = entry.trash_metadata().map_or_else(
+            || {
+                entry
+                    .modified()
+                    .and_then(format_modified)
+                    .unwrap_or_default()
+            },
+            |trash| {
+                trash
+                    .deletion_date()
+                    .map(|date| date.replace('T', " · "))
+                    .unwrap_or_else(|| "Unknown".to_owned())
+            },
+        );
         modified.set_label(&modified_text);
         modified.set_tooltip_text((!modified_text.is_empty()).then_some(modified_text.as_str()));
     });
@@ -1898,7 +2002,14 @@ fn build_grid_factory(
         let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
-        name.set_tooltip_text(Some(&display_name));
+        let tooltip = entry
+            .trash_metadata()
+            .and_then(|trash| trash.original_path())
+            .map_or_else(
+                || display_name.clone(),
+                |original| format!("{display_name}\nOriginal: {}", original.to_string_lossy()),
+            );
+        name.set_tooltip_text(Some(&tooltip));
         thumbnails_for_bind.request_thumbnail_at_size(&icon, &entry, edge);
     });
 
@@ -1943,8 +2054,36 @@ fn build_file_context_menu_model() -> gio::Menu {
         Some(FILE_CONTEXT_ACTIONS[5].0),
         Some(FILE_CONTEXT_ACTIONS[5].1),
     );
+    destructive.append(
+        Some(FILE_CONTEXT_ACTIONS[6].0),
+        Some(FILE_CONTEXT_ACTIONS[6].1),
+    );
     menu.append_section(None, &destructive);
 
+    menu
+}
+
+fn build_trash_context_menu_model() -> gio::Menu {
+    let menu = gio::Menu::new();
+    let restore = gio::Menu::new();
+    restore.append(
+        Some(TRASH_CONTEXT_ACTIONS[0].0),
+        Some(TRASH_CONTEXT_ACTIONS[0].1),
+    );
+    menu.append_section(None, &restore);
+    let destructive = gio::Menu::new();
+    destructive.append(
+        Some(TRASH_CONTEXT_ACTIONS[1].0),
+        Some(TRASH_CONTEXT_ACTIONS[1].1),
+    );
+    menu.append_section(None, &destructive);
+    menu
+}
+
+fn build_trash_background_context_menu_model() -> gio::Menu {
+    let menu = gio::Menu::new();
+    menu.append(Some("Empty Trash…"), Some("win.empty-trash"));
+    menu.append(Some("Refresh"), Some("win.refresh"));
     menu
 }
 
@@ -2208,6 +2347,23 @@ mod tests {
     use std::{path::PathBuf, time::Duration};
 
     use super::*;
+
+    #[test]
+    fn phase_6n_actions_keep_restore_and_irreversible_trash_actions_distinct() {
+        assert_eq!(
+            TRASH_CONTEXT_ACTIONS,
+            [
+                ("Restore", "win.restore"),
+                ("Delete Permanently…", "win.permanent-delete"),
+            ]
+        );
+        assert!(FILE_CONTEXT_ACTIONS.contains(&("Delete Permanently…", "win.permanent-delete")));
+        assert!(
+            TRASH_CONTEXT_ACTIONS
+                .iter()
+                .all(|(label, _)| !label.to_ascii_lowercase().contains("secure"))
+        );
+    }
 
     #[test]
     fn phase_6k2_operation_island_layout_keeps_every_child_within_content_width() {

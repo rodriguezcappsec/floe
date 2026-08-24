@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 6M. Phase 6N is the only
+The implementation baseline for this matrix is Phase 6N. Phase 6O is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -69,8 +69,8 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | GTK-independent operation/job model | `COMPLETE` | 3 | Strong operation and attempt IDs, progress, commands, events, failures, and legal transitions live outside widgets. |
-| Bounded background executors | `COMPLETE` | 4A-6M | Copy, move/rename, Trash, and permanent deletion use fixed-capacity application-owned workers. |
-| GTK-thread filesystem mutation prohibition | `COMPLETE` | 0-6M | GTK callbacks submit application commands; filesystem work stays in core/application workers. |
+| Bounded background executors | `COMPLETE` | 4A-6N | Copy, move/rename, Trash, restore, and permanent deletion use fixed-capacity application-owned workers. |
+| GTK-thread filesystem mutation prohibition | `COMPLETE` | 0-6N | GTK callbacks submit application commands; filesystem work stays in core/application workers. |
 | Multiple logical operations | `COMPLETE` | 3/6J | Each request has stable logical identity; multi-selection batches serialize requests over bounded workers. |
 | Copy files and directories | `COMPLETE` | 4A/4B | Recursive copy has no-follow link policy, chunk cancellation, progress, tracked cleanup, and fail-if-exists behavior. |
 | Internal Cut/Copy/Paste | `COMPLETE` | 4B/4D/6J | Application-owned exact-path transfer buffer supports multi-selection batches. |
@@ -122,16 +122,16 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Move one item to Trash | `COMPLETE` | 4E/4F | GIO-backed, cancellable request with exact source and affected-parent refresh. |
 | Move multiple items to Trash | `COMPLETE` | 6J | Application-owned serial batch avoids silently overflowing worker capacity. |
 | Ordinary Trash without confirmation | `COMPLETE` | 4F | Recoverable Trash uses direct action and truthful wording rather needless modal friction. |
-| Trash browsing | `PLANNED` | 6N | Requires URI/location architecture and standards metadata. |
-| Restore to original location | `PLANNED` | 6N | Depends on Trash browsing, original-location metadata, and conflict handling. |
-| Restore elsewhere | `PLANNED` | 6N | Needs an explicit destination chooser and safe conflict policy. |
-| Show deletion date and original location | `PLANNED` | 6N/10B | Metadata must come from the Trash standard, not filename inference. |
-| Empty Trash | `PLANNED` | 6N | Requires rich aggregate preflight, cancellation semantics, and partial-failure reporting. |
-| Delete one Trash item permanently | `PLANNED` | 6N | Phase 6N must connect Trash entries to the completed Phase 6M deletion engine. |
+| Trash browsing | `COMPLETE` | 6N | First-class local Trash mode enumerates home and mounted-volume freedesktop roots on the bounded browser worker. |
+| Restore to original location | `COMPLETE` | 6N | Exact metadata-backed restore uses no-replace move, bounded jobs, and explicit destination-conflict recovery. |
+| Restore elsewhere | `DEFERRED` | 6O/20 | Requires destination chooser semantics integrated with the next transfer boundary. |
+| Show deletion date and original location | `COMPLETE` | 6N | Values come only from bounded freedesktop `.trashinfo`; unavailable metadata is stated rather than inferred. |
+| Empty Trash | `COMPLETE` | 6N | Aggregate safe-focus confirmation submits payload and metadata through Phase 6M with explicit partial-failure semantics. |
+| Delete one Trash item permanently | `COMPLETE` | 6N | Selection action reuses Phase 6M and includes the matching metadata record where available. |
 | Permanent delete job | `COMPLETE` | 6M | Exact multi-target requests preflight every tree without following symlinks, reject roots and mount boundaries, revalidate identity, and report non-retryable partial failure after commit. |
 | Shift+Delete | `COMPLETE` | 6M | Selection-aware shortcut and menu action open an explicit irreversible confirmation with escaped exact target context before submitting the application job. |
 | Secure erase claim | `NOT APPLICABLE` | Policy | SSD wear leveling, CoW, snapshots, and remote storage make general secure-erasure claims dishonest. |
-| Trash age/size cleanup preferences | `DEFERRED` | 6N/20 | Only where desktop standards/backend behavior can support them predictably. |
+| Trash age/size cleanup preferences | `DEFERRED` | 20 | No reviewed portable desktop mechanism currently provides predictable semantics. |
 
 ## Drag and drop, creation, and productivity operations
 
@@ -418,7 +418,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Add/remove bookmark | `COMPLETE` | 6K | Current folder can be added; explicit adjacent control removes a bookmark. |
 | Reorder/rename bookmark | `PLANNED` | 20 | Preserve raw path identity; rename affects display label only. |
 | Bookmark custom icon | `DEFERRED` | 20 | Only if worthwhile after core bookmark editing. |
-| Trash and Recent sidebar entries | `PLANNED` | 6N/14 | Trash browsing belongs to Phase 6N; Recent needs standards integration and a privacy-safe history policy. |
+| Trash and Recent sidebar entries | `PARTIAL` | 6N/14 | Trash is a first-class sidebar location; Recent still needs standards integration and a privacy-safe history policy. |
 | Favorites | `PARTIAL` | 6K/19 | Bookmarks cover favorite locations; richer file favorites/tags are not designed. |
 | Drives, volumes, mounts, hotplug | `COMPLETE` | 6K | GIO `VolumeMonitor` produces deduplicated application-owned snapshots. |
 | Mount/unmount/eject | `COMPLETE` | 6K | Async actions expose busy/unavailable/failure states. |

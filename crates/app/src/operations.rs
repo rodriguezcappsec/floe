@@ -291,6 +291,11 @@ impl OperationController {
                 }
                 let title = match failure.kind() {
                     JobFailureKind::Conflict => "Destination conflict",
+                    JobFailureKind::Partial
+                        if matches!(request.as_ref(), Some(TrackedOperation::Restore(_))) =>
+                    {
+                        "Restore completed with cleanup warning"
+                    }
                     JobFailureKind::Partial => "Permanent deletion partially completed",
                     _ => "Operation failed",
                 };
@@ -702,6 +707,7 @@ fn operation_verb(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Rename(_)) => "Rename",
         Some(TrackedOperation::Trash(_)) => "Move to Trash",
         Some(TrackedOperation::PermanentDelete(_)) => "Delete Permanently",
+        Some(TrackedOperation::Restore(_)) => "Restore",
         None => "Operation",
     }
 }
@@ -713,6 +719,7 @@ fn operation_verb_ing(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Rename(_)) => "Renaming",
         Some(TrackedOperation::Trash(_)) => "Moving to Trash",
         Some(TrackedOperation::PermanentDelete(_)) => "Deleting permanently",
+        Some(TrackedOperation::Restore(_)) => "Restoring",
         None => "Working on",
     }
 }
@@ -724,6 +731,7 @@ fn waiting_detail(request: Option<TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Rename(_)) => "Waiting to rename…",
         Some(TrackedOperation::Trash(_)) => "Waiting to move to Trash…",
         Some(TrackedOperation::PermanentDelete(_)) => "Preparing permanent deletion…",
+        Some(TrackedOperation::Restore(_)) => "Waiting to restore…",
         None => "Waiting…",
     }
 }
@@ -735,6 +743,7 @@ fn running_detail(request: Option<TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Rename(_)) => "Renaming…",
         Some(TrackedOperation::Trash(_)) => "Moving to Trash through GIO…",
         Some(TrackedOperation::PermanentDelete(_)) => "Deleting permanently…",
+        Some(TrackedOperation::Restore(_)) => "Restoring to the original location…",
         None => "Working…",
     }
 }
@@ -746,6 +755,7 @@ fn completed_title(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Rename(_)) => "Rename complete",
         Some(TrackedOperation::Trash(_)) => "Moved to Trash",
         Some(TrackedOperation::PermanentDelete(_)) => "Deleted permanently",
+        Some(TrackedOperation::Restore(_)) => "Restore complete",
         None => "Operation complete",
     }
 }
@@ -757,6 +767,7 @@ fn completed_detail(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Rename(_)) => "Renamed successfully",
         Some(TrackedOperation::Trash(_)) => "Item is available in Trash",
         Some(TrackedOperation::PermanentDelete(_)) => "Permanent deletion completed",
+        Some(TrackedOperation::Restore(_)) => "Restored to the original location",
         None => "Completed successfully",
     }
 }
@@ -772,6 +783,7 @@ fn completed_toast(request: Option<&TrackedOperation>) -> String {
         Some(TrackedOperation::PermanentDelete(_)) => {
             format!("Deleted {} permanently", operation_name(request))
         }
+        Some(TrackedOperation::Restore(_)) => format!("Restored {}", operation_name(request)),
         None => "Operation completed".to_owned(),
     }
 }
@@ -780,7 +792,12 @@ fn failure_summary(request: Option<&TrackedOperation>, failure: &JobFailure) -> 
     match failure.kind() {
         JobFailureKind::Conflict => "The destination already exists",
         JobFailureKind::PermissionDenied => "Permission was denied",
-        JobFailureKind::Partial => "Some items were deleted permanently before the failure",
+        JobFailureKind::Partial => match request {
+            Some(TrackedOperation::Restore(_)) => {
+                "Item restored, but Trash metadata cleanup failed"
+            }
+            _ => "Some items were deleted permanently before the failure",
+        },
         JobFailureKind::Unsupported if matches!(request, Some(TrackedOperation::Move(_))) => {
             "Cross-filesystem move is not supported yet"
         }

@@ -13,6 +13,7 @@ pub mod move_executor;
 mod operations;
 mod permanent_delete_executor;
 mod preferences;
+pub mod restore_executor;
 pub mod state;
 mod system_thumbnailer;
 mod thumbnail;
