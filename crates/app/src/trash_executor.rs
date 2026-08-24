@@ -200,6 +200,20 @@ impl TrashExecutor {
         self.submit_with_cancellable(request, gio::Cancellable::new())
     }
 
+    pub fn submit_trash_retry(
+        &self,
+        failed_job_id: JobId,
+        request: TrashRequest,
+    ) -> Result<TrashSubmission, TrashSubmitError> {
+        let queued = lock(&self.jobs).retry(failed_job_id)?;
+        self.enqueue(
+            queued.operation_id(),
+            queued.job_id(),
+            request,
+            gio::Cancellable::new(),
+        )
+    }
+
     pub fn cancel(&self, job_id: JobId) -> Result<(), TrashCancelError> {
         let cancellable = lock(&self.cancellations)
             .get(&job_id)
@@ -219,8 +233,16 @@ impl TrashExecutor {
         cancellable: gio::Cancellable,
     ) -> Result<TrashSubmission, TrashSubmitError> {
         let queued = lock(&self.jobs).queue_operation()?;
-        let operation_id = queued.operation_id();
-        let job_id = queued.job_id();
+        self.enqueue(queued.operation_id(), queued.job_id(), request, cancellable)
+    }
+
+    fn enqueue(
+        &self,
+        operation_id: OperationId,
+        job_id: JobId,
+        request: TrashRequest,
+        cancellable: gio::Cancellable,
+    ) -> Result<TrashSubmission, TrashSubmitError> {
         lock(&self.cancellations).insert(job_id, cancellable.clone());
         let command = TrashCommand::Execute(TrashTask {
             job_id,

@@ -1129,13 +1129,13 @@ Last updated:
 Current phase:
 
 ```text
-Phase 4 — Filesystem operations (Phase 4F trash interaction complete)
+Phase 5 — Progress, cancellation, and conflict handling (Phase 5A complete)
 ```
 
 Status:
 
 ```text
-Phases 0-3 and Phases 4A-4F are complete. One application-owned transfer buffer
+Phases 0-4 and Phase 5A are complete. One application-owned transfer buffer
 supports Ctrl+C copy and Ctrl+X move followed by Ctrl+V paste. F2 and the
 file-actions menu open a validated rename dialog. Copy, move, and rename use
 bounded workers plus generic non-blocking Operations Island feedback; GTK
@@ -1143,6 +1143,8 @@ callbacks perform no filesystem work. A separate bounded GIO trash executor
 provides path-safe, cancellable job infrastructure. The explicitly labelled
 “Move to Trash” menu action and Delete shortcut submit through application
 state; permanent deletion remains unavailable.
+Backend retry dispatch now covers copy, move, rename, and trash with stable
+logical operation identity, fresh job attempts, and bounded terminal history.
 ```
 
 Established product decisions:
@@ -1175,9 +1177,9 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 4F is complete. The next coherent branch is
-`phase-5a-operation-resilience`, generalizing retry request tracking and bounded
-terminal history without introducing overwrite or permanent deletion.
+Phase 5A is complete. The next coherent branch is
+`phase-5b-retry-interaction`, exposing accessible retry for failed/cancelled
+Operations Island states without introducing overwrite or permanent deletion.
 ```
 
 Verified:
@@ -1185,13 +1187,14 @@ Verified:
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo test --workspace` passes with sixty-three tests: twenty-eight core tests
-and thirty-five application tests. Ten focused Phase 4E tests cover original
+`cargo test --workspace` passes with sixty-seven tests: twenty-eight core tests
+and thirty-nine application tests. Ten focused Phase 4E tests cover original
 non-UTF-8 paths, GIO error mapping, success, cancellation, structured failures,
 capacity, shutdown, state tracking, and recovery feedback without touching real
-user Trash. A focused Phase 4F test covers explicit queued/running/completion
-wording. Formatting, workspace check, strict Clippy, and native smoke status are
-recorded in `GATES.md`.
+user Trash. Phase 4F has one focused interaction-wording test. Four focused
+Phase 5A tests cover all operation kinds, stable/new identities, cancelled
+retry, non-UTF-8 paths, completed rejection, bounded history, and safe registry
+eviction. Formatting, strict Clippy, and native smoke status are in `GATES.md`.
 ```
 
 Known issues:
@@ -1282,15 +1285,21 @@ Completed this session:
 * Added explicit trash progress/completion/recovery wording and affected-parent
   refresh after completion without a modal confirmation dialog.
 * Kept Shift+Delete, permanent deletion, restore/bulk UI, and undo deferred.
+* Added backend retry submission for copy, move, rename, and trash using the
+  preserved request, stable `OperationId`, and a fresh `JobId` per attempt.
+* Added 64-entry terminal operation history and terminal-only job-record
+  eviction while preserving all active records.
+* Kept retry UI, overwrite, pause/resume controls, interactive conflict choices,
+  and permanent deletion deferred.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-5a-operation-resilience` and generalize retry request tracking
-across copy, move, rename, and trash while preserving logical `OperationId` and
-allocating a new `JobId` per attempt. Add bounded terminal history and tests;
-keep overwrite, pause/resume UI, and permanent deletion deferred.
+Create `phase-5b-retry-interaction` and add an accessible retry action to
+failed/cancelled Operations Island terminal states. Submit through
+`ApplicationState::retry_operation` and show the fresh attempt without blocking
+browsing. Keep overwrite, pause/resume UI, and permanent deletion deferred.
 ```
 
 ---

@@ -42,11 +42,15 @@ required nor simulated.
   structured failures, and original-path preservation
 - Explicit “Move to Trash” file-menu action and Delete shortcut routed through
   application state with Operations Island feedback
+- Bounded terminal operation history and backend retry dispatch for copy, move,
+  rename, and trash with stable logical operation identity
 
 Phase 4D copy/move/paste and rename work within the running Floe application.
 Phase 4F exposes the verified trash job as a single-selection, recoverable
 desktop Trash action. Permanent delete, Shift+Delete, bulk trash, and built-in
 restore/undo remain unavailable.
+Phase 5A adds retry/history infrastructure without exposing retry or overwrite
+controls in the GTK interface yet.
 Cross-application clipboard formats, overwrite, cross-filesystem copy-delete
 moves, trash restore/bulk UI, permanent deletion, previews, tabs, split view,
 Miller columns, and environment-specific integrations remain deferred.

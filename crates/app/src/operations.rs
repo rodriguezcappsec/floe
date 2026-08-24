@@ -11,7 +11,7 @@ use floe_core::{JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId};
 use gtk::glib;
 
 use crate::{
-    state::{ApplicationState, TrackedOperation},
+    state::{ApplicationState, TerminalOutcome, TrackedOperation},
     ui::OperationWidgets,
 };
 
@@ -167,9 +167,12 @@ impl OperationController {
         self.active_jobs
             .borrow_mut()
             .retain(|active| *active != job_id);
-        let request = self
-            .state
-            .finish_operation(job_id, matches!(&result, TerminalResult::Completed));
+        let outcome = match &result {
+            TerminalResult::Completed => TerminalOutcome::Completed,
+            TerminalResult::Cancelled => TerminalOutcome::Cancelled,
+            TerminalResult::Failed(_) => TerminalOutcome::Failed,
+        };
+        let request = self.state.finish_operation(job_id, outcome);
 
         match result {
             TerminalResult::Completed => {

@@ -91,15 +91,25 @@ of truth for sequencing and current-session handoff.
 - No confirmation for the recoverable Trash action; permanent delete,
   Shift+Delete, bulk trash, restore UI, and undo remain unavailable.
 
-## Next
-
 ### Phase 5A — Operation resilience foundation
 
-Create branch `phase-5a-operation-resilience`. Generalize retry request tracking
-across copy, move, rename, and trash while preserving logical `OperationId` and
-allocating a new `JobId` per attempt. Add bounded terminal history and tests;
-keep overwrite, pause/resume UI, permanent deletion, and interactive conflict
-decisions deferred.
+- Retry dispatch for copy, move, rename, and trash through existing bounded
+  executors.
+- Stable logical `OperationId` and fresh `JobId` for every retry attempt.
+- Original path-safe operation requests retained without display-text rebuilds.
+- Sixty-four-entry terminal operation history with terminal registry pruning.
+- Completed and evicted entries reject retry explicitly.
+- No GTK retry control, overwrite path, or interactive conflict choice yet.
+
+## Next
+
+### Phase 5B — Retry interaction
+
+Create branch `phase-5b-retry-interaction`. Add an accessible retry action to
+failed/cancelled Operations Island terminal states, submit through
+`ApplicationState::retry_operation`, and show the fresh attempt without blocking
+browsing. Keep overwrite, pause/resume controls, permanent deletion, and
+interactive conflict decisions deferred.
 
 ## Later
 
