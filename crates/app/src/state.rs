@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     ffi::{OsStr, OsString},
     os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
@@ -8,7 +8,8 @@ use std::{
 };
 
 use floe_core::{
-    ConflictPolicy, CopyRequest, JobEvent, JobId, MoveRequest, RenameRequest, SymlinkPolicy,
+    ConflictPolicy, CopyRequest, JobEvent, JobId, MoveRequest, OperationId, RenameRequest,
+    SymlinkPolicy,
 };
 use thiserror::Error;
 
@@ -80,6 +81,41 @@ pub enum TrackedOperation {
     Trash(TrashRequest),
 }
 
+pub const MAX_TERMINAL_HISTORY: usize = 64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TerminalOutcome {
+    Completed,
+    Cancelled,
+    Failed,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TerminalOperation {
+    job_id: JobId,
+    operation_id: OperationId,
+    outcome: TerminalOutcome,
+    operation: TrackedOperation,
+}
+
+impl TerminalOperation {
+    pub const fn job_id(&self) -> JobId {
+        self.job_id
+    }
+
+    pub const fn operation_id(&self) -> OperationId {
+        self.operation_id
+    }
+
+    pub const fn outcome(&self) -> TerminalOutcome {
+        self.outcome
+    }
+
+    pub fn operation(&self) -> &TrackedOperation {
+        &self.operation
+    }
+}
+
 impl TrackedOperation {
     pub fn source(&self) -> &Path {
         match self {
@@ -119,7 +155,39 @@ pub enum TransferSubmission {
     Move(MoveSubmission),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RetrySubmission {
+    Copy(CopySubmission),
+    Move(MoveSubmission),
+    Trash(TrashSubmission),
+}
+
+impl RetrySubmission {
+    pub const fn operation_id(self) -> OperationId {
+        match self {
+            Self::Copy(submission) => submission.operation_id(),
+            Self::Move(submission) => submission.operation_id(),
+            Self::Trash(submission) => submission.operation_id(),
+        }
+    }
+
+    pub const fn job_id(self) -> JobId {
+        match self {
+            Self::Copy(submission) => submission.job_id(),
+            Self::Move(submission) => submission.job_id(),
+            Self::Trash(submission) => submission.job_id(),
+        }
+    }
+}
+
 impl TransferSubmission {
+    pub const fn operation_id(self) -> OperationId {
+        match self {
+            Self::Copy(submission) => submission.operation_id(),
+            Self::Move(submission) => submission.operation_id(),
+        }
+    }
+
     pub const fn job_id(self) -> JobId {
         match self {
             Self::Copy(submission) => submission.job_id(),
@@ -152,6 +220,10 @@ pub enum CopyInteractionError {
     TrashSubmit(#[from] TrashSubmitError),
     #[error(transparent)]
     TrashCancel(#[from] TrashCancelError),
+    #[error("terminal operation history does not contain job {0:?}")]
+    RetryNotFound(JobId),
+    #[error("completed job {0:?} cannot be retried")]
+    RetryCompleted(JobId),
 }
 
 #[derive(Debug, Error)]
@@ -173,6 +245,7 @@ pub struct ApplicationState {
     trash_executor: TrashExecutor,
     transfer_buffer: RefCell<TransferBuffer>,
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
+    terminal_history: RefCell<VecDeque<TerminalOperation>>,
 }
 
 impl ApplicationState {
@@ -188,6 +261,7 @@ impl ApplicationState {
             trash_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
+            terminal_history: RefCell::new(VecDeque::new()),
         })
     }
 
@@ -296,14 +370,128 @@ impl ApplicationState {
         }
     }
 
-    pub fn finish_operation(&self, job_id: JobId, completed: bool) -> Option<TrackedOperation> {
+    pub fn finish_operation(
+        &self,
+        job_id: JobId,
+        outcome: TerminalOutcome,
+    ) -> Option<TrackedOperation> {
+        let operation_id = lock(&self.jobs)
+            .record(job_id)
+            .map(|record| record.operation_id());
         let operation = self.operation_requests.borrow_mut().remove(&job_id);
-        if completed && let Some(TrackedOperation::Move(request)) = operation.as_ref() {
+        if outcome == TerminalOutcome::Completed
+            && let Some(TrackedOperation::Move(request)) = operation.as_ref()
+        {
             self.transfer_buffer
                 .borrow_mut()
                 .clear_completed_move(request.source());
         }
+        if let (Some(operation_id), Some(operation)) = (operation_id, operation.as_ref()) {
+            let mut history = self.terminal_history.borrow_mut();
+            if history.len() == MAX_TERMINAL_HISTORY {
+                if let Some(evicted) = history.pop_front() {
+                    lock(&self.jobs).forget_terminal(evicted.job_id());
+                }
+            }
+            history.push_back(TerminalOperation {
+                job_id,
+                operation_id,
+                outcome,
+                operation: operation.clone(),
+            });
+        }
         operation
+    }
+
+    pub fn terminal_history(&self) -> Vec<TerminalOperation> {
+        self.terminal_history.borrow().iter().cloned().collect()
+    }
+
+    pub fn retry_operation(
+        &self,
+        failed_job_id: JobId,
+    ) -> Result<RetrySubmission, CopyInteractionError> {
+        let terminal = self
+            .terminal_history
+            .borrow()
+            .iter()
+            .find(|entry| entry.job_id() == failed_job_id)
+            .cloned()
+            .ok_or(CopyInteractionError::RetryNotFound(failed_job_id))?;
+        if terminal.outcome() == TerminalOutcome::Completed {
+            return Err(CopyInteractionError::RetryCompleted(failed_job_id));
+        }
+
+        match terminal.operation().clone() {
+            TrackedOperation::Copy(request) => {
+                match self
+                    .copy_executor
+                    .submit_retry(failed_job_id, request.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Copy(request));
+                        Ok(RetrySubmission::Copy(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Copy(request));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
+            TrackedOperation::Move(request) => {
+                match self
+                    .move_executor
+                    .submit_move_retry(failed_job_id, request.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Move(request));
+                        Ok(RetrySubmission::Move(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Move(request));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
+            TrackedOperation::Rename(request) => {
+                match self
+                    .move_executor
+                    .submit_rename_retry(failed_job_id, request.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Rename(request));
+                        Ok(RetrySubmission::Move(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Rename(request));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
+            TrackedOperation::Trash(request) => {
+                match self
+                    .trash_executor
+                    .submit_trash_retry(failed_job_id, request.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Trash(request));
+                        Ok(RetrySubmission::Trash(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Trash(request));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
+        }
     }
 
     pub fn cancel_operation(&self, job_id: JobId) -> Result<(), CopyInteractionError> {
@@ -343,6 +531,7 @@ impl ApplicationState {
             trash_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
+            terminal_history: RefCell::new(VecDeque::new()),
         })
     }
 
@@ -431,6 +620,7 @@ mod tests {
         ffi::OsString,
         fs,
         os::unix::ffi::{OsStrExt, OsStringExt},
+        sync::atomic::{AtomicUsize, Ordering},
         thread,
         time::{Duration, Instant},
     };
@@ -638,7 +828,7 @@ mod tests {
             .expect("move request should remain observable");
         assert!(matches!(tracked, TrackedOperation::Move(_)));
         assert_eq!(tracked.affected_directories().len(), 2);
-        state.finish_operation(moved.job_id(), true);
+        state.finish_operation(moved.job_id(), TerminalOutcome::Completed);
         assert_eq!(state.staged_transfer(), None);
 
         let renamed_name = OsString::from_vec(b"renamed-\xfe".to_vec());
@@ -671,6 +861,27 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default)]
+    struct RetryTrashBackend {
+        attempts: AtomicUsize,
+    }
+
+    impl TrashBackend for RetryTrashBackend {
+        fn trash(
+            &self,
+            _request: &TrashRequest,
+            _cancellable: &gtk::gio::Cancellable,
+        ) -> Result<(), TrashError> {
+            if self.attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                Err(TrashError::Io {
+                    message: "first attempt fails".to_owned(),
+                })
+            } else {
+                Ok(())
+            }
+        }
+    }
+
     #[test]
     fn phase_4e_state_tracks_original_trash_path_and_parent() {
         let fixture = tempdir().expect("temporary directory should be available");
@@ -695,5 +906,161 @@ mod tests {
             vec![fixture.path().to_path_buf()]
         );
         assert!(matches!(tracked, TrackedOperation::Trash(_)));
+    }
+
+    #[test]
+    fn phase_5a_retries_copy_move_and_rename_with_stable_operation_identity() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let state = ApplicationState::new().expect("application state should start");
+
+        let copy_source_dir = fixture.path().join("copy-source");
+        let copy_destination_dir = fixture.path().join("copy-destination");
+        fs::create_dir(&copy_source_dir).expect("copy source directory");
+        fs::create_dir(&copy_destination_dir).expect("copy destination directory");
+        let copy_source = copy_source_dir.join("copy-item");
+        fs::write(&copy_source, b"copy").expect("copy source fixture");
+        state.stage_copy(copy_source).expect("copy should stage");
+        let cancellation = CopyCancellation::new();
+        cancellation.cancel();
+        let cancelled_copy = state
+            .submit_paste_with_cancellation(&copy_destination_dir, cancellation)
+            .expect("cancelled copy should submit");
+        assert_eq!(
+            wait_for_terminal(&state, cancelled_copy.job_id()),
+            JobState::Cancelled
+        );
+        state.finish_operation(cancelled_copy.job_id(), TerminalOutcome::Cancelled);
+        let retried_copy = state
+            .retry_operation(cancelled_copy.job_id())
+            .expect("cancelled copy should retry");
+        assert_eq!(retried_copy.operation_id(), cancelled_copy.operation_id());
+        assert_ne!(retried_copy.job_id(), cancelled_copy.job_id());
+        assert_eq!(
+            wait_for_terminal(&state, retried_copy.job_id()),
+            JobState::Completed
+        );
+
+        let move_source_dir = fixture.path().join("move-source");
+        let move_destination_dir = fixture.path().join("move-destination");
+        fs::create_dir(&move_source_dir).expect("move source directory");
+        fs::create_dir(&move_destination_dir).expect("move destination directory");
+        let move_source = move_source_dir.join("move-item");
+        let move_conflict = move_destination_dir.join("move-item");
+        fs::write(&move_source, b"move").expect("move source fixture");
+        fs::write(&move_conflict, b"conflict").expect("move conflict fixture");
+        state.stage_move(move_source).expect("move should stage");
+        let failed_move = state
+            .submit_paste(&move_destination_dir)
+            .expect("move should submit");
+        assert_eq!(
+            wait_for_terminal(&state, failed_move.job_id()),
+            JobState::Failed
+        );
+        state.finish_operation(failed_move.job_id(), TerminalOutcome::Failed);
+        fs::remove_file(&move_conflict).expect("move conflict should be removable");
+        let retried_move = state
+            .retry_operation(failed_move.job_id())
+            .expect("failed move should retry");
+        assert_eq!(retried_move.operation_id(), failed_move.operation_id());
+        assert_ne!(retried_move.job_id(), failed_move.job_id());
+        assert_eq!(
+            wait_for_terminal(&state, retried_move.job_id()),
+            JobState::Completed
+        );
+
+        let rename_source = fixture.path().join("rename-source");
+        let rename_conflict = fixture.path().join("rename-target");
+        fs::write(&rename_source, b"rename").expect("rename source fixture");
+        fs::write(&rename_conflict, b"conflict").expect("rename conflict fixture");
+        let failed_rename = state
+            .submit_rename(rename_source, OsString::from("rename-target"))
+            .expect("rename should submit");
+        assert_eq!(
+            wait_for_terminal(&state, failed_rename.job_id()),
+            JobState::Failed
+        );
+        state.finish_operation(failed_rename.job_id(), TerminalOutcome::Failed);
+        fs::remove_file(&rename_conflict).expect("rename conflict should be removable");
+        let retried_rename = state
+            .retry_operation(failed_rename.job_id())
+            .expect("failed rename should retry");
+        assert_eq!(retried_rename.operation_id(), failed_rename.operation_id());
+        assert_ne!(retried_rename.job_id(), failed_rename.job_id());
+        assert_eq!(
+            wait_for_terminal(&state, retried_rename.job_id()),
+            JobState::Completed
+        );
+    }
+
+    #[test]
+    fn phase_5a_retries_failed_trash_with_original_non_utf8_path() {
+        let backend = Arc::new(RetryTrashBackend::default());
+        let state = ApplicationState::new_with_trash_backend(backend.clone())
+            .expect("application state should start");
+        let source = PathBuf::from("/virtual").join(OsString::from_vec(b"retry-\xff".to_vec()));
+        let failed = state
+            .submit_trash(source.clone())
+            .expect("trash should submit");
+        assert_eq!(wait_for_terminal(&state, failed.job_id()), JobState::Failed);
+        state.finish_operation(failed.job_id(), TerminalOutcome::Failed);
+
+        let retried = state
+            .retry_operation(failed.job_id())
+            .expect("failed trash should retry");
+        assert_eq!(retried.operation_id(), failed.operation_id());
+        assert_ne!(retried.job_id(), failed.job_id());
+        assert_eq!(
+            wait_for_terminal(&state, retried.job_id()),
+            JobState::Completed
+        );
+        assert_eq!(
+            state
+                .operation_request(retried.job_id())
+                .expect("retry request should be tracked")
+                .source(),
+            source
+        );
+        assert_eq!(backend.attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn phase_5a_terminal_history_is_bounded_and_completed_retry_is_rejected() {
+        let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
+            .expect("application state should start");
+        let mut first_job = None;
+        let mut last_job = None;
+        for index in 0..=MAX_TERMINAL_HISTORY {
+            let submission = state
+                .submit_trash(PathBuf::from(format!("/virtual/history-{index}")))
+                .expect("history trash should submit");
+            assert_eq!(
+                wait_for_terminal(&state, submission.job_id()),
+                JobState::Completed
+            );
+            state.finish_operation(submission.job_id(), TerminalOutcome::Completed);
+            first_job.get_or_insert(submission.job_id());
+            last_job = Some(submission.job_id());
+        }
+
+        let history = state.terminal_history();
+        assert_eq!(history.len(), MAX_TERMINAL_HISTORY);
+        assert!(
+            !history
+                .iter()
+                .any(|entry| entry.job_id() == first_job.expect("first job"))
+        );
+        assert!(
+            lock(&state.jobs)
+                .record(first_job.expect("first job"))
+                .is_none()
+        );
+        assert!(matches!(
+            state.retry_operation(first_job.expect("first job")),
+            Err(CopyInteractionError::RetryNotFound(_))
+        ));
+        assert!(matches!(
+            state.retry_operation(last_job.expect("last job")),
+            Err(CopyInteractionError::RetryCompleted(_))
+        ));
     }
 }

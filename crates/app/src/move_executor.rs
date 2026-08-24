@@ -141,6 +141,22 @@ impl MoveExecutor {
         self.submit(MoveOperation::Rename(request), MoveCancellation::new())
     }
 
+    pub fn submit_move_retry(
+        &self,
+        failed_job_id: JobId,
+        request: MoveRequest,
+    ) -> Result<MoveSubmission, MoveSubmitError> {
+        self.submit_retry(failed_job_id, MoveOperation::Move(request))
+    }
+
+    pub fn submit_rename_retry(
+        &self,
+        failed_job_id: JobId,
+        request: RenameRequest,
+    ) -> Result<MoveSubmission, MoveSubmitError> {
+        self.submit_retry(failed_job_id, MoveOperation::Rename(request))
+    }
+
     pub fn cancel(&self, job_id: JobId) -> Result<(), MoveCancelError> {
         let cancellation = lock(&self.cancellations)
             .get(&job_id)
@@ -160,8 +176,35 @@ impl MoveExecutor {
         cancellation: MoveCancellation,
     ) -> Result<MoveSubmission, MoveSubmitError> {
         let queued = lock(&self.jobs).queue_operation()?;
-        let operation_id = queued.operation_id();
-        let job_id = queued.job_id();
+        self.enqueue(
+            queued.operation_id(),
+            queued.job_id(),
+            operation,
+            cancellation,
+        )
+    }
+
+    fn submit_retry(
+        &self,
+        failed_job_id: JobId,
+        operation: MoveOperation,
+    ) -> Result<MoveSubmission, MoveSubmitError> {
+        let queued = lock(&self.jobs).retry(failed_job_id)?;
+        self.enqueue(
+            queued.operation_id(),
+            queued.job_id(),
+            operation,
+            MoveCancellation::new(),
+        )
+    }
+
+    fn enqueue(
+        &self,
+        operation_id: OperationId,
+        job_id: JobId,
+        operation: MoveOperation,
+        cancellation: MoveCancellation,
+    ) -> Result<MoveSubmission, MoveSubmitError> {
         lock(&self.cancellations).insert(job_id, cancellation.clone());
         let task = MoveCommand::Execute(MoveTask {
             job_id,

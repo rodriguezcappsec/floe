@@ -71,6 +71,19 @@ impl ApplicationJobManager {
         self.jobs.get(&job_id)
     }
 
+    pub fn forget_terminal(&mut self, job_id: JobId) -> bool {
+        if self
+            .jobs
+            .get(&job_id)
+            .is_some_and(|record| record.state().is_terminal())
+        {
+            self.jobs.remove(&job_id);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn drain_events(&mut self) -> Vec<JobEvent> {
         self.events.drain(..).collect()
     }
@@ -175,5 +188,21 @@ mod tests {
                 .transition(queued.job_id(), JobCommand::Start)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn phase_5a_forget_terminal_never_removes_active_jobs() {
+        let mut manager = ApplicationJobManager::new();
+        let queued = manager
+            .queue_operation()
+            .expect("identifier allocation should succeed");
+        assert!(!manager.forget_terminal(queued.job_id()));
+        assert!(manager.record(queued.job_id()).is_some());
+
+        manager
+            .transition(queued.job_id(), JobCommand::Cancel)
+            .expect("queued job should cancel");
+        assert!(manager.forget_terminal(queued.job_id()));
+        assert!(manager.record(queued.job_id()).is_none());
     }
 }

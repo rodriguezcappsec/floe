@@ -137,6 +137,13 @@ the GIO-backed trash executor, and reports the source parent for refresh after
 completion. GTK interaction reaches it only through the browser command and
 never calls GIO directly.
 
+Phase 5A adds a 64-entry terminal operation history containing the terminal
+job/operation IDs, outcome, and original `TrackedOperation`. Failed or cancelled
+entries can be retried through the matching bounded executor. Each retry keeps
+the logical `OperationId`, receives a new `JobId`, and tracks the same raw
+request. Eviction also forgets only the corresponding terminal job record;
+active records are never pruned.
+
 The transfer buffer is Floe-internal only. Cross-application clipboard formats,
 operation persistence, history UI, and overwrite policy are not implemented.
 
@@ -194,6 +201,8 @@ unsupported cross-filesystem results into structured failure kinds, and
 cancels queued work during shutdown. `ApplicationState` owns the executor so
 its lifetime matches the application. GTK reaches it only through application
 commands and tracked requests.
+Move and rename retry methods allocate attempts through
+`ApplicationJobManager::retry` before reusing the same queue path.
 
 ### `trash_executor.rs`
 
@@ -208,6 +217,8 @@ The executor maps missing sources, permission denial, unsupported locations,
 other I/O errors, cancellation, queue capacity, and shutdown into the shared
 job lifecycle. Tests inject a backend and use virtual or temporary paths, so
 the suite never modifies the user's real Trash.
+Trash retries likewise retain the original `TrashRequest` and delegate attempt
+identity allocation to the shared job manager.
 
 ### `worker.rs`
 
@@ -273,7 +284,7 @@ No desktop integration trait or Niri/Plasma backend exists. The app uses generic
 GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
 detection and compositor APIs must eventually stay under `crates/app`.
 
-### Filesystem jobs through Phase 4F
+### Filesystem jobs through Phase 5A
 
 Identity, lifecycle, progress, failure, retry-attempt, registry, and event
 foundations now exist. `floe-core::copy` adds the first path-safe operation
@@ -319,8 +330,7 @@ commands, a file-actions menu, keyboard shortcuts, validated rename dialog,
 and the generic Operations Island.
 These operations currently support only atomic same-filesystem renames with
 fail-if-exists behavior. Cross-filesystem move, overwrite, operation
-persistence, retry request tracking, and interactive conflict resolution remain
-unimplemented.
+persistence, and interactive conflict resolution remain unimplemented.
 
 Phase 4E implements the separate XDG/GIO trash job boundary. Phase 4F exposes
 it through one selection-sensitive “Move to Trash” action and Delete shortcut.
@@ -328,6 +338,10 @@ The callback submits through `ApplicationState`; no direct GIO work appears in
 widgets and the read-only browser worker remains separate. The recoverable
 Trash action has no confirmation dialog; restore/bulk UI, Shift+Delete, undo,
 and permanent deletion remain deferred.
+
+Phase 5A generalizes retry dispatch and bounds application terminal history.
+There is no retry control in GTK yet; overwrite, interactive conflict choices,
+pause/resume controls, and permanent deletion remain deferred.
 
 ## Known architectural debt
 
