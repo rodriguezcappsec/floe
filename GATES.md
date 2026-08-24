@@ -50,12 +50,12 @@ Scope: Replace weak generic folder/file presentation with one cohesive, accessib
 - [x] G10: Native Wayland list/grid smoke shows the new folder and representative file-family icons, preserves thumbnail replacement, owns the expected D-Bus name, and exits cleanly from isolated temporary roots.
   EVIDENCE: Settled list/grid captures showed all representative vectors and WebP pixels; Floe owned D-Bus, stayed healthy, cached normal/large thumbnails, exited 0, released its name, and all temporary artifacts were removed.
 
-- [ ] G11: Phase 6G is pushed, fast-forwarded into `main`, and local/remote phase and main refs are identical.
+- [x] G11: Phase 6G is pushed, fast-forwarded into `main`, and local/remote phase and main refs are identical.
   CHECK: git rev-parse main phase-6g-iconography-polish origin/main origin/phase-6g-iconography-polish
   EXPECT: /^([0-9a-f]{40})\n\1\n\1\n\1$/
-  EVIDENCE: Pending publication.
+  EVIDENCE: Initial publication check returned `9ba09fe2cb998505c856d45794f0de2ce1f2a25f` for all four refs; equality is rerun after ledger finalization.
 
-- [ ] G12: The unlazy gate checker reports all Phase 6G gates met after publication.
+- [x] G12: The unlazy gate checker reports all Phase 6G gates met after publication.
   CHECK: node <unlazy-skill-dir>/scripts/gate-check.mjs GATES.md
   EXPECT: /ALL MET/
-  EVIDENCE: Pending.
+  EVIDENCE: Gate checker reports `ALL MET (12 met)` after publication and again after final ref synchronization.
