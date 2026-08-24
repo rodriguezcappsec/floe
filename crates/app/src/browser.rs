@@ -80,19 +80,24 @@ impl BrowserController {
             }
         });
 
-        let trash_shortcut = gtk::EventControllerKey::new();
+        let file_list_shortcuts = gtk::EventControllerKey::new();
         let controller = Rc::downgrade(self);
-        trash_shortcut.connect_key_pressed(move |_, key, _, modifiers| {
+        file_list_shortcuts.connect_key_pressed(move |_, key, _, modifiers| {
             if key == gtk::gdk::Key::Delete && modifiers.is_empty() {
                 if let Some(controller) = controller.upgrade() {
                     controller.trash_selected();
+                }
+                glib::Propagation::Stop
+            } else if is_context_menu_shortcut(key, modifiers) {
+                if let Some(controller) = controller.upgrade() {
+                    controller.show_context_menu();
                 }
                 glib::Propagation::Stop
             } else {
                 glib::Propagation::Proceed
             }
         });
-        self.widgets.list_view.add_controller(trash_shortcut);
+        self.widgets.list_view.add_controller(file_list_shortcuts);
 
         let controller = Rc::downgrade(self);
         self.widgets.location_entry.connect_activate(move |entry| {
@@ -213,6 +218,7 @@ impl BrowserController {
         self.pending_entries.borrow_mut().clear();
         self.pending_store.borrow_mut().take();
         self.pending_total.set(0);
+        self.widgets.context_menu.popdown();
         self.selected_entry.borrow_mut().take();
         self.widgets.selection.unselect_all();
         self.widgets
@@ -392,6 +398,14 @@ impl BrowserController {
 
     fn selected_entry(&self) -> Option<DirectoryEntry> {
         self.selected_entry.borrow().clone()
+    }
+
+    fn show_context_menu(&self) {
+        if self.selected_entry().is_none() {
+            return;
+        }
+        self.widgets.context_menu.set_pointing_to(None);
+        self.widgets.context_menu.popup();
     }
 
     fn selected_model_entry(&self) -> Option<DirectoryEntry> {
@@ -608,5 +622,39 @@ impl BrowserController {
         self.widgets
             .toast_overlay
             .add_toast(adw::Toast::builder().title(title).timeout(timeout).build());
+    }
+}
+
+fn is_context_menu_shortcut(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierType) -> bool {
+    let command_modifiers = gtk::gdk::ModifierType::SHIFT_MASK
+        | gtk::gdk::ModifierType::CONTROL_MASK
+        | gtk::gdk::ModifierType::ALT_MASK
+        | gtk::gdk::ModifierType::SUPER_MASK
+        | gtk::gdk::ModifierType::HYPER_MASK
+        | gtk::gdk::ModifierType::META_MASK;
+    let relevant = modifiers & command_modifiers;
+
+    (key == gtk::gdk::Key::Menu && relevant.is_empty())
+        || (key == gtk::gdk::Key::F10 && relevant == gtk::gdk::ModifierType::SHIFT_MASK)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phase_5c_context_shortcuts_ignore_lock_state_but_reject_command_chords() {
+        assert!(is_context_menu_shortcut(
+            gtk::gdk::Key::Menu,
+            gtk::gdk::ModifierType::LOCK_MASK,
+        ));
+        assert!(is_context_menu_shortcut(
+            gtk::gdk::Key::F10,
+            gtk::gdk::ModifierType::SHIFT_MASK | gtk::gdk::ModifierType::LOCK_MASK,
+        ));
+        assert!(!is_context_menu_shortcut(
+            gtk::gdk::Key::F10,
+            gtk::gdk::ModifierType::SHIFT_MASK | gtk::gdk::ModifierType::CONTROL_MASK,
+        ));
     }
 }

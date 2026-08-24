@@ -1129,13 +1129,13 @@ Last updated:
 Current phase:
 
 ```text
-Phase 5 — Progress, cancellation, and conflict handling (Phase 5B complete)
+Phase 5 — Progress, cancellation, and contextual interaction (Phase 5C complete)
 ```
 
 Status:
 
 ```text
-Phases 0-4 and Phase 5B are complete. One application-owned transfer buffer
+Phases 0-4 and Phase 5C are complete. One application-owned transfer buffer
 supports Ctrl+C copy and Ctrl+X move followed by Ctrl+V paste. F2 and the
 file-actions menu open a validated rename dialog. Copy, move, and rename use
 bounded workers plus generic non-blocking Operations Island feedback; GTK
@@ -1147,6 +1147,9 @@ Backend retry dispatch now covers copy, move, rename, and trash with stable
 logical operation identity, fresh job attempts, and bounded terminal history.
 Failed and cancelled jobs expose a persistent accessible Retry control in the
 Operations Island; completed jobs remain non-retryable.
+The virtualized file list has a native selection-aware context menu for Open,
+Copy, Cut, Rename, and Move to Trash, with secondary-click and focused-list
+keyboard access. Menu commands reuse existing application actions.
 ```
 
 Established product decisions:
@@ -1179,19 +1182,21 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 5B is complete. The next coherent branch is `phase-5c-context-menu`,
-adding a native pointer and keyboard context menu that reuses the existing
-selection-sensitive Open, Copy, Cut/Move, Rename, and Move to Trash actions.
+Phase 5C is complete. The next coherent branch is `phase-5d-open-with`, adding
+GIO-backed application choices and safe file-association management without
+introducing custom shell-command tools.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-sixty-nine tests pass: twenty-eight core and forty-one application tests. Two
-focused Phase 5B tests cover retryable outcomes and preservation of pending
-retry state while another job completes. Native Wayland smoke launched and
-remained healthy until timeout. Ten focused Phase 4E tests cover original
+seventy-two tests pass: twenty-eight core and forty-four application tests.
+Three focused Phase 5C tests cover the complete action mapping, rejection of an
+unbound virtualized row, and lock-state-safe keyboard shortcuts. Two focused
+Phase 5B tests cover retryable outcomes and preservation of pending retry state
+while another job completes. Native Wayland smoke launched and remained healthy
+until timeout. Ten focused Phase 4E tests cover original
 non-UTF-8 paths, GIO error mapping, success, cancellation, structured failures,
 capacity, shutdown, state tracking, and recovery feedback without touching real
 user Trash. Phase 4F has one focused interaction-wording test. Four focused
@@ -1295,6 +1300,10 @@ Completed this session:
 * Added an accessible Retry control for failed and cancelled Operations Island
   terminal states, routed through `ApplicationState::retry_operation`.
 * Prevented duplicate retry submissions and kept completed jobs non-retryable.
+* Added a native list-row context menu with Open, Copy, Cut, Rename, and Move to
+  Trash, all routed through existing selection-sensitive `win.*` actions.
+* Added exact pointer-target row selection plus Shift+F10/Menu-key access scoped
+  to the focused list.
 * Kept overwrite, pause/resume controls, interactive conflict choices, and
   permanent deletion deferred.
 ```
@@ -1302,10 +1311,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-5c-context-menu` and add a native list-row context menu that
-selects the pointer-targeted entry and reuses existing Open, Copy, Cut/Move,
-Rename, and Move to Trash actions. Keep original paths, keyboard access, and the
-application-state filesystem boundary intact.
+Create `phase-5d-open-with` and add a GIO-backed Open With chooser for regular
+files and non-directory symlinks. Show the current default clearly and support
+safe default-association changes where available. Keep MIME work asynchronous;
+defer configurable external tools to the shared command/action provider work.
 ```
 
 ---

@@ -108,15 +108,22 @@ of truth for sequencing and current-session handoff.
 - Duplicate-click prevention while the new attempt is queued.
 - Completed operations remain non-retryable.
 
-## Next
-
 ### Phase 5C — Context menu
 
-Create branch `phase-5c-context-menu`. Add a native list-row context menu that
-selects the pointer-targeted entry and reuses the existing Open, Copy, Cut/Move,
-Rename, and Move to Trash application actions. Preserve keyboard access and
-original paths; do not add Open With, custom external tools, or new filesystem
-execution paths in this slice.
+- Native list-row popover with Open, Copy, Cut, Rename, and Move to Trash.
+- Secondary-click selects the exact pointer-targeted virtualized row first.
+- Shift+F10 and Menu-key access scoped to the focused file list.
+- Existing selection-sensitive `win.*` actions and original paths are reused.
+
+## Next
+
+### Phase 5D — Open With and file associations
+
+Create branch `phase-5d-open-with`. Add a GIO-backed Open With chooser for
+regular files and non-directory symlinks, including clear current-default
+application state and safe default-association changes where supported. Keep
+MIME probing asynchronous and in the application layer. Custom external tools
+remain deferred to the shared command/action provider work near Phase 11.
 
 ## Later
 

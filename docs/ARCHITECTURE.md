@@ -162,6 +162,11 @@ rows. The module also builds the visible file-actions menu and focused rename
 dialog with inline error text. Symbolic icon buttons have tooltips and
 accessible labels, including the generic operation-cancellation control.
 
+Phase 5C also constructs one native `GtkPopoverMenu` parented to the list view.
+Virtualized row setup adds only a secondary-click selection/presentation
+gesture; every menu item targets an existing `win.*` action, so the UI layer
+does not acquire filesystem or launch execution logic.
+
 ### `browser.rs`
 
 `BrowserController` is the current application-state coordinator. It owns:
@@ -171,6 +176,11 @@ accessible labels, including the generic operation-cancellation control.
 - hidden-file preference for the current process;
 - request generation and pending listing batches;
 - enabled state for navigation and Open actions.
+
+It also owns the list-focused Shift+F10/Menu-key route for the Phase 5C context
+menu. Secondary-click selection still flows through `GtkSingleSelection`, so
+the controller retains the original `DirectoryEntry` and exact path before any
+existing action is dispatched.
 
 It also owns Ctrl+C/Ctrl+X/Ctrl+V/F2/Delete and file-menu action wiring because
 those commands depend on the active selection and current destination. The
@@ -267,6 +277,7 @@ Current application/window actions are:
 | Ctrl+V | Paste staged entry into the current directory |
 | F2 | Rename selected entry through a validated dialog |
 | Delete | Move selected entry to the desktop Trash through GIO |
+| Shift+F10 / Menu | Open the selected row's native context menu |
 | Escape | Leave path entry |
 | Ctrl+Q | Quit |
 | Enter / double-click | Activate selected list row |

@@ -92,6 +92,7 @@ cargo test -p floe-app phase_4e
 cargo test -p floe-app phase_4f
 cargo test -p floe-app phase_5a
 cargo test -p floe-app phase_5b
+cargo test -p floe-app phase_5c
 cargo test -p floe-app move_executor
 cargo check -p floe-core
 cargo tree -p floe-app --depth 1

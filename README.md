@@ -46,6 +46,7 @@ required nor simulated.
   rename, and trash with stable logical operation identity
 - Persistent accessible Retry control for failed or cancelled Operations Island
   jobs
+- Native row context menu with Open, Copy, Cut, Rename, and Move to Trash
 
 Phase 4D copy/move/paste and rename work within the running Floe application.
 Phase 4F exposes the verified trash job as a single-selection, recoverable
@@ -55,6 +56,12 @@ Phase 5B exposes that retry infrastructure through the Operations Island. Failed
 or cancelled jobs remain visible with a Retry button; completed jobs dismiss
 normally and cannot be retried. Overwrite and interactive conflict choices are
 still unavailable.
+
+Phase 5C adds secondary-click and Shift+F10/Menu-key access to a native context
+menu. It selects the targeted virtualized row first and reuses the existing
+selection-sensitive window actions. Open follows the current GIO default
+application; Open With, association editing, and custom external tools remain
+future work.
 Cross-application clipboard formats, overwrite, cross-filesystem copy-delete
 moves, trash restore/bulk UI, permanent deletion, previews, tabs, split view,
 Miller columns, and environment-specific integrations remain deferred.
