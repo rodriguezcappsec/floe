@@ -1,7 +1,9 @@
 mod appearance;
 mod application;
+mod bookmarks;
 mod browser;
 pub mod copy_executor;
+mod devices;
 mod iconography;
 pub mod job_manager;
 mod launcher;

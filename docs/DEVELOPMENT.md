@@ -167,7 +167,28 @@ exact-path restoration, context-surface rules, and bounded copy/move/Trash batch
 coverage. Native smoke should confirm `select-all` and `clear-selection` are
 exported and activatable while Floe owns its D-Bus name.
 
-After Phase 6J, continue on `phase-6k-places-and-devices`.
+Phase 6K adds no new dependency. Its 19 focused tests run with
+`cargo test -p floe-app phase_6k -- --nocapture` and cover XDG ordering/deduplication,
+raw non-UTF-8 bookmark format and persistence, GIO snapshot/action policy, exact
+local-root navigation, compact sidebar behavior, and bookmark/device controller
+coverage. Runtime bookmarks live below GLib's user configuration root at
+`floe/bookmarks.bin`; the application worker owns asynchronous load/save,
+same-directory atomic replacement, 0o700 parent and 0o600 file permissions.
+
+Device discovery uses the session's GIO `VolumeMonitor`. Topology signals refresh
+immutable drive/volume/mount snapshots. Mount, unmount, and eject operations are
+asynchronous, expose Busy while in flight, accept desktop authentication through
+`GtkMountOperation`, and report failure without removing the device row. Floe
+navigates only mounted local filesystem roots; remote/network roots remain
+explicitly unavailable and are deferred to Phase 17.
+
+The Phase 6K native smoke built `target/debug/floe-app`, owned
+`io.github.floe.FileManager`, exported 24 window actions, activated `refresh`,
+and answered `Peer.Ping` afterward. Its `quit` action returned successfully, the
+process exited 0, and the D-Bus name was released. Only the documented host
+libadwaita and RADV warnings appeared.
+
+After Phase 6K, continue on `phase-6l-system-thumbnailers`.
 
 ## Wayland environments
 

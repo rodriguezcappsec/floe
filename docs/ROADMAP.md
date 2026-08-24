@@ -282,16 +282,24 @@ Implemented on `phase-6j-multi-selection-context`.
 - Serialize application-owned batch jobs so large selections cannot overflow
   bounded worker queues silently.
 
-## Next
-
 ### Phase 6K — Places, bookmarks, and devices
 
-Create `phase-6k-places-and-devices`.
+Completed on `phase-6k-places-and-devices`.
 
-Expand standards-based Places with valid XDG user directories, persisted
-user-managed folder bookmarks, and GIO `VolumeMonitor` drives/volumes/mounts.
-Keep mounting asynchronous, preserve exact paths, and distinguish unavailable
-devices with recoverable actions rather than hiding them.
+- Present Home and every distinct existing XDG Desktop, Documents, Downloads,
+  Music, Pictures, Public Share, Templates, and Videos directory.
+- Add exact raw-path user bookmarks with bounded asynchronous load/save, private
+  0700/0600 storage, and atomic replacement.
+- Observe deduplicated drive, volume, and mount snapshots through GIO
+  `VolumeMonitor` topology signals.
+- Expose asynchronous mount, unmount, and eject actions with mounted,
+  unmounted, busy, and unavailable states plus failed-action feedback.
+- Navigate mounted local filesystem roots while explicitly deferring
+  remote/network roots and multiple-root drive navigation.
+- Keep the compact, vertically scrollable sidebar user-resizable; persisted
+  sidebar width remains future work.
+
+## Next
 
 ### Phase 6L — System thumbnailers
 

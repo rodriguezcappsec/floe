@@ -35,14 +35,30 @@ labels. Disabled navigation and Open actions use native GTK sensitivity.
 
 ### Places sidebar
 
-The sidebar contains Home and the available XDG Downloads, Documents, and
-Pictures locations. It is visually separate from the directory surface and is
-the start child of a native horizontal `GtkPaned` divider. The divider is
-keyboard/pointer-native, user-resizable, and has a visible hover affordance.
+The compact sidebar is a vertically scrollable surface with separate
+Places, Bookmarks, and Devices sections. Places always starts with Home, then
+includes each distinct XDG Desktop, Documents, Downloads, Music, Pictures, Public Share,
+Templates, and Videos directory that currently exists. Duplicate XDG paths and
+missing directories are omitted rather than presenting broken destinations.
+Original `PathBuf` values remain authoritative.
 
-The sidebar defaults are part of the appearance preset. They range from 152 to
-176 pixels, with minimums from 124 to 136 pixels. The chosen width is not yet
-persisted across launches.
+The sidebar is the start child of a native horizontal `GtkPaned` divider. Its
+pointer/keyboard-native handle makes the panel user-resizable while preserving a
+128-pixel compact minimum. Appearance presets supply the initial width; the
+chosen width is not yet persisted across launches.
+
+Bookmarks may add the current folder, navigate an existing bookmark, or remove
+it with an explicit adjacent control. Loading and saving are asynchronous;
+buttons expose loading/in-flight states and failures remain visible as toasts.
+The stored format owns exact raw Linux path bytes, not lossy labels.
+
+Devices are live GIO drive, volume, and mount snapshots. Rows distinguish
+mounted, unmounted, remote, multiple-location, unavailable, and busy states.
+Available Mount, Unmount, and Eject actions use native asynchronous GIO mount
+operations, disable conflicting controls while busy, and surface failures in a
+toast. A mounted local filesystem root navigates through normal Floe navigation.
+Remote/network roots remain explicitly unavailable instead of being converted
+into `PathBuf`; their browsing support is deferred.
 
 ### Directory surface
 
@@ -285,7 +301,8 @@ Phase 6H implements this surface.
 
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.
 
-`phase-6k-places-and-devices` is the next navigation branch.
+Phase 6K completes the first Places/bookmarks/devices navigation surface. Phase
+6L system thumbnailers are the next branch.
 
 ### Multi-selection and context surfaces
 

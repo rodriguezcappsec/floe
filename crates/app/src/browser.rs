@@ -15,6 +15,11 @@ use floe_core::{
 use gtk::{gio, glib};
 
 use crate::{
+    bookmarks::{BookmarkWorker, BookmarkWorkerEvent},
+    devices::{
+        DeviceAction, DeviceActionOutcome, DeviceId, DeviceMonitor, DeviceSnapshot,
+        DeviceSubscriptionId,
+    },
     launcher,
     location_input::{
         PendingLocation, location_failure_message, location_text, resolve_location_input,
@@ -27,6 +32,32 @@ use crate::{
     view::{GridSize, VIEW_ACTIONS, ViewCommand, ViewMode},
     worker::{BrowserWorker, ResponseKind},
 };
+
+pub struct BrowserServices {
+    browser: BrowserWorker,
+    thumbnails: Option<ThumbnailWorker>,
+    bookmarks: Option<BookmarkWorker>,
+    devices: DeviceMonitor,
+    preferences: Option<PreferenceWorker>,
+}
+
+impl BrowserServices {
+    pub fn new(
+        browser: BrowserWorker,
+        thumbnails: Option<ThumbnailWorker>,
+        bookmarks: Option<BookmarkWorker>,
+        devices: DeviceMonitor,
+        preferences: Option<PreferenceWorker>,
+    ) -> Self {
+        Self {
+            browser,
+            thumbnails,
+            bookmarks,
+            devices,
+            preferences,
+        }
+    }
+}
 
 pub struct BrowserController {
     widgets: BrowserWidgets,
@@ -51,10 +82,20 @@ pub struct BrowserController {
     pending_preferences: Cell<Option<ViewPreferences>>,
     pending_location: RefCell<Option<PendingLocation>>,
     application_state: Rc<ApplicationState>,
+    bookmark_worker: RefCell<Option<BookmarkWorker>>,
+    bookmarks: RefCell<Vec<PathBuf>>,
+    bookmarks_loaded: Cell<bool>,
+    bookmark_revision: Cell<u64>,
+    bookmark_save_in_flight: Cell<bool>,
+    device_monitor: DeviceMonitor,
+    device_subscription: Cell<Option<DeviceSubscriptionId>>,
 }
 
 impl Drop for BrowserController {
     fn drop(&mut self) {
+        if let Some(subscription) = self.device_subscription.take() {
+            self.device_monitor.disconnect_changed(subscription);
+        }
         let Some(preferences) = self.pending_preferences.take() else {
             return;
         };
@@ -71,17 +112,22 @@ impl BrowserController {
     pub fn new(
         widgets: BrowserWidgets,
         initial_path: PathBuf,
-        worker: BrowserWorker,
-        thumbnail_worker: Option<ThumbnailWorker>,
+        services: BrowserServices,
         view_preferences: ViewPreferences,
-        preference_worker: Option<PreferenceWorker>,
         application_state: Rc<ApplicationState>,
     ) -> Rc<Self> {
+        let BrowserServices {
+            browser,
+            thumbnails,
+            bookmarks,
+            devices,
+            preferences,
+        } = services;
         Rc::new(Self {
             widgets,
             navigation: RefCell::new(NavigationState::new(initial_path)),
-            worker: RefCell::new(worker),
-            thumbnail_worker: RefCell::new(thumbnail_worker),
+            worker: RefCell::new(browser),
+            thumbnail_worker: RefCell::new(thumbnails),
             thumbnail_generation: Cell::new(0),
             active_generation: Cell::new(0),
             show_hidden: Cell::new(false),
@@ -96,10 +142,17 @@ impl BrowserController {
             sort_selection_paths: RefCell::new(Vec::new()),
             view_mode: Cell::new(view_preferences.mode),
             grid_size: Cell::new(view_preferences.grid_size),
-            preference_worker: RefCell::new(preference_worker),
+            preference_worker: RefCell::new(preferences),
             pending_preferences: Cell::new(None),
             pending_location: RefCell::new(None),
             application_state,
+            bookmark_worker: RefCell::new(bookmarks),
+            bookmarks: RefCell::new(Vec::new()),
+            bookmarks_loaded: Cell::new(false),
+            bookmark_revision: Cell::new(0),
+            bookmark_save_in_flight: Cell::new(false),
+            device_monitor: devices,
+            device_subscription: Cell::new(None),
         })
     }
 
@@ -109,13 +162,31 @@ impl BrowserController {
 
         for (button, location) in self.widgets.location_buttons.iter().zip(locations) {
             let controller = Rc::downgrade(self);
-            let path = location.path.clone();
+            let path = exact_sidebar_target(&location.path);
             button.connect_clicked(move |_| {
                 if let Some(controller) = controller.upgrade() {
-                    controller.navigate_to(path.clone());
+                    controller.navigate_to(exact_sidebar_target(&path));
                 }
             });
         }
+        let controller = Rc::downgrade(self);
+        self.widgets.add_bookmark_button.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.add_current_bookmark();
+            }
+        });
+        self.render_bookmarks();
+        self.widgets
+            .add_bookmark_button
+            .set_sensitive(ui::bookmark_actions_enabled(false, false));
+
+        let controller = Rc::downgrade(self);
+        let subscription = self.device_monitor.connect_changed(move |snapshots| {
+            if let Some(controller) = controller.upgrade() {
+                controller.render_devices(snapshots);
+            }
+        });
+        self.device_subscription.set(Some(subscription));
 
         let controller = Rc::downgrade(self);
         self.widgets.list_view.connect_activate(move |_, position| {
@@ -162,6 +233,375 @@ impl BrowserController {
         });
     }
 
+    fn add_current_bookmark(self: &Rc<Self>) {
+        if !self.bookmarks_loaded.get() {
+            self.show_toast("Bookmarks are still loading", 4);
+            return;
+        }
+        let current = self.navigation.borrow().current().to_path_buf();
+        if self.bookmarks.borrow().contains(&current) {
+            self.show_toast("This folder is already bookmarked", 4);
+            return;
+        }
+        let mut revised = self.bookmarks.borrow().clone();
+        revised.push(current);
+        self.submit_bookmarks(revised);
+    }
+
+    fn remove_bookmark(self: &Rc<Self>, index: usize) {
+        let Some(revised) = ui::bookmark_paths_after_remove(&self.bookmarks.borrow(), index) else {
+            self.show_toast("That bookmark is no longer available", 4);
+            return;
+        };
+        self.submit_bookmarks(revised);
+    }
+
+    fn submit_bookmarks(self: &Rc<Self>, paths: Vec<PathBuf>) {
+        if self.bookmark_save_in_flight.get() {
+            self.show_toast("Please wait for the current bookmark change", 4);
+            return;
+        }
+        let revision = self.bookmark_revision.get().saturating_add(1);
+        let result = self
+            .bookmark_worker
+            .borrow()
+            .as_ref()
+            .map(|worker| worker.try_save(revision, paths));
+        match result {
+            Some(Ok(())) => {
+                self.bookmark_revision.set(revision);
+                self.bookmark_save_in_flight.set(true);
+                self.widgets.add_bookmark_button.set_sensitive(false);
+                self.render_bookmarks();
+            }
+            Some(Err(error)) => {
+                self.show_toast(&format!("Could not save bookmarks: {error}"), 6);
+            }
+            None => self.show_toast("Bookmarks are unavailable for this session", 5),
+        }
+    }
+
+    fn drain_bookmark_worker(self: &Rc<Self>) {
+        loop {
+            let event = {
+                let worker = self.bookmark_worker.borrow();
+                worker.as_ref().map(BookmarkWorker::try_event)
+            };
+            let Some(event) = event else {
+                return;
+            };
+            match event {
+                Ok(BookmarkWorkerEvent::Loaded(Ok(bookmarks))) => {
+                    self.bookmarks.replace(bookmarks.paths().to_vec());
+                    self.bookmarks_loaded.set(true);
+                    self.widgets
+                        .add_bookmark_button
+                        .set_sensitive(ui::bookmark_actions_enabled(
+                            self.bookmarks_loaded.get(),
+                            false,
+                        ));
+                    self.render_bookmarks();
+                }
+                Ok(BookmarkWorkerEvent::Loaded(Err(error))) => {
+                    tracing::warn!(%error, "could not load bookmarks");
+                    self.show_toast(&format!("Could not load bookmarks: {error}"), 6);
+                }
+                Ok(BookmarkWorkerEvent::Saved { revision, result }) => {
+                    if revision != self.bookmark_revision.get() {
+                        continue;
+                    }
+                    self.bookmark_save_in_flight.set(false);
+                    self.widgets
+                        .add_bookmark_button
+                        .set_sensitive(ui::bookmark_actions_enabled(
+                            self.bookmarks_loaded.get(),
+                            false,
+                        ));
+                    self.widgets
+                        .add_bookmark_button
+                        .set_tooltip_text(Some("Add current folder to Bookmarks"));
+                    match result {
+                        Ok(bookmarks) => {
+                            self.bookmarks.replace(bookmarks.paths().to_vec());
+                            self.render_bookmarks();
+                            self.show_toast("Bookmarks updated", 3);
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "could not persist bookmarks");
+                            self.render_bookmarks();
+                            self.show_toast(&format!("Could not save bookmarks: {error}"), 6);
+                        }
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.bookmark_worker.borrow_mut().take();
+                    self.bookmarks_loaded.set(false);
+                    self.bookmark_save_in_flight.set(false);
+                    self.widgets.add_bookmark_button.set_sensitive(false);
+                    self.render_bookmarks();
+                    self.show_toast("Bookmark storage stopped unexpectedly", 6);
+                    return;
+                }
+            }
+        }
+    }
+
+    fn render_bookmarks(self: &Rc<Self>) {
+        remove_all_children(&self.widgets.bookmarks_box);
+        let bookmarks = self.bookmarks.borrow().clone();
+        if bookmarks.is_empty() {
+            let empty = sidebar_status_label("No bookmarks yet");
+            self.widgets.bookmarks_box.append(&empty);
+            return;
+        }
+        let actions_enabled = ui::bookmark_actions_enabled(
+            self.bookmarks_loaded.get(),
+            self.bookmark_save_in_flight.get(),
+        );
+        for (index, path) in bookmarks.into_iter().enumerate() {
+            let row = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(2)
+                .build();
+            let display_name = sidebar_path_name(&path);
+            let content = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(8)
+                .build();
+            content.append(&gtk::Image::from_icon_name("folder-symbolic"));
+            let label = gtk::Label::builder()
+                .label(&display_name)
+                .halign(gtk::Align::Start)
+                .hexpand(true)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .build();
+            content.append(&label);
+            let open = gtk::Button::builder()
+                .child(&content)
+                .has_frame(false)
+                .hexpand(true)
+                .tooltip_text(path.to_string_lossy())
+                .build();
+            set_accessible_label(&open, &format!("Open bookmark {display_name}"));
+            let controller = Rc::downgrade(self);
+            open.connect_clicked(move |_| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.navigate_to(exact_sidebar_target(&path));
+                }
+            });
+            row.append(&open);
+
+            let remove = gtk::Button::builder()
+                .icon_name("edit-delete-symbolic")
+                .has_frame(false)
+                .sensitive(actions_enabled)
+                .tooltip_text(format!("Remove {display_name} from Bookmarks"))
+                .build();
+            set_accessible_label(&remove, &format!("Remove bookmark {display_name}"));
+            let controller = Rc::downgrade(self);
+            remove.connect_clicked(move |_| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.remove_bookmark(index);
+                }
+            });
+            row.append(&remove);
+            self.widgets.bookmarks_box.append(&row);
+        }
+    }
+
+    fn render_devices(self: &Rc<Self>, snapshots: &[DeviceSnapshot]) {
+        remove_all_children(&self.widgets.devices_box);
+        if snapshots.is_empty() {
+            self.widgets
+                .devices_box
+                .append(&sidebar_status_label("No storage devices found"));
+            return;
+        }
+
+        for snapshot in snapshots {
+            let policy = ui::device_row_policy(snapshot);
+            let row = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(2)
+                .build();
+            row.set_widget_name(snapshot.id.as_str());
+            let content = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(8)
+                .build();
+            let icon_name = if snapshot.removable {
+                "drive-removable-media-symbolic"
+            } else {
+                "drive-harddisk-symbolic"
+            };
+            content.append(&gtk::Image::from_icon_name(icon_name));
+            let labels = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .spacing(0)
+                .hexpand(true)
+                .build();
+            labels.append(
+                &gtk::Label::builder()
+                    .label(&snapshot.name)
+                    .halign(gtk::Align::Start)
+                    .ellipsize(gtk::pango::EllipsizeMode::End)
+                    .build(),
+            );
+            let status = sidebar_status_label(&policy.status);
+            labels.append(&status);
+            content.append(&labels);
+
+            let activate = gtk::Button::builder()
+                .child(&content)
+                .has_frame(false)
+                .hexpand(true)
+                .sensitive(!matches!(
+                    policy.activation,
+                    ui::DeviceActivation::Unavailable(_)
+                ))
+                .build();
+            let accessible = match &policy.activation {
+                ui::DeviceActivation::Navigate(_) => format!("Open device {}", snapshot.name),
+                ui::DeviceActivation::Mount => format!("Mount device {}", snapshot.name),
+                ui::DeviceActivation::Unavailable(message) => {
+                    activate.set_tooltip_text(Some(message));
+                    format!("Device {} unavailable: {message}", snapshot.name)
+                }
+            };
+            set_accessible_label(&activate, &accessible);
+            let activation = policy.activation.clone();
+            let device_id = snapshot.id.clone();
+            let controller = Rc::downgrade(self);
+            activate.connect_clicked(move |_| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                match &activation {
+                    ui::DeviceActivation::Navigate(path) => {
+                        controller.navigate_to(exact_sidebar_target(path))
+                    }
+                    ui::DeviceActivation::Mount => {
+                        controller.start_device_action(device_id.clone(), DeviceAction::Mount, true)
+                    }
+                    ui::DeviceActivation::Unavailable(message) => controller.show_toast(message, 5),
+                }
+            });
+            row.append(&activate);
+
+            if policy.can_unmount {
+                row.append(&self.device_action_button(
+                    snapshot,
+                    "media-playback-stop-symbolic",
+                    "Unmount",
+                    DeviceAction::Unmount,
+                ));
+            }
+            if policy.can_eject {
+                row.append(&self.device_action_button(
+                    snapshot,
+                    "media-eject-symbolic",
+                    "Eject",
+                    DeviceAction::Eject,
+                ));
+            }
+            self.widgets.devices_box.append(&row);
+        }
+    }
+
+    fn device_action_button(
+        self: &Rc<Self>,
+        snapshot: &DeviceSnapshot,
+        icon_name: &str,
+        verb: &str,
+        action: DeviceAction,
+    ) -> gtk::Button {
+        let label = format!("{verb} {}", snapshot.name);
+        let button = gtk::Button::builder()
+            .icon_name(icon_name)
+            .has_frame(false)
+            .tooltip_text(&label)
+            .build();
+        set_accessible_label(&button, &label);
+        let id = snapshot.id.clone();
+        let controller = Rc::downgrade(self);
+        button.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.start_device_action(id.clone(), action, false);
+            }
+        });
+        button
+    }
+
+    fn start_device_action(
+        self: &Rc<Self>,
+        id: DeviceId,
+        action: DeviceAction,
+        navigate_after_mount: bool,
+    ) {
+        let mount_operation = gtk::MountOperation::new(Some(&self.widgets.window));
+        let controller = Rc::downgrade(self);
+        let completion = move |outcome| {
+            if let Some(controller) = controller.upgrade() {
+                controller.finish_device_action(outcome, navigate_after_mount);
+            }
+        };
+        let result = match action {
+            DeviceAction::Mount => {
+                self.device_monitor
+                    .mount(&id, Some(mount_operation.upcast_ref()), completion)
+            }
+            DeviceAction::Unmount => {
+                self.device_monitor
+                    .unmount(&id, Some(mount_operation.upcast_ref()), completion)
+            }
+            DeviceAction::Eject => {
+                self.device_monitor
+                    .eject(&id, Some(mount_operation.upcast_ref()), completion)
+            }
+        };
+        if let Err(error) = result {
+            self.show_toast(&format!("Could not start storage action: {error}"), 6);
+        }
+    }
+
+    fn finish_device_action(self: &Rc<Self>, outcome: DeviceActionOutcome, navigate: bool) {
+        match outcome {
+            DeviceActionOutcome::Completed { id, action } => {
+                self.device_monitor.refresh();
+                if navigate && action == DeviceAction::Mount {
+                    let snapshot = self
+                        .device_monitor
+                        .snapshots()
+                        .into_iter()
+                        .find(|snapshot| snapshot.id == id);
+                    match snapshot.as_ref().map(ui::device_row_policy) {
+                        Some(ui::DeviceRowPolicy {
+                            activation: ui::DeviceActivation::Navigate(path),
+                            ..
+                        }) => self.navigate_to(path),
+                        Some(ui::DeviceRowPolicy {
+                            activation: ui::DeviceActivation::Unavailable(message),
+                            ..
+                        }) => self.show_toast(message, 6),
+                        _ => self.show_toast("The device mounted without a local folder", 6),
+                    }
+                } else {
+                    let message = match action {
+                        DeviceAction::Mount => "Device mounted",
+                        DeviceAction::Unmount => "Device unmounted",
+                        DeviceAction::Eject => "Device ejected",
+                    };
+                    self.show_toast(message, 4);
+                }
+            }
+            DeviceActionOutcome::Failed { failure, .. } => {
+                self.device_monitor.refresh();
+                self.show_toast(&format!("Storage action failed: {}", failure.message), 7);
+            }
+        }
+    }
+
     fn install_file_view_shortcuts<W>(self: &Rc<Self>, view: &W)
     where
         W: IsA<gtk::Widget>,
@@ -201,6 +641,7 @@ impl BrowserController {
                 return glib::ControlFlow::Break;
             }
             controller.drain_worker();
+            controller.drain_bookmark_worker();
             controller.pump_pending_entries();
             controller.submit_thumbnail_requests();
             controller.drain_thumbnail_worker();
@@ -1244,6 +1685,38 @@ fn item_count_text(count: usize) -> String {
     }
 }
 
+fn remove_all_children(container: &gtk::Box) {
+    while let Some(child) = container.first_child() {
+        container.remove(&child);
+    }
+}
+
+fn sidebar_status_label(text: &str) -> gtk::Label {
+    let label = gtk::Label::builder()
+        .label(text)
+        .halign(gtk::Align::Start)
+        .margin_start(8)
+        .wrap(true)
+        .build();
+    label.add_css_class("floe-status");
+    label
+}
+
+fn sidebar_path_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .unwrap_or(path.as_os_str())
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn exact_sidebar_target(path: &std::path::Path) -> PathBuf {
+    path.to_path_buf()
+}
+
+fn set_accessible_label(widget: &impl IsA<gtk::Accessible>, label: &str) {
+    widget.update_property(&[gtk::accessible::Property::Label(label)]);
+}
+
 fn is_context_menu_shortcut(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierType) -> bool {
     let command_modifiers = gtk::gdk::ModifierType::SHIFT_MASK
         | gtk::gdk::ModifierType::CONTROL_MASK
@@ -1556,5 +2029,18 @@ mod tests {
         assert_eq!(chooser_action_sensitivity(Some(0), Some(0)), (true, false));
         assert_eq!(chooser_action_sensitivity(Some(1), Some(0)), (true, true));
         assert_eq!(chooser_action_sensitivity(Some(0), None), (true, true));
+    }
+
+    #[test]
+    fn phase_6k_sidebar_navigation_keeps_exact_non_utf8_path_identity() {
+        let raw = OsString::from_vec(b"device-\xff".to_vec());
+        let path = PathBuf::from("/run/media").join(raw);
+        let target = exact_sidebar_target(&path);
+
+        assert_eq!(target, path);
+        assert_eq!(
+            target.into_os_string().into_vec(),
+            path.into_os_string().into_vec()
+        );
     }
 }

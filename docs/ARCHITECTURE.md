@@ -127,8 +127,9 @@ context.
 `main.rs` declares modules and starts `application::run`. `application.rs`
 creates application ID `io.github.floe.FileManager`, installs Ctrl+Q, selects
 appearance and XDG locations, builds the window, starts `BrowserWorker` and the
-optional `ThumbnailWorker`, starts the view-preference worker, and surfaces
-browser-worker start failure.
+optional `ThumbnailWorker`, starts the view-preference and bookmark workers,
+creates the application-owned GIO `DeviceMonitor`, and surfaces worker start
+failures.
 Thumbnail-worker start failure is non-fatal and leaves generic icons. It also
 creates the shared `ApplicationState`
 that owns the job registry boundary. `tracing-subscriber` reads `RUST_LOG` and
@@ -247,8 +248,9 @@ operation persistence, history UI, and overwrite policy are not implemented.
 
 ### `ui.rs`
 
-`ui::build` constructs the header, `GtkPaned` Places/content layout,
-`GtkListView`, empty overlay, status strip, toast overlay, and compact
+`ui::build` constructs the header, `GtkPaned` sidebar/content layout, a compact
+vertically scrollable Places/Bookmarks/Devices surface, `GtkListView`, empty
+overlay, status strip, toast overlay, and compact
 Operations Island in a non-modal `GtkOverlay`. A
 `GtkSignalListItemFactory` binds boxed `DirectoryEntry` values to virtualized
 rows. Phase 6A keeps presentation inside that bind boundary and exposes aligned
@@ -392,9 +394,38 @@ introduced.
 
 ### `locations.rs`
 
-The app layer uses GLib home and XDG user-special directories for Home,
-Downloads, Documents, and Pictures, removing duplicate paths. Trash, devices,
-mounts, and network locations are not implemented.
+The app layer uses GLib home and all eight XDG user-special directory kinds:
+Desktop, Documents, Downloads, Music, Pictures, Public Share, Templates, and
+Videos. It includes only existing directories and removes exact duplicate paths,
+while retaining each authoritative `PathBuf`.
+
+### `bookmarks.rs`
+
+The application-owned `BookmarkWorker` asynchronously loads and saves
+`$XDG_CONFIG_HOME/floe/bookmarks.bin` (or GLib's equivalent user configuration
+root) on a fixed-capacity channel. Bookmark submissions require absolute,
+distinct existing directories. The versioned binary format round-trips exact
+raw Unix path bytes and rejects relative, duplicate, and oversized encoded data;
+it never reconstructs a path from display text. Persistence
+creates a same-directory 0600 temporary file, synchronizes it, atomically renames
+it into place, and synchronizes the 0700 parent directory. GTK callbacks only
+submit requests and consume structured worker events.
+
+### `devices.rs`
+
+`DeviceMonitor` is the application-owned GIO boundary for drives, volumes, and
+mounts. It converts the live `gio::VolumeMonitor` topology into immutable,
+deduplicated `DeviceSnapshot` values and refreshes observers on drive, volume,
+and mount signals. Stable opaque IDs are separate from user-facing labels.
+
+The snapshot policy distinguishes mounted/unmounted, removable, local,
+non-local, multiple-root, unavailable, and busy states. GIO mount, unmount, and
+eject calls are asynchronous and accept `GtkMountOperation` for desktop-native
+authentication. In-flight actions remain busy until their callback resolves;
+completion refreshes snapshots and structured failures become actionable UI
+feedback. Only a single mounted local filesystem root becomes a `PathBuf`
+navigation target. Remote/network roots remain typed as non-local and are
+deferred rather than lossily converted into local paths.
 
 ### `appearance.rs`
 
@@ -524,7 +555,8 @@ Phase 6H adds `location_input.rs` as a GTK-independent input and recovery policy
 
 Phase 6I reuses the existing asynchronous GIO launcher/chooser boundary. `launcher::launch_default` now returns `DefaultLaunch::Launched` or `DefaultLaunch::NoDefault(OpenWithOptions)` after content-type/application resolution. `BrowserController` presents the existing chooser for the latter; the UI never infers or mutates a default association. Exact original paths continue through `gio::File` URIs.
 
-The next branch is `phase-6k-places-and-devices`.
+Phase 6K completes the standards-based Places, bookmarks, and device boundary.
+The next branch is `phase-6l-system-thumbnailers`.
 
 ## Known architectural debt
 
@@ -537,5 +569,6 @@ The next branch is `phase-6k-places-and-devices`.
   `ui.rs`.
 - Sidebar width, appearance, hidden-file visibility, selection, and scroll
   position are not persisted.
-- MIME, permissions, thumbnail, device, and mount data are incomplete or absent.
+- MIME and permissions data remain incomplete. Remote roots, device details
+  beyond the current GIO snapshot, and persistent sidebar width remain deferred.
 - There is no file-watching reconciliation for external changes.

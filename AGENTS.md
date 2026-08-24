@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid, thumbnails, navigation, and interaction polish (Phase 6J complete)
+Phase 6 — List/grid, thumbnails, navigation, and interaction polish (Phase 6K complete)
 ```
 
 Status:
@@ -1242,6 +1242,18 @@ secondary-click clears file selection and exposes Paste, Select All, Refresh,
 and Edit Location. Application state serializes multi-path copy, move, and Trash
 requests over existing bounded executors so large selections are not silently
 dropped at queue capacity.
+
+Phase 6K expands the compact, vertically scrollable, user-resizable sidebar into
+Places, Bookmarks, and Devices. Places includes Home plus every distinct existing
+XDG Desktop, Documents, Downloads, Music, Pictures, Public Share, Templates, and
+Videos directory. User bookmarks preserve exact raw Linux paths and load/save
+asynchronously through private 0700/0600 atomic persistence outside GTK
+callbacks. An application-owned GIO `VolumeMonitor` observes deduplicated drive,
+volume, and mount snapshots and refreshes on topology signals. Rows expose
+mounted, unmounted, busy, and unavailable states; asynchronous mount, unmount,
+and eject actions surface structured failure feedback. Mounted local filesystem
+roots navigate normally; remote/network roots remain explicitly unavailable and
+deferred.
 ```
 
 Established product decisions:
@@ -1274,18 +1286,22 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6J is complete. The next coherent branch is
-`phase-6k-places-and-devices`, adding standards-based XDG Places, persisted user
-bookmarks, and GIO volume/drive/mount observation. Phase 6L follows with reviewed
-freedesktop system thumbnailers, then Phase 6M adds truthfully labelled,
-confirmed “Delete Permanently” jobs and Shift+Delete without claiming secure erase.
+Phase 6K is complete. The next coherent branch is
+`phase-6l-system-thumbnailers`, consuming reviewed freedesktop thumbnailer
+providers on the existing bounded thumbnail boundary. Phase 6M then adds
+truthfully labelled, confirmed “Delete Permanently” jobs and Shift+Delete without
+claiming secure erase.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-148 tests pass: thirty-three core and 115 application tests. Eight focused Phase
+171 tests pass: thirty-three core and 138 application tests. Nineteen focused Phase 6K
+tests cover XDG ordering/deduplication; raw non-UTF-8 bookmark validation,
+versioned encoding, private atomic persistence and bounded worker behavior;
+deduplicated GIO snapshot/action policy; exact local navigation; compact sidebar
+behavior; and bookmark/device controller wiring. Eight focused Phase
 6J tests cover multi-selection action policy, exact multi-path non-UTF-8
 restoration, entry/background context rules, deduplicated transfer staging, and
 serial copy/move/Trash batches beyond bounded executor capacity. Two focused Phase
@@ -1386,7 +1402,9 @@ the coarse Directory/File/Link model. Phase 6F does not thumbnail SVG,
 AVIF/HEIF, RAW camera formats, or animation
 beyond the first still frame. Cache interoperability remains intentionally
 limited to the freedesktop normal/large tiers needed by Floe's current 32-192
-pixel requests.
+pixel requests. Sidebar width is resizable for the current window but is not
+persisted. Remote and network mount roots are shown as unavailable; browsing
+them remains deferred.
 ```
 
 Deferred:
@@ -1396,8 +1414,8 @@ Cross-application clipboard support, overwrite and apply-to-all conflict policy,
 cross-filesystem moves, trash restore/bulk UI, permanent delete,
 metadata-complete copies, job
 persistence/history UI, drag and drop, heavyweight/RAW/vector thumbnails,
-tabs, split view, Miller columns, previews, archives, search, device
-management, Niri IPC, KDE-specific APIs, and network filesystems.
+tabs, split view, Miller columns, previews, archives, search, richer device
+details, Niri IPC, KDE-specific APIs, and network filesystems.
 ```
 
 Completed this session:
@@ -1584,15 +1602,23 @@ Completed this session:
   copy, move, and Trash so bounded worker capacity cannot silently drop items.
 * Resequenced Phase 6K Places/devices, Phase 6L system thumbnailers, and Phase 6M
   confirmed permanent deletion with truthful non-secure-erase wording.
+* Added every distinct existing XDG user directory to the compact, scrollable,
+  user-resizable Places sidebar.
+* Added exact raw-path user bookmarks with bounded asynchronous loading/saving,
+  versioned private binary storage, and atomic 0700/0600 persistence.
+* Added application-owned GIO drive/volume/mount snapshots refreshed from
+  `VolumeMonitor` signals, asynchronous mount/unmount/eject actions, explicit
+  busy/failure states, and exact local mounted-root navigation.
+* Kept remote/network-root browsing and persistent sidebar width deferred.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-6k-places-and-devices` and expand the sidebar with valid XDG user
-directories, persisted exact-path user bookmarks, and asynchronously observed
-GIO drives/volumes/mounts. Keep mount work outside GTK callbacks and provide
-clear unavailable/unmounted recovery states.
+Create `phase-6l-system-thumbnailers` and consume reviewed freedesktop
+thumbnailer providers on the existing bounded, cancellable worker boundary.
+Prioritize safe PDF/document pages, video frames, audio art, fonts, text/code,
+and archives without executing active content.
 ```
 
 ---
