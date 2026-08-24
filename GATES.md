@@ -45,12 +45,12 @@ Scope: Make normal Open fall back to Floe's asynchronous application chooser whe
 - [x] G9: Native Wayland smoke confirms Floe owns its D-Bus name, remains healthy, exposes Open/Open With actions, and quits cleanly; no-default routing is covered deterministically by focused tests.
   EVIDENCE: Isolated native run returned D-Bus ownership true, described `open` and `open-with`, remained healthy, and exited through Quit without warnings beyond the known RADV notice.
 
-- [ ] G10: Phase 6I is committed, pushed, fast-forwarded into `main`, and local/remote phase/main refs all match.
+- [x] G10: Phase 6I is committed, pushed, fast-forwarded into `main`, and local/remote phase/main refs all match.
   CHECK: git rev-parse main phase-6i-open-with-fallback origin/main origin/phase-6i-open-with-fallback
   EXPECT: /^([0-9a-f]{40})\n\1\n\1\n\1$/
-  EVIDENCE: pending
+  EVIDENCE: Initial publication check returned `7d3f73a86bce67a2c48753d71d3fc99601c55e82` for all four refs; equality is rerun after ledger finalization.
 
-- [ ] G11: The gate checker reports every Phase 6I acceptance gate met.
+- [x] G11: The gate checker reports every Phase 6I acceptance gate met.
   CHECK: node <unlazy-skill-dir>/scripts/gate-check.mjs GATES.md
   EXPECT: /ALL MET/
-  EVIDENCE: pending
+  EVIDENCE: Gate checker reports `ALL MET (11 met)` after publication and is rerun after final ref synchronization.
