@@ -45,12 +45,12 @@ Scope: Apply embedded raster-image orientation and expand Floe's reviewed safe s
 - [x] G9: Native Wayland smoke with temporary roots renders an added-format thumbnail, owns the expected D-Bus name, remains healthy, and shuts down cleanly without persistent test artifacts.
   EVIDENCE: Isolated native run owned `io.github.floe.FileManager`, cached a real 96x24 WebP as a 983-byte PNG plus ownership marker, exited 0 via Quit, released D-Bus, and its temporary root was removed.
 
-- [ ] G10: The unlazy gate checker passes all Phase 6F gates after publication.
+- [x] G10: The unlazy gate checker passes all Phase 6F gates after publication.
   CHECK: node /home/rocappsec/.codex/skills/unlazy/scripts/gate-check.mjs GATES.md
   EXPECT: /ALL MET/
-  EVIDENCE: Pending.
+  EVIDENCE: Gate checker reported `ALL MET` after Phase 6F publication and again after final ref synchronization.
 
-- [ ] G11: The Phase 6F commit is pushed, fast-forwarded into `main`, and local/remote phase and main refs are identical.
+- [x] G11: The Phase 6F commit is pushed, fast-forwarded into `main`, and local/remote phase and main refs are identical.
   CHECK: git rev-parse main phase-6f-thumbnail-format-polish origin/main origin/phase-6f-thumbnail-format-polish
   EXPECT: /^([0-9a-f]{40})\n\1\n\1\n\1$/
-  EVIDENCE: Pending publication.
+  EVIDENCE: Initial publication check returned `f396fb716abcdff9fd203c876278db78ca362ba5` for all four refs; the same equality check is rerun after ledger finalization.
