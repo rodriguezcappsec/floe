@@ -1129,13 +1129,13 @@ Last updated:
 Current phase:
 
 ```text
-Phase 5 — Progress, cancellation, and conflict handling (Phase 5A complete)
+Phase 5 — Progress, cancellation, and conflict handling (Phase 5B complete)
 ```
 
 Status:
 
 ```text
-Phases 0-4 and Phase 5A are complete. One application-owned transfer buffer
+Phases 0-4 and Phase 5B are complete. One application-owned transfer buffer
 supports Ctrl+C copy and Ctrl+X move followed by Ctrl+V paste. F2 and the
 file-actions menu open a validated rename dialog. Copy, move, and rename use
 bounded workers plus generic non-blocking Operations Island feedback; GTK
@@ -1145,6 +1145,8 @@ provides path-safe, cancellable job infrastructure. The explicitly labelled
 state; permanent deletion remains unavailable.
 Backend retry dispatch now covers copy, move, rename, and trash with stable
 logical operation identity, fresh job attempts, and bounded terminal history.
+Failed and cancelled jobs expose a persistent accessible Retry control in the
+Operations Island; completed jobs remain non-retryable.
 ```
 
 Established product decisions:
@@ -1177,18 +1179,19 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 5A is complete. The next coherent branch is
-`phase-5b-retry-interaction`, exposing accessible retry for failed/cancelled
-Operations Island states without introducing overwrite or permanent deletion.
+Phase 5B is complete. The next coherent branch is `phase-5c-context-menu`,
+adding a native pointer and keyboard context menu that reuses the existing
+selection-sensitive Open, Copy, Cut/Move, Rename, and Move to Trash actions.
 ```
 
 Verified:
 
 ```text
-`cargo fmt --all -- --check`, `cargo check --workspace`,
-`cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo test --workspace` passes with sixty-seven tests: twenty-eight core tests
-and thirty-nine application tests. Ten focused Phase 4E tests cover original
+`cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
+sixty-nine tests pass: twenty-eight core and forty-one application tests. Two
+focused Phase 5B tests cover retryable outcomes and preservation of pending
+retry state while another job completes. Native Wayland smoke launched and
+remained healthy until timeout. Ten focused Phase 4E tests cover original
 non-UTF-8 paths, GIO error mapping, success, cancellation, structured failures,
 capacity, shutdown, state tracking, and recovery feedback without touching real
 user Trash. Phase 4F has one focused interaction-wording test. Four focused
@@ -1289,17 +1292,20 @@ Completed this session:
   preserved request, stable `OperationId`, and a fresh `JobId` per attempt.
 * Added 64-entry terminal operation history and terminal-only job-record
   eviction while preserving all active records.
-* Kept retry UI, overwrite, pause/resume controls, interactive conflict choices,
-  and permanent deletion deferred.
+* Added an accessible Retry control for failed and cancelled Operations Island
+  terminal states, routed through `ApplicationState::retry_operation`.
+* Prevented duplicate retry submissions and kept completed jobs non-retryable.
+* Kept overwrite, pause/resume controls, interactive conflict choices, and
+  permanent deletion deferred.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-5b-retry-interaction` and add an accessible retry action to
-failed/cancelled Operations Island terminal states. Submit through
-`ApplicationState::retry_operation` and show the fresh attempt without blocking
-browsing. Keep overwrite, pause/resume UI, and permanent deletion deferred.
+Create `phase-5c-context-menu` and add a native list-row context menu that
+selects the pointer-targeted entry and reuses existing Open, Copy, Cut/Move,
+Rename, and Move to Trash actions. Keep original paths, keyboard access, and the
+application-state filesystem boundary intact.
 ```
 
 ---

@@ -25,6 +25,7 @@ pub struct OperationController {
     state: Rc<ApplicationState>,
     active_jobs: RefCell<VecDeque<JobId>>,
     visible_job: Cell<Option<JobId>>,
+    retryable_job: Cell<Option<JobId>>,
     indeterminate: Cell<bool>,
     visibility_generation: Rc<Cell<u64>>,
     on_operation_completed: Box<dyn Fn(&Path)>,
@@ -45,6 +46,7 @@ impl OperationController {
             state,
             active_jobs: RefCell::new(VecDeque::new()),
             visible_job: Cell::new(None),
+            retryable_job: Cell::new(None),
             indeterminate: Cell::new(false),
             visibility_generation: Rc::new(Cell::new(0)),
             on_operation_completed: Box::new(on_operation_completed),
@@ -58,6 +60,12 @@ impl OperationController {
                 return;
             };
             controller.cancel_visible_operation();
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.operation_retry.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.retry_terminal_operation();
+            }
         });
 
         let controller = Rc::clone(self);
@@ -134,6 +142,7 @@ impl OperationController {
     }
 
     fn show_running(&self, job_id: JobId, detail: &str, fraction: Option<f64>) {
+        self.hide_retry();
         self.visibility_generation
             .set(self.visibility_generation.get().wrapping_add(1));
         self.visible_job.set(Some(job_id));
@@ -172,6 +181,11 @@ impl OperationController {
             TerminalResult::Cancelled => TerminalOutcome::Cancelled,
             TerminalResult::Failed(_) => TerminalOutcome::Failed,
         };
+        self.retryable_job.set(updated_retryable_job(
+            self.retryable_job.get(),
+            job_id,
+            outcome,
+        ));
         let request = self.state.finish_operation(job_id, outcome);
 
         match result {
@@ -212,6 +226,8 @@ impl OperationController {
         if let Some(next_job) = self.active_jobs.borrow().back().copied() {
             let request = self.request(next_job);
             self.show_running(next_job, waiting_detail(request), None);
+        } else if let Some(retryable_job) = self.retryable_job.get() {
+            self.show_retry(retryable_job);
         } else {
             self.schedule_hide();
         }
@@ -224,6 +240,7 @@ impl OperationController {
         detail: &str,
         succeeded: bool,
     ) {
+        self.hide_retry();
         self.visible_job.set(None);
         self.indeterminate.set(false);
         self.widgets.operation_label.set_label(title);
@@ -263,6 +280,40 @@ impl OperationController {
         }
     }
 
+    fn show_retry(&self, job_id: JobId) {
+        self.visibility_generation
+            .set(self.visibility_generation.get().wrapping_add(1));
+        self.retryable_job.set(Some(job_id));
+        self.widgets.operation_retry.set_sensitive(true);
+        self.widgets.operation_retry.set_visible(true);
+    }
+
+    fn clear_retry(&self) {
+        self.retryable_job.set(None);
+        self.hide_retry();
+    }
+
+    fn hide_retry(&self) {
+        self.widgets.operation_retry.set_visible(false);
+    }
+
+    fn retry_terminal_operation(&self) {
+        let Some(job_id) = self.retryable_job.get() else {
+            return;
+        };
+        self.widgets.operation_retry.set_sensitive(false);
+        match self.state.retry_operation(job_id) {
+            Ok(_) => {
+                self.clear_retry();
+                self.widgets.operation_detail.set_label("Retry queued…");
+            }
+            Err(error) => {
+                self.widgets.operation_retry.set_sensitive(true);
+                self.show_toast(&format!("Could not retry operation: {error}"), 7);
+            }
+        }
+    }
+
     fn show_toast(&self, title: &str, timeout: u32) {
         self.toast_overlay
             .add_toast(adw::Toast::builder().title(title).timeout(timeout).build());
@@ -273,6 +324,23 @@ enum TerminalResult<'a> {
     Completed,
     Cancelled,
     Failed(&'a JobFailure),
+}
+
+fn outcome_is_retryable(outcome: TerminalOutcome) -> bool {
+    matches!(
+        outcome,
+        TerminalOutcome::Cancelled | TerminalOutcome::Failed
+    )
+}
+
+fn updated_retryable_job(
+    current: Option<JobId>,
+    finished_job: JobId,
+    outcome: TerminalOutcome,
+) -> Option<JobId> {
+    outcome_is_retryable(outcome)
+        .then_some(finished_job)
+        .or(current)
 }
 
 fn operation_title(request: Option<&TrackedOperation>) -> String {
@@ -410,12 +478,34 @@ fn failure_recovery(request: Option<&TrackedOperation>, failure: &JobFailure) ->
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::{num::NonZeroU64, path::PathBuf};
 
     use floe_core::{ConflictPolicy, JobFailure, MoveRequest, RenameRequest};
 
     use super::*;
     use crate::trash_executor::TrashRequest;
+
+    #[test]
+    fn phase_5b_only_failed_and_cancelled_operations_are_retryable() {
+        assert!(!outcome_is_retryable(TerminalOutcome::Completed));
+        assert!(outcome_is_retryable(TerminalOutcome::Cancelled));
+        assert!(outcome_is_retryable(TerminalOutcome::Failed));
+    }
+
+    #[test]
+    fn phase_5b_completed_jobs_do_not_discard_a_pending_retry() {
+        let failed_job = JobId::new(NonZeroU64::new(41).expect("non-zero fixture job id"));
+        let completed_job = JobId::new(NonZeroU64::new(42).expect("non-zero fixture job id"));
+
+        assert_eq!(
+            updated_retryable_job(Some(failed_job), completed_job, TerminalOutcome::Completed,),
+            Some(failed_job)
+        );
+        assert_eq!(
+            updated_retryable_job(None, completed_job, TerminalOutcome::Failed),
+            Some(completed_job)
+        );
+    }
 
     #[test]
     fn phase_4d_feedback_uses_operation_specific_titles_and_conflict_recovery() {

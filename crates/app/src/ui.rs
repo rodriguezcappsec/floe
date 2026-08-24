@@ -10,6 +10,7 @@ pub struct OperationWidgets {
     pub operation_label: gtk::Label,
     pub operation_detail: gtk::Label,
     pub operation_progress: gtk::ProgressBar,
+    pub operation_retry: gtk::Button,
     pub operation_cancel: gtk::Button,
 }
 
@@ -278,11 +279,18 @@ fn build_operations_island() -> OperationWidgets {
         .build();
     set_accessible_label(&operation_cancel, "Cancel file operation");
 
+    let operation_retry = gtk::Button::builder()
+        .label("Retry")
+        .tooltip_text("Retry file operation")
+        .visible(false)
+        .build();
+
     let progress_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(10)
         .build();
     progress_row.append(&operation_progress);
+    progress_row.append(&operation_retry);
     progress_row.append(&operation_cancel);
 
     let island = gtk::Box::builder()
@@ -313,6 +321,7 @@ fn build_operations_island() -> OperationWidgets {
         operation_label,
         operation_detail,
         operation_progress,
+        operation_retry,
         operation_cancel,
     }
 }

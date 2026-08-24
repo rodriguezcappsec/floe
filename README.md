@@ -44,13 +44,17 @@ required nor simulated.
   application state with Operations Island feedback
 - Bounded terminal operation history and backend retry dispatch for copy, move,
   rename, and trash with stable logical operation identity
+- Persistent accessible Retry control for failed or cancelled Operations Island
+  jobs
 
 Phase 4D copy/move/paste and rename work within the running Floe application.
 Phase 4F exposes the verified trash job as a single-selection, recoverable
 desktop Trash action. Permanent delete, Shift+Delete, bulk trash, and built-in
 restore/undo remain unavailable.
-Phase 5A adds retry/history infrastructure without exposing retry or overwrite
-controls in the GTK interface yet.
+Phase 5B exposes that retry infrastructure through the Operations Island. Failed
+or cancelled jobs remain visible with a Retry button; completed jobs dismiss
+normally and cannot be retried. Overwrite and interactive conflict choices are
+still unavailable.
 Cross-application clipboard formats, overwrite, cross-filesystem copy-delete
 moves, trash restore/bulk UI, permanent deletion, previews, tabs, split view,
 Miller columns, and environment-specific integrations remain deferred.

@@ -99,17 +99,24 @@ of truth for sequencing and current-session handoff.
 - Original path-safe operation requests retained without display-text rebuilds.
 - Sixty-four-entry terminal operation history with terminal registry pruning.
 - Completed and evicted entries reject retry explicitly.
-- No GTK retry control, overwrite path, or interactive conflict choice yet.
-
-## Next
+- No overwrite path or interactive conflict choice yet.
 
 ### Phase 5B — Retry interaction
 
-Create branch `phase-5b-retry-interaction`. Add an accessible retry action to
-failed/cancelled Operations Island terminal states, submit through
-`ApplicationState::retry_operation`, and show the fresh attempt without blocking
-browsing. Keep overwrite, pause/resume controls, permanent deletion, and
-interactive conflict decisions deferred.
+- Accessible labelled Retry action for failed/cancelled Operations Island states.
+- Retry submission through `ApplicationState::retry_operation`.
+- Duplicate-click prevention while the new attempt is queued.
+- Completed operations remain non-retryable.
+
+## Next
+
+### Phase 5C — Context menu
+
+Create branch `phase-5c-context-menu`. Add a native list-row context menu that
+selects the pointer-targeted entry and reuses the existing Open, Copy, Cut/Move,
+Rename, and Move to Trash application actions. Preserve keyboard access and
+original paths; do not add Open With, custom external tools, or new filesystem
+execution paths in this slice.
 
 ## Later
 
