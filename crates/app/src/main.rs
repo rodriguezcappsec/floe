@@ -5,6 +5,7 @@ pub mod copy_executor;
 mod iconography;
 pub mod job_manager;
 mod launcher;
+mod location_input;
 mod locations;
 pub mod move_executor;
 mod operations;

@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid polish and thumbnails (Phase 6G complete)
+Phase 6 — List/grid, thumbnails, and navigation polish (Phase 6H complete)
 ```
 
 Status:
@@ -1219,6 +1219,12 @@ of thumbnail edges. Both factories share one policy and fallback; ready
 thumbnails still replace icons. File images are decorative GTK Presentation
 nodes beside authoritative names/types, selection/focus remains semantic, and
 no GTK callback performs icon filesystem I/O.
+
+Phase 6H makes the header path a native pointer/Ctrl+L editable location bar.
+It seeds and selects the current display path, validates explicit absolute-path
+text inline, and sends directory access to the bounded browser worker. Failed
+direct submissions restore the exact previous `NavigationState`; successful
+responses close the editor and return focus to the active list/grid view.
 ```
 
 Established product decisions:
@@ -1251,17 +1257,20 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6G is complete. The next coherent branch is
-`phase-7a-tabs-foundation`, moving per-tab navigation/history/selection state
-behind an application-owned model before a separate split-view phase.
+Phase 6H is complete. The next coherent branch is
+`phase-6i-open-with-fallback`, routing normal Open to the existing asynchronous
+application chooser whenever GIO reports no default application.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-134 tests pass: thirty-three core and 101 application tests. Five focused Phase
-6G tests cover all fourteen semantic icon families, mixed-case extensions,
+139 tests pass: thirty-three core and 106 application tests. Five focused Phase
+6H tests cover empty/relative validation, trimmed absolute input,
+file-versus-directory recovery, non-UTF-8 display ownership, and exact
+navigation-snapshot rollback. Five focused
+Phase 6G tests cover all fourteen semantic icon families, mixed-case extensions,
 exact non-UTF-8 identity, directory/file-link/folder-link/executable precedence,
 generic fallback, bounded list/grid optical sizes, non-symbolic aliases, and all
 embedded SVG resources. Five focused Phase 6F tests cover reviewed mixed-case
@@ -1528,16 +1537,21 @@ Completed this session:
 * Added focused Phase 6G coverage for family policy, non-UTF-8 identity,
   directory/link/executable precedence, bounded sizes, and all embedded resource
   aliases, plus native list/grid visual verification.
+* Added a pointer-operable header location control retaining Ctrl+L, with
+  current-path seeding, selection, Enter submission, and Escape cancellation.
+* Added GTK-independent absolute location validation and generation-bound
+  rollback after missing, unreadable, or non-directory worker results.
+* Preserved exact existing `PathBuf` navigation ownership; lossy displayed text
+  becomes authoritative only after explicit user submission.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-7a-tabs-foundation` and move navigation sessions into an
-application-owned tab model. Preserve exact current paths, back/forward history,
-selection, sort, and view preferences per tab; add keyboard/pointer tab creation,
-switching, reordering, and closing without duplicating filesystem workers. Keep
-split view separate until the tab state boundary is verified.
+Create `phase-6i-open-with-fallback` and route normal Open into the existing
+asynchronous chooser whenever no GIO default application exists. Keep one-time
+Open and explicit Set as Default separate, preserve exact original paths, then
+continue with Places/devices/bookmarks and system thumbnailer phases.
 ```
 
 ---

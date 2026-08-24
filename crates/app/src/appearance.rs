@@ -269,6 +269,12 @@ impl Appearance {
                 font-weight: 600;
             }}
 
+            .floe-location-hit-target {{
+                min-height: 36px;
+                padding: 2px 10px;
+                border-radius: 10px;
+            }}
+
             .operations-island {{
                 padding: 14px;
                 background-color: alpha(@card_bg_color, {island_opacity});

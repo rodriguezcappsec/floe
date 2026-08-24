@@ -266,6 +266,7 @@ pub struct BrowserWidgets {
     pub path_label: gtk::Label,
     pub path_stack: gtk::Stack,
     pub location_entry: gtk::Entry,
+    pub location_error: gtk::Label,
     pub selection: gtk::SingleSelection,
     pub list_view: gtk::ListView,
     pub grid_view: gtk::GridView,
@@ -400,19 +401,46 @@ pub fn build(
     path_box.append(&gtk::Image::from_icon_name("folder-symbolic"));
     path_box.append(&path_label);
 
+    let location_hit_target = gtk::Button::builder()
+        .child(&path_box)
+        .action_name("win.location")
+        .tooltip_text("Edit location (Ctrl+L)")
+        .has_frame(false)
+        .build();
+    location_hit_target.add_css_class("floe-location-hit-target");
+    set_accessible_label(&location_hit_target, "Edit location");
+
     let location_entry = gtk::Entry::builder()
         .placeholder_text("Enter a local path")
         .hexpand(true)
         .width_chars(42)
         .build();
     location_entry.set_tooltip_text(Some(
-        "Type a local filesystem path. Floe retains original paths during normal browsing.",
+        "Enter an absolute folder path, then press Enter. Press Escape to cancel.",
     ));
+    set_accessible_label(&location_entry, "Folder location");
+
+    let location_error = gtk::Label::builder()
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .visible(false)
+        .build();
+    location_error.set_accessible_role(gtk::AccessibleRole::Alert);
+    location_error.add_css_class("error");
+    location_error.add_css_class("caption");
+
+    let location_editor = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(2)
+        .hexpand(true)
+        .build();
+    location_editor.append(&location_entry);
+    location_editor.append(&location_error);
 
     let path_stack = gtk::Stack::new();
     path_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-    path_stack.add_named(&path_box, Some("path"));
-    path_stack.add_named(&location_entry, Some("entry"));
+    path_stack.add_named(&location_hit_target, Some("path"));
+    path_stack.add_named(&location_editor, Some("entry"));
     path_stack.set_visible_child_name("path");
 
     let header = adw::HeaderBar::new();
@@ -554,6 +582,7 @@ pub fn build(
         path_label,
         path_stack,
         location_entry,
+        location_error,
         selection,
         list_view,
         grid_view,

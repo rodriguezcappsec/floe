@@ -274,6 +274,12 @@ interruptible, and avoid blocking input. Floe does not yet expose an explicit
 reduced-motion setting; new nonessential animation must account for GTK/system
 animation preferences before it ships.
 
+### Editable location
+
+The header location is both orientation and navigation. Its resting state is a pointer-operable button with the current path, and Ctrl+L provides the keyboard route. Edit mode starts with the current displayed path selected for replacement; Enter submits an absolute local folder path and Escape returns to the prior browser state. Validation stays beside the field, keeps focus recoverable, and never relies on color alone. A submitted path is committed to navigation history only after its background directory enumeration succeeds.
+
+Phase 6H implements this surface; `phase-6i-open-with-fallback` is the next interaction branch.
+
 ### Transparency and accessibility
 
 Transparency is optional. Text, icons, selection, borders, and focus must remain

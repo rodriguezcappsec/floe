@@ -513,12 +513,17 @@ overwrite. Phase 5F adds the focused, dismissible conflict interaction and
 recoverable Operations Island action. Overwrite, pause/resume controls, and
 permanent deletion remain deferred.
 
+Phase 6H adds `location_input.rs` as a GTK-independent input and recovery policy. GTK only captures explicit text and submits it to `BrowserController`; absolute-path syntax is checked immediately, directory enumeration remains on `BrowserWorker`, and failed submissions restore the exact previous navigation snapshot. Existing non-UTF-8 `PathBuf` state is used directly until the user explicitly submits edited UTF-8 entry text.
+
+The next branch, `phase-6i-open-with-fallback`, reuses the existing asynchronous GIO launcher/chooser boundary and does not add filesystem work to GTK.
+
 ## Known architectural debt
 
 - `BrowserController` already coordinates several concerns and should not absorb
   mutation execution, previews, tabs, and desktop integration.
-- Navigation state changes before enumeration succeeds; failed destinations are
-  recoverable via history/sidebar, but success-aware navigation may be clearer.
+- Normal entry/sidebar navigation still changes state before enumeration succeeds. Phase 6H
+  direct location submissions use a generation-bound `PendingLocation` snapshot and commit or
+  restore the complete `NavigationState` after the bounded directory worker responds.
 - Appearance values are partly centralized while local widget margins remain in
   `ui.rs`.
 - Sidebar width, appearance, hidden-file visibility, selection, and scroll
