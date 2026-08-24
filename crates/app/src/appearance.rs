@@ -194,6 +194,10 @@ impl Appearance {
                 background-color: alpha(@accent_bg_color, 0.12);
             }}
 
+            .floe-thumbnail {{
+                border-radius: 5px;
+            }}
+
             .floe-entry-name {{
                 font-weight: 500;
             }}

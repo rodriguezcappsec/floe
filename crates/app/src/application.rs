@@ -6,7 +6,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{
     appearance::Appearance, browser::BrowserController, locations, operations::OperationController,
-    state::ApplicationState, ui, worker::BrowserWorker,
+    state::ApplicationState, thumbnail::ThumbnailWorker, ui, worker::BrowserWorker,
 };
 
 const APPLICATION_ID: &str = "io.github.floe.FileManager";
@@ -67,6 +67,13 @@ fn build_window(application: &adw::Application) {
             return;
         }
     };
+    let thumbnail_worker = match ThumbnailWorker::spawn() {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            tracing::warn!(%error, "could not start thumbnail worker; using generic icons");
+            None
+        }
+    };
     let application_state = match ApplicationState::new() {
         Ok(state) => Rc::new(state),
         Err(error) => {
@@ -88,8 +95,13 @@ fn build_window(application: &adw::Application) {
     let operation_widgets = widgets.operations.clone();
     let operation_window = widgets.window.clone();
     let operation_toasts = widgets.toast_overlay.clone();
-    let controller =
-        BrowserController::new(widgets, initial_path, worker, Rc::clone(&application_state));
+    let controller = BrowserController::new(
+        widgets,
+        initial_path,
+        worker,
+        thumbnail_worker,
+        Rc::clone(&application_state),
+    );
     let browser = Rc::downgrade(&controller);
     let operation_controller = OperationController::new(
         operation_window,

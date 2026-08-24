@@ -49,7 +49,8 @@ persisted across launches.
 The directory surface is a virtualized `GtkListView` backed by
 `GioListStore<glib::BoxedAnyObject>`. Phase 6A adds a compact header and aligned
 Name, Type, Size, and Modified columns. Each row displays a symbolic file-kind
-icon, a lossy display label, a textual kind that does not rely on icon or color,
+icon or eligible image thumbnail, a lossy display label, a textual kind that
+does not rely on icon or color,
 an available regular-file size, and locale-aware modification time. The
 underlying `DirectoryEntry` retains the original path and filename.
 
@@ -64,6 +65,13 @@ Directories sort before other entries. Hidden entries can be toggled. Rows are
 inserted into the GTK model in batches so very large results do not arrive in
 one main-loop update. Metadata strings are produced in the list factory bind
 path for visible/reused rows instead of eagerly for the full directory result.
+
+Phase 6C adds a 32-pixel thumbnail slot without changing row identity or
+selection behavior. Only bound rows lazily request regular PNG/JPEG images.
+Generic symbolic icons remain stable while work is queued and whenever a source
+is unsupported, stale, oversized, unreadable, or malformed. Completed textures
+use a 5-pixel radius and a 256-entry in-memory cache. There is intentionally no
+spinner per row, persistent disk cache, or separate grid yet.
 
 ### Selection and activation
 
@@ -254,7 +262,8 @@ The following are direction, not current functionality:
   names rather than internal identifiers.
 - **Tabs and split view:** multiple browser contexts with independent history
   and clear focus ownership.
-- **Grid and thumbnails:** lazy, bounded visual browsing that retains the same
-  path-safe domain entries and selection semantics as list view.
+- **Grid view:** visual browsing that reuses the Phase 6C bounded, path-safe
+  thumbnail boundary and the same domain entries and selection semantics as
+  list view.
 
 None of these planned surfaces should move filesystem operation code into GTK.

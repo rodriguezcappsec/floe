@@ -18,6 +18,7 @@ use crate::{
     launcher,
     locations::Location,
     state::{ApplicationState, TransferIntent, validate_rename_name},
+    thumbnail::{ThumbnailSubmitError, ThumbnailWorker},
     ui::{self, BrowserWidgets},
     worker::{BrowserWorker, ResponseKind},
 };
@@ -26,6 +27,8 @@ pub struct BrowserController {
     widgets: BrowserWidgets,
     navigation: RefCell<NavigationState>,
     worker: RefCell<BrowserWorker>,
+    thumbnail_worker: RefCell<Option<ThumbnailWorker>>,
+    thumbnail_generation: Cell<u64>,
     active_generation: Cell<u64>,
     show_hidden: Cell<bool>,
     visible_entries: RefCell<Vec<Arc<DirectoryEntry>>>,
@@ -45,12 +48,15 @@ impl BrowserController {
         widgets: BrowserWidgets,
         initial_path: PathBuf,
         worker: BrowserWorker,
+        thumbnail_worker: Option<ThumbnailWorker>,
         application_state: Rc<ApplicationState>,
     ) -> Rc<Self> {
         Rc::new(Self {
             widgets,
             navigation: RefCell::new(NavigationState::new(initial_path)),
             worker: RefCell::new(worker),
+            thumbnail_worker: RefCell::new(thumbnail_worker),
+            thumbnail_generation: Cell::new(0),
             active_generation: Cell::new(0),
             show_hidden: Cell::new(false),
             visible_entries: RefCell::new(Vec::new()),
@@ -136,6 +142,8 @@ impl BrowserController {
             }
             controller.drain_worker();
             controller.pump_pending_entries();
+            controller.submit_thumbnail_requests();
+            controller.drain_thumbnail_worker();
             glib::ControlFlow::Continue
         });
     }
@@ -278,6 +286,51 @@ impl BrowserController {
         }
     }
 
+    fn submit_thumbnail_requests(&self) {
+        while let Some(key) = self.widgets.thumbnails.take_request() {
+            let result = {
+                let worker = self.thumbnail_worker.borrow();
+                let Some(worker) = worker.as_ref() else {
+                    self.widgets.thumbnails.disable();
+                    return;
+                };
+                worker.try_request(self.thumbnail_generation.get(), key)
+            };
+            match result {
+                Ok(()) => {}
+                Err(ThumbnailSubmitError::Full(key)) => {
+                    self.widgets.thumbnails.retry_request(key);
+                    break;
+                }
+                Err(ThumbnailSubmitError::Disconnected) => {
+                    tracing::warn!("thumbnail worker stopped accepting requests");
+                    self.thumbnail_worker.borrow_mut().take();
+                    self.widgets.thumbnails.disable();
+                    break;
+                }
+            }
+        }
+    }
+
+    fn drain_thumbnail_worker(&self) {
+        loop {
+            let response = self
+                .thumbnail_worker
+                .borrow()
+                .as_ref()
+                .and_then(ThumbnailWorker::try_response);
+            let Some(response) = response else {
+                break;
+            };
+            if response.generation != self.thumbnail_generation.get() {
+                continue;
+            }
+            self.widgets
+                .thumbnails
+                .complete(response.key, response.result);
+        }
+    }
+
     fn show_location_entry(&self) {
         self.widgets.location_entry.set_text("");
         self.widgets.path_stack.set_visible_child_name("entry");
@@ -290,6 +343,17 @@ impl BrowserController {
     }
 
     fn load_current(&self) {
+        self.widgets.thumbnails.begin_generation();
+        let thumbnail_generation = self
+            .thumbnail_worker
+            .borrow_mut()
+            .as_mut()
+            .map(ThumbnailWorker::begin_generation)
+            .unwrap_or_default();
+        self.thumbnail_generation.set(thumbnail_generation);
+        if thumbnail_generation == 0 {
+            self.widgets.thumbnails.disable();
+        }
         self.visible_entries.borrow_mut().clear();
         self.pending_entries.borrow_mut().clear();
         self.pending_store.borrow_mut().take();

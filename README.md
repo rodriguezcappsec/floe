@@ -26,6 +26,7 @@ required nor simulated.
 - Virtualized list rows backed by original `PathBuf` values
 - Fixed Name, Type, Size, and Modified columns using already-loaded metadata
 - Compact, user-resizable Places sidebar
+- Lazy 32-pixel PNG/JPEG list thumbnails decoded on a bounded worker
 - Explicit selection with Enter/double-click activation
 - Asynchronous regular-file opening through GIO's default application
 - GTK-independent path-safe copy requests with explicit fail-on-conflict and
@@ -90,10 +91,17 @@ size or modification metadata remains last in either direction. Sorting runs on
 the directory worker, reuses shared entries, preserves selection by exact
 original `PathBuf`, and retains virtualized 256-row insertion batches.
 
+Phase 6C requests thumbnails only when virtualized rows are bound. A dedicated
+fixed-capacity worker opens regular PNG/JPEG sources without following symlinks,
+enforces encoded and decoded size limits, and returns owned RGBA pixels for GTK
+to present on the main thread. Exact path, size, and modification time form the
+cache identity. Unsupported, stale, failed, and queued requests keep their
+stable generic icons; the in-memory presentation cache is capped at 256 entries.
+
 Cross-application clipboard formats, overwrite, apply-to-all,
 cross-filesystem copy-delete moves, trash restore/bulk UI, permanent
-deletion, previews, tabs, split view, Miller columns, thumbnail generation, a
-separate grid, and environment-specific integrations remain deferred.
+deletion, previews, tabs, split view, Miller columns, a separate grid, broader
+thumbnail formats, and environment-specific integrations remain deferred.
 
 ## Project documentation
 

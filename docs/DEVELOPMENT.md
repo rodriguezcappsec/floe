@@ -99,6 +99,7 @@ cargo test -p floe-app phase_5f
 cargo test -p floe-app phase_6a
 cargo test -p floe-core phase_6b
 cargo test -p floe-app phase_6b
+cargo test -p floe-app phase_6c
 cargo test -p floe-app move_executor
 cargo check -p floe-core
 cargo tree -p floe-app --depth 1
@@ -114,6 +115,14 @@ Phase 6B tests exercise both sort directions, directories-first ordering,
 unknown optional metadata, raw non-UTF-8 name identity, background worker
 sorting, visible direction text, and exact-path selection restoration when two
 lossy display names collide.
+
+Phase 6C tests use temporary PNG/JPEG fixtures and cover format eligibility,
+exact non-UTF-8 path identity, metadata-sensitive invalidation, no-follow
+symlink replacement rejection, encoded-source limits, bounded decoding/scaling,
+stale navigation generations, non-blocking queue capacity, pending deduplication,
+and the 256-entry presentation-cache bound. The MSRV-compatible `image 0.25.9`
+release is pinned with default features disabled and only PNG/JPEG decoders
+enabled; it adds no external image decoder system package requirement.
 
 ## Wayland environments
 

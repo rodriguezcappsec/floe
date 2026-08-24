@@ -164,15 +164,34 @@ of truth for sequencing and current-session handoff.
   and 256-entry main-loop insertion batches remain intact.
 - Thumbnail generation and a separate grid remain deferred.
 
-## Next
+## Most recently completed
 
 ### Phase 6C — Thumbnail foundation
 
-Create branch `phase-6c-thumbnail-foundation`. Define a bounded, asynchronous
+Implemented on `phase-6c-thumbnail-foundation` with a bounded, asynchronous
 thumbnail request/result boundary and safe cache identity without blocking GTK
-or executing active content. Start with the smallest useful image-thumbnail
+or executing active content. It provides the smallest useful image-thumbnail
 slice, preserve generic icons and readable fallback states, and keep a separate
 grid view deferred until the shared thumbnail path is verified.
+
+- Requests originate only from bound virtualized rows and keep stable generic
+  fallbacks for queued, unsupported, failed, stale, or disabled cases.
+- Exact path, enumerated size, and modification time form cache identity.
+- Regular PNG/JPEG files use no-follow opening plus encoded and decoded limits.
+- One fixed-capacity worker decodes/scales off GTK and skips stale generations.
+- GTK constructs textures from owned RGBA bytes on the main thread; completed
+  presentation state is capped at 256 entries.
+- A separate grid view and persistent disk cache remain deferred.
+
+## Next
+
+### Phase 6D — Grid-view foundation
+
+Create branch `phase-6d-grid-view-foundation`. Add a switchable virtualized grid
+that reuses the existing `DirectoryEntry`, selection, activation, navigation,
+context-action, and Phase 6C thumbnail boundaries. Preserve exact-path identity,
+bounded model delivery, keyboard focus, and stable generic fallbacks; do not
+fork filesystem state or introduce eager thumbnail generation.
 
 ## Later
 

@@ -45,6 +45,10 @@ floe-core directory enumeration
                            batched virtualized list model
 ```
 
+In parallel, Phase 6C's fixed-capacity `ThumbnailWorker` accepts lazy requests
+from bound rows and returns owned RGBA buffers to the same 16 ms GTK poll. GTK
+constructs `GdkMemoryTexture` objects only on the main thread.
+
 GTK callbacks submit navigation, activation, copy, paste, or cancellation
 intent to controllers and application state. They do not call `std::fs`
 operations. `BrowserController` owns navigation, selection, loading
@@ -122,10 +126,24 @@ context.
 
 `main.rs` declares modules and starts `application::run`. `application.rs`
 creates application ID `io.github.floe.FileManager`, installs Ctrl+Q, selects
-appearance and XDG locations, builds the window, starts `BrowserWorker`, and
-surfaces worker-start failure. It also creates the shared `ApplicationState`
+appearance and XDG locations, builds the window, starts `BrowserWorker` and the
+optional `ThumbnailWorker`, and surfaces browser-worker start failure.
+Thumbnail-worker start failure is non-fatal and leaves generic icons. It also
+creates the shared `ApplicationState`
 that owns the job registry boundary. `tracing-subscriber` reads `RUST_LOG` and
 defaults to `floe=info`.
+
+### `thumbnail.rs`
+
+Phase 6C owns a fixed-capacity, single-thread thumbnail request/result boundary
+separate from GTK and the filesystem mutation executors. `ThumbnailKey` retains
+the exact `PathBuf`, enumerated byte size, modification time, and whitelisted
+PNG/JPEG format. Only regular files qualify. The worker opens with `O_NOFOLLOW`,
+rejects sources larger than 32 MiB or changed since enumeration, applies
+explicit decoder dimension/allocation limits, and scales to a 32-pixel edge
+with the pure-Rust `image` decoder. Old navigation generations are skipped.
+Only owned RGBA bytes cross back to the GTK thread; the worker creates or uses
+no GTK object.
 
 ### `state.rs` and `job_manager.rs`
 
@@ -192,6 +210,13 @@ filtered set while the GTK model continues receiving at most 256 rows per main
 loop tick. Sort requests run on the existing bounded directory worker. On
 completion, `browser.rs` rebuilds the model and restores selection by exact
 `PathBuf`; it never derives identity from lossy labels.
+
+Phase 6C keeps thumbnail presentation in the virtualized factory bind/unbind
+boundary. `ThumbnailPresentation` deduplicates pending exact keys, retains weak
+bindings only for bound rows, and caps completed textures/fallbacks at 256
+entries. The controller submits requests without blocking, retries a full queue
+on a later main-loop tick, drops stale-generation responses, and creates
+`GdkMemoryTexture` objects only on the GTK main thread.
 
 ### `browser.rs`
 
