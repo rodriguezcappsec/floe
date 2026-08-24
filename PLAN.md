@@ -33,3 +33,4 @@ Budget note: This phase crosses preference persistence, GTK layout/state, operat
 - 2026-08-24 preference and privileged-browsing design leaves started in parallel.
 - 2026-08-24 parent verification accepted preference, privileged-access design, and GTK integration leaves; node 1.1 and 1.2 gates are complete.
 - 2026-08-24 documentation/native QA completed after an isolated Niri smoke found and fixed startup allocation rewriting sidebar width; node 1.3 is complete.
+- 2026-08-24 feature commit pushed and fast-forwarded to main; all root gates completed for final ledger synchronization.

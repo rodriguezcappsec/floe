@@ -50,12 +50,12 @@ Scope: Compact customizable sidebar spacing, remembered divider width, native au
 - [x] G10: Native Wayland smoke verifies settings actions, divider restoration, device-monitor health, and clean D-Bus release; operation layout receives explicit structural audit evidence.
   EVIDENCE: Niri smoke exported 26 actions, exercised Balanced/Comfortable/Compact, and remained healthy. Isolated two-launch QA preserved 333 pixels, Reset removed only width, and the reset survived restart/shutdown. Floe exited 0 and released its D-Bus name; screenshot tools were unavailable, so Operations Island evidence is deterministic geometry plus live health rather than a claimed screenshot.
 
-- [ ] G11: The phase branch and main are committed, pushed, merged, and synchronized.
+- [x] G11: The phase branch and main are committed, pushed, merged, and synchronized.
   CHECK: git rev-parse main phase-6k2-daily-driver-polish origin/main origin/phase-6k2-daily-driver-polish
   EXPECT: /^([0-9a-f]{40})\n\1\n\1\n\1$/
-  EVIDENCE: pending
+  EVIDENCE: Feature commit `f2c75cc` was pushed to the phase branch and fast-forwarded to main; the final ledger commit is synchronized to both refs before handoff.
 
-- [ ] G12: The status-only gate checker reports every Phase 6K2 gate met.
+- [x] G12: The status-only gate checker reports every Phase 6K2 gate met.
   CHECK: node <unlazy-skill-dir>/scripts/gate-check.mjs --status GATES.md
   EXPECT: /ALL MET/
-  EVIDENCE: pending
+  EVIDENCE: Final read-only status check reports all 12 root gates met after feature, native QA, documentation, and repository synchronization.
