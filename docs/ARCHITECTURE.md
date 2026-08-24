@@ -207,6 +207,10 @@ produce recovery-oriented toasts. Terminal status remains
 visible for three seconds. The controller observes jobs but never executes
 filesystem operations.
 
+Phase 5E maps destination conflicts to a distinct non-retryable terminal
+outcome, so the generic Retry control cannot blindly repeat the same
+destination.
+
 ### `move_executor.rs`
 
 `MoveExecutor` owns one named worker and a fixed-capacity queue for core
@@ -307,7 +311,15 @@ No desktop integration trait or Niri/Plasma backend exists. The app uses generic
 GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
 detection and compositor APIs must eventually stay under `crates/app`.
 
-### Filesystem jobs through Phase 5B
+### Filesystem jobs through Phase 5E
+
+Phase 5E adds an application-layer conflict resolver contract. Pending
+conflicts retain exact source/destination paths and stable operation identity;
+callers must keep the existing item or retry copy/move/rename with one
+validated sibling `OsString`. Revised attempts remain fail-if-exists and
+receive fresh job IDs. Resolution is single-use and pruned with bounded
+terminal history. Trash conflicts, apply-to-all, overwrite, and a GTK decision
+surface are not supported yet.
 
 Identity, lifecycle, progress, failure, retry-attempt, registry, and event
 foundations now exist. `floe-core::copy` adds the first path-safe operation
@@ -364,7 +376,9 @@ and permanent deletion remain deferred.
 
 Phase 5A generalizes retry dispatch and bounds application terminal history.
 Phase 5B adds the Operations Island Retry control for failed and cancelled
-attempts. Overwrite, interactive conflict choices, pause/resume controls, and
+attempts. Phase 5E prevents generic retries for destination conflicts and
+establishes explicit keep-existing/retry-with-name decisions without enabling
+overwrite. The GTK conflict interaction, overwrite, pause/resume controls, and
 permanent deletion remain deferred.
 
 ## Known architectural debt

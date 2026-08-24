@@ -176,11 +176,7 @@ impl OperationController {
         self.active_jobs
             .borrow_mut()
             .retain(|active| *active != job_id);
-        let outcome = match &result {
-            TerminalResult::Completed => TerminalOutcome::Completed,
-            TerminalResult::Cancelled => TerminalOutcome::Cancelled,
-            TerminalResult::Failed(_) => TerminalOutcome::Failed,
-        };
+        let outcome = terminal_outcome(&result);
         self.retryable_job.set(updated_retryable_job(
             self.retryable_job.get(),
             job_id,
@@ -331,6 +327,17 @@ fn outcome_is_retryable(outcome: TerminalOutcome) -> bool {
         outcome,
         TerminalOutcome::Cancelled | TerminalOutcome::Failed
     )
+}
+
+fn terminal_outcome(result: &TerminalResult<'_>) -> TerminalOutcome {
+    match result {
+        TerminalResult::Completed => TerminalOutcome::Completed,
+        TerminalResult::Cancelled => TerminalOutcome::Cancelled,
+        TerminalResult::Failed(failure) if failure.kind() == JobFailureKind::Conflict => {
+            TerminalOutcome::Conflict
+        }
+        TerminalResult::Failed(_) => TerminalOutcome::Failed,
+    }
 }
 
 fn updated_retryable_job(
@@ -489,7 +496,23 @@ mod tests {
     fn phase_5b_only_failed_and_cancelled_operations_are_retryable() {
         assert!(!outcome_is_retryable(TerminalOutcome::Completed));
         assert!(outcome_is_retryable(TerminalOutcome::Cancelled));
+        assert!(!outcome_is_retryable(TerminalOutcome::Conflict));
         assert!(outcome_is_retryable(TerminalOutcome::Failed));
+    }
+
+    #[test]
+    fn phase_5e_conflicts_have_a_distinct_non_retryable_terminal_outcome() {
+        let conflict = JobFailure::new(JobFailureKind::Conflict, "destination exists");
+        let failure = JobFailure::new(JobFailureKind::Io, "filesystem unavailable");
+
+        assert_eq!(
+            terminal_outcome(&TerminalResult::Failed(&conflict)),
+            TerminalOutcome::Conflict
+        );
+        assert_eq!(
+            terminal_outcome(&TerminalResult::Failed(&failure)),
+            TerminalOutcome::Failed
+        );
     }
 
     #[test]
