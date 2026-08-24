@@ -180,6 +180,20 @@ impl Appearance {
                 font-weight: 600;
             }}
 
+            .floe-sort-heading {{
+                min-height: 32px;
+                padding: 0;
+                border-radius: 6px;
+            }}
+
+            .floe-sort-heading:hover {{
+                background-color: alpha(@accent_bg_color, 0.08);
+            }}
+
+            .floe-sort-heading.active-sort {{
+                background-color: alpha(@accent_bg_color, 0.12);
+            }}
+
             .floe-entry-name {{
                 font-weight: 500;
             }}

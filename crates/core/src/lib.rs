@@ -7,6 +7,7 @@ mod jobs;
 mod model;
 mod move_operation;
 mod navigation;
+mod sorting;
 
 pub use copy::{
     ConflictPolicy, CopyCancellation, CopyError, CopyOutcome, CopyProgress, CopyRequest,
@@ -24,3 +25,4 @@ pub use move_operation::{
     execute_rename,
 };
 pub use navigation::NavigationState;
+pub use sorting::{DirectorySort, SortColumn, SortDirection};

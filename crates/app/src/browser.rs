@@ -2,13 +2,16 @@ use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
     ffi::{OsStr, OsString},
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
+    sync::Arc,
     time::Duration,
 };
 
 use adw::prelude::*;
-use floe_core::{DirectoryEntry, DirectoryError, DirectoryListing, EntryKind, NavigationState};
+use floe_core::{
+    DirectoryEntry, DirectoryError, DirectorySort, EntryKind, NavigationState, SortColumn,
+};
 use gtk::{gio, glib};
 
 use crate::{
@@ -16,7 +19,7 @@ use crate::{
     locations::Location,
     state::{ApplicationState, TransferIntent, validate_rename_name},
     ui::{self, BrowserWidgets},
-    worker::BrowserWorker,
+    worker::{BrowserWorker, ResponseKind},
 };
 
 pub struct BrowserController {
@@ -25,10 +28,15 @@ pub struct BrowserController {
     worker: RefCell<BrowserWorker>,
     active_generation: Cell<u64>,
     show_hidden: Cell<bool>,
-    pending_entries: RefCell<VecDeque<DirectoryEntry>>,
+    visible_entries: RefCell<Vec<Arc<DirectoryEntry>>>,
+    pending_entries: RefCell<VecDeque<Arc<DirectoryEntry>>>,
     pending_store: RefCell<Option<gio::ListStore>>,
     pending_total: Cell<usize>,
-    selected_entry: RefCell<Option<DirectoryEntry>>,
+    pending_selection_index: Cell<Option<u32>>,
+    selected_entry: RefCell<Option<Arc<DirectoryEntry>>>,
+    sort_order: Cell<DirectorySort>,
+    sort_in_flight: Cell<bool>,
+    sort_selection_path: RefCell<Option<PathBuf>>,
     application_state: Rc<ApplicationState>,
 }
 
@@ -45,16 +53,22 @@ impl BrowserController {
             worker: RefCell::new(worker),
             active_generation: Cell::new(0),
             show_hidden: Cell::new(false),
+            visible_entries: RefCell::new(Vec::new()),
             pending_entries: RefCell::new(VecDeque::new()),
             pending_store: RefCell::new(None),
             pending_total: Cell::new(0),
+            pending_selection_index: Cell::new(None),
             selected_entry: RefCell::new(None),
+            sort_order: Cell::new(DirectorySort::default()),
+            sort_in_flight: Cell::new(false),
+            sort_selection_path: RefCell::new(None),
             application_state,
         })
     }
 
     pub fn wire(self: &Rc<Self>, application: &adw::Application, locations: &[Location]) {
         self.install_actions(application);
+        self.update_sort_headers();
 
         for (button, location) in self.widgets.location_buttons.iter().zip(locations) {
             let controller = Rc::downgrade(self);
@@ -150,6 +164,9 @@ impl BrowserController {
         trash_action.set_enabled(false);
         let paste_action = self.add_action("paste", |controller| controller.paste_transfer());
         paste_action.set_enabled(false);
+        for (name, column) in ui::SORT_ACTIONS {
+            self.add_action(name, move |controller| controller.change_sort(column));
+        }
 
         application.set_accels_for_action("win.back", &["<Alt>Left"]);
         application.set_accels_for_action("win.forward", &["<Alt>Right"]);
@@ -163,7 +180,10 @@ impl BrowserController {
         application.set_accels_for_action("win.rename", &["F2"]);
     }
 
-    fn add_action(self: &Rc<Self>, name: &str, callback: fn(&Self)) -> gio::SimpleAction {
+    fn add_action<F>(self: &Rc<Self>, name: &str, callback: F) -> gio::SimpleAction
+    where
+        F: Fn(&Self) + 'static,
+    {
         let action = gio::SimpleAction::new(name, None);
         let controller = Rc::downgrade(self);
         action.connect_activate(move |_, _| {
@@ -206,6 +226,58 @@ impl BrowserController {
         self.load_current();
     }
 
+    fn change_sort(&self, column: SortColumn) {
+        if self.sort_in_flight.get() {
+            return;
+        }
+
+        let sort = self.sort_order.get().next_for(column);
+        self.sort_order.set(sort);
+        self.update_sort_headers();
+        let entries = self.visible_entries.borrow().clone();
+        if entries.len() < 2 {
+            self.refresh_status();
+            return;
+        }
+
+        let selected_path = self
+            .selected_entry
+            .borrow()
+            .as_ref()
+            .map(|entry| entry.path().to_path_buf());
+        self.sort_selection_path.replace(selected_path);
+        self.pending_entries.borrow_mut().clear();
+        self.pending_store.borrow_mut().take();
+        self.pending_selection_index.set(None);
+        self.widgets.context_menu.popdown();
+        self.widgets.list_view.set_sensitive(false);
+        self.sort_in_flight.set(true);
+        self.set_sort_controls_sensitive(false);
+        self.widgets.spinner.start();
+        self.widgets.status_label.set_label(&format!(
+            "Sorting by {} {}…",
+            sort.column.label(),
+            sort.direction.label()
+        ));
+
+        let path = self.navigation.borrow().current().to_path_buf();
+        let generation = self.worker.borrow_mut().request_sort(path, entries, sort);
+        self.active_generation.set(generation);
+    }
+
+    fn update_sort_headers(&self) {
+        let sort = self.sort_order.get();
+        for header in &self.widgets.sort_headers {
+            ui::update_sort_header(header, sort);
+        }
+    }
+
+    fn set_sort_controls_sensitive(&self, sensitive: bool) {
+        for header in &self.widgets.sort_headers {
+            header.button.set_sensitive(sensitive);
+        }
+    }
+
     fn show_location_entry(&self) {
         self.widgets.location_entry.set_text("");
         self.widgets.path_stack.set_visible_child_name("entry");
@@ -218,9 +290,14 @@ impl BrowserController {
     }
 
     fn load_current(&self) {
+        self.visible_entries.borrow_mut().clear();
         self.pending_entries.borrow_mut().clear();
         self.pending_store.borrow_mut().take();
         self.pending_total.set(0);
+        self.pending_selection_index.set(None);
+        self.sort_selection_path.borrow_mut().take();
+        self.sort_in_flight.set(false);
+        self.set_sort_controls_sensitive(false);
         self.widgets.context_menu.popdown();
         self.selected_entry.borrow_mut().take();
         self.widgets.selection.unselect_all();
@@ -233,7 +310,10 @@ impl BrowserController {
         self.set_open_with_enabled(false);
         self.set_selection_actions_enabled(false);
         let path = self.navigation.borrow().current().to_path_buf();
-        let generation = self.worker.borrow_mut().request(path.clone());
+        let generation = self
+            .worker
+            .borrow_mut()
+            .request(path.clone(), self.sort_order.get());
         self.active_generation.set(generation);
 
         let display_path = path.to_string_lossy();
@@ -273,11 +353,15 @@ impl BrowserController {
             }
 
             self.widgets.spinner.stop();
-            match response.result {
-                Ok(listing) => self.show_listing(listing),
-                Err(DirectoryError::Cancelled) => {}
-                Err(error) => {
+            match response.kind {
+                ResponseKind::Listing(Ok(entries)) => {
+                    self.set_sort_controls_sensitive(true);
+                    self.show_listing(entries);
+                }
+                ResponseKind::Listing(Err(DirectoryError::Cancelled)) => {}
+                ResponseKind::Listing(Err(error)) => {
                     tracing::warn!(path = ?response.path, %error, "directory enumeration failed");
+                    self.set_sort_controls_sensitive(true);
                     self.widgets.list_view.set_sensitive(true);
                     self.widgets.status_label.set_label("Could not load folder");
                     let toast = adw::Toast::builder()
@@ -286,27 +370,52 @@ impl BrowserController {
                         .build();
                     self.widgets.toast_overlay.add_toast(toast);
                 }
+                ResponseKind::Sorted { entries, sort } => {
+                    self.sort_in_flight.set(false);
+                    self.set_sort_controls_sensitive(true);
+                    if sort != self.sort_order.get() {
+                        continue;
+                    }
+                    let selected_path = self.sort_selection_path.borrow_mut().take();
+                    self.install_entries(entries, selected_path.as_deref(), false);
+                }
             }
         }
     }
 
-    fn show_listing(&self, listing: DirectoryListing) {
+    fn show_listing(&self, entries: Vec<DirectoryEntry>) {
         let show_hidden = self.show_hidden.get();
-        let entries: VecDeque<DirectoryEntry> = listing
-            .into_entries()
+        let entries: Vec<Arc<DirectoryEntry>> = entries
             .into_iter()
             .filter(|entry| show_hidden || !entry.is_hidden())
+            .map(Arc::new)
             .collect();
+        self.install_entries(entries, None, true);
+    }
+
+    fn install_entries(
+        &self,
+        entries: Vec<Arc<DirectoryEntry>>,
+        selected_path: Option<&Path>,
+        focus_list: bool,
+    ) {
         let count = entries.len();
+        let selection_index =
+            selected_path.and_then(|path| selection_index_for_path(&entries, path));
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
         self.widgets.selection.set_model(Some(&store));
         self.widgets.list_view.set_sensitive(true);
         self.widgets.empty_state.set_visible(count == 0);
         self.pending_total.set(count);
-        self.pending_entries.replace(entries);
+        self.pending_selection_index.set(selection_index);
+        self.pending_entries
+            .replace(entries.iter().cloned().collect());
+        self.visible_entries.replace(entries);
         self.pending_store.replace(Some(store));
         self.update_loading_status(0, count);
-        self.widgets.list_view.grab_focus();
+        if focus_list {
+            self.widgets.list_view.grab_focus();
+        }
     }
 
     fn pump_pending_entries(&self) {
@@ -329,6 +438,15 @@ impl BrowserController {
 
         let total = self.pending_total.get();
         let loaded = total.saturating_sub(pending.len());
+        if self
+            .pending_selection_index
+            .get()
+            .is_some_and(|index| usize::try_from(index).is_ok_and(|index| index < loaded))
+        {
+            if let Some(index) = self.pending_selection_index.take() {
+                self.widgets.selection.set_selected(index);
+            }
+        }
         self.update_loading_status(loaded, total);
     }
 
@@ -349,7 +467,7 @@ impl BrowserController {
         let Some(object) = model.item(position).and_downcast::<glib::BoxedAnyObject>() else {
             return;
         };
-        let entry = object.borrow::<DirectoryEntry>().clone();
+        let entry = object.borrow::<Arc<DirectoryEntry>>().clone();
         self.activate_entry(&entry);
     }
 
@@ -400,13 +518,13 @@ impl BrowserController {
             self.selected_entry
                 .borrow()
                 .as_ref()
-                .is_some_and(open_with_eligible),
+                .is_some_and(|entry| open_with_eligible(entry)),
         );
         self.set_selection_actions_enabled(has_selection);
         self.refresh_status();
     }
 
-    fn selected_entry(&self) -> Option<DirectoryEntry> {
+    fn selected_entry(&self) -> Option<Arc<DirectoryEntry>> {
         self.selected_entry.borrow().clone()
     }
 
@@ -418,14 +536,14 @@ impl BrowserController {
         self.widgets.context_menu.popup();
     }
 
-    fn selected_model_entry(&self) -> Option<DirectoryEntry> {
+    fn selected_model_entry(&self) -> Option<Arc<DirectoryEntry>> {
         let object = self
             .widgets
             .selection
             .selected_item()?
             .downcast::<glib::BoxedAnyObject>()
             .ok()?;
-        let entry = object.borrow::<DirectoryEntry>().clone();
+        let entry = object.borrow::<Arc<DirectoryEntry>>().clone();
         Some(entry)
     }
 
@@ -498,7 +616,9 @@ impl BrowserController {
                 let eligible = selection
                     .selected_item()
                     .and_downcast::<glib::BoxedAnyObject>()
-                    .is_some_and(|object| open_with_eligible(&object.borrow::<DirectoryEntry>()));
+                    .is_some_and(|object| {
+                        open_with_eligible(&object.borrow::<Arc<DirectoryEntry>>())
+                    });
                 action.set_enabled(eligible);
             }
             status_label.set_label(&format!("{display_name} selected"));
@@ -710,6 +830,13 @@ impl BrowserController {
     }
 }
 
+fn selection_index_for_path(entries: &[Arc<DirectoryEntry>], path: &Path) -> Option<u32> {
+    entries
+        .iter()
+        .position(|entry| entry.path() == path)
+        .and_then(|index| u32::try_from(index).ok())
+}
+
 fn is_context_menu_shortcut(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierType) -> bool {
     let command_modifiers = gtk::gdk::ModifierType::SHIFT_MASK
         | gtk::gdk::ModifierType::CONTROL_MASK
@@ -873,7 +1000,42 @@ fn present_open_with_dialog(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::{ffi::OsString, fs, os::unix::ffi::OsStringExt};
+
+    #[cfg(unix)]
+    use tempfile::tempdir;
+
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn phase_6b_selection_restoration_uses_exact_non_utf8_path() {
+        let directory = tempdir().expect("temporary directory should be created");
+        let first_name = OsString::from_vec(vec![b'f', 0x80]);
+        let target_name = OsString::from_vec(vec![b'f', 0x81]);
+        fs::write(directory.path().join(&first_name), b"first")
+            .expect("first non-UTF-8 file should be created");
+        fs::write(directory.path().join(&target_name), b"target")
+            .expect("target non-UTF-8 file should be created");
+
+        let entries: Vec<_> = floe_core::enumerate_directory(directory.path())
+            .expect("directory should enumerate")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect();
+        let target_path = directory.path().join(target_name);
+        let index = selection_index_for_path(&entries, &target_path)
+            .expect("exact target path should remain selectable");
+
+        assert_eq!(entries[index as usize].path(), target_path);
+        assert_eq!(
+            entries[0].display_name_lossy(),
+            entries[1].display_name_lossy(),
+            "the test must exercise colliding lossy display names"
+        );
+    }
 
     #[test]
     fn phase_5c_context_shortcuts_ignore_lock_state_but_reject_command_chords() {

@@ -83,6 +83,13 @@ columns improve scanning while metadata is still formatted only for bound
 visible rows. Full filenames remain available by tooltip, keyboard focus has an
 explicit visible treatment, and original paths remain untouched.
 
+Phase 6B makes all four headings native keyboard/pointer controls. Activating
+the current heading reverses its explicit ascending/descending order; choosing
+a different heading starts ascending. Directories remain first and unavailable
+size or modification metadata remains last in either direction. Sorting runs on
+the directory worker, reuses shared entries, preserves selection by exact
+original `PathBuf`, and retains virtualized 256-row insertion batches.
+
 Cross-application clipboard formats, overwrite, apply-to-all,
 cross-filesystem copy-delete moves, trash restore/bulk UI, permanent
 deletion, previews, tabs, split view, Miller columns, thumbnail generation, a

@@ -1,7 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use adw::prelude::*;
-use floe_core::{DirectoryEntry, EntryKind};
+use floe_core::{DirectoryEntry, DirectorySort, EntryKind, SortColumn, SortDirection};
 use gtk::{gio, glib};
 
 use crate::{appearance::Appearance, launcher::OpenWithOptions, locations::Location};
@@ -20,6 +20,19 @@ const LIST_COLUMN_LABELS: [&str; 4] = ["Name", "Type", "Size", "Modified"];
 const TYPE_COLUMN_WIDTH: i32 = 11;
 const SIZE_COLUMN_WIDTH: i32 = 10;
 const MODIFIED_COLUMN_WIDTH: i32 = 18;
+pub const SORT_ACTIONS: [(&str, SortColumn); 4] = [
+    ("sort-name", SortColumn::Name),
+    ("sort-type", SortColumn::Type),
+    ("sort-size", SortColumn::Size),
+    ("sort-modified", SortColumn::Modified),
+];
+
+#[derive(Clone)]
+pub struct SortHeaderWidgets {
+    pub column: SortColumn,
+    pub button: gtk::Button,
+    label: gtk::Label,
+}
 
 pub struct OpenWithDialogWidgets {
     pub dialog: adw::Dialog,
@@ -75,6 +88,7 @@ pub struct BrowserWidgets {
     pub empty_state: gtk::Box,
     pub spinner: gtk::Spinner,
     pub status_label: gtk::Label,
+    pub sort_headers: Vec<SortHeaderWidgets>,
     pub location_buttons: Vec<gtk::Button>,
     pub operations: OperationWidgets,
 }
@@ -161,8 +175,16 @@ pub fn build(
     header.pack_end(&file_actions);
 
     let (sidebar, location_buttons) = build_sidebar(locations, appearance.sidebar_min_width());
-    let (content, selection, list_view, context_menu, empty_state, spinner, status_label) =
-        build_directory_panel();
+    let (
+        content,
+        selection,
+        list_view,
+        context_menu,
+        empty_state,
+        spinner,
+        status_label,
+        sort_headers,
+    ) = build_directory_panel();
 
     content.set_width_request(420);
     let workspace = gtk::Paned::builder()
@@ -216,6 +238,7 @@ pub fn build(
         empty_state,
         spinner,
         status_label,
+        sort_headers,
         location_buttons,
         operations,
     }
@@ -644,6 +667,7 @@ fn build_directory_panel() -> (
     gtk::Box,
     gtk::Spinner,
     gtk::Label,
+    Vec<SortHeaderWidgets>,
 ) {
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
     let selection = gtk::SingleSelection::new(Some(store));
@@ -764,7 +788,7 @@ fn build_directory_panel() -> (
         let Some(object) = list_item.item().and_downcast::<glib::BoxedAnyObject>() else {
             return;
         };
-        let entry = object.borrow::<DirectoryEntry>();
+        let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
         name.set_tooltip_text(Some(&display_name));
@@ -839,7 +863,8 @@ fn build_directory_panel() -> (
         .vexpand(true)
         .build();
     panel.add_css_class("floe-panel");
-    panel.append(&build_list_header());
+    let (list_header, sort_headers) = build_list_header();
+    panel.append(&list_header);
     panel.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     panel.append(&overlay);
     panel.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
@@ -853,6 +878,7 @@ fn build_directory_panel() -> (
         empty_state,
         spinner,
         status_label,
+        sort_headers,
     )
 }
 
@@ -913,7 +939,7 @@ fn icon_name(kind: EntryKind) -> &'static str {
     }
 }
 
-fn build_list_header() -> gtk::Box {
+fn build_list_header() -> (gtk::Box, Vec<SortHeaderWidgets>) {
     let header = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(12)
@@ -921,8 +947,10 @@ fn build_list_header() -> gtk::Box {
     header.add_css_class("floe-list-header");
 
     header.append(&gtk::Box::builder().width_request(24).build());
-    for (index, (label, width)) in LIST_COLUMN_LABELS
+    let mut widgets = Vec::with_capacity(SortColumn::ALL.len());
+    for (index, ((column, label), width)) in SortColumn::ALL
         .into_iter()
+        .zip(LIST_COLUMN_LABELS)
         .zip([
             None,
             Some(TYPE_COLUMN_WIDTH),
@@ -931,6 +959,7 @@ fn build_list_header() -> gtk::Box {
         ])
         .enumerate()
     {
+        debug_assert_eq!(column.label(), label);
         let heading = gtk::Label::builder()
             .label(label)
             .halign(if index < 2 {
@@ -946,10 +975,76 @@ fn build_list_header() -> gtk::Box {
             heading.set_width_chars(width);
             heading.set_max_width_chars(width);
         }
-        header.append(&heading);
+        let button = gtk::Button::builder()
+            .child(&heading)
+            .action_name(sort_action_name(column))
+            .hexpand(index == 0)
+            .build();
+        button.add_css_class("flat");
+        button.add_css_class("floe-sort-heading");
+        header.append(&button);
+        widgets.push(SortHeaderWidgets {
+            column,
+            button,
+            label: heading,
+        });
     }
 
+    (header, widgets)
+}
+
+fn sort_action_name(column: SortColumn) -> &'static str {
+    match column {
+        SortColumn::Name => "win.sort-name",
+        SortColumn::Type => "win.sort-type",
+        SortColumn::Size => "win.sort-size",
+        SortColumn::Modified => "win.sort-modified",
+    }
+}
+
+pub fn update_sort_header(header: &SortHeaderWidgets, sort: DirectorySort) {
+    let active = header.column == sort.column;
+    let direction = active.then_some(sort.direction);
     header
+        .label
+        .set_label(&sort_heading_text(header.column, direction));
+
+    let next_direction = direction
+        .map(SortDirection::reversed)
+        .unwrap_or(SortDirection::Ascending);
+    let action = format!("Sort {} {}", header.column.label(), next_direction.label());
+    let accessible = direction.map_or_else(
+        || action.clone(),
+        |direction| {
+            format!(
+                "Sorted by {}, {}. {action}",
+                header.column.label(),
+                direction.label()
+            )
+        },
+    );
+    header.button.set_tooltip_text(Some(&accessible));
+    set_accessible_label(&header.button, &accessible);
+    header
+        .button
+        .update_state(&[gtk::accessible::State::Pressed(if active {
+            gtk::AccessibleTristate::True
+        } else {
+            gtk::AccessibleTristate::False
+        })]);
+    if active {
+        header.button.add_css_class("active-sort");
+    } else {
+        header.button.remove_css_class("active-sort");
+    }
+}
+
+fn sort_heading_text(column: SortColumn, direction: Option<SortDirection>) -> String {
+    match direction {
+        Some(SortDirection::Ascending) => format!("{} ↑", column.label()),
+        Some(SortDirection::Descending) => format!("{} ↓", column.label()),
+        None => column.label().to_owned(),
+    }
 }
 
 fn entry_type_label(kind: EntryKind) -> &'static str {
@@ -1004,6 +1099,19 @@ mod tests {
     #[test]
     fn phase_6a_columns_have_stable_scannable_semantics() {
         assert_eq!(LIST_COLUMN_LABELS, ["Name", "Type", "Size", "Modified"]);
+    }
+
+    #[test]
+    fn phase_6b_sort_heading_text_exposes_direction_without_color() {
+        assert_eq!(
+            sort_heading_text(SortColumn::Name, Some(SortDirection::Ascending)),
+            "Name ↑"
+        );
+        assert_eq!(
+            sort_heading_text(SortColumn::Modified, Some(SortDirection::Descending)),
+            "Modified ↓"
+        );
+        assert_eq!(sort_heading_text(SortColumn::Size, None), "Size");
     }
 
     #[test]

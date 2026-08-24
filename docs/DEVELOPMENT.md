@@ -97,6 +97,8 @@ cargo test -p floe-app phase_5d
 cargo test -p floe-app phase_5e
 cargo test -p floe-app phase_5f
 cargo test -p floe-app phase_6a
+cargo test -p floe-core phase_6b
+cargo test -p floe-app phase_6b
 cargo test -p floe-app move_executor
 cargo check -p floe-core
 cargo tree -p floe-app --depth 1
@@ -107,6 +109,11 @@ and must never target real user data. Phase 6A presentation tests are
 locale-independent: they verify stable column semantics, kind text, size
 boundaries, and successful timestamp conversion without asserting a
 host-specific rendered date string.
+
+Phase 6B tests exercise both sort directions, directories-first ordering,
+unknown optional metadata, raw non-UTF-8 name identity, background worker
+sorting, visible direction text, and exact-path selection restoration when two
+lossy display names collide.
 
 ## Wayland environments
 

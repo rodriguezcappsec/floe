@@ -73,6 +73,14 @@ populated and thumbnail state remains `NotRequested`.
 `EntryKind::SymbolicLink` records whether the resolved target is a directory.
 `DirectoryListing` couples the enumerated directory path to its entries.
 
+### `sorting.rs`
+
+`DirectorySort` is the GTK-independent ordering policy for Name, Type, Size,
+and Modified. It owns direction cycling, directories-first grouping, stable raw
+`OsStr`/`Path` tie-breaking, and unknown-metadata-last behavior in both
+directions. Directory enumeration applies the default policy; the application
+may submit another policy without implementing comparisons in GTK callbacks.
+
 ### `navigation.rs`
 
 `NavigationState` owns current, back, and forward `PathBuf` values. New
@@ -176,6 +184,14 @@ Phase 5F adds the conflict dialog widget tree: source/destination context,
 labelled filename input, associated inline error, Cancel, Keep Existing, and
 Retry with New Name controls. It contains no filesystem implementation and no
 overwrite/apply-to-all control.
+
+Phase 6B stores `Arc<DirectoryEntry>` in the boxed list model and exposes each
+column heading as a native action-backed button with explicit direction and
+accessible pressed state. Shared entries let the controller retain one complete
+filtered set while the GTK model continues receiving at most 256 rows per main
+loop tick. Sort requests run on the existing bounded directory worker. On
+completion, `browser.rs` rebuilds the model and restores selection by exact
+`PathBuf`; it never derives identity from lossy labels.
 
 ### `browser.rs`
 
