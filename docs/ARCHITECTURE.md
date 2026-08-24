@@ -147,7 +147,7 @@ they never read or write the configuration file directly.
 Phase 6C owns a fixed-capacity, single-thread thumbnail request/result boundary
 separate from GTK and the filesystem mutation executors. `ThumbnailKey` retains
 the exact `PathBuf`, enumerated byte size, modification time, and whitelisted
-PNG/JPEG format. Only regular files qualify. The worker opens with `O_NOFOLLOW`,
+raster format. Only regular files qualify. The worker opens with `O_NOFOLLOW`,
 rejects sources larger than 32 MiB or changed since enumeration, applies
 explicit decoder dimension/allocation limits, and scales to the requested
 32-192 pixel edge with the pure-Rust `image` decoder. The requested edge is part
@@ -175,6 +175,16 @@ one global 2,048-entry, 256-MiB, 90-day budget and remove a shared thumbnail
 only when its marker exists and PNG metadata still says `Software=Floe`.
 Thus GTK performs no cache I/O and another application's cache ownership is not
 inferred from a filename alone.
+
+Phase 6F expands the explicit extension policy to PNG, JPEG, WebP, GIF, BMP,
+TIFF, and ICO while continuing to reject SVG and unreviewed formats before
+request submission. The worker obtains decoder metadata through
+`ImageDecoder::orientation`, decodes one still frame, and applies orientation
+before tier scaling and cache storage. Animated GIF/WebP inputs therefore
+produce one stable first-frame thumbnail. Decoder dimensions and total output
+bytes are checked before allocation in addition to the existing encoded-source
+limit; oriented pixels continue through the unchanged freedesktop cache and
+owned-RGBA response boundaries.
 
 ### `state.rs` and `job_manager.rs`
 

@@ -122,8 +122,7 @@ exact non-UTF-8 path identity, metadata-sensitive invalidation, no-follow
 symlink replacement rejection, encoded-source limits, bounded decoding/scaling,
 stale navigation generations, non-blocking queue capacity, pending deduplication,
 and the 256-entry presentation-cache bound. The MSRV-compatible `image 0.25.9`
-release is pinned with default features disabled and only PNG/JPEG decoders
-enabled; it adds no external image decoder system package requirement.
+release remains pinned with default features disabled.
 
 Phase 6D tests cover strict view preference parsing, bounded discrete grid zoom,
 stable action names, requested thumbnail-edge cache identity, invalid edge
@@ -141,6 +140,14 @@ implementation directly uses the already-locked `png 0.18.1` API for text
 chunks and GLib's standard URI/checksum facilities; no external thumbnailer or
 new system image package is required. Runtime cache state follows
 `$XDG_CACHE_HOME`, falling back to `$HOME/.cache`.
+
+Phase 6F enables only the reviewed `image` features `bmp`, `gif`, `ico`,
+`jpeg`, `png`, `tiff`, and `webp`. GIF, WebP, and TIFF add pure-Rust Cargo
+dependencies but no external decoder system package. Focused tests create
+temporary fixtures for every added decoder, mixed-case extension policy,
+malformed WebP fallback, aspect-preserving scaling, real JPEG EXIF orientation
+before cache storage, and added-format reuse across worker restarts. SVG,
+AVIF/HEIF, animation playback, and unreviewed formats remain disabled.
 
 ## Wayland environments
 
