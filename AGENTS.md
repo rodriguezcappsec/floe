@@ -1129,17 +1129,17 @@ Last updated:
 Current phase:
 
 ```text
-Phase 4 — Filesystem operations (Phase 4C move/rename foundation complete)
+Phase 4 — Filesystem operations (Phase 4D move/rename interaction complete)
 ```
 
 Status:
 
 ```text
-Phases 0-3 and Phases 4A-4C are complete. Copy interaction is available through
-application-owned Ctrl+C/Ctrl+V commands and a non-blocking GTK observer. The
-new move/rename backend preserves original Linux paths, uses atomic
-same-filesystem no-replace semantics, and runs on a bounded worker. Move and
-rename have no GTK actions yet.
+Phases 0-3 and Phases 4A-4D are complete. One application-owned transfer buffer
+supports Ctrl+C copy and Ctrl+X move followed by Ctrl+V paste. F2 and the
+file-actions menu open a validated rename dialog. Copy, move, and rename use
+bounded workers plus generic non-blocking Operations Island feedback; GTK
+callbacks perform no filesystem work.
 ```
 
 Established product decisions:
@@ -1172,9 +1172,9 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 4C is complete. The next coherent branch is
-`phase-4d-move-rename-interaction`, adding application-owned request tracking
-and non-blocking GTK commands/feedback on top of the verified backend.
+Phase 4D is complete. The next coherent branch is
+`phase-4e-trash-foundation`, beginning with a standards-based application-layer
+trash job before exposing Delete or permanent-delete controls.
 ```
 
 Verified:
@@ -1182,12 +1182,11 @@ Verified:
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo test --workspace` pass. Fifty-one tests pass: twenty-eight core tests and
-twenty-three application tests. Eight focused core move tests cover files,
-directories, self-nesting, symlinks, conflicts, invalid rename names, missing
-sources, cancellation, and non-UTF-8 names. Six executor tests cover move and
-rename completion, cancellation, conflict mapping, capacity, and shutdown.
-Phase 4C's native Wayland smoke result is recorded in `GATES.md`.
+`cargo test --workspace` pass. Fifty-two tests pass: twenty-eight core tests and
+twenty-four application tests. Eight focused Phase 4D tests cover transfer
+replacement, exact destinations, non-UTF-8 paths, rename lifecycle,
+cancellation, conflict feedback, and validation. A native Wayland smoke launch
+emitted the startup event and remained healthy until the planned timeout.
 ```
 
 Known issues:
@@ -1205,8 +1204,8 @@ originates from Floe logic.
 Deferred:
 
 ```text
-Cross-application clipboard support, overwrite/conflict resolution, GTK
-move/rename actions, cross-filesystem moves, trash, permanent delete,
+Cross-application clipboard support, overwrite/conflict resolution,
+cross-filesystem moves, trash, permanent delete,
 metadata-complete copies, job
 persistence/history UI, drag and drop, thumbnails, tabs, split view, Miller
 columns, previews, archives, search, device management, Niri IPC, KDE-specific
@@ -1257,15 +1256,23 @@ Completed this session:
   lifecycle events, structured failures, cancellation, and clean shutdown.
 * Kept GTK move/rename actions, overwrite, cross-filesystem fallback, trash,
   and permanent delete deferred.
+* Replaced the copy-only staging model with one original-path transfer buffer
+  supporting Ctrl+C copy and Ctrl+X move followed by Ctrl+V paste.
+* Added F2 and visible-menu rename interaction with focused inline validation
+  while preserving the selected source path separately from editable text.
+* Generalized application request tracking, cancellation, Operations Island
+  feedback, and affected-directory refresh across copy, move, and rename.
+* Kept overwrite, cross-filesystem copy-delete fallback, trash, and permanent
+  delete deferred.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-4d-move-rename-interaction` and add application-owned move/rename
-request tracking plus explicit GTK commands and non-blocking lifecycle feedback.
-Use the verified backend; keep overwrite, cross-filesystem copy-delete fallback,
-trash, and permanent delete deferred.
+Create `phase-4e-trash-foundation` and add a standards-based application-layer
+GIO/XDG trash job with original-path preservation, structured failures,
+cancellation boundaries, and tests. Keep permanent-delete UI deferred until
+trash recovery and confirmation semantics are verified.
 ```
 
 ---

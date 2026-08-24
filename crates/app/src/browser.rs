@@ -1,6 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     collections::VecDeque,
+    ffi::{OsStr, OsString},
     path::PathBuf,
     rc::Rc,
     time::Duration,
@@ -11,7 +12,10 @@ use floe_core::{DirectoryEntry, DirectoryError, DirectoryListing, NavigationStat
 use gtk::{gio, glib};
 
 use crate::{
-    launcher, locations::Location, state::ApplicationState, ui::BrowserWidgets,
+    launcher,
+    locations::Location,
+    state::{ApplicationState, TransferIntent, validate_rename_name},
+    ui::{self, BrowserWidgets},
     worker::BrowserWorker,
 };
 
@@ -116,7 +120,11 @@ impl BrowserController {
         open_action.set_enabled(false);
         let copy_action = self.add_action("copy", |controller| controller.stage_selected_copy());
         copy_action.set_enabled(false);
-        let paste_action = self.add_action("paste", |controller| controller.paste_copy());
+        let cut_action = self.add_action("cut", |controller| controller.stage_selected_move());
+        cut_action.set_enabled(false);
+        let rename_action = self.add_action("rename", |controller| controller.show_rename());
+        rename_action.set_enabled(false);
+        let paste_action = self.add_action("paste", |controller| controller.paste_transfer());
         paste_action.set_enabled(false);
 
         application.set_accels_for_action("win.back", &["<Alt>Left"]);
@@ -126,7 +134,9 @@ impl BrowserController {
         application.set_accels_for_action("win.hidden", &["<Control>h"]);
         application.set_accels_for_action("win.cancel-location", &["Escape"]);
         application.set_accels_for_action("win.copy", &["<Control>c"]);
+        application.set_accels_for_action("win.cut", &["<Control>x"]);
         application.set_accels_for_action("win.paste", &["<Control>v"]);
+        application.set_accels_for_action("win.rename", &["F2"]);
     }
 
     fn add_action(self: &Rc<Self>, name: &str, callback: fn(&Self)) -> gio::SimpleAction {
@@ -403,13 +413,15 @@ impl BrowserController {
     }
 
     fn set_copy_enabled(&self, enabled: bool) {
-        if let Some(action) = self
-            .widgets
-            .window
-            .lookup_action("copy")
-            .and_downcast::<gio::SimpleAction>()
-        {
-            action.set_enabled(enabled);
+        for action_name in ["copy", "cut", "rename"] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(action_name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(enabled);
+            }
         }
     }
 
@@ -452,12 +464,101 @@ impl BrowserController {
         }
     }
 
-    fn paste_copy(&self) {
-        let destination = self.navigation.borrow().current().to_path_buf();
-        match self.application_state.submit_paste(&destination) {
-            Ok(_) => self.widgets.status_label.set_label("Copy queued…"),
-            Err(error) => self.show_toast(&format!("Could not start copy: {error}"), 6),
+    fn stage_selected_move(&self) {
+        let Some(entry) = self.selected_entry() else {
+            self.show_toast("Select an item to move", 4);
+            return;
+        };
+        match self
+            .application_state
+            .stage_move(entry.path().to_path_buf())
+        {
+            Ok(()) => {
+                self.set_paste_enabled(true);
+                self.show_toast(
+                    &format!(
+                        "Ready to move {}. Open a destination and press Ctrl+V.",
+                        entry.display_name_lossy()
+                    ),
+                    5,
+                );
+            }
+            Err(error) => self.show_toast(&format!("Could not stage move: {error}"), 6),
         }
+    }
+
+    fn paste_transfer(&self) {
+        let destination = self.navigation.borrow().current().to_path_buf();
+        let intent = self
+            .application_state
+            .staged_transfer()
+            .map(|(intent, _)| intent);
+        match self.application_state.submit_paste(&destination) {
+            Ok(_) => self.widgets.status_label.set_label(match intent {
+                Some(TransferIntent::Move) => "Move queued…",
+                _ => "Copy queued…",
+            }),
+            Err(error) => self.show_toast(&format!("Could not start operation: {error}"), 6),
+        }
+    }
+
+    fn show_rename(&self) {
+        let Some(entry) = self.selected_entry() else {
+            self.show_toast("Select an item to rename", 4);
+            return;
+        };
+        let source = entry.path().to_path_buf();
+        let current_name = entry.display_name_lossy();
+        let rename = ui::build_rename_dialog(&current_name);
+        rename.rename_entry.select_region(0, -1);
+
+        let dialog = rename.dialog.downgrade();
+        rename.cancel_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+
+        let application_state = Rc::clone(&self.application_state);
+        let status_label = self.widgets.status_label.clone();
+        let rename_entry = rename.rename_entry.clone();
+        let rename_error = rename.rename_error.clone();
+        let dialog = rename.dialog.downgrade();
+        rename.rename_button.connect_clicked(move |_| {
+            let new_name = rename_entry.text();
+            let new_name_os = OsString::from(new_name.as_str());
+            let unchanged = source
+                .file_name()
+                .is_some_and(|current| current == OsStr::new(new_name.as_str()));
+            if unchanged || validate_rename_name(&new_name_os).is_err() {
+                rename_error.set_label(if unchanged {
+                    "Enter a different filename."
+                } else {
+                    "Enter one filename without '/', '.' or '..'."
+                });
+                rename_error.set_visible(true);
+                rename_entry.grab_focus();
+                rename_entry.select_region(0, -1);
+                return;
+            }
+
+            match application_state.submit_rename(source.clone(), new_name_os) {
+                Ok(_) => {
+                    status_label.set_label("Rename queued…");
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.close();
+                    }
+                }
+                Err(error) => {
+                    rename_error.set_label(&format!("Could not rename: {error}"));
+                    rename_error.set_visible(true);
+                    rename_entry.grab_focus();
+                }
+            }
+        });
+
+        rename.dialog.present(Some(&self.widgets.window));
+        rename.rename_entry.grab_focus();
     }
 
     pub fn refresh_if_current(&self, directory: &std::path::Path) {

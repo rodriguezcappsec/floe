@@ -73,20 +73,23 @@ counts, total item counts, or the selected filename. An empty folder shows a
 symbolic folder icon and plain-language message. Directory and launch failures
 surface in an `AdwToastOverlay` while technical context is sent to tracing.
 
-### Copy workflow and Operations Island
+### Transfer, rename, and Operations Island
 
-Phase 4B exposes the safe copy engine through an application-owned internal
-copy buffer. Ctrl+C stages the selected entry's original `PathBuf`; Ctrl+V
-submits an exact destination beneath the current directory. GTK callbacks do
-not execute filesystem work. The buffer is currently internal to Floe rather
-than interoperable with other file managers.
+Phase 4D uses one application-owned internal transfer buffer. Ctrl+C stages a
+copy, Ctrl+X replaces it with a move intent, and Ctrl+V submits an exact
+destination beneath the current directory. F2 and the visible file-actions
+menu open a focused rename dialog with inline validation. The editable name is
+kept separate from the selected entry's original `PathBuf`; GTK callbacks do
+not execute filesystem work. The buffer remains internal to Floe rather than
+interoperable with other file managers.
 
 Active work appears in a compact, bottom-end Operations Island. It uses visible
 filename and state text, a stable progress bar that pulses before a total is
 known, and a symbolic cancel button with an accessible label and tooltip.
 Completion and cancellation remain visible briefly; conflicts and failures use
 non-modal toasts with a concrete recovery action. The directory refreshes after
-a successful paste into the visible location. Overwrite is unavailable.
+a successful copy, move, or rename affecting the visible location. Move and
+rename remain same-filesystem only; overwrite is unavailable.
 
 ## Implemented appearance system
 
@@ -175,8 +178,6 @@ opaque readable surface when stronger composition guarantees are unavailable.
 
 The following are direction, not current functionality:
 
-- **Operations Island:** a compact, non-modal observer for queued/running file
-  jobs, progress, cancellation, pause/resume where valid, and failures.
 - **Miller/Column navigation:** horizontally arranged directory levels that
   preserve one navigation model and complement spatial Wayland workflows.
 - **Quick Preview:** a safe Space-key preview surface for supported passive

@@ -1,11 +1,15 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
+    ffi::{OsStr, OsString},
+    os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use floe_core::{ConflictPolicy, CopyRequest, JobEvent, JobId, SymlinkPolicy};
+use floe_core::{
+    ConflictPolicy, CopyRequest, JobEvent, JobId, MoveRequest, RenameRequest, SymlinkPolicy,
+};
 use thiserror::Error;
 
 use crate::{
@@ -13,27 +17,104 @@ use crate::{
         CopyCancelError, CopyExecutor, CopyExecutorSpawnError, CopySubmission, CopySubmitError,
     },
     job_manager::{ApplicationJobManager, SharedJobManager},
-    move_executor::{MoveExecutor, MoveExecutorSpawnError},
+    move_executor::{
+        MoveCancelError, MoveExecutor, MoveExecutorSpawnError, MoveSubmission, MoveSubmitError,
+    },
 };
 
-/// Application-owned copy buffer. It retains the original Linux path and is
-/// deliberately independent of rendered or lossy filename text.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct CopyBuffer {
-    source: Option<PathBuf>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferIntent {
+    Copy,
+    Move,
 }
 
-impl CopyBuffer {
-    pub fn source(&self) -> Option<&Path> {
-        self.source.as_deref()
+/// Application-owned transfer buffer retaining the original Linux path.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TransferBuffer {
+    staged: Option<(TransferIntent, PathBuf)>,
+}
+
+impl TransferBuffer {
+    pub fn intent(&self) -> Option<TransferIntent> {
+        self.staged.as_ref().map(|(intent, _)| *intent)
     }
 
-    fn stage(&mut self, source: PathBuf) -> Result<(), CopyInteractionError> {
+    pub fn source(&self) -> Option<&Path> {
+        self.staged.as_ref().map(|(_, source)| source.as_path())
+    }
+
+    fn stage(
+        &mut self,
+        intent: TransferIntent,
+        source: PathBuf,
+    ) -> Result<(), CopyInteractionError> {
         if source.file_name().is_none() {
             return Err(CopyInteractionError::InvalidSource(source));
         }
-        self.source = Some(source);
+        self.staged = Some((intent, source));
         Ok(())
+    }
+
+    fn clear_completed_move(&mut self, source: &Path) {
+        if matches!(
+            self.staged.as_ref(),
+            Some((TransferIntent::Move, staged_source)) if staged_source == source
+        ) {
+            self.staged = None;
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TrackedOperation {
+    Copy(CopyRequest),
+    Move(MoveRequest),
+    Rename(RenameRequest),
+}
+
+impl TrackedOperation {
+    pub fn source(&self) -> &Path {
+        match self {
+            Self::Copy(request) => request.source(),
+            Self::Move(request) => request.source(),
+            Self::Rename(request) => request.source(),
+        }
+    }
+
+    pub fn affected_directories(&self) -> Vec<PathBuf> {
+        let mut directories = Vec::with_capacity(2);
+        let mut add_parent = |path: &Path| {
+            if let Some(parent) = path.parent() {
+                let parent = parent.to_path_buf();
+                if !directories.contains(&parent) {
+                    directories.push(parent);
+                }
+            }
+        };
+        match self {
+            Self::Copy(request) => add_parent(request.destination()),
+            Self::Move(request) => {
+                add_parent(request.source());
+                add_parent(request.destination());
+            }
+            Self::Rename(request) => add_parent(request.source()),
+        }
+        directories
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferSubmission {
+    Copy(CopySubmission),
+    Move(MoveSubmission),
+}
+
+impl TransferSubmission {
+    pub const fn job_id(self) -> JobId {
+        match self {
+            Self::Copy(submission) => submission.job_id(),
+            Self::Move(submission) => submission.job_id(),
+        }
     }
 }
 
@@ -45,10 +126,16 @@ pub enum CopyInteractionError {
     InvalidSource(PathBuf),
     #[error("open a destination outside the copied folder, then paste again")]
     DestinationInsideSource,
+    #[error("enter one filename without slashes")]
+    InvalidRenameName,
     #[error(transparent)]
-    Submit(#[from] CopySubmitError),
+    CopySubmit(#[from] CopySubmitError),
     #[error(transparent)]
-    Cancel(#[from] CopyCancelError),
+    MoveSubmit(#[from] MoveSubmitError),
+    #[error(transparent)]
+    CopyCancel(#[from] CopyCancelError),
+    #[error(transparent)]
+    MoveCancel(#[from] MoveCancelError),
 }
 
 #[derive(Debug, Error)]
@@ -64,9 +151,9 @@ pub enum ApplicationStateSpawnError {
 pub struct ApplicationState {
     pub jobs: SharedJobManager,
     copy_executor: CopyExecutor,
-    _move_executor: MoveExecutor,
-    copy_buffer: RefCell<CopyBuffer>,
-    copy_requests: RefCell<HashMap<JobId, CopyRequest>>,
+    move_executor: MoveExecutor,
+    transfer_buffer: RefCell<TransferBuffer>,
+    operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
 }
 
 impl ApplicationState {
@@ -77,51 +164,119 @@ impl ApplicationState {
         Ok(Self {
             jobs,
             copy_executor,
-            _move_executor: move_executor,
-            copy_buffer: RefCell::new(CopyBuffer::default()),
-            copy_requests: RefCell::new(HashMap::new()),
+            move_executor,
+            transfer_buffer: RefCell::new(TransferBuffer::default()),
+            operation_requests: RefCell::new(HashMap::new()),
         })
     }
 
     pub fn stage_copy(&self, source: PathBuf) -> Result<(), CopyInteractionError> {
-        self.copy_buffer.borrow_mut().stage(source)
+        self.transfer_buffer
+            .borrow_mut()
+            .stage(TransferIntent::Copy, source)
     }
 
-    pub fn staged_copy(&self) -> Option<PathBuf> {
-        self.copy_buffer.borrow().source().map(Path::to_path_buf)
+    pub fn stage_move(&self, source: PathBuf) -> Result<(), CopyInteractionError> {
+        self.transfer_buffer
+            .borrow_mut()
+            .stage(TransferIntent::Move, source)
+    }
+
+    pub fn staged_transfer(&self) -> Option<(TransferIntent, PathBuf)> {
+        let buffer = self.transfer_buffer.borrow();
+        Some((buffer.intent()?, buffer.source()?.to_path_buf()))
     }
 
     pub fn submit_paste(
         &self,
         destination_directory: &Path,
-    ) -> Result<CopySubmission, CopyInteractionError> {
-        let request = self.paste_request(destination_directory)?;
-        match self.copy_executor.submit_copy(request.clone()) {
+    ) -> Result<TransferSubmission, CopyInteractionError> {
+        let (intent, source) = self
+            .staged_transfer()
+            .ok_or(CopyInteractionError::EmptyBuffer)?;
+        let destination = transfer_destination(&source, destination_directory)?;
+        match intent {
+            TransferIntent::Copy => {
+                let request = CopyRequest::new(
+                    source,
+                    destination,
+                    ConflictPolicy::FailIfExists,
+                    SymlinkPolicy::Preserve,
+                );
+                match self.copy_executor.submit_copy(request.clone()) {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Copy(request));
+                        Ok(TransferSubmission::Copy(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Copy(request));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
+            TransferIntent::Move => {
+                let request = MoveRequest::new(source, destination, ConflictPolicy::FailIfExists);
+                match self.move_executor.submit_move(request.clone()) {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Move(request));
+                        Ok(TransferSubmission::Move(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Move(request));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn submit_rename(
+        &self,
+        source: PathBuf,
+        new_name: OsString,
+    ) -> Result<MoveSubmission, CopyInteractionError> {
+        validate_rename_name(&new_name)?;
+        let request = RenameRequest::new(source, new_name, ConflictPolicy::FailIfExists);
+        match self.move_executor.submit_rename(request.clone()) {
             Ok(submission) => {
-                self.copy_requests
-                    .borrow_mut()
-                    .insert(submission.job_id(), request);
+                self.track(submission.job_id(), TrackedOperation::Rename(request));
                 Ok(submission)
             }
             Err(error) => {
                 if let Some(job_id) = error.job_id() {
-                    self.copy_requests.borrow_mut().insert(job_id, request);
+                    self.track(job_id, TrackedOperation::Rename(request));
                 }
                 Err(error.into())
             }
         }
     }
 
-    pub fn copy_request(&self, job_id: JobId) -> Option<CopyRequest> {
-        self.copy_requests.borrow().get(&job_id).cloned()
+    pub fn operation_request(&self, job_id: JobId) -> Option<TrackedOperation> {
+        self.operation_requests.borrow().get(&job_id).cloned()
     }
 
-    pub fn finish_copy(&self, job_id: JobId) -> Option<CopyRequest> {
-        self.copy_requests.borrow_mut().remove(&job_id)
+    pub fn finish_operation(&self, job_id: JobId, completed: bool) -> Option<TrackedOperation> {
+        let operation = self.operation_requests.borrow_mut().remove(&job_id);
+        if completed && let Some(TrackedOperation::Move(request)) = operation.as_ref() {
+            self.transfer_buffer
+                .borrow_mut()
+                .clear_completed_move(request.source());
+        }
+        operation
     }
 
-    pub fn cancel_copy(&self, job_id: JobId) -> Result<(), CopyInteractionError> {
-        self.copy_executor.cancel(job_id)?;
+    pub fn cancel_operation(&self, job_id: JobId) -> Result<(), CopyInteractionError> {
+        match self.operation_request(job_id) {
+            Some(TrackedOperation::Copy(_)) => self.copy_executor.cancel(job_id)?,
+            Some(TrackedOperation::Move(_) | TrackedOperation::Rename(_)) => {
+                self.move_executor.cancel(job_id)?;
+            }
+            None => return Err(MoveCancelError::NotActive(job_id).into()),
+        }
         Ok(())
     }
 
@@ -129,26 +284,10 @@ impl ApplicationState {
         lock(&self.jobs).drain_events()
     }
 
-    fn paste_request(
-        &self,
-        destination_directory: &Path,
-    ) -> Result<CopyRequest, CopyInteractionError> {
-        let source = self
-            .staged_copy()
-            .ok_or(CopyInteractionError::EmptyBuffer)?;
-        let name = source
-            .file_name()
-            .ok_or_else(|| CopyInteractionError::InvalidSource(source.clone()))?;
-        if lexically_normalized(destination_directory).starts_with(lexically_normalized(&source)) {
-            return Err(CopyInteractionError::DestinationInsideSource);
-        }
-        let destination = destination_directory.join(name);
-        Ok(CopyRequest::new(
-            source,
-            destination,
-            ConflictPolicy::FailIfExists,
-            SymlinkPolicy::Preserve,
-        ))
+    fn track(&self, job_id: JobId, operation: TrackedOperation) {
+        self.operation_requests
+            .borrow_mut()
+            .insert(job_id, operation);
     }
 
     #[cfg(test)]
@@ -156,15 +295,51 @@ impl ApplicationState {
         &self,
         destination_directory: &Path,
         cancellation: floe_core::CopyCancellation,
-    ) -> Result<CopySubmission, CopyInteractionError> {
-        let request = self.paste_request(destination_directory)?;
+    ) -> Result<TransferSubmission, CopyInteractionError> {
+        let (intent, source) = self
+            .staged_transfer()
+            .ok_or(CopyInteractionError::EmptyBuffer)?;
+        if intent != TransferIntent::Copy {
+            return Err(CopyInteractionError::EmptyBuffer);
+        }
+        let request = CopyRequest::new(
+            source.clone(),
+            transfer_destination(&source, destination_directory)?,
+            ConflictPolicy::FailIfExists,
+            SymlinkPolicy::Preserve,
+        );
         let submission = self
             .copy_executor
             .submit_copy_with_cancellation(request.clone(), cancellation)?;
-        self.copy_requests
-            .borrow_mut()
-            .insert(submission.job_id(), request);
-        Ok(submission)
+        self.track(submission.job_id(), TrackedOperation::Copy(request));
+        Ok(TransferSubmission::Copy(submission))
+    }
+}
+
+fn transfer_destination(
+    source: &Path,
+    destination_directory: &Path,
+) -> Result<PathBuf, CopyInteractionError> {
+    let name = source
+        .file_name()
+        .ok_or_else(|| CopyInteractionError::InvalidSource(source.to_path_buf()))?;
+    if lexically_normalized(destination_directory).starts_with(lexically_normalized(source)) {
+        return Err(CopyInteractionError::DestinationInsideSource);
+    }
+    Ok(destination_directory.join(name))
+}
+
+pub fn validate_rename_name(name: &OsStr) -> Result<(), CopyInteractionError> {
+    let path = Path::new(name);
+    let mut components = path.components();
+    let valid = matches!(
+        components.next(),
+        Some(std::path::Component::Normal(component)) if component == name
+    );
+    if !valid || components.next().is_some() || name.as_bytes().contains(&0) {
+        Err(CopyInteractionError::InvalidRenameName)
+    } else {
+        Ok(())
     }
 }
 
@@ -228,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_interaction_stages_original_path_and_builds_exact_destination() {
+    fn phase_4d_copy_stages_original_path_and_builds_exact_destination() {
         let fixture = tempdir().expect("temporary directory should be available");
         let source_directory = fixture.path().join("source");
         let destination_directory = fixture.path().join("destination");
@@ -263,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_interaction_rejects_paste_without_staged_source() {
+    fn phase_4d_rejects_paste_without_staged_source() {
         let fixture = tempdir().expect("temporary directory should be available");
         let state = ApplicationState::new().expect("application state should start");
 
@@ -275,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_interaction_rejects_destination_inside_staged_folder() {
+    fn phase_4d_rejects_destination_inside_staged_folder() {
         let fixture = tempdir().expect("temporary directory should be available");
         let source = fixture.path().join("source");
         let nested_destination = source.join("nested");
@@ -295,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_interaction_surfaces_conflict_failure_event() {
+    fn phase_4d_surfaces_conflict_failure_event() {
         let fixture = tempdir().expect("temporary directory should be available");
         let source_directory = fixture.path().join("source");
         let destination_directory = fixture.path().join("destination");
@@ -328,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn copy_interaction_maps_cancellation_and_success_lifecycle() {
+    fn phase_4d_maps_cancellation_and_success_lifecycle() {
         let fixture = tempdir().expect("temporary directory should be available");
         let source_directory = fixture.path().join("source");
         let destination_directory = fixture.path().join("destination");
@@ -368,5 +543,62 @@ mod tests {
         assert!(events.iter().any(|event| {
             event.job_id() == completed.job_id() && event.kind() == &JobEventKind::Completed
         }));
+    }
+
+    #[test]
+    fn phase_4d_move_replaces_copy_and_rename_preserves_original_paths() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source_directory = fixture.path().join("source");
+        let destination_directory = fixture.path().join("destination");
+        fs::create_dir(&source_directory).expect("source directory should be creatable");
+        fs::create_dir(&destination_directory).expect("destination directory should be creatable");
+        let original_name = OsString::from_vec(b"move-\xff".to_vec());
+        let source = source_directory.join(&original_name);
+        fs::write(&source, b"move").expect("source fixture should be writable");
+        let state = ApplicationState::new().expect("application state should start");
+        state
+            .stage_copy(source.clone())
+            .expect("copy should be staged first");
+        state
+            .stage_move(source.clone())
+            .expect("move should replace staged copy");
+        assert_eq!(
+            state.staged_transfer(),
+            Some((TransferIntent::Move, source.clone()))
+        );
+
+        let moved = state
+            .submit_paste(&destination_directory)
+            .expect("move paste should be submitted");
+        assert_eq!(
+            wait_for_terminal(&state, moved.job_id()),
+            JobState::Completed
+        );
+        let moved_path = destination_directory.join(&original_name);
+        assert!(!source.exists());
+        assert_eq!(fs::read(&moved_path).expect("move should finish"), b"move");
+        let tracked = state
+            .operation_request(moved.job_id())
+            .expect("move request should remain observable");
+        assert!(matches!(tracked, TrackedOperation::Move(_)));
+        assert_eq!(tracked.affected_directories().len(), 2);
+        state.finish_operation(moved.job_id(), true);
+        assert_eq!(state.staged_transfer(), None);
+
+        let renamed_name = OsString::from_vec(b"renamed-\xfe".to_vec());
+        let renamed = state
+            .submit_rename(moved_path.clone(), renamed_name.clone())
+            .expect("rename should be submitted");
+        assert_eq!(
+            wait_for_terminal(&state, renamed.job_id()),
+            JobState::Completed
+        );
+        assert!(!moved_path.exists());
+        assert_eq!(
+            fs::read(destination_directory.join(&renamed_name))
+                .expect("renamed path should remain byte-exact"),
+            b"move"
+        );
+        assert!(validate_rename_name(OsStr::new("nested/name")).is_err());
     }
 }

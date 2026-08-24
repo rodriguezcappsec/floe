@@ -7,10 +7,13 @@ use std::{
 };
 
 use adw::prelude::*;
-use floe_core::{CopyRequest, JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId};
+use floe_core::{JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId};
 use gtk::glib;
 
-use crate::{state::ApplicationState, ui::OperationWidgets};
+use crate::{
+    state::{ApplicationState, TrackedOperation},
+    ui::OperationWidgets,
+};
 
 const JOB_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const TERMINAL_VISIBILITY: Duration = Duration::from_secs(3);
@@ -24,7 +27,7 @@ pub struct OperationController {
     visible_job: Cell<Option<JobId>>,
     indeterminate: Cell<bool>,
     visibility_generation: Rc<Cell<u64>>,
-    on_copy_completed: Box<dyn Fn(&Path)>,
+    on_operation_completed: Box<dyn Fn(&Path)>,
 }
 
 impl OperationController {
@@ -33,7 +36,7 @@ impl OperationController {
         toast_overlay: adw::ToastOverlay,
         widgets: OperationWidgets,
         state: Rc<ApplicationState>,
-        on_copy_completed: impl Fn(&Path) + 'static,
+        on_operation_completed: impl Fn(&Path) + 'static,
     ) -> Rc<Self> {
         Rc::new(Self {
             window,
@@ -44,7 +47,7 @@ impl OperationController {
             visible_job: Cell::new(None),
             indeterminate: Cell::new(false),
             visibility_generation: Rc::new(Cell::new(0)),
-            on_copy_completed: Box::new(on_copy_completed),
+            on_operation_completed: Box::new(on_operation_completed),
         })
     }
 
@@ -54,7 +57,7 @@ impl OperationController {
             let Some(controller) = controller.upgrade() else {
                 return;
             };
-            controller.cancel_visible_copy();
+            controller.cancel_visible_operation();
         });
 
         let controller = Rc::clone(self);
@@ -80,23 +83,31 @@ impl OperationController {
         match event.kind() {
             JobEventKind::Queued => {
                 self.track_active(event.job_id());
-                self.show_running(event.job_id(), "Waiting to copy…", None);
+                self.show_running(
+                    event.job_id(),
+                    waiting_detail(self.request(event.job_id())),
+                    None,
+                );
             }
             JobEventKind::Started | JobEventKind::Resumed => {
                 self.track_active(event.job_id());
-                self.show_running(event.job_id(), "Preparing copy…", None);
+                self.show_running(
+                    event.job_id(),
+                    running_detail(self.request(event.job_id())),
+                    None,
+                );
             }
             JobEventKind::Progressed(progress) => {
                 self.track_active(event.job_id());
                 let detail = match progress.total() {
                     Some(total) => format!("{} of {total} items", progress.completed()),
-                    None => "Copying…".to_owned(),
+                    None => running_detail(self.request(event.job_id())).to_owned(),
                 };
                 self.show_running(event.job_id(), &detail, progress.fraction());
             }
             JobEventKind::Paused => {
                 self.track_active(event.job_id());
-                self.show_running(event.job_id(), "Copy paused", None);
+                self.show_running(event.job_id(), "Operation paused", None);
             }
             JobEventKind::Completed => self.finish(event.job_id(), TerminalResult::Completed),
             JobEventKind::Cancelled => self.finish(event.job_id(), TerminalResult::Cancelled),
@@ -104,11 +115,15 @@ impl OperationController {
                 tracing::warn!(
                     job_id = event.job_id().get(),
                     failure_kind = ?failure.kind(),
-                    "copy job failed"
+                    "filesystem job failed"
                 );
                 self.finish(event.job_id(), TerminalResult::Failed(failure));
             }
         }
+    }
+
+    fn request(&self, job_id: JobId) -> Option<TrackedOperation> {
+        self.state.operation_request(job_id)
     }
 
     fn track_active(&self, job_id: JobId) {
@@ -122,10 +137,17 @@ impl OperationController {
         self.visibility_generation
             .set(self.visibility_generation.get().wrapping_add(1));
         self.visible_job.set(Some(job_id));
+        let request = self.request(job_id);
         self.widgets
             .operation_label
-            .set_label(&operation_title(self.state.copy_request(job_id).as_ref()));
+            .set_label(&operation_title(request.as_ref()));
         self.widgets.operation_detail.set_label(detail);
+        self.widgets
+            .operation_cancel
+            .set_tooltip_text(Some(&format!(
+                "Cancel {}",
+                operation_verb(request.as_ref()).to_lowercase()
+            )));
         self.widgets.operation_cancel.set_sensitive(true);
         match fraction {
             Some(fraction) => {
@@ -145,51 +167,71 @@ impl OperationController {
         self.active_jobs
             .borrow_mut()
             .retain(|active| *active != job_id);
-        let request = self.state.finish_copy(job_id);
+        let request = self
+            .state
+            .finish_operation(job_id, matches!(&result, TerminalResult::Completed));
 
         match result {
             TerminalResult::Completed => {
-                if let Some(destination) = request
-                    .as_ref()
-                    .and_then(|request| request.destination().parent())
-                {
-                    (self.on_copy_completed)(destination);
+                if let Some(request) = request.as_ref() {
+                    for directory in request.affected_directories() {
+                        (self.on_operation_completed)(&directory);
+                    }
                 }
-                self.show_terminal(request.as_ref(), "Copy complete", "Copied successfully");
-                self.show_toast(&format!("Copied {}", operation_name(request.as_ref())), 4);
+                self.show_terminal(
+                    request.as_ref(),
+                    completed_title(request.as_ref()),
+                    completed_detail(request.as_ref()),
+                    true,
+                );
+                self.show_toast(&completed_toast(request.as_ref()), 4);
             }
             TerminalResult::Cancelled => {
                 self.show_terminal(
                     request.as_ref(),
-                    "Copy cancelled",
-                    "No partial copy was kept",
+                    "Operation cancelled",
+                    "No partial change was kept",
+                    false,
                 );
-                self.show_toast("Copy cancelled", 4);
+                self.show_toast("Operation cancelled", 4);
             }
             TerminalResult::Failed(failure) => {
-                self.show_terminal(request.as_ref(), "Copy failed", failure_summary(failure));
+                self.show_terminal(
+                    request.as_ref(),
+                    "Operation failed",
+                    failure_summary(request.as_ref(), failure),
+                    false,
+                );
                 self.show_toast(&failure_recovery(request.as_ref(), failure), 7);
             }
         }
 
         if let Some(next_job) = self.active_jobs.borrow().back().copied() {
-            self.show_running(next_job, "Copying…", None);
+            let request = self.request(next_job);
+            self.show_running(next_job, waiting_detail(request), None);
         } else {
             self.schedule_hide();
         }
     }
 
-    fn show_terminal(&self, request: Option<&CopyRequest>, title: &str, detail: &str) {
+    fn show_terminal(
+        &self,
+        request: Option<&TrackedOperation>,
+        title: &str,
+        detail: &str,
+        succeeded: bool,
+    ) {
         self.visible_job.set(None);
         self.indeterminate.set(false);
-        self.widgets
-            .operation_label
-            .set_label(&format!("{title}: {}", operation_name(request)));
+        self.widgets.operation_label.set_label(title);
         self.widgets.operation_detail.set_label(detail);
         self.widgets
             .operation_progress
-            .set_fraction(if title == "Copy complete" { 1.0 } else { 0.0 });
+            .set_fraction(if succeeded { 1.0 } else { 0.0 });
         self.widgets.operation_cancel.set_sensitive(false);
+        self.widgets
+            .operation_cancel
+            .set_tooltip_text(Some(&format!("{} finished", operation_verb(request))));
         self.widgets.revealer.set_reveal_child(true);
     }
 
@@ -205,16 +247,16 @@ impl OperationController {
         });
     }
 
-    fn cancel_visible_copy(&self) {
+    fn cancel_visible_operation(&self) {
         let Some(job_id) = self.visible_job.get() else {
             return;
         };
-        match self.state.cancel_copy(job_id) {
+        match self.state.cancel_operation(job_id) {
             Ok(()) => {
                 self.widgets.operation_cancel.set_sensitive(false);
                 self.widgets.operation_detail.set_label("Cancelling…");
             }
-            Err(error) => self.show_toast(&format!("Could not cancel copy: {error}"), 6),
+            Err(error) => self.show_toast(&format!("Could not cancel operation: {error}"), 6),
         }
     }
 
@@ -230,41 +272,116 @@ enum TerminalResult<'a> {
     Failed(&'a JobFailure),
 }
 
-fn operation_title(request: Option<&CopyRequest>) -> String {
-    format!("Copying {}", operation_name(request))
+fn operation_title(request: Option<&TrackedOperation>) -> String {
+    format!(
+        "{} {}",
+        operation_verb_ing(request),
+        operation_name(request)
+    )
 }
 
-fn operation_name(request: Option<&CopyRequest>) -> String {
+fn operation_name(request: Option<&TrackedOperation>) -> String {
     request
         .and_then(|request| request.source().file_name())
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "item".to_owned())
 }
 
-fn failure_summary(failure: &JobFailure) -> &'static str {
-    match failure.kind() {
-        JobFailureKind::Conflict => "The destination conflicts with this copy",
-        JobFailureKind::PermissionDenied => "Permission was denied",
-        JobFailureKind::Unsupported => "This file type is not supported",
-        JobFailureKind::Io => "A filesystem error interrupted the copy",
-        JobFailureKind::Internal => "The copy service could not continue",
+fn operation_verb(request: Option<&TrackedOperation>) -> &'static str {
+    match request {
+        Some(TrackedOperation::Copy(_)) => "Copy",
+        Some(TrackedOperation::Move(_)) => "Move",
+        Some(TrackedOperation::Rename(_)) => "Rename",
+        None => "Operation",
     }
 }
 
-fn failure_recovery(request: Option<&CopyRequest>, failure: &JobFailure) -> String {
+fn operation_verb_ing(request: Option<&TrackedOperation>) -> &'static str {
+    match request {
+        Some(TrackedOperation::Copy(_)) => "Copying",
+        Some(TrackedOperation::Move(_)) => "Moving",
+        Some(TrackedOperation::Rename(_)) => "Renaming",
+        None => "Working on",
+    }
+}
+
+fn waiting_detail(request: Option<TrackedOperation>) -> &'static str {
+    match request {
+        Some(TrackedOperation::Copy(_)) => "Waiting to copy…",
+        Some(TrackedOperation::Move(_)) => "Waiting to move…",
+        Some(TrackedOperation::Rename(_)) => "Waiting to rename…",
+        None => "Waiting…",
+    }
+}
+
+fn running_detail(request: Option<TrackedOperation>) -> &'static str {
+    match request {
+        Some(TrackedOperation::Copy(_)) => "Preparing copy…",
+        Some(TrackedOperation::Move(_)) => "Moving on this filesystem…",
+        Some(TrackedOperation::Rename(_)) => "Renaming…",
+        None => "Working…",
+    }
+}
+
+fn completed_title(request: Option<&TrackedOperation>) -> &'static str {
+    match request {
+        Some(TrackedOperation::Copy(_)) => "Copy complete",
+        Some(TrackedOperation::Move(_)) => "Move complete",
+        Some(TrackedOperation::Rename(_)) => "Rename complete",
+        None => "Operation complete",
+    }
+}
+
+fn completed_detail(request: Option<&TrackedOperation>) -> &'static str {
+    match request {
+        Some(TrackedOperation::Copy(_)) => "Copied successfully",
+        Some(TrackedOperation::Move(_)) => "Moved successfully",
+        Some(TrackedOperation::Rename(_)) => "Renamed successfully",
+        None => "Completed successfully",
+    }
+}
+
+fn completed_toast(request: Option<&TrackedOperation>) -> String {
+    let verb = match request {
+        Some(TrackedOperation::Copy(_)) => "Copied",
+        Some(TrackedOperation::Move(_)) => "Moved",
+        Some(TrackedOperation::Rename(_)) => "Renamed",
+        None => "Completed",
+    };
+    format!("{verb} {}", operation_name(request))
+}
+
+fn failure_summary(request: Option<&TrackedOperation>, failure: &JobFailure) -> &'static str {
+    match failure.kind() {
+        JobFailureKind::Conflict => "The destination already exists",
+        JobFailureKind::PermissionDenied => "Permission was denied",
+        JobFailureKind::Unsupported if matches!(request, Some(TrackedOperation::Move(_))) => {
+            "Cross-filesystem move is not supported yet"
+        }
+        JobFailureKind::Unsupported => "This operation is not supported",
+        JobFailureKind::Io => "A filesystem error interrupted the operation",
+        JobFailureKind::Internal => "The filesystem service could not continue",
+    }
+}
+
+fn failure_recovery(request: Option<&TrackedOperation>, failure: &JobFailure) -> String {
     let name = operation_name(request);
     match failure.kind() {
+        JobFailureKind::Conflict if matches!(request, Some(TrackedOperation::Rename(_))) => {
+            format!("Choose a different name for {name}, then try again.")
+        }
         JobFailureKind::Conflict => {
-            format!("Choose another destination, or rename/remove {name}, then paste again.")
+            format!("Choose another destination, or rename/remove {name}, then try again.")
         }
         JobFailureKind::PermissionDenied => {
-            format!("Could not copy {name}. Check folder permissions and try again.")
+            format!("Could not change {name}. Check folder permissions and try again.")
         }
-        JobFailureKind::Unsupported => {
-            format!("Could not copy {name} because its file type is unsupported.")
+        JobFailureKind::Unsupported if matches!(request, Some(TrackedOperation::Move(_))) => {
+            "Choose a destination on the same filesystem, then try the move again.".to_owned()
         }
+        JobFailureKind::Unsupported => format!("Could not change {name}: unsupported operation."),
         JobFailureKind::Io | JobFailureKind::Internal => {
-            format!("Could not copy {name}. Check the destination and try again.")
+            format!("Could not change {name}. Check the destination and try again.")
         }
     }
 }
@@ -273,29 +390,43 @@ fn failure_recovery(request: Option<&CopyRequest>, failure: &JobFailure) -> Stri
 mod tests {
     use std::path::PathBuf;
 
-    use floe_core::{ConflictPolicy, SymlinkPolicy};
+    use floe_core::{ConflictPolicy, JobFailure, MoveRequest, RenameRequest};
 
     use super::*;
 
     #[test]
-    fn copy_interaction_feedback_uses_filename_and_recovery_action() {
-        let request = CopyRequest::new(
+    fn phase_4d_feedback_uses_operation_specific_titles_and_conflict_recovery() {
+        let rename = TrackedOperation::Rename(RenameRequest::new(
             PathBuf::from("/source/notes.txt"),
-            PathBuf::from("/destination/notes.txt"),
+            "renamed.txt",
             ConflictPolicy::FailIfExists,
-            SymlinkPolicy::Preserve,
-        );
+        ));
         let failure = JobFailure::new(JobFailureKind::Conflict, "fixture conflict");
 
-        assert_eq!(operation_title(Some(&request)), "Copying notes.txt");
+        assert_eq!(operation_title(Some(&rename)), "Renaming notes.txt");
         assert_eq!(
-            failure_recovery(Some(&request), &failure),
-            "Choose another destination, or rename/remove notes.txt, then paste again."
+            failure_recovery(Some(&rename), &failure),
+            "Choose a different name for notes.txt, then try again."
         );
     }
 
     #[test]
-    fn copy_interaction_unknown_job_uses_safe_generic_label() {
-        assert_eq!(operation_name(None), "item");
+    fn phase_4d_feedback_explains_cross_filesystem_move_recovery() {
+        let moved = TrackedOperation::Move(MoveRequest::new(
+            PathBuf::from("/source/photos"),
+            PathBuf::from("/destination/photos"),
+            ConflictPolicy::FailIfExists,
+        ));
+        let failure = JobFailure::new(JobFailureKind::Unsupported, "fixture cross-device");
+
+        assert_eq!(operation_title(Some(&moved)), "Moving photos");
+        assert_eq!(
+            failure_summary(Some(&moved), &failure),
+            "Cross-filesystem move is not supported yet"
+        );
+        assert_eq!(
+            failure_recovery(Some(&moved), &failure),
+            "Choose a destination on the same filesystem, then try the move again."
+        );
     }
 }

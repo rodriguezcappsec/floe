@@ -29,7 +29,7 @@ BrowserController      OperationController
  |                       v
  |              shared ApplicationState
  |               |       |          |
- |               |       |          +--> CopyBuffer / tracked requests
+ |               |       |          +--> TransferBuffer / tracked operations
  |               |       +--> ApplicationJobManager / structured events
  |               +--> CopyExecutor / MoveExecutor (bounded workers)
  v
@@ -121,15 +121,17 @@ defaults to `floe=info`.
 ### `state.rs` and `job_manager.rs`
 
 `ApplicationState`, separate from `BrowserController`, owns the
-`ApplicationJobManager`, bounded `CopyExecutor`, internal `CopyBuffer`, and
-tracked `CopyRequest` values keyed by `JobId`. The manager allocates
+`ApplicationJobManager`, bounded copy/move executors, internal `TransferBuffer`,
+and `TrackedOperation` values keyed by `JobId`. The manager allocates
 operation/job IDs, stores core `JobRecord` values, applies core lifecycle
 commands, queues observable events, and creates retries under the original
-operation ID. `ApplicationState::stage_copy` retains the selected original
-`PathBuf`; `submit_paste` derives the destination with the source `OsStr`
-filename and queues the copy. No path is reconstructed from display text.
+operation ID. `stage_copy` and `stage_move` replace one transfer intent while
+retaining the selected original `PathBuf`; `submit_paste` derives the exact
+destination from the source `OsStr` filename and dispatches to the matching
+executor. `submit_rename` retains the source path separately from the new
+`OsString` filename. No path is reconstructed from display text.
 
-The copy buffer is Floe-internal only. Cross-application clipboard formats,
+The transfer buffer is Floe-internal only. Cross-application clipboard formats,
 operation persistence, history UI, and overwrite policy are not implemented.
 
 ### `ui.rs`
@@ -138,8 +140,9 @@ operation persistence, history UI, and overwrite policy are not implemented.
 `GtkListView`, empty overlay, status strip, toast overlay, and compact
 Operations Island in a non-modal `GtkOverlay`. A
 `GtkSignalListItemFactory` binds boxed `DirectoryEntry` values to virtualized
-rows. Symbolic icon buttons have tooltips and accessible labels, including the
-copy-cancellation control.
+rows. The module also builds the visible file-actions menu and focused rename
+dialog with inline error text. Symbolic icon buttons have tooltips and
+accessible labels, including the generic operation-cancellation control.
 
 ### `browser.rs`
 
@@ -151,9 +154,10 @@ copy-cancellation control.
 - request generation and pending listing batches;
 - enabled state for navigation and Open actions.
 
-It also owns the Ctrl+C/Ctrl+V action wiring because those commands depend on
-the active selection and current destination. The actions stage or submit
-through shared `ApplicationState`; they do not perform filesystem work.
+It also owns Ctrl+C/Ctrl+X/Ctrl+V/F2 and file-menu action wiring because those
+commands depend on the active selection and current destination. The actions
+stage or submit through shared `ApplicationState`; they do not perform
+filesystem work.
 
 Navigation queues a worker request, disables stale interaction, and ignores
 responses whose generation is no longer active. Results are filtered for hidden
@@ -167,9 +171,10 @@ remove periodic polling.
 
 `OperationController` polls structured application job events every 50 ms,
 maps queued/running/progress/terminal states into the Operations Island, and
-submits cancellation intent through `ApplicationState`. Completion refreshes
-the visible destination directory; conflict, permission, unsupported, and
-general failures produce recovery-oriented toasts. Terminal status remains
+submits generic cancellation intent through `ApplicationState`. Completion
+refreshes every affected visible directory for copy, move, or rename;
+conflict, permission, cross-filesystem, and general failures produce
+recovery-oriented toasts. Terminal status remains
 visible for three seconds. The controller observes jobs but never executes
 filesystem operations.
 
@@ -180,7 +185,8 @@ filesystem operations.
 fails jobs through the shared `ApplicationJobManager`, maps core conflicts and
 unsupported cross-filesystem results into structured failure kinds, and
 cancels queued work during shutdown. `ApplicationState` owns the executor so
-its lifetime matches the application. No GTK move or rename action exists yet.
+its lifetime matches the application. GTK reaches it only through application
+commands and tracked requests.
 
 ### `worker.rs`
 
@@ -219,8 +225,10 @@ Current application/window actions are:
 | Alt+Up | Parent |
 | Ctrl+L | Show local path entry |
 | Ctrl+H | Toggle hidden entries |
-| Ctrl+C | Stage selected entry in Floe's internal copy buffer |
+| Ctrl+C | Stage selected entry for copying in Floe's internal buffer |
+| Ctrl+X | Stage selected entry for moving in Floe's internal buffer |
 | Ctrl+V | Paste staged entry into the current directory |
+| F2 | Rename selected entry through a validated dialog |
 | Escape | Leave path entry |
 | Ctrl+Q | Quit |
 | Enter / double-click | Activate selected list row |
@@ -243,13 +251,14 @@ No desktop integration trait or Niri/Plasma backend exists. The app uses generic
 GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
 detection and compositor APIs must eventually stay under `crates/app`.
 
-### Filesystem jobs through Phase 4C
+### Filesystem jobs through Phase 4D
 
 Identity, lifecycle, progress, failure, retry-attempt, registry, and event
 foundations now exist. `floe-core::copy` adds the first path-safe operation
 model and synchronous engine; `floe-app::copy_executor` runs it on one named
 worker behind a fixed-capacity queue. `ApplicationState` owns the shared
-registry, executor, copy buffer, and tracked copy requests.
+registry, both executors, unified transfer buffer, and tracked copy/move/rename
+requests.
 `OperationController` is the GTK observer and feedback boundary.
 
 `ConflictPolicy::FailIfExists` is the only Phase 4A conflict behavior, so an
@@ -268,7 +277,7 @@ history UI, cross-application clipboard format, overwrite path, or interactive
 conflict resolver. The current direction is:
 
 ```text
-GTK observers/actions (implemented for copy)
+GTK observers/actions (implemented for copy, move, and rename)
        |
        v
 ApplicationState / ApplicationJobManager (implemented)
@@ -283,16 +292,17 @@ floe-core path-safe copy model and engine (implemented)
 bounded copy and move/rename executors (implemented)
 ```
 
-Phase 4C adds separate path-safe move/rename models and a bounded executor.
+Phase 4D exposes the Phase 4C move/rename models through application-owned
+commands, a file-actions menu, keyboard shortcuts, validated rename dialog,
+and the generic Operations Island.
 These operations currently support only atomic same-filesystem renames with
 fail-if-exists behavior. Cross-filesystem move, overwrite, operation
-persistence, retry request tracking, GTK move/rename controls, and interactive
-conflict resolution remain unimplemented.
+persistence, retry request tracking, and interactive conflict resolution remain
+unimplemented.
 
-Move/rename/trash interactions must not appear directly in widgets or reuse the
-read-only browser worker as an ad-hoc mutation queue. The next slice may add
-application-owned move/rename submission and GTK observation on top of the
-verified backend; trash requires a separate XDG/GIO design.
+Trash interactions must not appear directly in widgets or reuse the read-only
+browser worker as an ad-hoc mutation queue. Trash requires a separate XDG/GIO
+design before any destructive UI is introduced.
 
 ## Known architectural debt
 

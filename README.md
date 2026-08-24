@@ -31,17 +31,18 @@ required nor simulated.
   preserve-or-reject symlink policies
 - Fixed-capacity background copy execution connected to application-owned job
   lifecycle events, cancellation, failure mapping, and retry identity
-- Application-owned internal copy buffer with Ctrl+C/Ctrl+V copy-only workflow
+- Application-owned transfer buffer with Ctrl+C copy, Ctrl+X move, and Ctrl+V
+  paste
 - Compact non-modal Operations Island with progress, cancellation, completion,
   conflict, and failure feedback
 - GTK-independent exact-path move and same-directory rename models
 - Atomic same-filesystem no-replace move/rename execution on a bounded worker
+- F2 rename dialog with inline validation and visible file-actions menu
 
-Phase 4B copy/paste works within the running Floe application. Phase 4C's move
-and rename backend is implemented but has no GTK actions yet. Cross-application
-clipboard formats, overwrite, cross-filesystem copy-delete moves, trash,
-previews, tabs, split view, Miller columns, and environment-specific
-integrations remain deferred.
+Phase 4D copy/move/paste and rename work within the running Floe application.
+Cross-application clipboard formats, overwrite, cross-filesystem copy-delete
+moves, trash, previews, tabs, split view, Miller columns, and
+environment-specific integrations remain deferred.
 
 ## Project documentation
 
