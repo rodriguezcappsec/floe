@@ -166,12 +166,33 @@ impl Appearance {
                 background-color: alpha(@accent_bg_color, 0.20);
             }}
 
+            .floe-directory-list row:focus-visible {{
+                box-shadow: inset 0 0 0 2px alpha(@accent_color, 0.76);
+            }}
+
+            .floe-list-header {{
+                padding: 7px 12px 6px;
+            }}
+
+            .floe-list-header label {{
+                color: @dim_label_color;
+                font-size: 0.85em;
+                font-weight: 600;
+            }}
+
             .floe-entry-name {{
                 font-weight: 500;
             }}
 
-            .floe-entry-detail, .floe-status {{
+            .floe-entry-type,
+            .floe-entry-size,
+            .floe-entry-modified,
+            .floe-status {{
                 color: @dim_label_color;
+            }}
+
+            .floe-entry-size, .floe-entry-modified {{
+                font-feature-settings: "tnum";
             }}
 
             .floe-path {{

@@ -47,13 +47,16 @@ persisted across launches.
 ### Directory surface
 
 The directory surface is a virtualized `GtkListView` backed by
-`GioListStore<glib::BoxedAnyObject>`. Each row displays a symbolic file-kind
-icon, a lossy display label, and a compact kind or size detail. The underlying
-`DirectoryEntry` retains the original path and filename.
+`GioListStore<glib::BoxedAnyObject>`. Phase 6A adds a compact header and aligned
+Name, Type, Size, and Modified columns. Each row displays a symbolic file-kind
+icon, a lossy display label, a textual kind that does not rely on icon or color,
+an available regular-file size, and locale-aware modification time. The
+underlying `DirectoryEntry` retains the original path and filename.
 
 Directories sort before other entries. Hidden entries can be toggled. Rows are
 inserted into the GTK model in batches so very large results do not arrive in
-one main-loop update.
+one main-loop update. Metadata strings are produced in the list factory bind
+path for visible/reused rows instead of eagerly for the full directory result.
 
 ### Selection and activation
 
@@ -199,9 +202,11 @@ Island rather than the directory status strip.
 ### Typography and icons
 
 Floe uses the system/libadwaita typography rather than bundled fonts. Current
-file labels use medium weight, the path uses semibold, and secondary details use
-the theme's dim-label color. Filenames may be long or non-UTF-8, so display text
-may ellipsize and provide a tooltip while the original path remains untouched.
+file labels use medium weight, the path and list headings use semibold, and Type,
+Size, Modified, and status text use the theme's dim-label color. Size and time
+columns use tabular figures for steadier scanning. Filenames may be long or
+non-UTF-8, so display text may ellipsize and provide a tooltip while the
+original path remains untouched.
 
 Use one family of themed GTK symbolic icons. Do not use emoji as structural
 icons. Icon-only controls require an accessible name and a tooltip.

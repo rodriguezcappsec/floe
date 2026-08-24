@@ -24,6 +24,7 @@ required nor simulated.
 - Back, forward, parent, location, and hidden-file navigation
 - XDG user locations
 - Virtualized list rows backed by original `PathBuf` values
+- Fixed Name, Type, Size, and Modified columns using already-loaded metadata
 - Compact, user-resizable Places sidebar
 - Explicit selection with Enter/double-click activation
 - Asynchronous regular-file opening through GIO's default application
@@ -75,10 +76,17 @@ operation identity. Revised copy/move/rename attempts receive a fresh job ID
 and remain fail-if-exists. Phase 5F presents those decisions without blocking
 other file-manager work. The retry field starts empty and accepts one valid,
 different filename; no lossy display path is submitted automatically.
+
+Phase 6A gives the virtualized list a stable desktop-style information
+hierarchy. A compact header and aligned Type, Size, and locale-aware Modified
+columns improve scanning while metadata is still formatted only for bound
+visible rows. Full filenames remain available by tooltip, keyboard focus has an
+explicit visible treatment, and original paths remain untouched.
+
 Cross-application clipboard formats, overwrite, apply-to-all,
 cross-filesystem copy-delete moves, trash restore/bulk UI, permanent
-deletion, previews, tabs, split view, Miller columns, and environment-specific
-integrations remain deferred.
+deletion, previews, tabs, split view, Miller columns, thumbnail generation, a
+separate grid, and environment-specific integrations remain deferred.
 
 ## Project documentation
 

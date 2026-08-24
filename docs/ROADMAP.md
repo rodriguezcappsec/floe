@@ -140,14 +140,27 @@ of truth for sequencing and current-session handoff.
 - Ordered pending conflicts and at most one active decision dialog.
 - No overwrite, apply-to-all, or trash-conflict option.
 
-## Next
-
 ### Phase 6A — List-view polish foundation
 
-Create branch `phase-6a-list-view-polish`. Improve the existing virtualized
-list's information hierarchy and density using already-available entry metadata
-before adding thumbnail generation or a separate grid implementation. Preserve
-large-directory responsiveness and original path ownership.
+- Compact fixed header with Name, Type, Size, and Modified hierarchy.
+- Textual file kinds distinguish folders, files, folder links, file links, and
+  special entries without relying on icon or color alone.
+- Decimal size formatting through exabytes and locale-aware modification time.
+- Bind-time metadata presentation preserves `GtkListView` virtualization and
+  bounded 256-entry main-loop insertion batches.
+- Centralized dim metadata, tabular figures, and explicit keyboard focus styling.
+- Original `PathBuf`/`OsString` ownership remains unchanged; thumbnails and a
+  separate grid remain deferred.
+
+## Next
+
+### Phase 6B — List sorting
+
+Create branch `phase-6b-list-sorting`. Make the visible Name, Type, Size, and
+Modified headings keyboard/pointer operable with explicit ascending/descending
+state. Keep directories-first behavior deliberate, preserve the current
+selection by original path when order changes, and keep sort logic outside GTK
+callbacks. Thumbnails and a separate grid remain deferred.
 
 ## Later
 
