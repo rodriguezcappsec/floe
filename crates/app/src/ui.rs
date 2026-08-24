@@ -27,6 +27,26 @@ const FILE_CONTEXT_ACTIONS: [(&str, &str); 6] = [
     ("Rename…", "win.rename"),
     ("Move to Trash", "win.trash"),
 ];
+const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 4] = [
+    ("Paste", "win.paste"),
+    ("Select All", "win.select-all"),
+    ("Refresh", "win.refresh"),
+    ("Edit Location", "win.location"),
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ContextSelection {
+    Preserve,
+    SelectOnly,
+}
+
+fn context_selection_for_secondary(already_selected: bool) -> ContextSelection {
+    if already_selected {
+        ContextSelection::Preserve
+    } else {
+        ContextSelection::SelectOnly
+    }
+}
 
 const CONFLICT_DECISION_LABELS: [&str; 2] = ["Keep Existing", "Retry with New Name"];
 const LIST_COLUMN_LABELS: [&str; 4] = ["Name", "Type", "Size", "Modified"];
@@ -267,13 +287,15 @@ pub struct BrowserWidgets {
     pub path_stack: gtk::Stack,
     pub location_entry: gtk::Entry,
     pub location_error: gtk::Label,
-    pub selection: gtk::SingleSelection,
+    pub selection: gtk::MultiSelection,
     pub list_view: gtk::ListView,
     pub grid_view: gtk::GridView,
     pub view_stack: gtk::Stack,
     pub list_header: gtk::Box,
     pub list_context_menu: gtk::PopoverMenu,
     pub grid_context_menu: gtk::PopoverMenu,
+    pub list_background_menu: gtk::PopoverMenu,
+    pub grid_background_menu: gtk::PopoverMenu,
     pub list_view_button: gtk::ToggleButton,
     pub grid_view_button: gtk::ToggleButton,
     pub grid_size_controls: gtk::Box,
@@ -289,13 +311,15 @@ pub struct BrowserWidgets {
 
 struct DirectoryPanelWidgets {
     content: gtk::Box,
-    selection: gtk::SingleSelection,
+    selection: gtk::MultiSelection,
     list_view: gtk::ListView,
     grid_view: gtk::GridView,
     view_stack: gtk::Stack,
     list_header: gtk::Box,
     list_context_menu: gtk::PopoverMenu,
     grid_context_menu: gtk::PopoverMenu,
+    list_background_menu: gtk::PopoverMenu,
+    grid_background_menu: gtk::PopoverMenu,
     empty_state: gtk::Box,
     spinner: gtk::Spinner,
     status_label: gtk::Label,
@@ -345,12 +369,21 @@ impl BrowserWidgets {
     pub fn popdown_context_menus(&self) {
         self.list_context_menu.popdown();
         self.grid_context_menu.popdown();
+        self.list_background_menu.popdown();
+        self.grid_background_menu.popdown();
     }
 
     pub fn context_menu(&self, mode: ViewMode) -> &gtk::PopoverMenu {
         match mode {
             ViewMode::List => &self.list_context_menu,
             ViewMode::Grid => &self.grid_context_menu,
+        }
+    }
+
+    pub fn background_menu(&self, mode: ViewMode) -> &gtk::PopoverMenu {
+        match mode {
+            ViewMode::List => &self.list_background_menu,
+            ViewMode::Grid => &self.grid_background_menu,
         }
     }
 }
@@ -529,6 +562,8 @@ pub fn build(
         list_header,
         list_context_menu,
         grid_context_menu,
+        list_background_menu,
+        grid_background_menu,
         empty_state,
         spinner,
         status_label,
@@ -590,6 +625,8 @@ pub fn build(
         list_header,
         list_context_menu,
         grid_context_menu,
+        list_background_menu,
+        grid_background_menu,
         list_view_button,
         grid_view_button,
         grid_size_controls,
@@ -1021,14 +1058,18 @@ fn build_sidebar(locations: &[Location], minimum_width: i32) -> (gtk::Box, Vec<g
 
 fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets {
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
-    let selection = gtk::SingleSelection::new(Some(store));
-    selection.set_autoselect(false);
-    selection.set_can_unselect(true);
+    let selection = gtk::MultiSelection::new(Some(store));
 
     let list_context_menu = gtk::PopoverMenu::from_model(Some(&build_file_context_menu_model()));
     list_context_menu.set_has_arrow(false);
     let grid_context_menu = gtk::PopoverMenu::from_model(Some(&build_file_context_menu_model()));
     grid_context_menu.set_has_arrow(false);
+    let list_background_menu =
+        gtk::PopoverMenu::from_model(Some(&build_background_context_menu_model()));
+    list_background_menu.set_has_arrow(false);
+    let grid_background_menu =
+        gtk::PopoverMenu::from_model(Some(&build_background_context_menu_model()));
+    grid_background_menu.set_has_arrow(false);
 
     let thumbnails = ThumbnailPresentation::new();
     let factory = gtk::SignalListItemFactory::new();
@@ -1042,6 +1083,7 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
             .orientation(gtk::Orientation::Horizontal)
             .spacing(12)
             .build();
+        row.add_css_class("floe-list-row");
         let icon = gtk::Image::builder().pixel_size(LIST_ICON_EDGE).build();
         icon.set_accessible_role(gtk::AccessibleRole::Presentation);
         let name = gtk::Label::builder()
@@ -1096,7 +1138,11 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
                 return;
             }
 
-            selection.set_selected(position);
+            if context_selection_for_secondary(selection.is_selected(position))
+                == ContextSelection::SelectOnly
+            {
+                selection.select_item(position, true);
+            }
             let Some(row) = gesture.widget() else {
                 return;
             };
@@ -1177,6 +1223,13 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
     list_view.set_single_click_activate(false);
     list_view.set_vexpand(true);
     list_context_menu.set_parent(&list_view);
+    list_background_menu.set_parent(&list_view);
+    install_background_context_menu(
+        &list_view,
+        &selection,
+        &list_background_menu,
+        "floe-list-row",
+    );
 
     let list_scroller = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
@@ -1198,6 +1251,13 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
     grid_view.set_max_columns(24);
     grid_view.set_vexpand(true);
     grid_context_menu.set_parent(&grid_view);
+    grid_background_menu.set_parent(&grid_view);
+    install_background_context_menu(
+        &grid_view,
+        &selection,
+        &grid_background_menu,
+        "floe-grid-cell",
+    );
     let grid_scroller = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
@@ -1226,6 +1286,7 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
         .build();
     empty_state.append(&empty_icon);
     empty_state.append(&empty_label);
+    empty_state.set_can_target(false);
     empty_state.set_visible(false);
 
     let overlay = gtk::Overlay::new();
@@ -1275,6 +1336,8 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
         list_header,
         list_context_menu,
         grid_context_menu,
+        list_background_menu,
+        grid_background_menu,
         empty_state,
         spinner,
         status_label,
@@ -1284,7 +1347,7 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
 }
 
 fn build_grid_factory(
-    selection: &gtk::SingleSelection,
+    selection: &gtk::MultiSelection,
     context_menu: &gtk::PopoverMenu,
     thumbnails: &ThumbnailPresentation,
     grid_size: GridSize,
@@ -1345,7 +1408,11 @@ fn build_grid_factory(
             if !is_bound_list_position(position) {
                 return;
             }
-            selection.set_selected(position);
+            if context_selection_for_secondary(selection.is_selected(position))
+                == ContextSelection::SelectOnly
+            {
+                selection.select_item(position, true);
+            }
             let Some(cell) = gesture.widget() else {
                 return;
             };
@@ -1438,6 +1505,68 @@ fn build_file_context_menu_model() -> gio::Menu {
     menu.append_section(None, &destructive);
 
     menu
+}
+
+fn build_background_context_menu_model() -> gio::Menu {
+    let menu = gio::Menu::new();
+    for (label, action) in BACKGROUND_CONTEXT_ACTIONS {
+        menu.append(Some(label), Some(action));
+    }
+    menu
+}
+
+fn install_background_context_menu<W>(
+    view: &W,
+    selection: &gtk::MultiSelection,
+    context_menu: &gtk::PopoverMenu,
+    entry_css_class: &'static str,
+) where
+    W: IsA<gtk::Widget> + Clone + 'static,
+{
+    let secondary_click = gtk::GestureClick::new();
+    secondary_click.set_button(gtk::gdk::BUTTON_SECONDARY);
+    let view_widget = view.clone().upcast::<gtk::Widget>();
+    let selection = selection.clone();
+    let context_menu = context_menu.clone();
+    secondary_click.connect_pressed(move |gesture, _, x, y| {
+        if view_widget
+            .pick(x, y, gtk::PickFlags::DEFAULT)
+            .is_some_and(|target| {
+                widget_or_ancestor_has_css_class(&target, &view_widget, entry_css_class)
+            })
+        {
+            return;
+        }
+
+        selection.unselect_all();
+        context_menu.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
+            x.round() as i32,
+            y.round() as i32,
+            1,
+            1,
+        )));
+        context_menu.popup();
+        gesture.set_state(gtk::EventSequenceState::Claimed);
+    });
+    view.add_controller(secondary_click);
+}
+
+fn widget_or_ancestor_has_css_class(
+    target: &gtk::Widget,
+    root: &gtk::Widget,
+    css_class: &str,
+) -> bool {
+    let mut current = Some(target.clone());
+    while let Some(widget) = current {
+        if widget.has_css_class(css_class) {
+            return true;
+        }
+        if widget == *root {
+            break;
+        }
+        current = widget.parent();
+    }
+    false
 }
 
 fn is_bound_list_position(position: u32) -> bool {
@@ -1724,6 +1853,37 @@ mod tests {
             .expect("one second before epoch should be representable");
         let rendered = format_modified(pre_epoch).expect("pre-epoch times should be representable");
         assert!(!rendered.trim().is_empty());
+    }
+
+    #[test]
+    fn phase_6j_secondary_click_preserves_or_retargets_selection() {
+        assert_eq!(
+            context_selection_for_secondary(true),
+            ContextSelection::Preserve
+        );
+        assert_eq!(
+            context_selection_for_secondary(false),
+            ContextSelection::SelectOnly
+        );
+    }
+
+    #[test]
+    fn phase_6j_background_context_menu_exposes_only_directory_actions() {
+        assert_eq!(
+            BACKGROUND_CONTEXT_ACTIONS,
+            [
+                ("Paste", "win.paste"),
+                ("Select All", "win.select-all"),
+                ("Refresh", "win.refresh"),
+                ("Edit Location", "win.location"),
+            ]
+        );
+        assert!(BACKGROUND_CONTEXT_ACTIONS.iter().all(|(_, action)| {
+            !matches!(
+                *action,
+                "win.open" | "win.open-with" | "win.rename" | "win.trash"
+            )
+        }));
     }
 
     #[test]

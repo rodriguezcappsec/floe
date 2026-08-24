@@ -1129,7 +1129,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid, thumbnails, navigation, and launch polish (Phase 6I complete)
+Phase 6 — List/grid, thumbnails, navigation, and interaction polish (Phase 6J complete)
 ```
 
 Status:
@@ -1230,6 +1230,18 @@ Phase 6I resolves normal Open through asynchronous GIO content-type/application
 discovery. Registered defaults launch normally; missing defaults return the
 already-discovered `OpenWithOptions` and automatically present the existing
 chooser. One-time Open remains separate from explicit Set as Default.
+
+Phase 6J replaces the shared single-selection model with `GtkMultiSelection` in
+list and grid. Native Ctrl-toggle, Shift-range, grid rubber-band, Ctrl+A,
+Ctrl+Shift+A, and focused-view Escape clearing preserve original paths. Sorting
+restores every selected item by exact `PathBuf`, including non-UTF-8 names. Open,
+Open With, and Rename require exactly one target; Copy, Cut, and Move to Trash
+accept the full valid selection. Secondary-click preserves an existing
+multi-selection or retargets an unselected entry, while directory-background
+secondary-click clears file selection and exposes Paste, Select All, Refresh,
+and Edit Location. Application state serializes multi-path copy, move, and Trash
+requests over existing bounded executors so large selections are not silently
+dropped at queue capacity.
 ```
 
 Established product decisions:
@@ -1262,16 +1274,21 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6I is complete. The next coherent branch is
-`phase-6j-places-and-devices`, adding standards-based XDG Places, persisted user
-bookmarks, and GIO volume/drive/mount observation.
+Phase 6J is complete. The next coherent branch is
+`phase-6k-places-and-devices`, adding standards-based XDG Places, persisted user
+bookmarks, and GIO volume/drive/mount observation. Phase 6L follows with reviewed
+freedesktop system thumbnailers, then Phase 6M adds truthfully labelled,
+confirmed “Delete Permanently” jobs and Shift+Delete without claiming secure erase.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-141 tests pass: thirty-three core and 108 application tests. Two focused Phase
+148 tests pass: thirty-three core and 115 application tests. Eight focused Phase
+6J tests cover multi-selection action policy, exact multi-path non-UTF-8
+restoration, entry/background context rules, deduplicated transfer staging, and
+serial copy/move/Trash batches beyond bounded executor capacity. Two focused Phase
 6I tests cover registered-default and no-default routing with exact path
 retention. Five focused Phase
 6H tests cover empty/relative validation, trimmed absolute input,
@@ -1314,7 +1331,10 @@ deduplicated application ordering, and chooser/default button sensitivity.
 Three focused Phase 5C tests cover the complete action mapping, rejection of an
 unbound virtualized row, and lock-state-safe keyboard shortcuts. Two focused
 Phase 5B tests cover retryable outcomes and preservation of pending retry state
-while another job completes. A native Wayland Phase 6G smoke used isolated
+while another job completes. A native Wayland Phase 6J smoke owned the expected
+D-Bus name, exported and activated Select All and Clear Selection, remained
+healthy, exited 0 through Quit, and released the name. It emitted only the known
+host libadwaita and RADV/Vulkan warnings. A native Wayland Phase 6G smoke used isolated
 temporary home/cache/config roots with fourteen representative entries. Settled
 list and grid captures showed the full-color SVG family, bounded optical sizes,
 link/executable/file-family marks, and real WebP thumbnail replacement. Floe
@@ -1554,12 +1574,22 @@ Completed this session:
   the application chooser when no GIO default is registered.
 * Kept application resolution/launch asynchronous, exact-path based, and kept
   one-time Open separate from explicit association changes.
+* Replaced shared `GtkSingleSelection` with `GtkMultiSelection` for list/grid,
+  retaining native Ctrl/Shift/rubber-band behavior plus Select All and Clear.
+* Preserved all selected original paths across sorting, including colliding
+  lossy non-UTF-8 display names; zero/one/many status and action states are explicit.
+* Added mature secondary-click semantics and distinct entry/background context
+  surfaces with keyboard parity.
+* Added application-owned multi-path staging and a serial batch dispatcher for
+  copy, move, and Trash so bounded worker capacity cannot silently drop items.
+* Resequenced Phase 6K Places/devices, Phase 6L system thumbnailers, and Phase 6M
+  confirmed permanent deletion with truthful non-secure-erase wording.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-6j-places-and-devices` and expand the sidebar with valid XDG user
+Create `phase-6k-places-and-devices` and expand the sidebar with valid XDG user
 directories, persisted exact-path user bookmarks, and asynchronously observed
 GIO drives/volumes/mounts. Keep mount work outside GTK callbacks and provide
 clear unavailable/unmounted recovery states.

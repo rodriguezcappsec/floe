@@ -161,7 +161,13 @@ Phase 6H adds no dependency. Focused tests run with `cargo test -p floe-app phas
 
 Phase 6I adds no dependency. Run `cargo test -p floe-app phase_6i -- --nocapture` for deterministic default/no-default routing coverage. Native smoke should confirm the Open and Open With window actions remain registered and Floe owns/releases `io.github.floe.FileManager`; installed host application associations are intentionally not changed during tests.
 
-After Phase 6I, continue on `phase-6j-places-and-devices`.
+Phase 6J adds no dependency. Run
+`cargo test -p floe-app phase_6j -- --nocapture` for multi-selection policy,
+exact-path restoration, context-surface rules, and bounded copy/move/Trash batch
+coverage. Native smoke should confirm `select-all` and `clear-selection` are
+exported and activatable while Floe owns its D-Bus name.
+
+After Phase 6J, continue on `phase-6k-places-and-devices`.
 
 ## Wayland environments
 

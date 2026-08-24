@@ -266,14 +266,50 @@ Implemented on `phase-6i-open-with-fallback`.
 - Keep one-time Open and explicit Set as Default separate.
 - Preserve exact original paths and provide an actionable empty-applications fallback.
 
+### Phase 6J — Multi-selection and complete context surfaces
+
+Implemented on `phase-6j-multi-selection-context`.
+
+- Replace the shared single-selection model with `GtkMultiSelection`.
+- Support native Ctrl-toggle, Shift-range, Ctrl+A, Ctrl+Shift+A, Escape clearing,
+  and grid rubber-band selection.
+- Preserve multiple exact original `PathBuf` identities across worker sorting.
+- Keep Open, Open With, and Rename single-target; make Copy, Cut, and Trash batch-safe.
+- Preserve an existing multi-selection on secondary-click and retarget an
+  unselected entry before presenting its menu.
+- Add a distinct directory-background menu for Paste, Select All, Refresh, and
+  Edit Location.
+- Serialize application-owned batch jobs so large selections cannot overflow
+  bounded worker queues silently.
+
 ## Next
 
-### Phase 6J — Places, bookmarks, and devices
+### Phase 6K — Places, bookmarks, and devices
 
-Create `phase-6j-places-and-devices`. Expand standards-based Places with valid XDG user
-directories, user-managed folder bookmarks, and GIO `VolumeMonitor` drives/volumes/mounts.
-Keep mounting asynchronous, preserve exact paths, and distinguish unavailable devices with
-recoverable actions rather than hiding them.
+Create `phase-6k-places-and-devices`.
+
+Expand standards-based Places with valid XDG user directories, persisted
+user-managed folder bookmarks, and GIO `VolumeMonitor` drives/volumes/mounts.
+Keep mounting asynchronous, preserve exact paths, and distinguish unavailable
+devices with recoverable actions rather than hiding them.
+
+### Phase 6L — System thumbnailers
+
+Create `phase-6l-system-thumbnailers`.
+
+Consume reviewed freedesktop thumbnailer providers on the existing bounded,
+cancellable worker boundary for PDF/document pages, video frames, audio art,
+fonts, text/code, and archives. Never execute active content during thumbnailing.
+
+### Phase 6M — Permanent deletion
+
+Create `phase-6m-permanent-delete`.
+
+Add a path-safe permanent-delete job and Shift+Delete interaction with exact
+targets, explicit irreversible confirmation, progress, cancellation where
+meaningful, partial-failure reporting, and retry policy. Label it “Delete
+Permanently”; do not claim secure erase because SSD wear-leveling, CoW filesystems,
+snapshots, and network storage make overwrite guarantees impossible.
 
 ## After the requested navigation and integration phases
 
