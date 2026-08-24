@@ -38,11 +38,15 @@ required nor simulated.
 - GTK-independent exact-path move and same-directory rename models
 - Atomic same-filesystem no-replace move/rename execution on a bounded worker
 - F2 rename dialog with inline validation and visible file-actions menu
+- Application-layer GIO trash request/executor foundation with cancellation,
+  structured failures, and original-path preservation
 
 Phase 4D copy/move/paste and rename work within the running Floe application.
+Phase 4E provides the verified trash job foundation, but intentionally exposes
+no Delete shortcut or permanent-delete action yet.
 Cross-application clipboard formats, overwrite, cross-filesystem copy-delete
-moves, trash, previews, tabs, split view, Miller columns, and
-environment-specific integrations remain deferred.
+moves, trash interaction/restore UI, permanent deletion, previews, tabs, split
+view, Miller columns, and environment-specific integrations remain deferred.
 
 ## Project documentation
 

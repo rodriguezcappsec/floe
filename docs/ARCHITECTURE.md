@@ -31,7 +31,8 @@ BrowserController      OperationController
  |               |       |          |
  |               |       |          +--> TransferBuffer / tracked operations
  |               |       +--> ApplicationJobManager / structured events
- |               +--> CopyExecutor / MoveExecutor (bounded workers)
+ |               +--> CopyExecutor / MoveExecutor / TrashExecutor
+ |                    (bounded workers)
  v
 BrowserWorker (one std thread)
        |
@@ -121,15 +122,19 @@ defaults to `floe=info`.
 ### `state.rs` and `job_manager.rs`
 
 `ApplicationState`, separate from `BrowserController`, owns the
-`ApplicationJobManager`, bounded copy/move executors, internal `TransferBuffer`,
-and `TrackedOperation` values keyed by `JobId`. The manager allocates
-operation/job IDs, stores core `JobRecord` values, applies core lifecycle
+`ApplicationJobManager`, bounded copy/move/trash executors, internal
+`TransferBuffer`, and `TrackedOperation` values keyed by `JobId`. The manager
+allocates operation/job IDs, stores core `JobRecord` values, applies core lifecycle
 commands, queues observable events, and creates retries under the original
 operation ID. `stage_copy` and `stage_move` replace one transfer intent while
 retaining the selected original `PathBuf`; `submit_paste` derives the exact
 destination from the source `OsStr` filename and dispatches to the matching
 executor. `submit_rename` retains the source path separately from the new
 `OsString` filename. No path is reconstructed from display text.
+
+`submit_trash` validates and tracks one original `PathBuf`, dispatches through
+the GIO-backed trash executor, and reports the source parent for refresh after
+completion. No GTK action invokes it yet.
 
 The transfer buffer is Floe-internal only. Cross-application clipboard formats,
 operation persistence, history UI, and overwrite policy are not implemented.
@@ -172,9 +177,9 @@ remove periodic polling.
 `OperationController` polls structured application job events every 50 ms,
 maps queued/running/progress/terminal states into the Operations Island, and
 submits generic cancellation intent through `ApplicationState`. Completion
-refreshes every affected visible directory for copy, move, or rename;
-conflict, permission, cross-filesystem, and general failures produce
-recovery-oriented toasts. Terminal status remains
+refreshes every affected visible directory for copy, move, rename, or trash;
+conflict, permission, cross-filesystem, unsupported-trash, and general failures
+produce recovery-oriented toasts. Terminal status remains
 visible for three seconds. The controller observes jobs but never executes
 filesystem operations.
 
@@ -187,6 +192,20 @@ unsupported cross-filesystem results into structured failure kinds, and
 cancels queued work during shutdown. `ApplicationState` owns the executor so
 its lifetime matches the application. GTK reaches it only through application
 commands and tracked requests.
+
+### `trash_executor.rs`
+
+`TrashExecutor` owns one named worker and fixed-capacity queue for application-
+layer `TrashRequest` values. Production execution creates a `gio::File` from
+the original `Path` and calls GIO's synchronous trash API on that worker with a
+`gio::Cancellable`; it does not shell out or implement the XDG Trash layout
+itself. GIO cancellation is cooperative and cannot undo a move after the
+desktop service commits it.
+
+The executor maps missing sources, permission denial, unsupported locations,
+other I/O errors, cancellation, queue capacity, and shutdown into the shared
+job lifecycle. Tests inject a backend and use virtual or temporary paths, so
+the suite never modifies the user's real Trash.
 
 ### `worker.rs`
 
@@ -251,14 +270,14 @@ No desktop integration trait or Niri/Plasma backend exists. The app uses generic
 GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
 detection and compositor APIs must eventually stay under `crates/app`.
 
-### Filesystem jobs through Phase 4D
+### Filesystem jobs through Phase 4E
 
 Identity, lifecycle, progress, failure, retry-attempt, registry, and event
 foundations now exist. `floe-core::copy` adds the first path-safe operation
 model and synchronous engine; `floe-app::copy_executor` runs it on one named
 worker behind a fixed-capacity queue. `ApplicationState` owns the shared
-registry, both executors, unified transfer buffer, and tracked copy/move/rename
-requests.
+registry, all three executors, unified transfer buffer, and tracked
+copy/move/rename/trash requests.
 `OperationController` is the GTK observer and feedback boundary.
 
 `ConflictPolicy::FailIfExists` is the only Phase 4A conflict behavior, so an
@@ -289,7 +308,7 @@ floe-core legal state transitions (implemented)
 floe-core path-safe copy model and engine (implemented)
        |
        v
-bounded copy and move/rename executors (implemented)
+bounded copy, move/rename, and GIO trash executors (implemented)
 ```
 
 Phase 4D exposes the Phase 4C move/rename models through application-owned
@@ -300,9 +319,10 @@ fail-if-exists behavior. Cross-filesystem move, overwrite, operation
 persistence, retry request tracking, and interactive conflict resolution remain
 unimplemented.
 
-Trash interactions must not appear directly in widgets or reuse the read-only
-browser worker as an ad-hoc mutation queue. Trash requires a separate XDG/GIO
-design before any destructive UI is introduced.
+Phase 4E implements the separate XDG/GIO trash job boundary. Trash interaction
+must still submit through `ApplicationState`; it must not appear as direct GIO
+work in widgets or reuse the read-only browser worker as an ad-hoc mutation
+queue. Delete shortcuts, restore UI, and permanent deletion remain deferred.
 
 ## Known architectural debt
 

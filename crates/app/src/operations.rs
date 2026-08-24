@@ -292,6 +292,7 @@ fn operation_verb(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Copy(_)) => "Copy",
         Some(TrackedOperation::Move(_)) => "Move",
         Some(TrackedOperation::Rename(_)) => "Rename",
+        Some(TrackedOperation::Trash(_)) => "Trash",
         None => "Operation",
     }
 }
@@ -301,6 +302,7 @@ fn operation_verb_ing(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Copy(_)) => "Copying",
         Some(TrackedOperation::Move(_)) => "Moving",
         Some(TrackedOperation::Rename(_)) => "Renaming",
+        Some(TrackedOperation::Trash(_)) => "Moving to Trash",
         None => "Working on",
     }
 }
@@ -310,6 +312,7 @@ fn waiting_detail(request: Option<TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Copy(_)) => "Waiting to copy…",
         Some(TrackedOperation::Move(_)) => "Waiting to move…",
         Some(TrackedOperation::Rename(_)) => "Waiting to rename…",
+        Some(TrackedOperation::Trash(_)) => "Waiting to move to Trash…",
         None => "Waiting…",
     }
 }
@@ -319,6 +322,7 @@ fn running_detail(request: Option<TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Copy(_)) => "Preparing copy…",
         Some(TrackedOperation::Move(_)) => "Moving on this filesystem…",
         Some(TrackedOperation::Rename(_)) => "Renaming…",
+        Some(TrackedOperation::Trash(_)) => "Moving to Trash through GIO…",
         None => "Working…",
     }
 }
@@ -328,6 +332,7 @@ fn completed_title(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Copy(_)) => "Copy complete",
         Some(TrackedOperation::Move(_)) => "Move complete",
         Some(TrackedOperation::Rename(_)) => "Rename complete",
+        Some(TrackedOperation::Trash(_)) => "Moved to Trash",
         None => "Operation complete",
     }
 }
@@ -337,6 +342,7 @@ fn completed_detail(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Copy(_)) => "Copied successfully",
         Some(TrackedOperation::Move(_)) => "Moved successfully",
         Some(TrackedOperation::Rename(_)) => "Renamed successfully",
+        Some(TrackedOperation::Trash(_)) => "Item is available in Trash",
         None => "Completed successfully",
     }
 }
@@ -346,6 +352,7 @@ fn completed_toast(request: Option<&TrackedOperation>) -> String {
         Some(TrackedOperation::Copy(_)) => "Copied",
         Some(TrackedOperation::Move(_)) => "Moved",
         Some(TrackedOperation::Rename(_)) => "Renamed",
+        Some(TrackedOperation::Trash(_)) => "Trashed",
         None => "Completed",
     };
     format!("{verb} {}", operation_name(request))
@@ -357,6 +364,9 @@ fn failure_summary(request: Option<&TrackedOperation>, failure: &JobFailure) -> 
         JobFailureKind::PermissionDenied => "Permission was denied",
         JobFailureKind::Unsupported if matches!(request, Some(TrackedOperation::Move(_))) => {
             "Cross-filesystem move is not supported yet"
+        }
+        JobFailureKind::Unsupported if matches!(request, Some(TrackedOperation::Trash(_))) => {
+            "This location does not support Trash"
         }
         JobFailureKind::Unsupported => "This operation is not supported",
         JobFailureKind::Io => "A filesystem error interrupted the operation",
@@ -379,7 +389,15 @@ fn failure_recovery(request: Option<&TrackedOperation>, failure: &JobFailure) ->
         JobFailureKind::Unsupported if matches!(request, Some(TrackedOperation::Move(_))) => {
             "Choose a destination on the same filesystem, then try the move again.".to_owned()
         }
+        JobFailureKind::Unsupported if matches!(request, Some(TrackedOperation::Trash(_))) => {
+            format!(
+                "The filesystem cannot trash {name}. Leave it unchanged or use another location."
+            )
+        }
         JobFailureKind::Unsupported => format!("Could not change {name}: unsupported operation."),
+        JobFailureKind::Io if matches!(request, Some(TrackedOperation::Trash(_))) => {
+            format!("Could not move {name} to Trash. It was not silently deleted; try again.")
+        }
         JobFailureKind::Io | JobFailureKind::Internal => {
             format!("Could not change {name}. Check the destination and try again.")
         }
@@ -393,6 +411,7 @@ mod tests {
     use floe_core::{ConflictPolicy, JobFailure, MoveRequest, RenameRequest};
 
     use super::*;
+    use crate::trash_executor::TrashRequest;
 
     #[test]
     fn phase_4d_feedback_uses_operation_specific_titles_and_conflict_recovery() {
@@ -427,6 +446,24 @@ mod tests {
         assert_eq!(
             failure_recovery(Some(&moved), &failure),
             "Choose a destination on the same filesystem, then try the move again."
+        );
+    }
+
+    #[test]
+    fn phase_4e_feedback_explains_unsupported_trash_without_implying_deletion() {
+        let trashed = TrackedOperation::Trash(
+            TrashRequest::new(PathBuf::from("/source/notes.txt")).expect("valid trash request"),
+        );
+        let failure = JobFailure::new(JobFailureKind::Unsupported, "fixture unsupported trash");
+
+        assert_eq!(operation_title(Some(&trashed)), "Moving to Trash notes.txt");
+        assert_eq!(
+            failure_summary(Some(&trashed), &failure),
+            "This location does not support Trash"
+        );
+        assert_eq!(
+            failure_recovery(Some(&trashed), &failure),
+            "The filesystem cannot trash notes.txt. Leave it unchanged or use another location."
         );
     }
 }
