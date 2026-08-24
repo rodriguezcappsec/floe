@@ -1160,7 +1160,7 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — List/grid, thumbnails, navigation, and interaction polish (Phase 6L complete)
+Phase 6 — Browser filesystem foundations (Phase 6M complete)
 ```
 
 Status:
@@ -1173,7 +1173,10 @@ bounded workers plus generic non-blocking Operations Island feedback; GTK
 callbacks perform no filesystem work. A separate bounded GIO trash executor
 provides path-safe, cancellable job infrastructure. The explicitly labelled
 “Move to Trash” menu action and Delete shortcut submit through application
-state; permanent deletion remains unavailable.
+state. Phase 6M adds a separate selection-aware `Shift+Delete` and “Delete
+Permanently…” path with explicit irreversible confirmation and exact target
+context. Its fixed-capacity executor performs full no-follow preflight, refuses
+roots and mount boundaries, and reports committed partial failure without retry.
 Backend retry dispatch now covers copy, move, rename, and trash with stable
 logical operation identity, fresh job attempts, and bounded terminal history.
 Failed and cancelled jobs expose a persistent accessible Retry control in the
@@ -1341,16 +1344,21 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6L is complete. The one recommended next branch is
-`phase-6m-permanent-delete`, adding truthfully labelled, confirmed “Delete
-Permanently” jobs and Shift+Delete without claiming secure erase.
+Phase 6M is complete. The one recommended next branch is
+`phase-6n-trash-lifecycle`, adding standards-correct Trash browsing, restore,
+per-item permanent deletion, and Empty Trash without secure-erase claims.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-192 tests pass: thirty-three core and 159 application tests. Eleven focused
+205 tests pass: forty core and 165 application tests. Thirteen focused Phase 6M
+tests cover exact non-UTF-8 request identity, unsafe batch rejection, recursive
+no-follow deletion, whole-batch preflight, mount refusal, pre/post-commit
+cancellation, identity revalidation, exact partial failure, mountinfo decoding,
+executor capacity/lifecycle, confirmation shortcuts, truthful feedback, and
+partial non-retryability. Eleven focused
 Phase 6L tests cover deterministic user/system precedence, malformed definitions,
 fixed executable argv and field-code policy, non-UTF-8 identity, MIME denial,
 private output, no-follow and size limits, process failure, timeout/cancellation
@@ -1482,7 +1490,11 @@ beyond the first still frame. Cache interoperability remains intentionally
 limited to the freedesktop normal/large tiers needed by Floe's current 32-192
 pixel requests. Remote and network mount roots are shown as unavailable; browsing
 them remains deferred.
-Phase 6L system thumbnailers are supervised but unsandboxed and inherit the
+Permanent deletion is ordinary filesystem removal, not secure erase; snapshots,
+backups, CoW history, storage firmware, and external copies may retain data.
+Cancellation cannot reverse an already committed removal, and a later failure
+is reported as non-retryable partial completion. Phase 6L system thumbnailers
+are supervised but unsandboxed and inherit the
 user's normal filesystem, environment, session, and network authority. Coverage
 depends on installed freedesktop providers; SVG/image providers and executable
 MIME types remain deliberately excluded.
@@ -1492,7 +1504,7 @@ Deferred:
 
 ```text
 Cross-application clipboard support, overwrite and apply-to-all conflict policy,
-cross-filesystem moves, trash restore/bulk UI, permanent delete,
+cross-filesystem moves, trash restore/bulk UI and Empty Trash,
 metadata-complete copies, job
 persistence/history UI, drag and drop, heavyweight/RAW/vector thumbnails,
 tabs, split view, Miller columns, previews, archives, search, richer device
@@ -1504,6 +1516,16 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 6M permanent deletion on `phase-6m-permanent-delete`.
+* Added exact multi-target request validation, full no-follow postorder
+  preflight, root/mount refusal, device/inode/kind revalidation, and truthful
+  pre-commit cancellation versus committed partial-failure semantics.
+* Added a fixed-capacity application executor, `JobFailureKind::Partial`,
+  application tracking/cancellation/retry policy, and Operations Island wording;
+  partially completed deletion is never generically retried.
+* Added selection-aware “Delete Permanently…” menus, `Shift+Delete`, and a
+  safe-focus irreversible dialog with escaped exact target context. GTK submits
+  only application commands and never performs deletion work.
 * Added the exhaustive code-audited `docs/FEATURE_MATRIX.md` capability ledger.
 * Rebuilt `docs/ROADMAP.md` as the bounded dependency-aware sequence through
   Phase 21; Phase 6L is complete and Phase 6M is the sole next phase.
@@ -1723,9 +1745,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-6m-permanent-delete` and add path-safe multi-target permanent
-deletion with truthful “Delete Permanently” wording, Shift+Delete, explicit
-irreversible confirmation, partial-failure reporting, and no secure-erase claim.
+Create `phase-6n-trash-lifecycle` and add standards-correct Trash browsing,
+restore with conflict handling, per-item permanent deletion through Phase 6M,
+and explicitly confirmed Empty Trash without secure-erase claims.
 ```
 
 ---

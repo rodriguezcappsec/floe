@@ -226,13 +226,14 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
     loaded && !save_in_flight
 }
 
-const FILE_CONTEXT_ACTIONS: [(&str, &str); 6] = [
+const FILE_CONTEXT_ACTIONS: [(&str, &str); 7] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
     ("Cut", "win.cut"),
     ("Rename…", "win.rename"),
     ("Move to Trash", "win.trash"),
+    ("Delete Permanently…", "win.permanent-delete"),
 ];
 const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Paste", "win.paste"),
@@ -483,6 +484,13 @@ pub struct RenameDialogWidgets {
     pub rename_button: gtk::Button,
 }
 
+#[derive(Clone)]
+pub struct PermanentDeleteDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub cancel_button: gtk::Button,
+    pub delete_button: gtk::Button,
+}
+
 pub struct BrowserWidgets {
     pub window: adw::ApplicationWindow,
     pub toast_overlay: adw::ToastOverlay,
@@ -723,6 +731,7 @@ pub fn build(
     file_actions_model.append(Some("Move"), Some("win.cut"));
     file_actions_model.append(Some("Rename…"), Some("win.rename"));
     file_actions_model.append(Some("Move to Trash"), Some("win.trash"));
+    file_actions_model.append(Some("Delete Permanently…"), Some("win.permanent-delete"));
 
     let sidebar_density_model = gio::Menu::new();
     for (label, action) in SIDEBAR_DENSITY_MENU_ITEMS {
@@ -963,6 +972,100 @@ pub fn build_rename_dialog(current_name: &str) -> RenameDialogWidgets {
         rename_error,
         cancel_button,
         rename_button,
+    }
+}
+
+pub fn build_permanent_delete_dialog(target_labels: &[String]) -> PermanentDeleteDialogWidgets {
+    let count = target_labels.len();
+    let heading = gtk::Label::builder()
+        .label(if count == 1 {
+            "Delete this item permanently?".to_owned()
+        } else {
+            format!("Delete {count} items permanently?")
+        })
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .build();
+    heading.add_css_class("title-2");
+
+    let warning = gtk::Label::builder()
+        .label("This action is irreversible. The selected items will not be moved to Trash and Floe cannot restore them.")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    warning.add_css_class("floe-status");
+
+    let targets_heading = gtk::Label::builder()
+        .label("Exact targets")
+        .halign(gtk::Align::Start)
+        .build();
+    targets_heading.add_css_class("heading");
+
+    let target_buffer = gtk::TextBuffer::builder()
+        .text(target_labels.join("\n"))
+        .build();
+    let targets = gtk::TextView::builder()
+        .buffer(&target_buffer)
+        .editable(false)
+        .cursor_visible(false)
+        .monospace(true)
+        .wrap_mode(gtk::WrapMode::None)
+        .top_margin(8)
+        .bottom_margin(8)
+        .left_margin(8)
+        .right_margin(8)
+        .build();
+    set_accessible_label(&targets, "Exact permanent deletion targets");
+
+    let target_scroller = gtk::ScrolledWindow::builder()
+        .child(&targets)
+        .has_frame(true)
+        .min_content_height(76)
+        .max_content_height(220)
+        .propagate_natural_height(true)
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .build();
+
+    let cancel_button = gtk::Button::with_label("Cancel");
+    let delete_button = gtk::Button::with_label("Delete Permanently");
+    delete_button.add_css_class("destructive-action");
+
+    let actions = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .halign(gtk::Align::End)
+        .spacing(8)
+        .build();
+    actions.append(&cancel_button);
+    actions.append(&delete_button);
+
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(24)
+        .margin_bottom(24)
+        .margin_start(24)
+        .margin_end(24)
+        .build();
+    content.append(&heading);
+    content.append(&warning);
+    content.append(&targets_heading);
+    content.append(&target_scroller);
+    content.append(&actions);
+
+    let dialog = adw::Dialog::builder()
+        .title("Delete Permanently")
+        .content_width(560)
+        .child(&content)
+        .default_widget(&cancel_button)
+        .focus_widget(&cancel_button)
+        .build();
+
+    PermanentDeleteDialogWidgets {
+        dialog,
+        cancel_button,
+        delete_button,
     }
 }
 
@@ -2327,6 +2430,7 @@ mod tests {
                 ("Cut", "win.cut"),
                 ("Rename…", "win.rename"),
                 ("Move to Trash", "win.trash"),
+                ("Delete Permanently…", "win.permanent-delete"),
             ]
         );
     }

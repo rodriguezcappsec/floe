@@ -2,7 +2,8 @@ use std::{
     cell::{Cell, RefCell},
     collections::{HashSet, VecDeque},
     ffi::{OsStr, OsString},
-    path::PathBuf,
+    os::unix::ffi::OsStrExt,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::Arc,
     time::Duration,
@@ -666,7 +667,12 @@ impl BrowserController {
         let shortcuts = gtk::EventControllerKey::new();
         let controller = Rc::downgrade(self);
         shortcuts.connect_key_pressed(move |_, key, _, modifiers| {
-            if key == gtk::gdk::Key::Delete && modifiers.is_empty() {
+            if is_permanent_delete_shortcut(key, modifiers) {
+                if let Some(controller) = controller.upgrade() {
+                    controller.confirm_permanent_delete();
+                }
+                glib::Propagation::Stop
+            } else if key == gtk::gdk::Key::Delete && modifiers.is_empty() {
                 if let Some(controller) = controller.upgrade() {
                     controller.trash_selected();
                 }
@@ -794,6 +800,10 @@ impl BrowserController {
         rename_action.set_enabled(false);
         let trash_action = self.add_action("trash", |controller| controller.trash_selected());
         trash_action.set_enabled(false);
+        let permanent_delete_action = self.add_action("permanent-delete", |controller| {
+            controller.confirm_permanent_delete();
+        });
+        permanent_delete_action.set_enabled(false);
         let paste_action = self.add_action("paste", |controller| controller.paste_transfer());
         paste_action.set_enabled(false);
         for (name, column) in ui::SORT_ACTIONS {
@@ -813,6 +823,7 @@ impl BrowserController {
         application.set_accels_for_action("win.cut", &["<Control>x"]);
         application.set_accels_for_action("win.paste", &["<Control>v"]);
         application.set_accels_for_action("win.rename", &["F2"]);
+        application.set_accels_for_action("win.permanent-delete", &["<Shift>Delete"]);
         application.set_accels_for_action("win.view-list", &["<Control>1"]);
         application.set_accels_for_action("win.view-grid", &["<Control>2"]);
         application.set_accels_for_action("win.zoom-out", &["<Control>minus"]);
@@ -1573,6 +1584,7 @@ impl BrowserController {
             ("cut", transfer),
             ("rename", rename),
             ("trash", trash),
+            ("permanent-delete", trash),
         ] {
             if let Some(action) = self
                 .widgets
@@ -1695,6 +1707,55 @@ impl BrowserController {
                 self.show_toast(&format!("Could not move selection to Trash: {error}"), 7)
             }
         }
+    }
+
+    fn confirm_permanent_delete(&self) {
+        let paths = self.selected_paths();
+        if paths.is_empty() {
+            self.show_toast("Select one or more items to delete permanently", 4);
+            return;
+        }
+
+        let labels = paths
+            .iter()
+            .map(|path| permanent_delete_target_label(path))
+            .collect::<Vec<_>>();
+        let confirmation = ui::build_permanent_delete_dialog(&labels);
+
+        let dialog = confirmation.dialog.downgrade();
+        confirmation.cancel_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+
+        let application_state = Rc::clone(&self.application_state);
+        let status_label = self.widgets.status_label.clone();
+        let toast_overlay = self.widgets.toast_overlay.clone();
+        let dialog = confirmation.dialog.downgrade();
+        confirmation.delete_button.connect_clicked(move |button| {
+            button.set_sensitive(false);
+            match application_state.submit_permanent_delete(paths.clone()) {
+                Ok(_) => {
+                    status_label.set_label("Permanent deletion queued…");
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.close();
+                    }
+                }
+                Err(error) => {
+                    button.set_sensitive(true);
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not start permanent deletion: {error}"))
+                            .timeout(7)
+                            .build(),
+                    );
+                }
+            }
+        });
+
+        confirmation.dialog.present(Some(&self.widgets.window));
+        confirmation.cancel_button.grab_focus();
     }
 
     fn show_rename(&self) {
@@ -1873,6 +1934,44 @@ fn exact_sidebar_target(path: &std::path::Path) -> PathBuf {
 
 fn set_accessible_label(widget: &impl IsA<gtk::Accessible>, label: &str) {
     widget.update_property(&[gtk::accessible::Property::Label(label)]);
+}
+
+fn permanent_delete_target_label(path: &Path) -> String {
+    if let Some(text) = path.to_str() {
+        let mut escaped = String::with_capacity(text.len());
+        for character in text.chars() {
+            if character == '\\' || character.is_control() {
+                escaped.extend(character.escape_default());
+            } else {
+                escaped.push(character);
+            }
+        }
+        return escaped;
+    }
+
+    let mut escaped = String::new();
+    for byte in path.as_os_str().as_bytes() {
+        if matches!(byte, b' '..=b'~') && *byte != b'\\' {
+            escaped.push(char::from(*byte));
+        } else if *byte == b'\\' {
+            escaped.push_str("\\\\");
+        } else {
+            use std::fmt::Write;
+            let _ = write!(escaped, "\\x{byte:02x}");
+        }
+    }
+    escaped
+}
+
+fn is_permanent_delete_shortcut(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierType) -> bool {
+    let command_modifiers = gtk::gdk::ModifierType::SHIFT_MASK
+        | gtk::gdk::ModifierType::CONTROL_MASK
+        | gtk::gdk::ModifierType::ALT_MASK
+        | gtk::gdk::ModifierType::SUPER_MASK
+        | gtk::gdk::ModifierType::HYPER_MASK
+        | gtk::gdk::ModifierType::META_MASK;
+    key == gtk::gdk::Key::Delete
+        && modifiers & command_modifiers == gtk::gdk::ModifierType::SHIFT_MASK
 }
 
 fn is_context_menu_shortcut(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierType) -> bool {
@@ -2212,6 +2311,28 @@ mod tests {
         assert!(!is_context_menu_shortcut(
             gtk::gdk::Key::F10,
             gtk::gdk::ModifierType::SHIFT_MASK | gtk::gdk::ModifierType::CONTROL_MASK,
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn phase_6m_confirmation_preserves_exact_targets_and_requires_shift_delete() {
+        let path = PathBuf::from("/tmp").join(OsString::from_vec(b"line\nraw-\xff".to_vec()));
+        assert_eq!(
+            permanent_delete_target_label(&path),
+            "/tmp/line\\x0araw-\\xff"
+        );
+        assert!(is_permanent_delete_shortcut(
+            gtk::gdk::Key::Delete,
+            gtk::gdk::ModifierType::SHIFT_MASK | gtk::gdk::ModifierType::LOCK_MASK,
+        ));
+        assert!(!is_permanent_delete_shortcut(
+            gtk::gdk::Key::Delete,
+            gtk::gdk::ModifierType::SHIFT_MASK | gtk::gdk::ModifierType::CONTROL_MASK,
+        ));
+        assert!(!is_permanent_delete_shortcut(
+            gtk::gdk::Key::Delete,
+            gtk::gdk::ModifierType::empty(),
         ));
     }
 

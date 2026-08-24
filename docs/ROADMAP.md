@@ -60,8 +60,10 @@ phases add hostile-input, failure-path, cache-leak, and claim-accuracy tests.
 | 6J | COMPLETE | Multi-selection, batch actions, item/background menus. |
 | 6K | COMPLETE | XDG Places, raw-path bookmarks, live GIO devices. |
 | 6K2 | COMPLETE | Persistent sidebar density/width and mount-operation polish. |
+| 6L | COMPLETE | Supervised freedesktop system-thumbnailer providers with bounded cache integration. |
+| 6M | COMPLETE | Confirmed multi-target permanent deletion with mount/symlink safety and truthful partial failure. |
 
-The actual completed phase is **Phase 6K2**.
+The actual completed phase is **Phase 6M**.
 
 ## Phase 6 — Finish browser and filesystem foundations
 
@@ -85,7 +87,7 @@ text/code, audio artwork, and archive previews.
 
 ### Phase 6M — Permanent deletion
 
-Status: **NEXT**
+Status: **COMPLETE**
 Recommended branch: `phase-6m-permanent-delete`
 
 Goal: add path-safe multi-target permanent-delete jobs and Shift+Delete.
@@ -96,12 +98,19 @@ Goal: add path-safe multi-target permanent-delete jobs and Shift+Delete.
 - Dependencies: Phases 4, 5, and 6J.
 - Acceptance: truthful “Delete Permanently” wording, symlink/mounted-root tests,
   rich target context, no silent partial success, phase gate, native smoke.
+- Delivered: selection-aware `Shift+Delete` and context/menu action, safe-focus
+  irreversible confirmation with escaped exact target context, whole-batch
+  no-follow preflight, root and mount-boundary refusal, device/inode/kind
+  revalidation, fixed-capacity job execution, and explicit non-retryable partial
+  failure after the first committed removal.
+- Cancellation is successful only before the first removal. Once mutation has
+  committed, the worker finishes or reports the exact removed/planned count.
 
 ### Remaining Phase 6 leaves
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 6N — Trash lifecycle | PLANNED | `phase-6n-trash-lifecycle` | Browse, restore, delete Trash items, Empty Trash, supported cleanup preferences. | 4E/4F/6M; no secure-erase claim; verify freedesktop metadata and restore conflicts. |
+| 6N — Trash lifecycle | NEXT | `phase-6n-trash-lifecycle` | Browse, restore, delete Trash items, Empty Trash, supported cleanup preferences. | 4E/4F/6M; no secure-erase claim; verify freedesktop metadata and restore conflicts. |
 | 6O — Transfer semantics | PLANNED | `phase-6o-transfer-semantics` | Cross-filesystem move, metadata-aware copy, space checks, external clipboard. | 4A–5F; no silent metadata loss; verify crash/cancel, symlinks and non-UTF-8 paths. |
 | 6P — Operation control | PLANNED | `phase-6p-operation-control` | Queueing, item progress, speed/ETA, truthful pause, richer conflicts, safe undo/history. | 6N/6O; irreversible work is not undoable; verify scoped batch policy and recovery. |
 | 6Q — Create/duplicate/links | PLANNED | `phase-6q-create-duplicate-links` | New folder/file, templates, duplicate, links, reveal target, copy path/name/URI. | 6P; no shell or privileged creation; verify collisions, broken links and raw names. |
