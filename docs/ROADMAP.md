@@ -81,15 +81,25 @@ of truth for sequencing and current-session handoff.
 - Injected-backend tests that never modify real user Trash.
 - No Delete shortcut, restore UI, or permanent-delete action yet.
 
-## Next
-
 ### Phase 4F — Trash interaction
 
-Create branch `phase-4f-trash-interaction`. Expose the verified backend through
-an explicitly labelled “Move to Trash” menu action and Delete shortcut, generic
-Operations Island feedback, and affected-parent refresh. Keep permanent delete,
-bulk trash, and restore UI deferred; do not imply cancellation can undo a trash
-move after GIO commits it.
+- Explicitly labelled “Move to Trash” file-actions menu item.
+- Conventional Delete shortcut with native selection-sensitive action state.
+- Original selected `PathBuf` submitted through `ApplicationState` only.
+- Trash-specific Operations Island progress, completion, and recovery wording.
+- Affected-parent refresh after confirmed completion.
+- No confirmation for the recoverable Trash action; permanent delete,
+  Shift+Delete, bulk trash, restore UI, and undo remain unavailable.
+
+## Next
+
+### Phase 5A — Operation resilience foundation
+
+Create branch `phase-5a-operation-resilience`. Generalize retry request tracking
+across copy, move, rename, and trash while preserving logical `OperationId` and
+allocating a new `JobId` per attempt. Add bounded terminal history and tests;
+keep overwrite, pause/resume UI, permanent deletion, and interactive conflict
+decisions deferred.
 
 ## Later
 

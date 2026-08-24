@@ -89,6 +89,7 @@ cargo test -p floe-app job_manager
 cargo test -p floe-app copy_executor
 cargo test -p floe-app phase_4d
 cargo test -p floe-app phase_4e
+cargo test -p floe-app phase_4f
 cargo test -p floe-app move_executor
 cargo check -p floe-core
 cargo tree -p floe-app --depth 1

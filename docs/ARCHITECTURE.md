@@ -134,7 +134,8 @@ executor. `submit_rename` retains the source path separately from the new
 
 `submit_trash` validates and tracks one original `PathBuf`, dispatches through
 the GIO-backed trash executor, and reports the source parent for refresh after
-completion. No GTK action invokes it yet.
+completion. GTK interaction reaches it only through the browser command and
+never calls GIO directly.
 
 The transfer buffer is Floe-internal only. Cross-application clipboard formats,
 operation persistence, history UI, and overwrite policy are not implemented.
@@ -159,10 +160,11 @@ accessible labels, including the generic operation-cancellation control.
 - request generation and pending listing batches;
 - enabled state for navigation and Open actions.
 
-It also owns Ctrl+C/Ctrl+X/Ctrl+V/F2 and file-menu action wiring because those
-commands depend on the active selection and current destination. The actions
-stage or submit through shared `ApplicationState`; they do not perform
-filesystem work.
+It also owns Ctrl+C/Ctrl+X/Ctrl+V/F2/Delete and file-menu action wiring because
+those commands depend on the active selection and current destination. The
+actions stage or submit through shared `ApplicationState`; they do not perform
+filesystem work. The destructive-adjacent menu label is explicitly “Move to
+Trash”; no permanent-delete command exists.
 
 Navigation queues a worker request, disables stale interaction, and ignores
 responses whose generation is no longer active. Results are filtered for hidden
@@ -248,6 +250,7 @@ Current application/window actions are:
 | Ctrl+X | Stage selected entry for moving in Floe's internal buffer |
 | Ctrl+V | Paste staged entry into the current directory |
 | F2 | Rename selected entry through a validated dialog |
+| Delete | Move selected entry to the desktop Trash through GIO |
 | Escape | Leave path entry |
 | Ctrl+Q | Quit |
 | Enter / double-click | Activate selected list row |
@@ -270,7 +273,7 @@ No desktop integration trait or Niri/Plasma backend exists. The app uses generic
 GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
 detection and compositor APIs must eventually stay under `crates/app`.
 
-### Filesystem jobs through Phase 4E
+### Filesystem jobs through Phase 4F
 
 Identity, lifecycle, progress, failure, retry-attempt, registry, and event
 foundations now exist. `floe-core::copy` adds the first path-safe operation
@@ -319,10 +322,12 @@ fail-if-exists behavior. Cross-filesystem move, overwrite, operation
 persistence, retry request tracking, and interactive conflict resolution remain
 unimplemented.
 
-Phase 4E implements the separate XDG/GIO trash job boundary. Trash interaction
-must still submit through `ApplicationState`; it must not appear as direct GIO
-work in widgets or reuse the read-only browser worker as an ad-hoc mutation
-queue. Delete shortcuts, restore UI, and permanent deletion remain deferred.
+Phase 4E implements the separate XDG/GIO trash job boundary. Phase 4F exposes
+it through one selection-sensitive “Move to Trash” action and Delete shortcut.
+The callback submits through `ApplicationState`; no direct GIO work appears in
+widgets and the read-only browser worker remains separate. The recoverable
+Trash action has no confirmation dialog; restore/bulk UI, Shift+Delete, undo,
+and permanent deletion remain deferred.
 
 ## Known architectural debt
 

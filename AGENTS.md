@@ -1129,19 +1129,20 @@ Last updated:
 Current phase:
 
 ```text
-Phase 4 — Filesystem operations (Phase 4E trash foundation complete)
+Phase 4 — Filesystem operations (Phase 4F trash interaction complete)
 ```
 
 Status:
 
 ```text
-Phases 0-3 and Phases 4A-4E are complete. One application-owned transfer buffer
+Phases 0-3 and Phases 4A-4F are complete. One application-owned transfer buffer
 supports Ctrl+C copy and Ctrl+X move followed by Ctrl+V paste. F2 and the
 file-actions menu open a validated rename dialog. Copy, move, and rename use
 bounded workers plus generic non-blocking Operations Island feedback; GTK
 callbacks perform no filesystem work. A separate bounded GIO trash executor
-now provides path-safe, cancellable job infrastructure without exposing Delete
-or permanent-delete controls.
+provides path-safe, cancellable job infrastructure. The explicitly labelled
+“Move to Trash” menu action and Delete shortcut submit through application
+state; permanent deletion remains unavailable.
 ```
 
 Established product decisions:
@@ -1174,9 +1175,9 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 4E is complete. The next coherent branch is
-`phase-4f-trash-interaction`, exposing the verified trash job through an
-explicit “Move to Trash” action while keeping permanent deletion deferred.
+Phase 4F is complete. The next coherent branch is
+`phase-5a-operation-resilience`, generalizing retry request tracking and bounded
+terminal history without introducing overwrite or permanent deletion.
 ```
 
 Verified:
@@ -1184,12 +1185,13 @@ Verified:
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and
-`cargo test --workspace` passes with sixty-two tests: twenty-eight core tests
-and thirty-four application tests. Ten focused Phase 4E tests cover original
+`cargo test --workspace` passes with sixty-three tests: twenty-eight core tests
+and thirty-five application tests. Ten focused Phase 4E tests cover original
 non-UTF-8 paths, GIO error mapping, success, cancellation, structured failures,
 capacity, shutdown, state tracking, and recovery feedback without touching real
-user Trash. Formatting, workspace check, strict Clippy, and native smoke status
-are recorded in `GATES.md`.
+user Trash. A focused Phase 4F test covers explicit queued/running/completion
+wording. Formatting, workspace check, strict Clippy, and native smoke status are
+recorded in `GATES.md`.
 ```
 
 Known issues:
@@ -1210,7 +1212,7 @@ Deferred:
 
 ```text
 Cross-application clipboard support, overwrite/conflict resolution,
-cross-filesystem moves, trash interaction/restore UI, permanent delete,
+cross-filesystem moves, trash restore/bulk UI, permanent delete,
 metadata-complete copies, job
 persistence/history UI, drag and drop, thumbnails, tabs, split view, Miller
 columns, previews, archives, search, device management, Niri IPC, KDE-specific
@@ -1275,15 +1277,20 @@ Completed this session:
   shutdown, generic operation tracking, and affected-parent refresh metadata.
 * Added injected-backend tests that never modify the user's real Trash.
 * Kept Delete shortcuts, restore/bulk-trash UI, and permanent deletion deferred.
+* Added a selection-sensitive “Move to Trash” menu action and conventional
+  Delete shortcut, both routed through `ApplicationState` with original paths.
+* Added explicit trash progress/completion/recovery wording and affected-parent
+  refresh after completion without a modal confirmation dialog.
+* Kept Shift+Delete, permanent deletion, restore/bulk UI, and undo deferred.
 ```
 
 Recommended next task:
 
 ```text
-Create `phase-4f-trash-interaction` and expose the verified backend through an
-explicitly labelled “Move to Trash” menu action and Delete shortcut, generic
-Operations Island feedback, and affected-parent refresh. Keep permanent delete,
-bulk trash, and restore UI deferred.
+Create `phase-5a-operation-resilience` and generalize retry request tracking
+across copy, move, rename, and trash while preserving logical `OperationId` and
+allocating a new `JobId` per attempt. Add bounded terminal history and tests;
+keep overwrite, pause/resume UI, and permanent deletion deferred.
 ```
 
 ---

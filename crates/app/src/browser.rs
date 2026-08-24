@@ -80,6 +80,20 @@ impl BrowserController {
             }
         });
 
+        let trash_shortcut = gtk::EventControllerKey::new();
+        let controller = Rc::downgrade(self);
+        trash_shortcut.connect_key_pressed(move |_, key, _, modifiers| {
+            if key == gtk::gdk::Key::Delete && modifiers.is_empty() {
+                if let Some(controller) = controller.upgrade() {
+                    controller.trash_selected();
+                }
+                glib::Propagation::Stop
+            } else {
+                glib::Propagation::Proceed
+            }
+        });
+        self.widgets.list_view.add_controller(trash_shortcut);
+
         let controller = Rc::downgrade(self);
         self.widgets.location_entry.connect_activate(move |entry| {
             if let Some(controller) = controller.upgrade() {
@@ -124,6 +138,8 @@ impl BrowserController {
         cut_action.set_enabled(false);
         let rename_action = self.add_action("rename", |controller| controller.show_rename());
         rename_action.set_enabled(false);
+        let trash_action = self.add_action("trash", |controller| controller.trash_selected());
+        trash_action.set_enabled(false);
         let paste_action = self.add_action("paste", |controller| controller.paste_transfer());
         paste_action.set_enabled(false);
 
@@ -205,7 +221,7 @@ impl BrowserController {
         self.widgets.list_view.set_sensitive(false);
         self.widgets.empty_state.set_visible(false);
         self.set_open_enabled(false);
-        self.set_copy_enabled(false);
+        self.set_selection_actions_enabled(false);
         let path = self.navigation.borrow().current().to_path_buf();
         let generation = self.worker.borrow_mut().request(path.clone());
         self.active_generation.set(generation);
@@ -370,7 +386,7 @@ impl BrowserController {
         let has_selection = selected_entry.is_some();
         self.selected_entry.replace(selected_entry);
         self.set_open_enabled(has_selection);
-        self.set_copy_enabled(has_selection);
+        self.set_selection_actions_enabled(has_selection);
         self.refresh_status();
     }
 
@@ -412,8 +428,8 @@ impl BrowserController {
         }
     }
 
-    fn set_copy_enabled(&self, enabled: bool) {
-        for action_name in ["copy", "cut", "rename"] {
+    fn set_selection_actions_enabled(&self, enabled: bool) {
+        for action_name in ["copy", "cut", "rename", "trash"] {
             if let Some(action) = self
                 .widgets
                 .window
@@ -499,6 +515,27 @@ impl BrowserController {
                 _ => "Copy queued…",
             }),
             Err(error) => self.show_toast(&format!("Could not start operation: {error}"), 6),
+        }
+    }
+
+    fn trash_selected(&self) {
+        let Some(entry) = self.selected_entry() else {
+            self.show_toast("Select an item to move to Trash", 4);
+            return;
+        };
+        let display_name = entry.display_name_lossy();
+        match self
+            .application_state
+            .submit_trash(entry.path().to_path_buf())
+        {
+            Ok(_) => self
+                .widgets
+                .status_label
+                .set_label(&format!("Moving {display_name} to Trash…")),
+            Err(error) => self.show_toast(
+                &format!("Could not move {display_name} to Trash: {error}"),
+                7,
+            ),
         }
     }
 
