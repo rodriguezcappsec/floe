@@ -1,8 +1,8 @@
 use std::{
     cell::{Cell, RefCell},
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     ffi::{OsStr, OsString},
-    path::{Path, PathBuf},
+    path::PathBuf,
     rc::Rc,
     sync::Arc,
     time::Duration,
@@ -40,11 +40,11 @@ pub struct BrowserController {
     pending_entries: RefCell<VecDeque<Arc<DirectoryEntry>>>,
     pending_store: RefCell<Option<gio::ListStore>>,
     pending_total: Cell<usize>,
-    pending_selection_index: Cell<Option<u32>>,
-    selected_entry: RefCell<Option<Arc<DirectoryEntry>>>,
+    pending_selection_indices: RefCell<Vec<u32>>,
+    selected_entries: RefCell<Vec<Arc<DirectoryEntry>>>,
     sort_order: Cell<DirectorySort>,
     sort_in_flight: Cell<bool>,
-    sort_selection_path: RefCell<Option<PathBuf>>,
+    sort_selection_paths: RefCell<Vec<PathBuf>>,
     view_mode: Cell<ViewMode>,
     grid_size: Cell<GridSize>,
     preference_worker: RefCell<Option<PreferenceWorker>>,
@@ -89,11 +89,11 @@ impl BrowserController {
             pending_entries: RefCell::new(VecDeque::new()),
             pending_store: RefCell::new(None),
             pending_total: Cell::new(0),
-            pending_selection_index: Cell::new(None),
-            selected_entry: RefCell::new(None),
+            pending_selection_indices: RefCell::new(Vec::new()),
+            selected_entries: RefCell::new(Vec::new()),
             sort_order: Cell::new(DirectorySort::default()),
             sort_in_flight: Cell::new(false),
-            sort_selection_path: RefCell::new(None),
+            sort_selection_paths: RefCell::new(Vec::new()),
             view_mode: Cell::new(view_preferences.mode),
             grid_size: Cell::new(view_preferences.grid_size),
             preference_worker: RefCell::new(preference_worker),
@@ -131,11 +131,13 @@ impl BrowserController {
         });
 
         let controller = Rc::downgrade(self);
-        self.widgets.selection.connect_selected_notify(move |_| {
-            if let Some(controller) = controller.upgrade() {
-                controller.selection_changed();
-            }
-        });
+        self.widgets
+            .selection
+            .connect_selection_changed(move |_, _, _| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.selection_changed();
+                }
+            });
 
         self.install_file_view_shortcuts(&self.widgets.list_view);
         self.install_file_view_shortcuts(&self.widgets.grid_view);
@@ -170,6 +172,11 @@ impl BrowserController {
             if key == gtk::gdk::Key::Delete && modifiers.is_empty() {
                 if let Some(controller) = controller.upgrade() {
                     controller.trash_selected();
+                }
+                glib::Propagation::Stop
+            } else if key == gtk::gdk::Key::Escape && modifiers.is_empty() {
+                if let Some(controller) = controller.upgrade() {
+                    controller.clear_selection();
                 }
                 glib::Propagation::Stop
             } else if is_context_menu_shortcut(key, modifiers) {
@@ -211,6 +218,11 @@ impl BrowserController {
             controller.cancel_location_entry();
         });
         self.add_action("hidden", |controller| controller.toggle_hidden());
+        self.add_action("refresh", |controller| {
+            controller.load_current();
+        });
+        self.add_action("select-all", |controller| controller.select_all());
+        self.add_action("clear-selection", |controller| controller.clear_selection());
         for (name, command) in VIEW_ACTIONS {
             self.add_action(name, move |controller| {
                 controller.apply_view_command(command);
@@ -240,6 +252,9 @@ impl BrowserController {
         application.set_accels_for_action("win.parent", &["<Alt>Up"]);
         application.set_accels_for_action("win.location", &["<Control>l"]);
         application.set_accels_for_action("win.hidden", &["<Control>h"]);
+        application.set_accels_for_action("win.refresh", &["F5", "<Control>r"]);
+        application.set_accels_for_action("win.select-all", &["<Control>a"]);
+        application.set_accels_for_action("win.clear-selection", &["<Control><Shift>a"]);
         application.set_accels_for_action("win.cancel-location", &["Escape"]);
         application.set_accels_for_action("win.copy", &["<Control>c"]);
         application.set_accels_for_action("win.cut", &["<Control>x"]);
@@ -374,15 +389,11 @@ impl BrowserController {
             return;
         }
 
-        let selected_path = self
-            .selected_entry
-            .borrow()
-            .as_ref()
-            .map(|entry| entry.path().to_path_buf());
-        self.sort_selection_path.replace(selected_path);
+        let selected_paths = self.selected_paths();
+        self.sort_selection_paths.replace(selected_paths);
         self.pending_entries.borrow_mut().clear();
         self.pending_store.borrow_mut().take();
-        self.pending_selection_index.set(None);
+        self.pending_selection_indices.borrow_mut().clear();
         self.widgets.popdown_context_menus();
         self.widgets.set_views_sensitive(false);
         self.sort_in_flight.set(true);
@@ -564,12 +575,12 @@ impl BrowserController {
         self.pending_entries.borrow_mut().clear();
         self.pending_store.borrow_mut().take();
         self.pending_total.set(0);
-        self.pending_selection_index.set(None);
-        self.sort_selection_path.borrow_mut().take();
+        self.pending_selection_indices.borrow_mut().clear();
+        self.sort_selection_paths.borrow_mut().clear();
         self.sort_in_flight.set(false);
         self.set_sort_controls_sensitive(false);
         self.widgets.popdown_context_menus();
-        self.selected_entry.borrow_mut().take();
+        self.selected_entries.borrow_mut().clear();
         self.widgets.selection.unselect_all();
         self.widgets
             .selection
@@ -578,7 +589,7 @@ impl BrowserController {
         self.widgets.empty_state.set_visible(false);
         self.set_open_enabled(false);
         self.set_open_with_enabled(false);
-        self.set_selection_actions_enabled(false);
+        self.set_selection_actions_enabled(false, false, false);
         let path = self.navigation.borrow().current().to_path_buf();
         let generation = self
             .worker
@@ -659,8 +670,8 @@ impl BrowserController {
                     if sort != self.sort_order.get() {
                         continue;
                     }
-                    let selected_path = self.sort_selection_path.borrow_mut().take();
-                    self.install_entries(entries, selected_path.as_deref(), false);
+                    let selected_paths = self.sort_selection_paths.take();
+                    self.install_entries(entries, &selected_paths, false);
                 }
             }
         }
@@ -693,24 +704,23 @@ impl BrowserController {
             .filter(|entry| show_hidden || !entry.is_hidden())
             .map(Arc::new)
             .collect();
-        self.install_entries(entries, None, true);
+        self.install_entries(entries, &[], true);
     }
 
     fn install_entries(
         &self,
         entries: Vec<Arc<DirectoryEntry>>,
-        selected_path: Option<&Path>,
+        selected_paths: &[PathBuf],
         focus_list: bool,
     ) {
         let count = entries.len();
-        let selection_index =
-            selected_path.and_then(|path| selection_index_for_path(&entries, path));
+        let selection_indices = selection_indices_for_paths(&entries, selected_paths);
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
         self.widgets.selection.set_model(Some(&store));
         self.widgets.set_views_sensitive(true);
         self.widgets.empty_state.set_visible(count == 0);
         self.pending_total.set(count);
-        self.pending_selection_index.set(selection_index);
+        self.pending_selection_indices.replace(selection_indices);
         self.pending_entries
             .replace(entries.iter().cloned().collect());
         self.visible_entries.replace(entries);
@@ -741,14 +751,13 @@ impl BrowserController {
 
         let total = self.pending_total.get();
         let loaded = total.saturating_sub(pending.len());
-        if self
-            .pending_selection_index
-            .get()
-            .is_some_and(|index| usize::try_from(index).is_ok_and(|index| index < loaded))
-        {
-            if let Some(index) = self.pending_selection_index.take() {
-                self.widgets.selection.set_selected(index);
-            }
+        let mut pending_selection = self.pending_selection_indices.borrow_mut();
+        let ready = pending_selection
+            .iter()
+            .take_while(|index| usize::try_from(**index).is_ok_and(|index| index < loaded))
+            .count();
+        for index in pending_selection.drain(..ready) {
+            self.widgets.selection.select_item(index, false);
         }
         self.update_loading_status(loaded, total);
     }
@@ -823,54 +832,53 @@ impl BrowserController {
     }
 
     fn selection_changed(&self) {
-        let selected_entry = self.selected_model_entry();
-        let has_selection = selected_entry.is_some();
-        self.selected_entry.replace(selected_entry);
-        self.set_open_enabled(has_selection);
-        self.set_open_with_enabled(
-            self.selected_entry
-                .borrow()
-                .as_ref()
-                .is_some_and(|entry| open_with_eligible(entry)),
-        );
-        self.set_selection_actions_enabled(has_selection);
+        let selected_entries = self.selected_model_entries();
+        let state = selection_action_state(&selected_entries);
+        self.selected_entries.replace(selected_entries);
+        self.set_open_enabled(state.single);
+        self.set_open_with_enabled(state.open_with);
+        self.set_selection_actions_enabled(state.transfer, state.rename, state.trash);
         self.refresh_status();
     }
 
     fn selected_entry(&self) -> Option<Arc<DirectoryEntry>> {
-        self.selected_entry.borrow().clone()
+        let selected = self.selected_entries.borrow();
+        (selected.len() == 1).then(|| selected[0].clone())
+    }
+
+    fn selected_paths(&self) -> Vec<PathBuf> {
+        self.selected_entries
+            .borrow()
+            .iter()
+            .map(|entry| entry.path().to_path_buf())
+            .collect()
     }
 
     fn show_context_menu(&self) {
-        if self.selected_entry().is_none() {
-            return;
-        }
-        let context_menu = self.widgets.context_menu(self.view_mode.get());
+        let context_menu = if self.selected_entries.borrow().is_empty() {
+            self.widgets.background_menu(self.view_mode.get())
+        } else {
+            self.widgets.context_menu(self.view_mode.get())
+        };
         context_menu.set_pointing_to(None);
         context_menu.popup();
     }
 
-    fn selected_model_entry(&self) -> Option<Arc<DirectoryEntry>> {
-        let object = self
-            .widgets
-            .selection
-            .selected_item()?
-            .downcast::<glib::BoxedAnyObject>()
-            .ok()?;
-        let entry = object.borrow::<Arc<DirectoryEntry>>().clone();
-        Some(entry)
+    fn selected_model_entries(&self) -> Vec<Arc<DirectoryEntry>> {
+        selected_entries_for_selection(&self.widgets.selection)
     }
 
     fn refresh_status(&self) {
-        let label = if let Some(entry) = self.selected_entry() {
-            format!("{} selected", entry.display_name_lossy())
-        } else {
-            match self.pending_total.get() {
-                1 => "1 item".to_owned(),
-                count => format!("{count} items"),
-            }
-        };
+        let label = selection_status(self.pending_total.get(), &self.selected_entries.borrow());
         self.widgets.status_label.set_label(&label);
+    }
+
+    fn select_all(&self) {
+        self.widgets.selection.select_all();
+    }
+
+    fn clear_selection(&self) {
+        self.widgets.selection.unselect_all();
     }
 
     fn set_open_enabled(&self, enabled: bool) {
@@ -911,6 +919,7 @@ impl BrowserController {
         let toast_overlay = self.widgets.toast_overlay.clone();
         let status_label = self.widgets.status_label.clone();
         let selection = self.widgets.selection.clone();
+        let total = self.pending_total.get();
         let action = self
             .widgets
             .window
@@ -927,15 +936,13 @@ impl BrowserController {
                 return;
             }
             if let Some(action) = action.as_ref() {
-                let eligible = selection
-                    .selected_item()
-                    .and_downcast::<glib::BoxedAnyObject>()
-                    .is_some_and(|object| {
-                        open_with_eligible(&object.borrow::<Arc<DirectoryEntry>>())
-                    });
-                action.set_enabled(eligible);
+                let selected = selected_entries_for_selection(&selection);
+                action.set_enabled(selection_action_state(&selected).open_with);
+                status_label.set_label(&selection_status(total, &selected));
+            } else {
+                let selected = selected_entries_for_selection(&selection);
+                status_label.set_label(&selection_status(total, &selected));
             }
-            status_label.set_label(&format!("{display_name} selected"));
             match result {
                 Ok(options) if options.applications.is_empty() => {
                     toast_overlay.add_toast(
@@ -961,8 +968,13 @@ impl BrowserController {
         });
     }
 
-    fn set_selection_actions_enabled(&self, enabled: bool) {
-        for action_name in ["copy", "cut", "rename", "trash"] {
+    fn set_selection_actions_enabled(&self, transfer: bool, rename: bool, trash: bool) {
+        for (action_name, enabled) in [
+            ("copy", transfer),
+            ("cut", transfer),
+            ("rename", rename),
+            ("trash", trash),
+        ] {
             if let Some(action) = self
                 .widgets
                 .window
@@ -986,25 +998,35 @@ impl BrowserController {
     }
 
     fn stage_selected_copy(&self) {
-        let Some(entry) = self.selected_entry() else {
-            self.show_toast("Select an item to copy", 4);
-            return;
-        };
-        if matches!(entry.kind(), floe_core::EntryKind::Other) {
-            self.show_toast("This special file type cannot be copied yet", 5);
+        let selected = self.selected_entries.borrow();
+        if selected.is_empty() {
+            self.show_toast("Select one or more items to copy", 4);
             return;
         }
-
-        match self
-            .application_state
-            .stage_copy(entry.path().to_path_buf())
+        if selected
+            .iter()
+            .any(|entry| matches!(entry.kind(), floe_core::EntryKind::Other))
         {
+            self.show_toast(
+                "The selection includes a special file type that cannot be copied yet",
+                5,
+            );
+            return;
+        }
+        let paths = selected
+            .iter()
+            .map(|entry| entry.path().to_path_buf())
+            .collect::<Vec<_>>();
+        let count = paths.len();
+        drop(selected);
+
+        match self.application_state.stage_copy_many(paths) {
             Ok(()) => {
                 self.set_paste_enabled(true);
                 self.show_toast(
                     &format!(
                         "Ready to copy {}. Open a destination and press Ctrl+V.",
-                        entry.display_name_lossy()
+                        item_count_text(count)
                     ),
                     5,
                 );
@@ -1014,20 +1036,19 @@ impl BrowserController {
     }
 
     fn stage_selected_move(&self) {
-        let Some(entry) = self.selected_entry() else {
-            self.show_toast("Select an item to move", 4);
+        let paths = self.selected_paths();
+        if paths.is_empty() {
+            self.show_toast("Select one or more items to move", 4);
             return;
-        };
-        match self
-            .application_state
-            .stage_move(entry.path().to_path_buf())
-        {
+        }
+        let count = paths.len();
+        match self.application_state.stage_move_many(paths) {
             Ok(()) => {
                 self.set_paste_enabled(true);
                 self.show_toast(
                     &format!(
                         "Ready to move {}. Open a destination and press Ctrl+V.",
-                        entry.display_name_lossy()
+                        item_count_text(count)
                     ),
                     5,
                 );
@@ -1040,35 +1061,40 @@ impl BrowserController {
         let destination = self.navigation.borrow().current().to_path_buf();
         let intent = self
             .application_state
-            .staged_transfer()
+            .staged_transfers()
             .map(|(intent, _)| intent);
-        match self.application_state.submit_paste(&destination) {
-            Ok(_) => self.widgets.status_label.set_label(match intent {
-                Some(TransferIntent::Move) => "Move queued…",
-                _ => "Copy queued…",
-            }),
+        match self.application_state.submit_paste_batch(&destination) {
+            Ok(batch) => {
+                if intent == Some(TransferIntent::Move) {
+                    self.set_paste_enabled(false);
+                }
+                self.widgets.status_label.set_label(&format!(
+                    "{} {} queued…",
+                    match intent {
+                        Some(TransferIntent::Move) => "Move",
+                        _ => "Copy",
+                    },
+                    item_count_text(batch.queued())
+                ));
+            }
             Err(error) => self.show_toast(&format!("Could not start operation: {error}"), 6),
         }
     }
 
     fn trash_selected(&self) {
-        let Some(entry) = self.selected_entry() else {
-            self.show_toast("Select an item to move to Trash", 4);
+        let paths = self.selected_paths();
+        if paths.is_empty() {
+            self.show_toast("Select one or more items to move to Trash", 4);
             return;
-        };
-        let display_name = entry.display_name_lossy();
-        match self
-            .application_state
-            .submit_trash(entry.path().to_path_buf())
-        {
+        }
+        match self.application_state.submit_trash_batch(paths) {
             Ok(_) => self
                 .widgets
                 .status_label
-                .set_label(&format!("Moving {display_name} to Trash…")),
-            Err(error) => self.show_toast(
-                &format!("Could not move {display_name} to Trash: {error}"),
-                7,
-            ),
+                .set_label("Moving selection to Trash…"),
+            Err(error) => {
+                self.show_toast(&format!("Could not move selection to Trash: {error}"), 7)
+            }
         }
     }
 
@@ -1144,11 +1170,78 @@ impl BrowserController {
     }
 }
 
-fn selection_index_for_path(entries: &[Arc<DirectoryEntry>], path: &Path) -> Option<u32> {
+fn selection_indices_for_paths(
+    entries: &[Arc<DirectoryEntry>],
+    selected_paths: &[PathBuf],
+) -> Vec<u32> {
+    let selected = selected_paths
+        .iter()
+        .map(PathBuf::as_path)
+        .collect::<HashSet<_>>();
     entries
         .iter()
-        .position(|entry| entry.path() == path)
-        .and_then(|index| u32::try_from(index).ok())
+        .enumerate()
+        .filter(|(_, entry)| selected.contains(entry.path()))
+        .filter_map(|(index, _)| u32::try_from(index).ok())
+        .collect()
+}
+
+fn selected_entries_for_selection(selection: &gtk::MultiSelection) -> Vec<Arc<DirectoryEntry>> {
+    let Some(model) = selection.model() else {
+        return Vec::new();
+    };
+    let selected = selection.selection();
+    let Some((indices, first)) = gtk::BitsetIter::init_first(&selected) else {
+        return Vec::new();
+    };
+    std::iter::once(first)
+        .chain(indices)
+        .filter_map(|position| {
+            model
+                .item(position)
+                .and_downcast::<glib::BoxedAnyObject>()
+                .map(|object| object.borrow::<Arc<DirectoryEntry>>().clone())
+        })
+        .collect()
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SelectionActionState {
+    single: bool,
+    open_with: bool,
+    transfer: bool,
+    rename: bool,
+    trash: bool,
+}
+
+fn selection_action_state(entries: &[Arc<DirectoryEntry>]) -> SelectionActionState {
+    let single = entries.len() == 1;
+    SelectionActionState {
+        single,
+        open_with: single && open_with_eligible(&entries[0]),
+        transfer: !entries.is_empty()
+            && entries
+                .iter()
+                .all(|entry| !matches!(entry.kind(), EntryKind::Other)),
+        rename: single,
+        trash: !entries.is_empty(),
+    }
+}
+
+fn selection_status(total: usize, selected: &[Arc<DirectoryEntry>]) -> String {
+    match selected {
+        [] => item_count_text(total),
+        [entry] => format!("{} selected", entry.display_name_lossy()),
+        entries => format!("{} selected", item_count_text(entries.len())),
+    }
+}
+
+fn item_count_text(count: usize) -> String {
+    if count == 1 {
+        "1 item".to_owned()
+    } else {
+        format!("{count} items")
+    }
 }
 
 fn is_context_menu_shortcut(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierType) -> bool {
@@ -1343,7 +1436,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn phase_6b_selection_restoration_uses_exact_non_utf8_path() {
+    fn phase_6j_selection_restoration_uses_multiple_exact_non_utf8_paths() {
         let directory = tempdir().expect("temporary directory should be created");
         let first_name = OsString::from_vec(vec![b'f', 0x80]);
         let target_name = OsString::from_vec(vec![b'f', 0x81]);
@@ -1358,15 +1451,73 @@ mod tests {
             .into_iter()
             .map(Arc::new)
             .collect();
+        let first_path = directory.path().join(first_name);
         let target_path = directory.path().join(target_name);
-        let index = selection_index_for_path(&entries, &target_path)
-            .expect("exact target path should remain selectable");
+        let selected_paths = vec![target_path.clone(), first_path.clone()];
+        let indices = selection_indices_for_paths(&entries, &selected_paths);
 
-        assert_eq!(entries[index as usize].path(), target_path);
+        assert_eq!(indices.len(), 2);
+        let restored = indices
+            .iter()
+            .map(|index| entries[*index as usize].path())
+            .collect::<HashSet<_>>();
+        assert_eq!(
+            restored,
+            HashSet::from([first_path.as_path(), target_path.as_path()])
+        );
         assert_eq!(
             entries[0].display_name_lossy(),
             entries[1].display_name_lossy(),
             "the test must exercise colliding lossy display names"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn phase_6j_action_policy_distinguishes_single_and_multi_selection() {
+        let directory = tempdir().expect("temporary directory should be created");
+        fs::write(directory.path().join("one.txt"), b"one").expect("fixture should be written");
+        fs::write(directory.path().join("two.txt"), b"two").expect("fixture should be written");
+        let entries = floe_core::enumerate_directory(directory.path())
+            .expect("directory should enumerate")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            selection_action_state(&[]),
+            SelectionActionState {
+                single: false,
+                open_with: false,
+                transfer: false,
+                rename: false,
+                trash: false,
+            }
+        );
+        assert_eq!(
+            selection_action_state(&entries[..1]),
+            SelectionActionState {
+                single: true,
+                open_with: true,
+                transfer: true,
+                rename: true,
+                trash: true,
+            }
+        );
+        assert_eq!(
+            selection_action_state(&entries),
+            SelectionActionState {
+                single: false,
+                open_with: false,
+                transfer: true,
+                rename: false,
+                trash: true,
+            }
+        );
+        assert_eq!(
+            selection_status(entries.len(), &entries),
+            "2 items selected"
         );
     }
 

@@ -23,7 +23,7 @@ required nor simulated.
 - Local read-only directory enumeration on a background worker
 - Back, forward, parent, location, and hidden-file navigation
 - XDG user locations
-- Switchable virtualized list/grid views sharing one model, selection, and original `PathBuf` values
+- Switchable virtualized list/grid views sharing one multi-selection model and original `PathBuf` values
 - Fixed Name, Type, Size, and Modified columns using already-loaded metadata
 - Compact, user-resizable Places sidebar
 - Floe-owned scalable folder/file icon family with executable, link, document,
@@ -39,8 +39,7 @@ required nor simulated.
   preserve-or-reject symlink policies
 - Fixed-capacity background copy execution connected to application-owned job
   lifecycle events, cancellation, failure mapping, and retry identity
-- Application-owned transfer buffer with Ctrl+C copy, Ctrl+X move, and Ctrl+V
-  paste
+- Application-owned multi-path transfer buffer for Ctrl+C copy, Ctrl+X move, and Ctrl+V paste
 - Compact non-modal Operations Island with progress, cancellation, completion,
   conflict, and failure feedback
 - GTK-independent exact-path move and same-directory rename models
@@ -63,9 +62,9 @@ required nor simulated.
   association changes
 
 Phase 4D copy/move/paste and rename work within the running Floe application.
-Phase 4F exposes the verified trash job as a single-selection, recoverable
-desktop Trash action. Permanent delete, Shift+Delete, bulk trash, and built-in
-restore/undo remain unavailable.
+Phase 4F exposes the verified trash job as a recoverable desktop Trash action.
+Phase 6J extends it to bounded multi-selection batches. Permanent delete,
+Shift+Delete, and built-in restore/undo remain unavailable.
 Phase 5B exposes that retry infrastructure through the Operations Island. Failed
 or cancelled jobs remain visible with a Retry button; completed jobs dismiss
 normally and cannot be retried. Destination conflicts instead open a focused
@@ -105,7 +104,8 @@ cache identity. Unsupported, stale, failed, and queued requests keep their
 stable generic icons; the in-memory presentation cache is capped at 256 entries.
 
 Phase 6D adds a native `GtkGridView` without creating a second filesystem model.
-List and grid share one `GioListStore` and `GtkSingleSelection`, so mode changes
+List and grid share one `GioListStore`; Phase 6J upgrades selection to
+`GtkMultiSelection`, so mode changes
 retain selection, activation, navigation, sorting, and file actions. The header
 exposes List/Grid controls plus seven bounded grid sizes. Ctrl+1/Ctrl+2 change
 view and Ctrl+-/Ctrl++ adjust the grid. View preferences are loaded at startup
@@ -148,7 +148,18 @@ Phase 6H turns the header path into an editable location control. Click the disp
 
 Phase 6I makes normal Open resolve GIO applications asynchronously before launch. A registered default opens immediately; when no default exists, Floe automatically presents the same compatible-application chooser used by Open With. One-time Open never changes associations, and Set as Default remains a separate explicit button.
 
-The next branch is `phase-6j-places-and-devices`, followed by broader system thumbnailers.
+Phase 6J adds Ctrl/Shift multi-selection in both views, Ctrl+A and clear-selection
+keyboard routes, exact-path restoration after sorting, and accurate zero/one/many
+action states. Secondary-click preserves an existing multi-selection or retargets
+to one unselected entry. Directory-background secondary-click clears file selection
+and offers Paste, Select All, Refresh, and Edit Location. Copy, move, and Trash use
+an application-owned serial batch dispatcher, so selections larger than worker
+queue capacity are not silently dropped.
+
+The next branches are `phase-6k-places-and-devices`,
+`phase-6l-system-thumbnailers`, and `phase-6m-permanent-delete`. Phase 6M will use
+the truthful label “Delete Permanently,” require explicit confirmation, and avoid
+claiming secure erase where storage cannot guarantee overwriting.
 
 ## Project documentation
 

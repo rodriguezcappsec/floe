@@ -223,6 +223,13 @@ the GIO-backed trash executor, and reports the source parent for refresh after
 completion. GTK interaction reaches it only through the browser command and
 never calls GIO directly.
 
+Phase 6J extends `TransferBuffer` to an ordered, exact-path set and adds
+application-owned batch queues for copy, move, and Trash. One request is
+dispatched at a time; terminal handling pumps the next request through the
+existing bounded executor. This prevents a large GTK selection from overflowing
+an eight-item worker queue while retaining per-item job identity, cancellation,
+failure, conflict, retry, and Operations Island events.
+
 Phase 5A adds a 64-entry terminal operation history containing the terminal
 job/operation IDs, outcome, and original `TrackedOperation`. Failed or cancelled
 entries can be retried through the matching bounded executor. Each retry keeps
@@ -279,7 +286,7 @@ on a later main-loop tick, drops stale-generation responses, and creates
 `GdkMemoryTexture` objects only on the GTK main thread.
 
 Phase 6D adds a `GtkGridView` and a second popover presentation while reusing
-the same `GioListStore`, `GtkSingleSelection`, action names, and exact-path
+the same `GioListStore`, `GtkMultiSelection`, action names, and exact-path
 entries as the list. Replacing the grid factory at a discrete size change
 rebinds visible cells only; no eager directory-wide thumbnail pass is created.
 
@@ -288,15 +295,15 @@ rebinds visible cells only; no eager directory-wide thumbnail pass is created.
 `BrowserController` is the current application-state coordinator. It owns:
 
 - `NavigationState`;
-- the currently selected `DirectoryEntry` mirrored from GTK selection;
+- every currently selected `DirectoryEntry` mirrored from GTK multi-selection;
 - hidden-file preference for the current process;
 - current List/Grid mode, bounded grid size, and pending nonblocking preference save;
 - request generation and pending listing batches;
 - enabled state for navigation and Open actions.
 
 It also owns the list-focused Shift+F10/Menu-key route for the Phase 5C context
-menu. Secondary-click selection still flows through `GtkSingleSelection`, so
-the controller retains the original `DirectoryEntry` and exact path before any
+menu. Secondary-click selection flows through `GtkMultiSelection`, so the
+controller retains every original `DirectoryEntry` and exact path before any
 existing action is dispatched.
 
 It also owns Ctrl+C/Ctrl+X/Ctrl+V/F2/Delete and file-menu action wiring because
@@ -517,7 +524,7 @@ Phase 6H adds `location_input.rs` as a GTK-independent input and recovery policy
 
 Phase 6I reuses the existing asynchronous GIO launcher/chooser boundary. `launcher::launch_default` now returns `DefaultLaunch::Launched` or `DefaultLaunch::NoDefault(OpenWithOptions)` after content-type/application resolution. `BrowserController` presents the existing chooser for the latter; the UI never infers or mutates a default association. Exact original paths continue through `gio::File` URIs.
 
-The next branch is `phase-6j-places-and-devices`.
+The next branch is `phase-6k-places-and-devices`.
 
 ## Known architectural debt
 

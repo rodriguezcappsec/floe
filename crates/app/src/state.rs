@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet, VecDeque},
     ffi::{OsStr, OsString},
     os::unix::ffi::OsStrExt,
@@ -39,7 +39,7 @@ pub enum TransferIntent {
 /// Application-owned transfer buffer retaining the original Linux path.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TransferBuffer {
-    staged: Option<(TransferIntent, PathBuf)>,
+    staged: Option<(TransferIntent, Vec<PathBuf>)>,
 }
 
 impl TransferBuffer {
@@ -47,29 +47,56 @@ impl TransferBuffer {
         self.staged.as_ref().map(|(intent, _)| *intent)
     }
 
-    pub fn source(&self) -> Option<&Path> {
-        self.staged.as_ref().map(|(_, source)| source.as_path())
+    pub fn sources(&self) -> Option<&[PathBuf]> {
+        self.staged.as_ref().map(|(_, sources)| sources.as_slice())
     }
 
-    fn stage(
+    fn stage_many(
         &mut self,
         intent: TransferIntent,
-        source: PathBuf,
+        sources: Vec<PathBuf>,
     ) -> Result<(), CopyInteractionError> {
-        if source.file_name().is_none() {
-            return Err(CopyInteractionError::InvalidSource(source));
+        if sources.is_empty() {
+            return Err(CopyInteractionError::EmptySelection);
         }
-        self.staged = Some((intent, source));
+        let mut unique = Vec::with_capacity(sources.len());
+        let mut seen = HashSet::with_capacity(sources.len());
+        for source in sources {
+            if source.file_name().is_none() {
+                return Err(CopyInteractionError::InvalidSource(source));
+            }
+            if seen.insert(source.clone()) {
+                unique.push(source);
+            }
+        }
+        self.staged = Some((intent, unique));
         Ok(())
     }
 
     fn clear_completed_move(&mut self, source: &Path) {
-        if matches!(
-            self.staged.as_ref(),
-            Some((TransferIntent::Move, staged_source)) if staged_source == source
-        ) {
+        if let Some((TransferIntent::Move, sources)) = self.staged.as_mut() {
+            sources.retain(|staged_source| staged_source != source);
+            if sources.is_empty() {
+                self.staged = None;
+            }
+        }
+    }
+
+    fn clear_move(&mut self) {
+        if matches!(self.intent(), Some(TransferIntent::Move)) {
             self.staged = None;
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BatchSubmission {
+    queued: usize,
+}
+
+impl BatchSubmission {
+    pub const fn queued(self) -> usize {
+        self.queued
     }
 }
 
@@ -239,6 +266,8 @@ impl TransferSubmission {
 pub enum CopyInteractionError {
     #[error("select an item to copy first")]
     EmptyBuffer,
+    #[error("select at least one item")]
+    EmptySelection,
     #[error("this path cannot be copied: {}", .0.display())]
     InvalidSource(PathBuf),
     #[error("open a destination outside the copied folder, then paste again")]
@@ -294,6 +323,8 @@ pub struct ApplicationState {
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
     terminal_history: RefCell<VecDeque<TerminalOperation>>,
     resolved_conflicts: RefCell<HashSet<JobId>>,
+    batch_pending: RefCell<VecDeque<TrackedOperation>>,
+    batch_active: Cell<Option<JobId>>,
 }
 
 impl ApplicationState {
@@ -311,24 +342,93 @@ impl ApplicationState {
             operation_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
+            batch_pending: RefCell::new(VecDeque::new()),
+            batch_active: Cell::new(None),
         })
     }
 
     pub fn stage_copy(&self, source: PathBuf) -> Result<(), CopyInteractionError> {
+        self.stage_copy_many(vec![source])
+    }
+
+    pub fn stage_copy_many(&self, sources: Vec<PathBuf>) -> Result<(), CopyInteractionError> {
         self.transfer_buffer
             .borrow_mut()
-            .stage(TransferIntent::Copy, source)
+            .stage_many(TransferIntent::Copy, sources)
     }
 
     pub fn stage_move(&self, source: PathBuf) -> Result<(), CopyInteractionError> {
+        self.stage_move_many(vec![source])
+    }
+
+    pub fn stage_move_many(&self, sources: Vec<PathBuf>) -> Result<(), CopyInteractionError> {
         self.transfer_buffer
             .borrow_mut()
-            .stage(TransferIntent::Move, source)
+            .stage_many(TransferIntent::Move, sources)
     }
 
     pub fn staged_transfer(&self) -> Option<(TransferIntent, PathBuf)> {
         let buffer = self.transfer_buffer.borrow();
-        Some((buffer.intent()?, buffer.source()?.to_path_buf()))
+        Some((buffer.intent()?, buffer.sources()?.first()?.clone()))
+    }
+
+    pub fn staged_transfers(&self) -> Option<(TransferIntent, Vec<PathBuf>)> {
+        let buffer = self.transfer_buffer.borrow();
+        Some((buffer.intent()?, buffer.sources()?.to_vec()))
+    }
+
+    pub fn submit_paste_batch(
+        &self,
+        destination_directory: &Path,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        let (intent, sources) = self
+            .staged_transfers()
+            .ok_or(CopyInteractionError::EmptyBuffer)?;
+        let mut operations = Vec::with_capacity(sources.len());
+        for source in &sources {
+            let destination = transfer_destination(source, destination_directory)?;
+            let operation = match intent {
+                TransferIntent::Copy => TrackedOperation::Copy(CopyRequest::new(
+                    source,
+                    destination,
+                    ConflictPolicy::FailIfExists,
+                    SymlinkPolicy::Preserve,
+                )),
+                TransferIntent::Move => TrackedOperation::Move(MoveRequest::new(
+                    source,
+                    destination,
+                    ConflictPolicy::FailIfExists,
+                )),
+            };
+            operations.push(operation);
+        }
+        let queued = operations.len();
+        self.batch_pending.borrow_mut().extend(operations);
+        if intent == TransferIntent::Move {
+            self.transfer_buffer.borrow_mut().clear_move();
+        }
+        self.pump_batch();
+        Ok(BatchSubmission { queued })
+    }
+
+    pub fn submit_trash_batch(
+        &self,
+        sources: Vec<PathBuf>,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        if sources.is_empty() {
+            return Err(CopyInteractionError::EmptySelection);
+        }
+        let mut unique = HashSet::with_capacity(sources.len());
+        let mut operations = Vec::with_capacity(sources.len());
+        for source in sources {
+            if unique.insert(source.clone()) {
+                operations.push(TrackedOperation::Trash(TrashRequest::new(source)?));
+            }
+        }
+        let queued = operations.len();
+        self.batch_pending.borrow_mut().extend(operations);
+        self.pump_batch();
+        Ok(BatchSubmission { queued })
     }
 
     pub fn submit_paste(
@@ -419,6 +519,82 @@ impl ApplicationState {
         }
     }
 
+    fn pump_batch(&self) {
+        if self.batch_active.get().is_some() {
+            return;
+        }
+        while let Some(operation) = self.batch_pending.borrow_mut().pop_front() {
+            match self.submit_batch_operation(operation) {
+                Ok(job_id) => {
+                    self.batch_active.set(Some(job_id));
+                    return;
+                }
+                Err(error) => {
+                    tracing::error!(%error, "could not dispatch queued batch operation");
+                }
+            }
+        }
+    }
+
+    fn submit_batch_operation(
+        &self,
+        operation: TrackedOperation,
+    ) -> Result<JobId, CopyInteractionError> {
+        match &operation {
+            TrackedOperation::Copy(request) => {
+                match self.copy_executor.submit_copy(request.clone()) {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), operation.clone());
+                        Ok(submission.job_id())
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, operation.clone());
+                            Ok(job_id)
+                        } else {
+                            Err(error.into())
+                        }
+                    }
+                }
+            }
+            TrackedOperation::Move(request) => {
+                match self.move_executor.submit_move(request.clone()) {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), operation.clone());
+                        Ok(submission.job_id())
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, operation.clone());
+                            Ok(job_id)
+                        } else {
+                            Err(error.into())
+                        }
+                    }
+                }
+            }
+            TrackedOperation::Trash(request) => {
+                match self.trash_executor.submit_trash(request.clone()) {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), operation.clone());
+                        Ok(submission.job_id())
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, operation.clone());
+                            Ok(job_id)
+                        } else {
+                            Err(error.into())
+                        }
+                    }
+                }
+            }
+            TrackedOperation::Rename(_) => {
+                unreachable!("rename is never queued as a multi-selection batch")
+            }
+        }
+    }
+
     pub fn finish_operation(
         &self,
         job_id: JobId,
@@ -451,6 +627,10 @@ impl ApplicationState {
                 outcome,
                 operation: operation.clone(),
             });
+        }
+        if self.batch_active.get() == Some(job_id) {
+            self.batch_active.set(None);
+            self.pump_batch();
         }
         operation
     }
@@ -736,6 +916,8 @@ impl ApplicationState {
             operation_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
+            batch_pending: RefCell::new(VecDeque::new()),
+            batch_active: Cell::new(None),
         })
     }
 
@@ -1499,6 +1681,141 @@ mod tests {
             Err(CopyInteractionError::ConflictUnsupported(job_id))
                 if job_id == submission.job_id()
         ));
+    }
+
+    #[test]
+    fn phase_6j_multi_copy_batch_runs_beyond_worker_queue_capacity() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source_directory = fixture.path().join("source");
+        let destination_directory = fixture.path().join("destination");
+        fs::create_dir(&source_directory).expect("source directory should be creatable");
+        fs::create_dir(&destination_directory).expect("destination directory should be creatable");
+
+        let sources = (0..12)
+            .map(|index| {
+                let path = source_directory.join(format!("item-{index}"));
+                fs::write(&path, format!("content-{index}"))
+                    .expect("source fixture should be writable");
+                path
+            })
+            .collect::<Vec<_>>();
+        let state = ApplicationState::new().expect("application state should start");
+        state
+            .stage_copy_many(sources.clone())
+            .expect("all exact paths should stage");
+        let batch = state
+            .submit_paste_batch(&destination_directory)
+            .expect("batch should be accepted");
+        assert_eq!(batch.queued(), sources.len());
+
+        for _ in &sources {
+            let job_id = state
+                .batch_active
+                .get()
+                .expect("one bounded batch job should be active");
+            assert_eq!(wait_for_terminal(&state, job_id), JobState::Completed);
+            state.finish_operation(job_id, TerminalOutcome::Completed);
+        }
+        assert!(state.batch_pending.borrow().is_empty());
+        assert!(state.batch_active.get().is_none());
+        for source in sources {
+            let name = source.file_name().expect("fixture has a filename");
+            assert_eq!(
+                fs::read(destination_directory.join(name)).expect("batch output should exist"),
+                fs::read(source).expect("source should remain")
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn phase_6j_transfer_buffer_deduplicates_exact_non_utf8_paths() {
+        let first = PathBuf::from(OsString::from_vec(b"first-\xff".to_vec()));
+        let second = PathBuf::from(OsString::from_vec(b"second-\xfe".to_vec()));
+        let state = ApplicationState::new().expect("application state should start");
+        state
+            .stage_move_many(vec![first.clone(), second.clone(), first.clone()])
+            .expect("valid exact paths should stage");
+
+        assert_eq!(
+            state.staged_transfers(),
+            Some((TransferIntent::Move, vec![first, second]))
+        );
+    }
+
+    #[test]
+    fn phase_6j_multi_move_batch_moves_every_source_and_clears_cut_buffer() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source_directory = fixture.path().join("source");
+        let destination_directory = fixture.path().join("destination");
+        fs::create_dir(&source_directory).expect("source directory should be creatable");
+        fs::create_dir(&destination_directory).expect("destination directory should be creatable");
+        let sources = (0..3)
+            .map(|index| {
+                let source = source_directory.join(format!("move-{index}"));
+                fs::write(&source, format!("move-content-{index}"))
+                    .expect("move fixture should be writable");
+                source
+            })
+            .collect::<Vec<_>>();
+        let state = ApplicationState::new().expect("application state should start");
+        state
+            .stage_move_many(sources.clone())
+            .expect("move paths should stage");
+        let batch = state
+            .submit_paste_batch(&destination_directory)
+            .expect("move batch should queue");
+        assert_eq!(batch.queued(), sources.len());
+        assert_eq!(state.staged_transfers(), None);
+
+        for _ in &sources {
+            let job_id = state
+                .batch_active
+                .get()
+                .expect("batch job should be active");
+            assert_eq!(wait_for_terminal(&state, job_id), JobState::Completed);
+            state.finish_operation(job_id, TerminalOutcome::Completed);
+        }
+        for source in sources {
+            assert!(!source.exists());
+            assert!(
+                destination_directory
+                    .join(source.file_name().expect("move fixture has a filename"))
+                    .exists()
+            );
+        }
+    }
+
+    #[test]
+    fn phase_6j_multi_trash_batch_dispatches_every_exact_path() {
+        let sources = (0..3)
+            .map(|index| PathBuf::from(format!("/virtual/trash-{index}")))
+            .collect::<Vec<_>>();
+        let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
+            .expect("application state should start");
+        let batch = state
+            .submit_trash_batch(sources.clone())
+            .expect("trash batch should queue");
+        assert_eq!(batch.queued(), sources.len());
+
+        for _ in &sources {
+            let job_id = state
+                .batch_active
+                .get()
+                .expect("batch job should be active");
+            assert_eq!(wait_for_terminal(&state, job_id), JobState::Completed);
+            state.finish_operation(job_id, TerminalOutcome::Completed);
+        }
+        let completed_sources = state
+            .terminal_history()
+            .into_iter()
+            .map(|entry| entry.operation().source().to_path_buf())
+            .collect::<HashSet<_>>();
+        assert!(
+            sources
+                .iter()
+                .all(|source| completed_sources.contains(source))
+        );
     }
 
     #[test]

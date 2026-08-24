@@ -97,7 +97,7 @@ Presentation role, and selected/focused state remains visible through semantic
 GTK background, opacity, and focus-ring styling rather than color alone.
 
 Phase 6D adds a native virtualized grid beside the list. Both views share one
-`GioListStore` and `GtkSingleSelection`; switching presentation never forks
+`GioListStore` and one `GtkMultiSelection`; switching presentation never forks
 directory state or reconstructs a path from a label. Grid cells use centered,
 two-line ellipsized names and the same activation and context actions as list
 rows. Native header toggles expose List/Grid mode, while a keyboard-operable
@@ -108,9 +108,10 @@ application-layer worker rather than GTK file I/O.
 
 ### Selection and activation
 
-`GtkSingleSelection` provides the visible selected state. The application
-controller mirrors the selected `DirectoryEntry`, so selection is not owned
-only by a widget. Selection enables the Open action and changes the status text.
+`GtkMultiSelection` provides the visible selected state. The application
+controller mirrors every selected `DirectoryEntry`, so selection is not owned
+only by a widget. Exact policy enables single-target or batch actions and changes
+status text for zero, one, or many targets.
 
 Enter/double-click activates a row. Directories navigate; regular files and
 non-directory symbolic links are opened asynchronously through GIO's default
@@ -284,7 +285,28 @@ Phase 6H implements this surface.
 
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.
 
-`phase-6j-places-and-devices` is the next navigation branch.
+`phase-6k-places-and-devices` is the next navigation branch.
+
+### Multi-selection and context surfaces
+
+Phase 6J uses the platform-native multi-selection contract in list and grid:
+Ctrl toggles, Shift extends a range, Ctrl+A selects all, Ctrl+Shift+A clears,
+and Escape clears when the file view owns focus. Selection remains visible and
+is reported as an exact count; Open, Open With, and Rename stay single-target.
+
+Secondary-clicking any already-selected item preserves the whole selection.
+Secondary-clicking an unselected item selects only that target before showing
+file actions. Secondary-clicking directory background clears file selection and
+shows a deliberately separate menu with Paste, Select All, Refresh, and Edit
+Location. Keyboard context-menu access exposes the same active surface.
+
+Copy, move, and Trash submit original paths through application state. A serial
+batch dispatcher feeds existing bounded workers one job at a time, preventing
+large selections from becoming silent partial operations.
+
+Permanent deletion follows in Phase 6M as “Delete Permanently,” with explicit
+irreversible confirmation and exact target context. Floe must not call this
+secure erase because modern storage and filesystem layers cannot guarantee it.
 
 ### Transparency and accessibility
 
