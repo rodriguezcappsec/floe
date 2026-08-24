@@ -116,8 +116,17 @@ is intentionally unavailable for a conflict because it would resubmit the same
 destination. Application state retains exact source/destination paths and
 offers only two explicit decisions: keep the existing destination, or retry
 with one validated sibling filename. Revised attempts retain the logical
-operation ID and receive a fresh job ID. Overwrite, apply-to-all, and the GTK
-conflict dialog remain deferred.
+operation ID and receive a fresh job ID. Overwrite and apply-to-all remain
+deferred.
+
+Phase 5F presents that contract in a focused non-blocking dialog. Incoming and
+existing paths are visible context only; the retry field begins empty so a
+lossy display name can never become an implicit destination. Inline validation
+requires one different filename, keeps keyboard focus in the dialog, and
+associates errors with the entry for assistive technology. Cancel or window
+dismissal makes no decision and leaves a labelled Resolve Conflict action in
+the Operations Island. Keep Existing acknowledges without a new job; Retry
+with New Name returns to normal queued/progress feedback.
 
 ### Trash job foundation
 

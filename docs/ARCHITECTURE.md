@@ -167,6 +167,11 @@ Virtualized row setup adds only a secondary-click selection/presentation
 gesture; every menu item targets an existing `win.*` action, so the UI layer
 does not acquire filesystem or launch execution logic.
 
+Phase 5F adds the conflict dialog widget tree: source/destination context,
+labelled filename input, associated inline error, Cancel, Keep Existing, and
+Retry with New Name controls. It contains no filesystem implementation and no
+overwrite/apply-to-all control.
+
 ### `browser.rs`
 
 `BrowserController` is the current application-state coordinator. It owns:
@@ -210,6 +215,13 @@ filesystem operations.
 Phase 5E maps destination conflicts to a distinct non-retryable terminal
 outcome, so the generic Retry control cannot blindly repeat the same
 destination.
+
+Phase 5F queues unresolved conflict IDs in `OperationController`, presents the
+application-state decision contract through a non-blocking `AdwDialog`, and
+reuses the Operations Island action slot as Resolve Conflict after dismissal.
+GTK callbacks submit only `ConflictDecision` commands. Revised submissions
+return to normal queued/progress handling; keep-existing submits no job.
+Pending conflicts stay ordered and only one conflict dialog can be active.
 
 ### `move_executor.rs`
 
@@ -311,15 +323,16 @@ No desktop integration trait or Niri/Plasma backend exists. The app uses generic
 GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
 detection and compositor APIs must eventually stay under `crates/app`.
 
-### Filesystem jobs through Phase 5E
+### Filesystem jobs through Phase 5F
 
 Phase 5E adds an application-layer conflict resolver contract. Pending
 conflicts retain exact source/destination paths and stable operation identity;
 callers must keep the existing item or retry copy/move/rename with one
 validated sibling `OsString`. Revised attempts remain fail-if-exists and
 receive fresh job IDs. Resolution is single-use and pruned with bounded
-terminal history. Trash conflicts, apply-to-all, overwrite, and a GTK decision
-surface are not supported yet.
+terminal history. Phase 5F now presents that contract in GTK while retaining
+original request paths in application state. Trash conflicts, apply-to-all,
+and overwrite are not supported.
 
 Identity, lifecycle, progress, failure, retry-attempt, registry, and event
 foundations now exist. `floe-core::copy` adds the first path-safe operation
@@ -378,7 +391,8 @@ Phase 5A generalizes retry dispatch and bounds application terminal history.
 Phase 5B adds the Operations Island Retry control for failed and cancelled
 attempts. Phase 5E prevents generic retries for destination conflicts and
 establishes explicit keep-existing/retry-with-name decisions without enabling
-overwrite. The GTK conflict interaction, overwrite, pause/resume controls, and
+overwrite. Phase 5F adds the focused, dismissible conflict interaction and
+recoverable Operations Island action. Overwrite, pause/resume controls, and
 permanent deletion remain deferred.
 
 ## Known architectural debt

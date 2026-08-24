@@ -13,6 +13,8 @@ const FILE_CONTEXT_ACTIONS: [(&str, &str); 6] = [
     ("Move to Trash", "win.trash"),
 ];
 
+const CONFLICT_DECISION_LABELS: [&str; 2] = ["Keep Existing", "Retry with New Name"];
+
 pub struct OpenWithDialogWidgets {
     pub dialog: adw::Dialog,
     pub default_label: gtk::Label,
@@ -21,6 +23,15 @@ pub struct OpenWithDialogWidgets {
     pub cancel_button: gtk::Button,
     pub set_default_button: gtk::Button,
     pub open_button: gtk::Button,
+}
+
+pub struct ConflictDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub name_entry: gtk::Entry,
+    pub name_error: gtk::Label,
+    pub cancel_button: gtk::Button,
+    pub keep_existing_button: gtk::Button,
+    pub retry_button: gtk::Button,
 }
 
 #[derive(Clone)]
@@ -266,6 +277,109 @@ pub fn build_rename_dialog(current_name: &str) -> RenameDialogWidgets {
         rename_error,
         cancel_button,
         rename_button,
+    }
+}
+
+pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDialogWidgets {
+    let heading = gtk::Label::builder()
+        .label("An item already exists")
+        .halign(gtk::Align::Start)
+        .build();
+    heading.add_css_class("title-2");
+
+    let explanation = gtk::Label::builder()
+        .label("Keep the existing item, or retry with a different filename.")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .build();
+    explanation.add_css_class("floe-status");
+
+    let source_row = adw::ActionRow::builder()
+        .title("Incoming item")
+        .subtitle(source_name)
+        .build();
+    source_row.add_prefix(&gtk::Image::from_icon_name("document-open-symbolic"));
+    let destination_row = adw::ActionRow::builder()
+        .title("Existing destination")
+        .subtitle(destination)
+        .build();
+    destination_row.add_prefix(&gtk::Image::from_icon_name("folder-symbolic"));
+    let context = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    context.add_css_class("boxed-list");
+    context.append(&source_row);
+    context.append(&destination_row);
+
+    let name_label = gtk::Label::builder()
+        .label("Retry with a different filename")
+        .halign(gtk::Align::Start)
+        .build();
+    let name_entry = gtk::Entry::builder()
+        .placeholder_text("Enter a different filename")
+        .activates_default(true)
+        .hexpand(true)
+        .build();
+    set_accessible_label(&name_entry, "Different filename");
+    let name_error = gtk::Label::builder()
+        .label("Enter one filename without slashes")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .visible(false)
+        .build();
+    name_error.add_css_class("error");
+    set_accessible_label(&name_error, "Filename error");
+    name_entry.update_relation(&[
+        gtk::accessible::Relation::LabelledBy(&[name_label.upcast_ref()]),
+        gtk::accessible::Relation::DescribedBy(&[name_error.upcast_ref()]),
+    ]);
+
+    let cancel_button = gtk::Button::with_label("Cancel");
+    let keep_existing_button = gtk::Button::with_label(CONFLICT_DECISION_LABELS[0]);
+    let retry_button = gtk::Button::with_label(CONFLICT_DECISION_LABELS[1]);
+    retry_button.add_css_class("suggested-action");
+    retry_button.set_sensitive(false);
+
+    let actions = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .halign(gtk::Align::End)
+        .spacing(8)
+        .build();
+    actions.append(&cancel_button);
+    actions.append(&keep_existing_button);
+    actions.append(&retry_button);
+
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(24)
+        .margin_bottom(24)
+        .margin_start(24)
+        .margin_end(24)
+        .build();
+    content.append(&heading);
+    content.append(&explanation);
+    content.append(&context);
+    content.append(&name_label);
+    content.append(&name_entry);
+    content.append(&name_error);
+    content.append(&actions);
+
+    let dialog = adw::Dialog::builder()
+        .title("Resolve destination conflict")
+        .content_width(520)
+        .child(&content)
+        .default_widget(&retry_button)
+        .focus_widget(&name_entry)
+        .build();
+
+    ConflictDialogWidgets {
+        dialog,
+        name_entry,
+        name_error,
+        cancel_button,
+        keep_existing_button,
+        retry_button,
     }
 }
 
@@ -805,5 +919,18 @@ mod tests {
         assert!(is_bound_list_position(0));
         assert!(is_bound_list_position(42));
         assert!(!is_bound_list_position(gtk::INVALID_LIST_POSITION));
+    }
+
+    #[test]
+    fn phase_5f_conflict_surface_has_only_non_overwriting_decisions() {
+        assert_eq!(
+            CONFLICT_DECISION_LABELS,
+            ["Keep Existing", "Retry with New Name"]
+        );
+        assert!(
+            CONFLICT_DECISION_LABELS
+                .iter()
+                .all(|label| !label.contains("Overwrite") && !label.contains("Apply to All"))
+        );
     }
 }
