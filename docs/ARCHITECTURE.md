@@ -142,7 +142,7 @@ loads startup preferences and owns a fixed-capacity channel plus atomic
 configuration-file writes. GTK actions submit current values non-blockingly;
 they never read or write the configuration file directly.
 
-### `thumbnail.rs`
+### `thumbnail.rs` and `thumbnail_cache.rs`
 
 Phase 6C owns a fixed-capacity, single-thread thumbnail request/result boundary
 separate from GTK and the filesystem mutation executors. `ThumbnailKey` retains
@@ -154,6 +154,27 @@ explicit decoder dimension/allocation limits, and scales to the requested
 of cache identity. Old navigation generations are skipped.
 Only owned RGBA bytes cross back to the GTK thread; the worker creates or uses
 no GTK object.
+
+Phase 6E gives that same worker optional persistent-cache state resolved once
+from the XDG cache environment. It verifies the source as an unchanged regular
+file before cache access, maps requested edges to freedesktop `normal`
+(128-pixel) or `large` (256-pixel) tiers, and validates `Thumb::URI`,
+`Thumb::MTime`, and `Thumb::Size` before decoding a cached PNG. Misses,
+corruption, symlinks, oversized entries, and cache I/O failures fall through to
+the existing bounded source decoder. Floe-owned entries additionally carry
+`Floe::MTimeNsec`, preventing a same-size source change within one Unix second
+from reusing Floe's older pixels while remaining compatible with foreign
+standard cache entries.
+
+Successful source decodes are written as 8-bit RGBA, non-interlaced PNGs using
+0600 same-directory temporary files and atomic rename beneath private 0700
+directories. Standard cache entries live in `thumbnails/{normal,large}`;
+separate Floe ownership markers live in
+`floe/thumbnail-ownership/{normal,large}`. Startup and periodic cleanup apply
+one global 2,048-entry, 256-MiB, 90-day budget and remove a shared thumbnail
+only when its marker exists and PNG metadata still says `Software=Floe`.
+Thus GTK performs no cache I/O and another application's cache ownership is not
+inferred from a filename alone.
 
 ### `state.rs` and `job_manager.rs`
 

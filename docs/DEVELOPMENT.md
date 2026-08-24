@@ -132,6 +132,16 @@ persistence. Runtime view preferences live below GLib's user configuration
 directory at `floe/view-preferences.conf`; tests use temporary directories and
 never write the real user preference file.
 
+Phase 6E tests use temporary cache roots and cover canonical non-UTF-8 file
+URIs and MD5 identity, normal/large tier mapping, required PNG metadata,
+source-size/time/URI invalidation, corrupt/oversized/symlink cache rejection,
+0700 directories, 0600 atomic writes, Floe-only age/count/byte cleanup,
+nonfatal cache-root failure, and reuse across thumbnail-worker restarts. The
+implementation directly uses the already-locked `png 0.18.1` API for text
+chunks and GLib's standard URI/checksum facilities; no external thumbnailer or
+new system image package is required. Runtime cache state follows
+`$XDG_CACHE_HOME`, falling back to `$HOME/.cache`.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

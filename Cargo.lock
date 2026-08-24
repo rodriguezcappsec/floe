@@ -145,9 +145,11 @@ name = "floe-app"
 version = "0.1.0"
 dependencies = [
  "floe-core",
+ "glib",
  "gtk4",
  "image",
  "libadwaita",
+ "png",
  "rustix",
  "tempfile",
  "thiserror",
