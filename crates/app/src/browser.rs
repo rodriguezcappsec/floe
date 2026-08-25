@@ -195,6 +195,10 @@ use crate::{
         PreferenceSubmitError, PreferenceWorker, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
         SidebarDensity, ViewPreferences, clamp_sidebar_width,
     },
+    preview::{
+        PREVIEW_QUEUE_CAPACITY, PreviewCachePolicy, PreviewLimits, PreviewOutcome, PreviewRequest,
+        PreviewSourceKey, PreviewSubmitError, PreviewWorker,
+    },
     session_store::SessionStoreWorker,
     state::{ApplicationState, TransferIntent, validate_rename_name},
     storage::{
@@ -298,6 +302,7 @@ pub struct BrowserServices {
     browser: BrowserWorker,
     thumbnails: Option<ThumbnailWorker>,
     metadata: Option<MetadataWorker>,
+    preview: Option<PreviewWorker>,
     storage: Option<StorageWorker>,
     bookmarks: Option<BookmarkWorker>,
     devices: DeviceMonitor,
@@ -317,6 +322,7 @@ impl BrowserServices {
         browser: BrowserWorker,
         thumbnails: Option<ThumbnailWorker>,
         metadata: Option<MetadataWorker>,
+        preview: Option<PreviewWorker>,
         storage: Option<StorageWorker>,
         bookmarks: Option<BookmarkWorker>,
         devices: DeviceMonitor,
@@ -327,6 +333,7 @@ impl BrowserServices {
             browser,
             thumbnails,
             metadata,
+            preview,
             storage,
             bookmarks,
             devices,
@@ -342,6 +349,8 @@ pub struct BrowserController {
     worker: RefCell<BrowserWorker>,
     thumbnail_worker: RefCell<Option<ThumbnailWorker>>,
     metadata_worker: RefCell<Option<MetadataWorker>>,
+    preview_worker: RefCell<Option<PreviewWorker>>,
+    preview_generation: Cell<u64>,
     storage_worker: RefCell<Option<StorageWorker>>,
     current_storage_generation: Cell<u64>,
     device_storage_generation: Cell<u64>,
@@ -432,6 +441,7 @@ impl BrowserController {
             browser,
             thumbnails,
             metadata,
+            preview,
             storage,
             bookmarks,
             devices,
@@ -450,6 +460,8 @@ impl BrowserController {
             worker: RefCell::new(browser),
             thumbnail_worker: RefCell::new(thumbnails),
             metadata_worker: RefCell::new(metadata),
+            preview_worker: RefCell::new(preview),
+            preview_generation: Cell::new(0),
             storage_worker: RefCell::new(storage),
             current_storage_generation: Cell::new(0),
             device_storage_generation: Cell::new(0),
@@ -1338,6 +1350,7 @@ impl BrowserController {
             controller.drain_thumbnail_worker();
             controller.submit_metadata_requests();
             controller.drain_metadata_worker();
+            controller.drain_preview_worker();
             controller.drain_storage_worker();
             controller.flush_pending_preferences();
             glib::ControlFlow::Continue
@@ -2602,6 +2615,9 @@ impl BrowserController {
             self.render_miller();
         } else {
             self.miller_detail.borrow_mut().hide();
+            if let Some(worker) = self.preview_worker.borrow().as_ref() {
+                worker.cancel();
+            }
         }
         for name in MILLER_DETAIL_ACTIONS {
             if let Some(action) = self
@@ -2692,6 +2708,7 @@ impl BrowserController {
             current.clone(),
             &self.selected_entries.borrow(),
         );
+        self.ensure_preview_request();
         let detail = self.miller_detail.borrow().state().clone();
         let columns = self.miller_state.borrow().columns(model, &current);
         self.widgets
@@ -2714,12 +2731,104 @@ impl BrowserController {
         self.miller_detail
             .borrow_mut()
             .toggle(surface, active_depth, current, &selected);
+        if self.miller_detail.borrow().state().surface() != Some(MillerDetailSurface::Preview)
+            && let Some(worker) = self.preview_worker.borrow().as_ref()
+        {
+            worker.cancel();
+        }
         let visible = self.miller_detail.borrow().state().is_visible();
         self.render_miller();
         if visible {
             let _ = self.widgets.miller_view.focus_detail();
         } else {
             self.widgets.miller_view.focus_active();
+        }
+    }
+
+    fn ensure_preview_request(&self) {
+        let should_start = matches!(
+            self.miller_detail.borrow().state(),
+            crate::miller_detail::MillerDetailState::Ready(target)
+                if target.surface() == MillerDetailSurface::Preview
+        );
+        if !should_start {
+            return;
+        }
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        let Some(source) = PreviewSourceKey::from_entry(&entry) else {
+            return;
+        };
+        let preview_worker = self.preview_worker.borrow();
+        let Some(worker) = preview_worker.as_ref() else {
+            let generation = self.preview_generation.get().wrapping_add(1).max(1);
+            self.preview_generation.set(generation);
+            if self
+                .miller_detail
+                .borrow_mut()
+                .begin_preview_loading(generation)
+            {
+                self.miller_detail
+                    .borrow_mut()
+                    .finish_preview(generation, PreviewOutcome::Unsupported);
+            }
+            return;
+        };
+        let generation = worker.begin_generation();
+        let Some(request) = PreviewRequest::new(
+            generation,
+            source,
+            PreviewLimits::default(),
+            PreviewCachePolicy::MemoryOnly,
+        ) else {
+            return;
+        };
+        if !self
+            .miller_detail
+            .borrow_mut()
+            .begin_preview_loading(generation)
+        {
+            return;
+        }
+        self.preview_generation.set(generation);
+        if let Err(error) = worker.submit(request) {
+            let message = match error {
+                PreviewSubmitError::Full(_) => "Preview queue is busy.".to_owned(),
+                PreviewSubmitError::Disconnected => "Preview worker is unavailable.".to_owned(),
+                PreviewSubmitError::Stale(_) => "Preview request was superseded.".to_owned(),
+            };
+            self.miller_detail
+                .borrow_mut()
+                .finish_preview(generation, PreviewOutcome::Failed(message));
+        }
+    }
+
+    fn drain_preview_worker(&self) {
+        let mut changed = false;
+        for _ in 0..PREVIEW_QUEUE_CAPACITY.min(8) {
+            let response = self
+                .preview_worker
+                .borrow()
+                .as_ref()
+                .and_then(PreviewWorker::try_response);
+            let Some(response) = response else {
+                break;
+            };
+            let current = self
+                .preview_worker
+                .borrow()
+                .as_ref()
+                .is_some_and(|worker| worker.is_current(response.generation));
+            if current && self.preview_generation.get() == response.generation {
+                changed |= self
+                    .miller_detail
+                    .borrow_mut()
+                    .finish_preview(response.generation, response.outcome);
+            }
+        }
+        if changed && self.view_mode.get() == ViewMode::Miller {
+            self.render_miller();
         }
     }
 
@@ -5971,6 +6080,15 @@ mod tests {
         assert!(VIEW_ACTIONS.contains(&("view-list", ViewCommand::List)));
         assert!(VIEW_ACTIONS.contains(&("view-grid", ViewCommand::Grid)));
         assert!(VIEW_ACTIONS.contains(&("view-miller", ViewCommand::Miller)));
+    }
+
+    #[test]
+    fn phase_9a_integration_bounds_preview_drain_and_preserves_view_pipeline() {
+        assert_eq!(PREVIEW_QUEUE_CAPACITY, 16);
+        assert!(PREVIEW_QUEUE_CAPACITY.min(8) <= 8);
+        assert!(VIEW_ACTIONS.contains(&("view-list", ViewCommand::List)));
+        assert!(VIEW_ACTIONS.contains(&("view-grid", ViewCommand::Grid)));
+        assert_eq!(MILLER_DETAIL_ACTIONS.len(), 2);
     }
 
     #[test]

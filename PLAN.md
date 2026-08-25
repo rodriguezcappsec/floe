@@ -1,38 +1,39 @@
-# Plan: Floe Phase 8F — Miller final-column detail hooks
+# Plan: Floe Phase 9A — Preview provider architecture
 
 Mode: sequential phase delivery with explicit implementation and verification gates.
 
 ## Contract
 
-- Add a GTK-independent application-owned detail-hook lifecycle for Preview and
-  Inspector without implementing any Phase 9/10 provider content.
-- Carry exact generation, Miller depth, directory, and bounded raw selected
-  paths; never reconstruct targets from visible names.
-- Represent hidden, empty-selection, ready-for-provider, and unsupported states
-  explicitly. Preview requires one supported local file candidate; Inspector
-  may hand off a bounded aggregate selection.
-- Add optional final-column presentation and focus-visible Preview/Inspector
-  controls only in Miller mode. Closing or leaving Miller returns focus safely.
-- Reconcile navigation and selection changes without filesystem I/O, provider
-  execution, new workers, caches, persistence, or active-content claims.
-- Exclude Phase 9 providers/shortcuts/content and Phase 10 inspector metadata.
+- Add a GTK-independent typed provider registry and fixed-capacity Preview
+  worker with exact paths, stable request generations, and deterministic order.
+- Define explicit source/output/time limits, cooperative cancellation, stale
+  result rejection, queue-full/disconnected behavior, and memory-only cache
+  policy. Persistent preview cache remains disabled by default and unimplemented.
+- Providers receive only the selected target and limits. No shell, network,
+  unrelated-file access, active content, or sandbox claim is introduced.
+- Connect the Phase 8F Preview handoff to truthful loading, unsupported, failed,
+  and cancelled lifecycle states. With no Phase 9B provider, normal requests
+  resolve to Provider unavailable rather than fabricated content.
+- Keep GTK responsive through the existing bounded worker-drain loop and cancel
+  on selection/navigation/mode changes or superseding requests.
+- Exclude every format renderer, Space shortcut, fullscreen/polish, and Phase 10.
 
 ## Depth tree
 
-1. Exact lifecycle model
-   - Define surface, generation, target, eligibility, stale reconciliation, and
-     bounded selection policy with non-UTF-8 tests.
-2. Final-column presentation
-   - Render a truthful optional surface after active columns with non-color-only
-     state text and focus behavior; expose accessible controls.
-3. Controller integration
-   - Bind actions, reconcile current Miller selection/navigation, hide on mode
-     exit, and keep list/grid behavior untouched.
+1. Provider contract and policy
+   - Typed request/outcome/errors, registry ordering, limits, cache policy, and
+     exact no-lossy identity.
+2. Bounded worker lifecycle
+   - Fixed queue, cooperative generation token, stale suppression, clean drop,
+     panic/failure containment, and fake-provider tests.
+3. Detail-hook integration
+   - Submit Preview-ready targets, show truthful lifecycle, drain responses on
+     GTK timer, and cancel on selection/navigation/mode exit.
 4. Verification and handoff
-   - Focused lifecycle/presentation/integration tests, native Wayland smoke,
-     full checks, docs, and exactly Phase 9A as `NEXT`.
+   - Focused hostile/stale/cancel/limits tests, native Wayland smoke, full
+     checks, docs, and exactly Phase 9B as `NEXT`.
 
 ## Status
 
-COMPLETE on `phase-8f-miller-detail-hooks`. All gates are met. The sole
-recommended next phase is `phase-9a-preview-providers`.
+COMPLETE on `phase-9a-preview-providers`. All gates are met. The sole
+recommended next phase is `phase-9b-preview-images-text`.

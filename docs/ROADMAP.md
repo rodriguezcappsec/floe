@@ -166,8 +166,8 @@ Miller mode is generic Wayland functionality and must never require Niri.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 9A — Provider architecture | NEXT | `phase-9a-preview-providers` | Typed, cancellable provider lifecycle, limits, cache policy and fallback. | 6L; no active content/sandbox claim; verify hostile, stale and failed providers. |
-| 9B — Images/text/code | PLANNED | `phase-9b-preview-images-text` | Images, bounded text, Markdown source, code, JSON and XML read-only preview. | 9A; no active HTML; verify encodings, huge files, malformed input and zoom. |
+| 9A — Provider architecture | COMPLETE | `phase-9a-preview-providers` | Typed, cancellable provider lifecycle, limits, cache policy and fallback. | Verified fixed-capacity worker/registry, exact source identity, deterministic order, explicit limits, memory-only cache, generation cancellation/stale rejection, queue/failure/panic containment, honest unsupported fallback, GTK drain, and native lifecycle; no renderer or sandbox claim. |
+| 9B — Images/text/code | NEXT | `phase-9b-preview-images-text` | Images, bounded text, Markdown source, code, JSON and XML read-only preview. | 9A; no active HTML; verify encodings, huge files, malformed input and zoom. |
 | 9C — PDF/documents | PLANNED | `phase-9c-preview-documents` | Passive PDF and reviewed office/document rendering. | 9A/provider review; no macros; verify malformed documents, limits and cancellation. |
 | 9D — Audio/video | PLANNED | `phase-9d-preview-media` | Playback, seeking, metadata and poster frames. | 9A/6L; no codec installer; verify retired sources and resource release. |
 | 9E — Fonts/archives | PLANNED | `phase-9e-preview-fonts-archives` | Read-only font specimen and bounded archive listing. | 9A; no install/extract; verify bombs, traversal and malformed fonts. |

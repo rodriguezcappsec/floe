@@ -13,6 +13,7 @@ use crate::{
     metadata::MetadataWorker,
     operations::OperationController,
     preferences::{PreferenceWorker, ViewPreferences},
+    preview::{PreviewProviderRegistry, PreviewWorker},
     session_store::{SessionStoreWorker, SessionTracePolicy},
     state::ApplicationState,
     storage::StorageWorker,
@@ -134,6 +135,13 @@ fn build_window(
             None
         }
     };
+    let preview_worker = match PreviewWorker::spawn(PreviewProviderRegistry::default()) {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            tracing::warn!(%error, "could not start preview worker; Preview unavailable");
+            None
+        }
+    };
     let storage_worker = match StorageWorker::spawn() {
         Ok(worker) => Some(worker),
         Err(error) => {
@@ -184,6 +192,7 @@ fn build_window(
             worker,
             thumbnail_worker,
             metadata_worker,
+            preview_worker,
             storage_worker,
             bookmark_worker,
             device_monitor,

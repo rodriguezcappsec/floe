@@ -1160,12 +1160,23 @@ Last updated:
 Current phase:
 
 ```text
-Phase 8 — Miller and spatial navigation (Phase 8F complete)
+Phase 9 — Quick Preview (Phase 9A complete)
 ```
 
 Status:
 
 ```text
+Phase 9A adds a GTK-independent Preview provider registry and fixed-capacity
+single worker. At most 32 deterministic providers feed a 16-request queue;
+requests retain exact path/size/modified identity, nonzero generation, explicit
+source/output/text/archive/deadline limits, and Disabled or default MemoryOnly
+cache policy. Cooperative atomic generation cancellation, stale submission and
+response rejection, queue pressure, provider failure/panic containment, and
+clean shutdown are verified. GTK drains at most eight responses per tick into
+truthful Loading/unsupported/failed Phase 8F states. The default registry is
+empty: no renderer, persistent cache, network, shell, active content, unrelated
+file access, or sandbox claim was added.
+
 Phase 8F completes the bounded Miller sequence with optional Preview and
 Inspector final-column hooks. An application-owned GTK-independent lifecycle
 preserves exact generation, logical depth, directory, and at most 4,096 raw
@@ -2202,9 +2213,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-9a-preview-providers` and add a typed, bounded, cancellable
-Preview provider lifecycle with explicit limits, stale-result rejection, cache
-policy, and fallback states. Do not add Phase 9B content renderers.
+Create `phase-9b-preview-images-text` and implement bounded passive raster image
+and text/Markdown/source/JSON/XML Preview providers on the Phase 9A lifecycle.
+Do not add PDF/document, media, font, archive, or active HTML rendering.
 ```
 
 ---
