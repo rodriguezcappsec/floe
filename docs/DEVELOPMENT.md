@@ -374,6 +374,15 @@ widget, action, shortcut, persistence, application wiring, or other runtime UI
 behavior. After verified Phase 7A, continue only on
 `phase-7b-tabs-interaction`.
 
+The post-7A grid-grouping correction adds no dependency. Focused
+`grid_grouping` core/application tests verify dotted directories remain one
+Folders section and list/grid use identical visible boundary labels. The full
+gate passes 298 tests: 223 application and 75 core. Native Niri/Wayland smoke
+activated Grid plus Group by Extension through exported actions, confirmed the
+state and D-Bus health, quit cleanly, and released the application name.
+Spectacle produced no file and the screenshot portal timed out, so no visual
+capture is claimed.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

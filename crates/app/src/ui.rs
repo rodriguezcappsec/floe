@@ -756,6 +756,7 @@ pub struct BrowserWidgets {
     list_layout: Rc<Cell<ListColumnLayout>>,
     list_grouping: Rc<Cell<DirectoryGrouping>>,
     list_factory: gtk::SignalListItemFactory,
+    grid_factory: RefCell<gtk::SignalListItemFactory>,
 }
 
 struct SidebarWidgets {
@@ -790,6 +791,7 @@ struct DirectoryPanelWidgets {
     list_layout: Rc<Cell<ListColumnLayout>>,
     list_grouping: Rc<Cell<DirectoryGrouping>>,
     list_factory: gtk::SignalListItemFactory,
+    grid_factory: RefCell<gtk::SignalListItemFactory>,
 }
 
 impl BrowserWidgets {
@@ -813,8 +815,8 @@ impl BrowserWidgets {
         layout: ListColumnLayout,
         grouping: DirectoryGrouping,
     ) {
-        let requires_rebind =
-            self.list_layout.get() != layout || self.list_grouping.get() != grouping;
+        let grouping_changed = self.list_grouping.get() != grouping;
+        let list_requires_rebind = self.list_layout.get() != layout || grouping_changed;
         self.list_layout.set(layout);
         self.list_grouping.set(grouping);
         self.group_header_spacer
@@ -832,10 +834,16 @@ impl BrowserWidgets {
                 .widget
                 .set_width_request(i32::from(layout.width(header.column)));
         }
-        if requires_rebind {
+        if list_requires_rebind {
             self.list_view
                 .set_factory(None::<&gtk::SignalListItemFactory>);
             self.list_view.set_factory(Some(&self.list_factory));
+        }
+        if grouping_changed {
+            self.grid_view
+                .set_factory(None::<&gtk::SignalListItemFactory>);
+            let grid_factory = self.grid_factory.borrow();
+            self.grid_view.set_factory(Some(&*grid_factory));
         }
     }
 
@@ -856,10 +864,12 @@ impl BrowserWidgets {
             &self.selection,
             &self.grid_context_menu,
             &self.thumbnails,
+            &self.list_grouping,
             size,
             &self.drop_dispatcher,
         );
         self.grid_view.set_factory(Some(&factory));
+        self.grid_factory.replace(factory);
     }
 
     pub fn focus_view(&self, mode: ViewMode) {
@@ -1231,6 +1241,7 @@ pub fn build(
         list_layout,
         list_grouping,
         list_factory,
+        grid_factory,
     } = build_directory_panel(preferences.clone(), &drop_dispatcher);
 
     content.set_width_request(420);
@@ -1316,6 +1327,7 @@ pub fn build(
         list_layout,
         list_grouping,
         list_factory,
+        grid_factory,
     }
 }
 
@@ -2257,14 +2269,10 @@ fn build_directory_panel(
             .and_then(|position| selection_for_bind.item(position))
             .and_downcast::<glib::BoxedAnyObject>()
             .map(|object| object.borrow::<std::sync::Arc<DirectoryEntry>>().clone());
-        let starts_group = grouping.starts_group(&entry, previous.as_deref());
+        let group_label = visible_group_label(grouping, &entry, previous.as_deref());
         group.set_visible(grouping != DirectoryGrouping::None);
-        group.set_label(
-            &starts_group
-                .then(|| grouping.label(&entry))
-                .flatten()
-                .unwrap_or_default(),
-        );
+        group.set_label(group_label.as_deref().unwrap_or_default());
+        group.set_tooltip_text(group_label.as_deref());
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
         let tooltip = entry
@@ -2377,10 +2385,11 @@ fn build_directory_panel(
         &selection,
         &grid_context_menu,
         &thumbnails,
+        &list_grouping,
         preferences.grid_size,
         drop_dispatcher,
     );
-    let grid_view = gtk::GridView::new(Some(selection.clone()), Some(grid_factory));
+    let grid_view = gtk::GridView::new(Some(selection.clone()), Some(grid_factory.clone()));
     grid_view.add_css_class("floe-directory-grid");
     grid_view.set_single_click_activate(false);
     grid_view.set_enable_rubberband(true);
@@ -2487,6 +2496,7 @@ fn build_directory_panel(
         list_layout,
         list_grouping,
         list_factory: factory,
+        grid_factory: RefCell::new(grid_factory),
     }
 }
 
@@ -2494,6 +2504,7 @@ fn build_grid_factory(
     selection: &gtk::MultiSelection,
     context_menu: &gtk::PopoverMenu,
     thumbnails: &ThumbnailPresentation,
+    grouping: &Rc<Cell<DirectoryGrouping>>,
     grid_size: GridSize,
     drop_dispatcher: &DropDispatcher,
 ) -> gtk::SignalListItemFactory {
@@ -2519,6 +2530,23 @@ fn build_grid_factory(
             .margin_end(4)
             .build();
         cell.add_css_class("floe-grid-cell");
+        let group_slot = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .height_request(20)
+            .width_request(tile_width - 16)
+            .build();
+        let group = gtk::Label::builder()
+            .halign(gtk::Align::Fill)
+            .valign(gtk::Align::Center)
+            .hexpand(true)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .xalign(0.0)
+            .build();
+        group.add_css_class("floe-group-label");
+        group.add_css_class("floe-grid-group-label");
+        group.set_accessible_role(gtk::AccessibleRole::Heading);
+        group.set_can_target(false);
+        group_slot.append(&group);
         let icon = gtk::Image::builder()
             .pixel_size(grid_icon_edge(edge))
             .width_request(i32::from(edge))
@@ -2538,6 +2566,7 @@ fn build_grid_factory(
             .xalign(0.5)
             .build();
         name.add_css_class("floe-grid-name");
+        cell.append(&group_slot);
         cell.append(&icon);
         cell.append(&name);
 
@@ -2600,6 +2629,8 @@ fn build_grid_factory(
     });
 
     let thumbnails_for_bind = thumbnails.clone();
+    let grouping_for_bind = Rc::clone(grouping);
+    let selection_for_bind = selection.clone();
     factory.connect_bind(move |_, object| {
         let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
             return;
@@ -2607,7 +2638,13 @@ fn build_grid_factory(
         let Some(cell) = list_item.child().and_downcast::<gtk::Box>() else {
             return;
         };
-        let Some(icon) = cell.first_child().and_downcast::<gtk::Image>() else {
+        let Some(group_slot) = cell.first_child().and_downcast::<gtk::Box>() else {
+            return;
+        };
+        let Some(group) = group_slot.first_child().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(icon) = group_slot.next_sibling().and_downcast::<gtk::Image>() else {
             return;
         };
         let Some(name) = icon.next_sibling().and_downcast::<gtk::Label>() else {
@@ -2617,6 +2654,18 @@ fn build_grid_factory(
             return;
         };
         let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
+        let grouping = grouping_for_bind.get();
+        let previous = list_item
+            .position()
+            .checked_sub(1)
+            .and_then(|position| selection_for_bind.item(position))
+            .and_downcast::<glib::BoxedAnyObject>()
+            .map(|object| object.borrow::<std::sync::Arc<DirectoryEntry>>().clone());
+        let group_label = visible_group_label(grouping, &entry, previous.as_deref());
+        group_slot.set_visible(grouping != DirectoryGrouping::None);
+        group.set_visible(group_label.is_some());
+        group.set_label(group_label.as_deref().unwrap_or_default());
+        group.set_tooltip_text(group_label.as_deref());
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
         let tooltip = entry
@@ -2638,9 +2687,17 @@ fn build_grid_factory(
         let Some(cell) = list_item.child().and_downcast::<gtk::Box>() else {
             return;
         };
-        let Some(icon) = cell.first_child().and_downcast::<gtk::Image>() else {
+        let Some(group_slot) = cell.first_child().and_downcast::<gtk::Box>() else {
             return;
         };
+        let Some(group) = group_slot.first_child().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(icon) = group_slot.next_sibling().and_downcast::<gtk::Image>() else {
+            return;
+        };
+        group.set_label("");
+        group.set_tooltip_text(None);
         thumbnails_for_unbind.unbind(&icon);
     });
     factory
@@ -2780,6 +2837,17 @@ fn widget_or_ancestor_has_css_class(
 
 fn is_bound_list_position(position: u32) -> bool {
     position != gtk::INVALID_LIST_POSITION
+}
+
+fn visible_group_label(
+    grouping: DirectoryGrouping,
+    entry: &DirectoryEntry,
+    previous: Option<&DirectoryEntry>,
+) -> Option<String> {
+    grouping
+        .starts_group(entry, previous)
+        .then(|| grouping.label(entry))
+        .flatten()
 }
 
 fn icon_button(icon_name: &str, tooltip: &str, action_name: &str) -> gtk::Button {
@@ -3085,7 +3153,7 @@ fn format_modified(modified: SystemTime) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::PathBuf, time::Duration};
+    use std::{fs, path::PathBuf, time::Duration};
 
     use super::*;
 
@@ -3494,6 +3562,37 @@ mod tests {
         assert_eq!(
             file_view_density_class(FileViewDensity::Spacious),
             "view-spacious"
+        );
+    }
+
+    #[test]
+    fn grid_grouping_exposes_the_same_visible_boundaries_as_list_grouping() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        fs::create_dir(temporary.path().join("archive.2024")).expect("dotted folder");
+        fs::create_dir(temporary.path().join("projects")).expect("plain folder");
+        fs::write(temporary.path().join("main.rs"), b"fn main() {}").expect("Rust fixture");
+        fs::write(temporary.path().join("notes.txt"), b"notes").expect("text fixture");
+        let mut entries = floe_core::enumerate_directory(temporary.path())
+            .expect("enumeration")
+            .entries()
+            .to_vec();
+        let grouping = DirectoryGrouping::Extension;
+        DirectorySort::new(SortColumn::Name, SortDirection::Ascending)
+            .with_grouping(grouping)
+            .sort_entries(&mut entries);
+
+        let labels = entries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                visible_group_label(grouping, entry, index.checked_sub(1).map(|i| &entries[i]))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(labels, ["Folders", ".rs", ".txt"]);
+        assert!(
+            entries.iter().all(|entry| {
+                visible_group_label(DirectoryGrouping::None, entry, None).is_none()
+            })
         );
     }
 

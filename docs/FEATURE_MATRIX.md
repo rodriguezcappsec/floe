@@ -267,7 +267,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Owner/permissions sorting | `PLANNED` | 6T/10B | Depends on lazy metadata providers. |
 | Dimensions/duration/audio sorting | `PLANNED` | 6T/10B/10F | Expensive metadata stays lazy and stable during enrichment. |
 | Stable ordering during enrichment | `COMPLETE` | 6T | Lazy metadata responses update bound labels only; deliberate policy actions own resort boundaries. |
-| Group by type/date/size/extension | `PARTIAL` | 6T/10B/20 | Type and raw extension grouping are implemented independently from sorting; date and size groups remain planned. |
+| Group by type/date/size/extension | `PARTIAL` | 6T/10B/20 | Type and raw extension grouping have visible list/grid boundaries independent of sorting; dotted directories remain one Folders group. Date and size groups remain planned. |
 | Group by tags | `DEFERRED` | 19 | Depends on a real tag model. |
 | Collapsible groups | `PLANNED` | 6T/20 | Requires accessible headers and a persistent-state policy. |
 | Disable grouping | `COMPLETE` | 6T | None is the default and a persisted explicit grouping choice. |

@@ -1166,6 +1166,14 @@ Phase 7 — Tabs and split view (Phase 7A complete)
 Status:
 
 ```text
+The post-7A grid-grouping correction makes Type and Extension grouping visible
+inside the virtualized grid with the same boundary labels used by list view.
+Every grouped tile reserves a stable label row so recycled cells remain aligned;
+only the first item in each group exposes the accessible heading text. Extension
+grouping also treats all navigable directories as one Folders section, including
+dotted directory names. Shared selection, activation, rubber-band selection,
+drag/drop, thumbnail requests, and the single virtualized model remain intact.
+
 Phase 7A establishes the GTK-independent tab/session foundation without changing
 runtime UI. `floe-core` now canonically owns list/grid, grid-size, density,
 sorting/grouping/folder-placement, and list-column view policy. `BrowserSession`
@@ -1451,6 +1459,14 @@ add closed-tab/startup persistence or split view in Phase 7B.
 Verified:
 
 ```text
+The grid-grouping correction passes formatting, workspace check, strict
+all-target/all-feature Clippy, and 298 tests: 75 core and 223 application.
+Focused `grid_grouping` tests cover visible list/grid boundary parity and dotted
+directory grouping. Native Niri/Wayland smoke activated Grid plus Group by
+Extension through exported actions, confirmed action state and D-Bus health,
+quit cleanly, and released the application name. No visual capture is claimed:
+Spectacle produced no file and the screenshot portal timed out.
+
 Phase 7A passes formatting, workspace check, strict all-target/all-feature
 Clippy, and 296 tests: 74 core and 222 application. Focused coverage includes
 canonical view policy, complete history transitions, explicit history/selection
@@ -1704,6 +1720,12 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Corrected grid Group By presentation on `fix-grid-grouping` without replacing
+  `GtkGridView` or duplicating the shared model/selection.
+* Added stable accessible grid group labels and kept dotted directories in one
+  Folders section for Extension grouping.
+* Verified 298 tests plus native Grid/Extension-grouping action, D-Bus health,
+  clean quit, and name release; Phase 7B remains the sole recommended next phase.
 * Completed Phase 7A tab/session foundation on `phase-7a-tabs-foundation`.
 * Moved canonical GTK-independent view policy from the app into `floe-core` and
   added stable-ID bounded complete browser-session state plus versioned raw-path

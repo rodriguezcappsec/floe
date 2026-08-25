@@ -124,6 +124,9 @@ impl DirectoryGrouping {
         match self {
             Self::None => Ordering::Equal,
             Self::Type => kind_rank(left.kind()).cmp(&kind_rank(right.kind())),
+            Self::Extension if left.is_navigable_directory() && right.is_navigable_directory() => {
+                Ordering::Equal
+            }
             Self::Extension => optional_os_str(
                 entry_extension(left),
                 entry_extension(right),
@@ -509,6 +512,26 @@ mod tests {
             names(&entries),
             ["folder", "main.rs", "notes.txt", "README"]
         );
+    }
+
+    #[test]
+    fn grid_grouping_keeps_dotted_directories_in_one_folders_section() {
+        let mut entries = vec![
+            entry("archive.2024".into(), EntryKind::Directory, None, None),
+            entry("projects".into(), EntryKind::Directory, None, None),
+            entry("main.rs".into(), EntryKind::RegularFile, Some(1), None),
+        ];
+        let grouping = DirectoryGrouping::Extension;
+        DirectorySort::new(SortColumn::Name, SortDirection::Ascending)
+            .with_grouping(grouping)
+            .sort_entries(&mut entries);
+
+        assert_eq!(names(&entries), ["archive.2024", "projects", "main.rs"]);
+        assert!(grouping.starts_group(&entries[0], None));
+        assert!(!grouping.starts_group(&entries[1], Some(&entries[0])));
+        assert!(grouping.starts_group(&entries[2], Some(&entries[1])));
+        assert_eq!(grouping.label(&entries[0]).as_deref(), Some("Folders"));
+        assert_eq!(grouping.label(&entries[2]).as_deref(), Some(".rs"));
     }
 
     #[cfg(unix)]
