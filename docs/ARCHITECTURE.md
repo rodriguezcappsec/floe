@@ -179,6 +179,14 @@ ID as stable tab identity. Workspace version 2 serializes both panes and safely
 migrates version-1 unsplit records. No GTK model, widget, watcher, or worker is
 created by this state layer.
 
+Phase 7E keeps exactly one active virtualized list/grid, enumerator, thumbnail
+worker, metadata worker, and active-directory monitor. The inactive split pane
+is a bounded application-owned presentation snapshot keyed by stable tab ID and
+side; activating it restores its authoritative `BrowserSession` through the
+existing generation-safe pipeline. Opposite-pane transfers resolve exact paths
+from `BrowserTabs` and submit typed requests to `ApplicationState`; GTK callbacks
+do not enumerate or mutate the filesystem.
+
 
 ### `application.rs` and `main.rs`
 

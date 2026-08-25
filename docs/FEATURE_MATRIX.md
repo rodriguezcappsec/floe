@@ -206,14 +206,14 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | --- | --- | --- | --- |
 | Split-view state model | `COMPLETE` | 7D | Every tab owns a GTK-independent primary session, optional secondary session, explicit active side, and bounded ratio while retaining stable tab identity. |
 | Independent path/history | `COMPLETE` | 7D | Both panes reuse Phase 7A sessions, preserving separate exact paths, histories, selections, scroll anchors, and view policies. |
-| Clear active-side indication | `PLANNED` | 7E | Must remain visible without color alone. |
-| Keyboard side switching | `PLANNED` | 7E | Focus and shortcut scope must be predictable. |
-| Copy/move between panes | `PLANNED` | 7E | Reuse existing operation commands with exact opposite-pane destination. |
-| Open folder in opposite pane | `PLANNED` | 7E | Requires explicit active/opposite semantics. |
-| Swap panes | `PLANNED` | 7E | Swap session identities, not GTK contents. |
-| Close pane | `PLANNED` | 7E | Preserve surviving pane session and focus. |
-| Persistent split ratio | `PARTIAL` | 7D/20 | A bounded 20–80% ratio is part of versioned workspace state; visible paned-widget preference interaction remains 7E/20. |
-| Different view modes per pane | `PLANNED` | 7D | Depends on per-session view state. |
+| Clear active-side indication | `COMPLETE` | 7E | Text states left/right active ownership; CSS only reinforces it. |
+| Keyboard side switching | `COMPLETE` | 7E | F6 activates the opposite session through the shared browser pipeline. |
+| Copy/move between panes | `COMPLETE` | 7E | Explicit commands resolve the authoritative opposite path and reuse no-overwrite FIFO jobs without replacing staged clipboard state. |
+| Open folder in opposite pane | `COMPLETE` | 7E | Exact selected folder updates or creates the inactive session without focus theft. |
+| Swap panes | `COMPLETE` | 7E | Swaps session identities and bounded snapshots, not duplicated GTK browser contents. |
+| Close pane | `COMPLETE` | 7E | Closes the inactive pane and retains the active session. |
+| Persistent split ratio | `COMPLETE` | 7D/7E | Pointer resizing and 5% keyboard steps are clamped to 20–80% and persist through workspace v2. |
+| Different view modes per pane | `COMPLETE` | 7D/7E | Each session retains independent view policy and restores it when activated. |
 | Active-pane filter/search | `PLANNED` | 13A-13B | Search ownership must follow active pane. |
 | Optional synchronized navigation | `DEFERRED` | 7F | Only after independent behavior is reliable and understandable. |
 | Drag between panes | `PLANNED` | 7F | Reuse exact operation requests and active destination highlighting. |

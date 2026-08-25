@@ -1160,12 +1160,22 @@ Last updated:
 Current phase:
 
 ```text
-Phase 7 — Tabs and split view (Phase 7D complete)
+Phase 7 — Tabs and split view (Phase 7E complete)
 ```
 
 Status:
 
 ```text
+Phase 7E adds one native horizontal split over the Phase 7D state. F3 toggles,
+F6 switches active side, Ctrl+Alt+Left/Right changes the primary ratio in 5%
+steps, and menus expose close, swap, Open Folder in Other Pane, and direct
+Copy/Move to Other Pane. Text identifies the active left/right side; the inactive
+pane is a bounded, truthfully stale snapshot. Exact opposite destinations reuse
+existing no-overwrite FIFO jobs without disturbing the staged transfer buffer.
+Only one active list/grid, browser worker, thumbnail/metadata pipeline, and
+watcher exists. Split state and ratio restore across clean launches. Inter-pane
+drag/drop remains Phase 7F.
+
 Phase 7D adds GTK-independent per-tab split state. Every live and recently
 closed tab now owns a primary `BrowserSession`, optional secondary session,
 explicit active side, and bounded 20–80% ratio while retaining stable tab
@@ -1480,10 +1490,10 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 7C is complete. The one recommended next branch is
-`phase-7d-split-state`, adding GTK-independent two-pane state, active side,
-independent histories/view policy, and bounded ratio/focus serialization. Do not
-add split widgets or interaction in Phase 7D.
+Phase 7E is complete. The one recommended next branch is
+`phase-7f-tab-split-drag`, adding exact-path file-operation drag/drop between
+split contexts through the existing bounded dispatcher. Do not add Miller
+column drag or detached windows in Phase 7F.
 ```
 
 Verified:
@@ -1692,11 +1702,11 @@ eviction. Formatting, strict Clippy, and native smoke status are in `GATES.md`.
 Known issues:
 
 ```text
-Normal tab state now persists across clean shutdown. It can expose paths,
+Normal tab and split state now persists across clean shutdown. It can expose paths,
 history, selection, and view state to same-user processes, backups, snapshots,
 or storage history. Private/Sensitive environment policy suppresses only Floe's
 owned session file and is not a complete user-facing Private Mode. Crash-time
-latest-state journaling, optional tab names/pins, and split view remain deferred.
+latest-state journaling and optional tab names/pins remain deferred.
 
 Phase 6T supports sorting by Extension and grouping by Type/Extension only.
 MIME/Created/Accessed/Permissions sorting, date/size grouping, natural-name
@@ -1761,7 +1771,7 @@ Deferred:
 Overwrite and apply-to-all conflict policy, Restore Elsewhere and Trash cleanup
 preferences, ownership/ACL/xattr/sparse/reflink-complete copies, persistent
 operation recovery/history UI, template management, heavyweight/RAW/vector thumbnails,
-tabs, split view, Miller columns, previews, archives, search, richer device
+inter-pane drag/drop, Miller columns, previews, archives, search, richer device
 details, Niri IPC, KDE-specific APIs, and network filesystems.
 First-class theme/font customization, full file-association/external-tool
 management, and privileged GFile browsing remain explicit later milestones.
@@ -1770,6 +1780,13 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 7E split interaction on `phase-7e-split-interaction`.
+* Added native resizable panes, explicit active-side ownership, bounded inactive
+  snapshots, toggle/switch/swap/close, exact opposite-pane open/copy/move, and
+  pointer/menu/keyboard parity over one shared browser pipeline.
+* Verified 322 tests, strict Clippy, formatting/check/diff hygiene, full native
+  action lifecycle, D-Bus health, clean quit, and two-launch split restoration;
+  Phase 7F is the sole recommended next phase.
 * Completed Phase 7C closed tabs/session restore on
   `phase-7c-tab-session-restore`.
 * Added bounded LIFO reopen/close variants, hostile-input workspace codec,
@@ -2081,10 +2098,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-7e-split-interaction` and implement visible two-pane interaction:
-toggle/close/swap, explicit active-side focus, opposite-pane open, and
-search/filter hooks. Reuse shared bounded services; do not add inter-pane
-drag-and-drop until Phase 7F.
+Create `phase-7f-tab-split-drag` and add exact-path file-operation drag/drop
+between split contexts using the existing bounded dispatcher, modifier policy,
+accessible destination feedback, and complete keyboard alternatives. Do not add
+Miller-column drag or detached windows.
 ```
 
 ---
