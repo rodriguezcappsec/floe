@@ -11,6 +11,7 @@ mod launcher;
 mod location_input;
 mod locations;
 pub mod move_executor;
+mod operation_control;
 mod operations;
 mod permanent_delete_executor;
 mod preferences;

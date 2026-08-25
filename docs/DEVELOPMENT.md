@@ -265,7 +265,21 @@ cross-client clipboard claiming is compositor/input-serial constrained on the
 current Niri host, so deterministic MIME parsing/provider tests are the
 interoperability evidence; no native external-owner claim is made.
 
-After verified Phase 6O, continue only on `phase-6p-operation-control`.
+Phase 6P adds no dependency. Focused checks are:
+
+```bash
+cargo test -p floe-core phase_6p -- --nocapture
+cargo test -p floe-app phase_6p -- --nocapture
+```
+
+The tests cover explicit progress units, deterministic telemetry, bounded stable
+batches, FIFO pause/resume/cancel, raw-name Keep Both, batch-scoped Skip All,
+memory-only history retention, and exact-identity move/rename Undo. Native smoke
+uses isolated HOME/XDG roots, verifies the application owns its D-Bus name,
+exports its window actions, answers `Peer.Ping`, quits cleanly, and releases the
+name. It must not touch real user files merely to exercise Operations Island UI.
+
+After verified Phase 6P, continue only on `phase-6q-create-duplicate-links`.
 
 ## Wayland environments
 

@@ -2,7 +2,7 @@
 
 Status: authoritative design and threat model. Most capabilities in this document are **PLANNED**, not implemented. This document does not select a cryptographic format, cryptographic library, vault backend, or sandbox mechanism.
 
-Last reviewed against the repository: `2026-08-24`, after Phase 6O.
+Last reviewed against the repository: `2026-08-24`, after Phase 6P.
 
 ## Status vocabulary and claim discipline
 
@@ -39,6 +39,8 @@ Security state must use text and accessible semantics, never color alone. A fail
 - Bookmarks retain exact path bytes and use bounded asynchronous atomic persistence with `0700` directories and `0600` files. View preferences use asynchronous atomic `0600` file writes.
 - Password-protected device mounting uses a window-parented `GtkMountOperation`. The desktop and GIO own the prompt and credential exchange. Floe code does not receive, persist, log, or pass the password on a command line.
 - Floe's exact-path transfer buffer and terminal operation history are bounded and memory-only. Phase 6O also publishes selected local file URIs to the desktop clipboard using standard GNOME/KDE-compatible formats. Clipboard managers, desktop services, and other applications may retain those paths after Floe changes or exits; this is interoperability, not a privacy feature or audit journal.
+
+- Phase 6P operation history remains bounded and memory-only. It captures typed outcomes and exact operation identities; Clear Completed preserves failures, conflicts, cancellations, and partial evidence. Safe Undo exists only for completed move/rename records after no-follow destination identity revalidation and no-overwrite original-path checks. It is not rollback, crash recovery, persistent audit history, or a claim that irreversible work is reversible.
 
 ### PARTIAL or absent protections
 

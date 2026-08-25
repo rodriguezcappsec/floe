@@ -1,76 +1,39 @@
-# Plan: Floe Phase 6O Transfer semantics
+# Plan: Floe Phase 6P Operation control
 
-Mode: solo, depth 4.
+Mode: sequential solo phase, depth 4.
 
 ## Contract
 
-- `floe-core` owns destination-space preflight, basic metadata preservation,
-  source-tree identity checks, and no-overwrite cross-filesystem move semantics.
-- The application owns bounded executor dispatch, structured job outcomes, and
-  interoperable desktop clipboard parsing/publishing. GTK callbacks only submit
-  application commands and asynchronous clipboard requests.
-- Original `PathBuf`/`OsString` values remain authoritative. URI clipboard text
-  is decoded through filename-URI APIs and never reconstructed from labels.
-- Copy preserves supported POSIX mode plus access/modification timestamps.
-  Ownership, ACLs, extended attributes, sparse extents, reflinks, capabilities,
-  and security labels are not claimed as preserved.
-- Cross-filesystem move keeps the source until a fully copied staging tree is
-  synchronized, revalidated, and atomically finalized without overwrite. A
-  post-commit delete failure is an explicit non-retryable partial outcome.
-- Queue controls, richer progress/history, overwrite/apply-to-all, verified-copy
-  hashing, drag and drop, remote transfers, and later roadmap phases stay out of
-  scope.
+- `floe-core` owns explicit progress units and identity validation needed by reversible move/rename attempts. Existing legal job transitions remain authoritative.
+- The application layer owns batch boundaries, queue state, rate/ETA sampling, in-session history, scoped conflict decisions, and Undo dispatch.
+- Pause is truthful: Floe pauses serial multi-item batches only between items. It never labels an actively executing syscall or GIO operation paused.
+- Undo is offered only for completed move/rename attempts whose exact resulting object identity was captured by the worker. Reverse moves revalidate identity and use no-overwrite semantics.
+- Keep Both uses bounded deterministic raw sibling naming and atomic no-replace attempts. Skip All is scoped to one stable batch. Replace and Replace All remain unavailable until backup/rollback semantics exist.
+- History is bounded and memory-only. Clear Completed never removes failures, conflicts, cancellations, or partial outcomes.
+- GTK callbacks submit application commands only; no filesystem mutation or metadata inspection runs on the GTK main loop.
+- Phase 6Q create/duplicate/link functionality remains out of Phase 6P scope.
 
-## Depth tree
+## Implemented depth tree
 
-1. Copy contract
-   - Capture no-follow source identity, POSIX mode, access time, and modified time.
-   - Check destination filesystem availability before creating output.
-   - Preserve supported metadata after content and synchronize regular files.
-   - Keep cleanup exact and report unsupported/insufficient-space cases truthfully.
-2. Cross-filesystem move
-   - Retain atomic `RENAME_NOREPLACE` fast path.
-   - On `EXDEV`, copy to a collision-safe hidden sibling staging path.
-   - Revalidate the complete source tree before finalization; never delete a
-     source that changed while copying.
-   - Atomically publish staging, then remove only identity-matching source nodes.
-     Classify cancellation/failure after publication as partial completion.
-3. External clipboard
-   - Publish bounded `text/uri-list`, `x-special/gnome-copied-files`, and KDE cut
-     marker formats alongside the exact in-process transfer buffer.
-   - Read supported formats asynchronously, validate local file URIs and limits,
-     deduplicate exact paths, and stage them through `ApplicationState`.
-   - Prefer the richer GNOME copy/cut format, then URI list plus KDE cut marker;
-     reject remote/invalid clipboard targets without filesystem work in GTK.
-4. Verification and records
-   - Add focused core, executor, state, and clipboard tests covering space,
-     timestamps/mode, cross-device fallback injection, cancellation/partials,
-     symlinks, conflicts, and non-UTF-8 paths.
-   - Run formatting, workspace check, strict Clippy, all tests, diff hygiene, and
-     isolated native Wayland clipboard/transfer smoke where practical.
-   - Update persistent architecture, roadmap, feature, privacy/security, gates,
-     and project status; select exactly one recommended next phase.
+1. Core operation semantics
+   - Added `ProgressUnit::{Unknown, Bytes, Items}` and unit-aware constructors.
+   - Captured no-follow destination identity after successful move/rename.
+   - Revalidated expected source identity before a reverse move can commit.
+2. Batch and telemetry policy
+   - Added bounded stable batch IDs, FIFO pending items, counts, pause/resume/cancel, and terminal snapshots.
+   - Added deterministic smoothed byte telemetry with suppression for invalid samples.
+3. Conflict, history, and Undo state
+   - Added Keep Both, batch-scoped Skip All, bounded terminal history presentation, evidence-preserving clearing, and one-shot safe Undo.
+4. GTK integration and verification
+   - Added pause/history controls, unit-aware detail, batch summaries, conflict actions, and Undo controls through `ApplicationState` commands.
+   - Added focused core/application tests, full workspace gates, native Wayland health smoke, and persistent documentation updates.
 
 ## Status log
 
-- 2026-08-24: Created `phase-6o-transfer-semantics` from synchronized `main` at
-  `ed966e1`; inspected copy/move executors, application transfer state, browser
-  actions, dependencies, roadmap, architecture, and privacy/security boundaries.
-- 2026-08-24: Phase contract and executable gates defined before coding.
-- 2026-08-24: Implemented destination-space preflight, supported POSIX
-  metadata preservation, staged no-overwrite `EXDEV` move fallback with exact
-  source-tree revalidation, and bounded standard desktop clipboard exchange.
-- 2026-08-24: Added eight focused core and seven focused application tests;
-  the complete workspace now passes 235 tests (56 core, 179 application).
-- 2026-08-24: Isolated native Wayland smoke verified application ownership,
-  30 exported window actions, Select All/Copy activation, Paste enablement from
-  Floe's provider, D-Bus health, and clean shutdown. The compositor input-serial
-  rule prevented automated external-client ownership, so interoperability is
-  supported by deterministic provider/parser tests rather than a native
-  cross-client claim.
-- 2026-08-24: Updated persistent architecture, design, development,
-  privacy/security, roadmap, feature matrix, gates, and project status. Exactly
-  one next phase is recommended: `phase-6p-operation-control`.
+- 2026-08-24: Created `phase-6p-operation-control` from verified Phase 6O main at `45f1fba` and defined gates before coding.
+- 2026-08-24: Completed implementation and focused defect-hunt pass.
+- 2026-08-24: Verified formatting, workspace check, strict Clippy, all 251 tests, diff hygiene, and isolated native Wayland/D-Bus startup, history action, and shutdown.
+- 2026-08-24: Marked exactly Phase 6Q `NEXT`; Phase 6P does not implement Phase 6Q features.
 
 ## Status
 

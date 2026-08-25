@@ -1160,12 +1160,23 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — Browser filesystem foundations (Phase 6O complete)
+Phase 6 — Browser filesystem foundations (Phase 6P complete)
 ```
 
 Status:
 
 ```text
+Phase 6P adds bounded operation control. Progress carries explicit unknown,
+byte, or item units; Operations Island derives smoothed speed/ETA only from
+meaningful determinate byte samples. Stable serial batches expose item counts,
+pause-after-current/resume, queued-item cancellation, and terminal summaries.
+Conflict handling adds deterministic no-replace Keep Both and batch-scoped Skip
+All while Replace/Replace All remain unavailable. A 64-entry memory-only history
+supports Clear Completed without discarding failure/conflict/partial/cancelled
+evidence. Undo is offered only for completed move/rename records with captured
+destination identity; reverse moves revalidate identity and never overwrite the
+original path. GTK callbacks only submit application commands.
+
 Phase 6O adds safe transfer semantics. Copy now checks point-in-time
 destination user-available space before creation, preserves and synchronizes
 regular-file/directory Unix mode plus access/modification timestamps, and
@@ -1364,19 +1375,26 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6O is complete. The one recommended next branch is
-`phase-6p-operation-control`, adding queue controls, unified item progress,
-speed/ETA, truthful pause where supported, richer scoped conflict policy, and
-safe operation-specific undo/history without claiming irreversible work is
-undoable.
+Phase 6P is complete. The one recommended next branch is
+`phase-6q-create-duplicate-links`, adding safe new folder/file and template
+creation, duplicate, symbolic/hard links, reveal target, and copy
+name/path/relative-path/URI commands without shell or privileged creation.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-235 tests pass: fifty-six core and 179 application tests. Fifteen focused
-Phase 6O tests cover exact required/available space errors, file/directory mode
+251 tests pass: fifty-nine core and 192 application tests. Sixteen focused
+Phase 6P tests cover explicit units, frequent-sample telemetry, regression and
+indeterminate suppression, raw Keep Both naming, stable batch counts, FIFO
+pause/resume, queued cancellation, committed-current cancellation, scoped Skip
+All, evidence-preserving history, identity-checked move Undo, non-undoable copy,
+and truthful UI summaries. Native Wayland smoke used isolated HOME/XDG roots,
+exported 31 window actions, activated `operation-history`, answered D-Bus
+`Peer.Ping`, quit cleanly, and released
+its application name. Fifteen focused Phase 6O tests cover exact
+required/available space errors, file/directory mode
 and timestamp preservation, truthful symlink metadata reporting, injected and
 real-`EXDEV` staging, no-overwrite cleanup, exact non-UTF-8 paths/symlinks,
 changed-source recovery, committed partial failure classification, bounded
@@ -1511,7 +1529,11 @@ eviction. Formatting, strict Clippy, and native smoke status are in `GATES.md`.
 Known issues:
 
 ```text
-No application correctness failures are known. Phase 6O's external clipboard
+No application correctness failures are known. Phase 6P operation history is
+memory-only and intentionally disappears at exit; it is not persistent recovery.
+Pause applies only between serial batch items. Undo is limited to completed
+move/rename work and can still fail safely when destination identity changed or
+the original path became occupied. Phase 6O's external clipboard
 interoperability exposes selected local path URIs to desktop clipboard services
 and managers under normal user authority; it is not a privacy feature and
 automated cross-client ownership could not be natively exercised without a
@@ -1564,6 +1586,12 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 6P operation control on `phase-6p-operation-control`.
+* Added explicit progress units, stable byte telemetry, bounded serial batch
+  pause/resume/cancel, item and terminal summaries.
+* Added deterministic Keep Both, batch-scoped Skip All, bounded memory-only
+  history, evidence-preserving Clear Completed, and identity-checked move/rename Undo.
+* Kept Replace/Replace All, persistent recovery history, and irreversible Undo out of scope.
 * Completed Phase 6O transfer semantics on `phase-6o-transfer-semantics`.
 * Added point-in-time destination-space preflight, synchronized POSIX
   mode/timestamp preservation, and explicit unsupported-metadata reporting.
@@ -1811,10 +1839,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-6p-operation-control` and add bounded queue controls, unified
-item progress, measured speed/ETA, truthful pause only where execution can
-actually pause, richer scoped conflict decisions, and safe operation-specific
-undo/history without claiming irreversible work is reversible.
+Create `phase-6q-create-duplicate-links` and add safe new folder/file and template
+creation, duplicate, symbolic/hard links, reveal target, and copy
+name/path/relative-path/URI commands. Use no shell or privileged creation, never
+overwrite silently, and verify collisions, broken links, and raw non-UTF-8 names.
 ```
 
 ---

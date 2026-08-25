@@ -32,6 +32,7 @@ pub struct MoveRequest {
     source: PathBuf,
     destination: PathBuf,
     conflict_policy: ConflictPolicy,
+    expected_source_identity: Option<FileIdentity>,
 }
 
 impl MoveRequest {
@@ -44,7 +45,13 @@ impl MoveRequest {
             source: source.into(),
             destination: destination.into(),
             conflict_policy,
+            expected_source_identity: None,
         }
+    }
+
+    pub fn with_expected_source_identity(mut self, identity: FileIdentity) -> Self {
+        self.expected_source_identity = Some(identity);
+        self
     }
 
     pub fn source(&self) -> &Path {
@@ -57,6 +64,37 @@ impl MoveRequest {
 
     pub const fn conflict_policy(&self) -> ConflictPolicy {
         self.conflict_policy
+    }
+
+    pub const fn expected_source_identity(&self) -> Option<FileIdentity> {
+        self.expected_source_identity
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FileIdentity {
+    device: u64,
+    inode: u64,
+    mode: u32,
+    length: u64,
+    modified_seconds: i64,
+    modified_nanoseconds: i64,
+}
+
+impl FileIdentity {
+    fn from_metadata(metadata: &fs::Metadata) -> Self {
+        Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            mode: metadata.mode(),
+            length: metadata.len(),
+            modified_seconds: metadata.mtime(),
+            modified_nanoseconds: metadata.mtime_nsec(),
+        }
+    }
+
+    fn matches(self, metadata: &fs::Metadata) -> bool {
+        self == Self::from_metadata(metadata)
     }
 }
 
@@ -113,7 +151,15 @@ impl MoveCancellation {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MoveOutcome;
+pub struct MoveOutcome {
+    destination_identity: FileIdentity,
+}
+
+impl MoveOutcome {
+    pub const fn destination_identity(self) -> FileIdentity {
+        self.destination_identity
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum MoveError {
@@ -137,7 +183,7 @@ pub enum MoveError {
     DestinationExists(PathBuf),
     #[error(transparent)]
     Copy(#[from] CopyError),
-    #[error("source changed while cross-filesystem move was copying: {}", .0.display())]
+    #[error("source changed before the move could commit: {}", .0.display())]
     SourceChanged(PathBuf),
     #[error(
         "destination was committed but source was retained after {reason}: source {}, destination {}",
@@ -208,7 +254,7 @@ where
     F: FnMut(CopyProgress),
 {
     check_cancelled(cancellation)?;
-    validate_move(request)?;
+    let source_identity = validate_move(request)?;
     check_cancelled(cancellation)?;
 
     let rename_result = match request.conflict_policy() {
@@ -222,7 +268,9 @@ where
     };
 
     match rename_result {
-        Ok(()) => Ok(MoveOutcome),
+        Ok(()) => Ok(MoveOutcome {
+            destination_identity: source_identity,
+        }),
         Err(Errno::XDEV) => {
             execute_cross_filesystem_move(request, cancellation, &mut report_progress)
         }
@@ -319,11 +367,19 @@ where
     if cancellation.is_cancelled() {
         return Err(committed_partial(request, "cancellation"));
     }
+    let destination_identity = capture_identity(request.destination()).map_err(|error| {
+        committed_partial(
+            request,
+            format!("could not capture destination identity: {error}"),
+        )
+    })?;
     if let Err(reason) = remove_snapshot_tree(&source_snapshot, cancellation) {
         return Err(committed_partial(request, reason));
     }
 
-    Ok(MoveOutcome)
+    Ok(MoveOutcome {
+        destination_identity,
+    })
 }
 
 fn synchronize_destination_parent(destination: &Path) -> Result<(), MoveError> {
@@ -560,7 +616,7 @@ fn committed_partial(request: &MoveRequest, reason: impl Into<String>) -> MoveEr
     }
 }
 
-fn validate_move(request: &MoveRequest) -> Result<(), MoveError> {
+fn validate_move(request: &MoveRequest) -> Result<FileIdentity, MoveError> {
     if request.source().file_name().is_none() {
         return Err(MoveError::InvalidSource(request.source().to_path_buf()));
     }
@@ -613,11 +669,28 @@ fn validate_move(request: &MoveRequest) -> Result<(), MoveError> {
         }
     };
 
+    let identity = FileIdentity::from_metadata(&metadata);
+    if request
+        .expected_source_identity()
+        .is_some_and(|expected| !expected.matches(&metadata))
+    {
+        return Err(MoveError::SourceChanged(request.source().to_path_buf()));
+    }
     if metadata.file_type().is_dir() && destination.starts_with(&source) {
         return Err(MoveError::DestinationInsideSource(destination));
     }
 
-    Ok(())
+    Ok(identity)
+}
+
+fn capture_identity(path: &Path) -> Result<FileIdentity, MoveError> {
+    fs::symlink_metadata(path)
+        .map(|metadata| FileIdentity::from_metadata(&metadata))
+        .map_err(|source| MoveError::Io {
+            action: "capture move destination identity",
+            path: path.to_path_buf(),
+            source,
+        })
 }
 
 fn rename_destination(request: &RenameRequest) -> Result<PathBuf, MoveError> {
@@ -1040,6 +1113,74 @@ mod tests {
         assert_eq!(
             fs::read(destination).expect("committed destination should be complete"),
             b"payload"
+        );
+    }
+
+    #[test]
+    fn phase_6p_undo_revalidates_identity_and_preserves_non_utf8_paths() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let raw_source = OsString::from_vec(b"source-\xff".to_vec());
+        let raw_destination = OsString::from_vec(b"destination-\xfe".to_vec());
+        let source = fixture.path().join(raw_source);
+        let destination = fixture.path().join(raw_destination);
+        fs::write(&source, b"payload").expect("source fixture should be writable");
+
+        let outcome = execute_move(
+            &move_request(&source, &destination),
+            &MoveCancellation::new(),
+        )
+        .expect("initial move should succeed");
+        execute_move(
+            &MoveRequest::new(&destination, &source, ConflictPolicy::FailIfExists)
+                .with_expected_source_identity(outcome.destination_identity()),
+            &MoveCancellation::new(),
+        )
+        .expect("identity-matching undo should succeed");
+
+        assert_eq!(
+            fs::read(&source).expect("source should be restored"),
+            b"payload"
+        );
+        assert!(!destination.exists());
+        assert_eq!(
+            source
+                .file_name()
+                .expect("source should retain a name")
+                .as_bytes(),
+            b"source-\xff"
+        );
+    }
+
+    #[test]
+    fn phase_6p_undo_rejects_conflict_and_changed_destination_identity() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("destination");
+        fs::write(&source, b"payload").expect("source fixture should be writable");
+        let outcome = execute_move(
+            &move_request(&source, &destination),
+            &MoveCancellation::new(),
+        )
+        .expect("initial move should succeed");
+        let undo = MoveRequest::new(&destination, &source, ConflictPolicy::FailIfExists)
+            .with_expected_source_identity(outcome.destination_identity());
+
+        fs::write(&source, b"blocker").expect("original path blocker should be writable");
+        assert!(matches!(
+            execute_move(&undo, &MoveCancellation::new()),
+            Err(MoveError::DestinationExists(path)) if path == source
+        ));
+        fs::remove_file(&source).expect("blocker should be removable");
+        fs::write(&destination, b"changed payload")
+            .expect("moved destination should be changeable");
+        assert!(matches!(
+            execute_move(&undo, &MoveCancellation::new()),
+            Err(MoveError::SourceChanged(path)) if path == destination
+        ));
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read(destination).expect("changed destination must remain"),
+            b"changed payload"
         );
     }
 }

@@ -255,8 +255,9 @@ publishes bounded `text/uri-list`, `x-special/gnome-copied-files`, and
 asynchronously with a 4 MiB/4096-item ceiling, accepts only local filename URIs,
 deduplicates exact decoded `PathBuf` values, then stages through
 `ApplicationState`. GTK callbacks perform no filesystem work. Clipboard
-managers and ownership lifetimes remain external desktop behavior; operation
-persistence, history UI, and overwrite policy are not implemented.
+managers and ownership lifetimes remain external desktop behavior. Phase 6P
+adds bounded memory-only operation history; persistent recovery and overwrite
+policy are not implemented.
 
 ### `ui.rs`
 
@@ -599,8 +600,9 @@ synchronizes regular-file content and resulting metadata. Symlink metadata,
 ownership, ACLs, extended attributes, security labels, sparse extents, and
 reflink state are not claimed as preserved. Planned regular-file bytes are
 checked against destination `statvfs` user-available bytes before output
-creation; this is a point-in-time preflight, not a reservation. There is no
-persistent operation journal, history UI, or overwrite path. The current
+creation; this is a point-in-time preflight, not a reservation. Phase 6P adds
+bounded memory-only history and exact-identity move/rename Undo. There is no
+persistent operation journal or overwrite path. The current
 direction is:
 
 ```text
@@ -624,8 +626,8 @@ commands, a file-actions menu, keyboard shortcuts, validated rename dialog,
 and the generic Operations Island.
 These operations use atomic same-filesystem no-replace rename and Phase 6O's
 staged cross-filesystem fallback. Overwrite and operation persistence remain
-unimplemented; interactive one-conflict Keep Existing/Retry With New Name is
-implemented while richer scoped policies remain Phase 6P.
+unimplemented. Phase 6P adds deterministic Keep Both and batch-scoped Skip All
+beside existing Keep Existing/Retry With New Name; Replace remains absent.
 
 Phase 4E implements the separate XDG/GIO trash job boundary. Phase 4F exposes
 it through one selection-sensitive “Move to Trash” action and Delete shortcut.
@@ -633,15 +635,17 @@ The callback submits through `ApplicationState`; no direct GIO work appears in
 widgets and the read-only browser worker remains separate. The recoverable
 Trash action has no confirmation dialog. Phase 6M later adds Shift+Delete and
 permanent deletion; Phase 6N adds Trash browsing, restore, and Empty Trash.
-Undo remains deferred to Phase 6P.
+Phase 6P offers Undo only for completed move/rename records whose captured
+destination identity still matches; irreversible and incomplete work remains non-undoable.
 
 Phase 5A generalizes retry dispatch and bounds application terminal history.
 Phase 5B adds the Operations Island Retry control for failed and cancelled
 attempts. Phase 5E prevents generic retries for destination conflicts and
 establishes explicit keep-existing/retry-with-name decisions without enabling
 overwrite. Phase 5F adds the focused, dismissible conflict interaction and
-recoverable Operations Island action. Overwrite and pause/resume controls remain
-deferred; Phase 6M later implements permanent deletion.
+recoverable Operations Island action. Phase 6P adds stable serial batch records,
+pause-after-current/resume, queued-item cancellation, item counts, byte-only
+speed/ETA, terminal summaries, and a bounded memory-only history dialog.
 
 Phase 6H adds `location_input.rs` as a GTK-independent input and recovery policy. GTK only captures explicit text and submits it to `BrowserController`; absolute-path syntax is checked immediately, directory enumeration remains on `BrowserWorker`, and failed submissions restore the exact previous navigation snapshot. Existing non-UTF-8 `PathBuf` state is used directly until the user explicitly submits edited UTF-8 entry text.
 
@@ -661,7 +665,8 @@ owned pixels or failure and retains generic icons. These helpers are supervised
 but not sandboxed; Phase 18L owns isolation. Phase 6N adds standards-correct
 local Trash browsing and restore. Phase 6O adds space-aware, metadata-aware
 copy, staged cross-filesystem move, and bounded desktop clipboard
-interoperability. Phase 6P operation control is the sole recommended next phase.
+interoperability. Phase 6P adds operation control. Phase 6Q create, duplicate,
+and link commands are the sole recommended next phase.
 
 ## Known architectural debt
 

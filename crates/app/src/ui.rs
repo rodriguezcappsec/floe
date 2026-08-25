@@ -36,6 +36,7 @@ const SIDEBAR_DENSITY_MENU_ITEMS: [(&str, &str); 3] = [
 ];
 const RESET_SIDEBAR_WIDTH_MENU_ITEM: (&str, &str) =
     ("Reset Sidebar Width", "win.reset-sidebar-width");
+const OPERATION_HISTORY_MENU_ITEM: (&str, &str) = ("Operation History", "win.operation-history");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OperationIslandRow {
@@ -466,7 +467,22 @@ pub struct ConflictDialogWidgets {
     pub name_error: gtk::Label,
     pub cancel_button: gtk::Button,
     pub keep_existing_button: gtk::Button,
+    pub keep_both_button: gtk::Button,
+    pub skip_all_button: gtk::Button,
     pub retry_button: gtk::Button,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperationHistoryItem {
+    pub title: String,
+    pub detail: String,
+    pub can_undo: bool,
+}
+
+pub struct OperationHistoryDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub clear_completed_button: gtk::Button,
+    pub undo_buttons: Vec<gtk::Button>,
 }
 
 #[derive(Clone)]
@@ -476,6 +492,8 @@ pub struct OperationWidgets {
     pub operation_detail: gtk::Label,
     pub operation_progress: gtk::ProgressBar,
     pub operation_retry: gtk::Button,
+    pub operation_pause: gtk::Button,
+    pub operation_history: gtk::Button,
     pub operation_cancel: gtk::Button,
 }
 
@@ -795,6 +813,10 @@ pub fn build(
         Some(RESET_SIDEBAR_WIDTH_MENU_ITEM.1),
     );
     file_actions_model.append_section(None, &sidebar_model);
+    file_actions_model.append(
+        Some(OPERATION_HISTORY_MENU_ITEM.0),
+        Some(OPERATION_HISTORY_MENU_ITEM.1),
+    );
     let file_actions = gtk::MenuButton::builder()
         .icon_name("view-more-symbolic")
         .tooltip_text("File and view options")
@@ -1134,7 +1156,7 @@ pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDi
     heading.add_css_class("title-2");
 
     let explanation = gtk::Label::builder()
-        .label("Keep the existing item, or retry with a different filename.")
+        .label("Keep or skip the existing item, keep both with a safe name, or retry with a different filename. Replace is unavailable.")
         .halign(gtk::Align::Start)
         .wrap(true)
         .build();
@@ -1182,6 +1204,8 @@ pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDi
 
     let cancel_button = gtk::Button::with_label("Cancel");
     let keep_existing_button = gtk::Button::with_label(CONFLICT_DECISION_LABELS[0]);
+    let keep_both_button = gtk::Button::with_label("Keep Both");
+    let skip_all_button = gtk::Button::with_label("Skip All");
     let retry_button = gtk::Button::with_label(CONFLICT_DECISION_LABELS[1]);
     retry_button.add_css_class("suggested-action");
     retry_button.set_sensitive(false);
@@ -1193,6 +1217,8 @@ pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDi
         .build();
     actions.append(&cancel_button);
     actions.append(&keep_existing_button);
+    actions.append(&keep_both_button);
+    actions.append(&skip_all_button);
     actions.append(&retry_button);
 
     let content = gtk::Box::builder()
@@ -1225,7 +1251,92 @@ pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDi
         name_error,
         cancel_button,
         keep_existing_button,
+        keep_both_button,
+        skip_all_button,
         retry_button,
+    }
+}
+
+pub fn build_operation_history_dialog(
+    items: &[OperationHistoryItem],
+    can_clear_completed: bool,
+) -> OperationHistoryDialogWidgets {
+    let heading = gtk::Label::builder()
+        .label("Operation history")
+        .halign(gtk::Align::Start)
+        .build();
+    heading.add_css_class("title-2");
+    let explanation = gtk::Label::builder()
+        .label("This history is memory-only. Undo appears only for identity-checked moves and renames.")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .build();
+    explanation.add_css_class("floe-status");
+
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    list.add_css_class("boxed-list");
+    let mut undo_buttons = Vec::with_capacity(items.len());
+    for item in items {
+        let row = adw::ActionRow::builder()
+            .title(&item.title)
+            .subtitle(&item.detail)
+            .build();
+        let undo = gtk::Button::builder()
+            .label("Undo")
+            .tooltip_text("Undo this move or rename")
+            .valign(gtk::Align::Center)
+            .visible(item.can_undo)
+            .build();
+        set_accessible_label(&undo, "Undo operation");
+        row.add_suffix(&undo);
+        list.append(&row);
+        undo_buttons.push(undo);
+    }
+    if items.is_empty() {
+        let empty = adw::ActionRow::builder()
+            .title("No operations yet")
+            .subtitle("Completed and recoverable work will appear here for this session.")
+            .build();
+        list.append(&empty);
+    }
+
+    let scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .min_content_height(280)
+        .child(&list)
+        .build();
+    let clear_completed_button = gtk::Button::with_label("Clear Completed");
+    clear_completed_button.set_sensitive(can_clear_completed);
+    set_accessible_label(
+        &clear_completed_button,
+        "Clear completed operations from session history",
+    );
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(24)
+        .margin_bottom(24)
+        .margin_start(24)
+        .margin_end(24)
+        .build();
+    content.append(&heading);
+    content.append(&explanation);
+    content.append(&scroller);
+    content.append(&clear_completed_button);
+    let dialog = adw::Dialog::builder()
+        .title("Operation History")
+        .content_width(520)
+        .content_height(440)
+        .child(&content)
+        .build();
+
+    OperationHistoryDialogWidgets {
+        dialog,
+        clear_completed_button,
+        undo_buttons,
     }
 }
 
@@ -1385,18 +1496,35 @@ fn build_operations_island() -> OperationWidgets {
         .visible(false)
         .build();
     operation_retry.add_css_class("operation-text-action");
+    let operation_pause = gtk::Button::builder()
+        .label("Pause after current")
+        .tooltip_text("Pause this batch after the current item finishes")
+        .visible(false)
+        .build();
+    operation_pause.add_css_class("operation-text-action");
+    set_accessible_label(&operation_pause, "Pause batch after current item");
+    let operation_history = gtk::Button::builder()
+        .icon_name("document-open-recent-symbolic")
+        .tooltip_text("Operation history")
+        .has_frame(false)
+        .build();
+    operation_history.add_css_class("operation-icon-action");
+    set_accessible_label(&operation_history, "Open operation history");
 
     let title_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(8)
         .build();
     title_row.append(&operation_label);
+    title_row.append(&operation_history);
     title_row.append(&operation_cancel);
 
     let action_row = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .halign(gtk::Align::End)
+        .spacing(8)
         .build();
+    action_row.append(&operation_pause);
     action_row.append(&operation_retry);
 
     let island = gtk::Box::builder()
@@ -1429,6 +1557,8 @@ fn build_operations_island() -> OperationWidgets {
         operation_detail,
         operation_progress,
         operation_retry,
+        operation_pause,
+        operation_history,
         operation_cancel,
     }
 }
@@ -2366,6 +2496,14 @@ mod tests {
     }
 
     #[test]
+    fn phase_6p_ui_operation_history_remains_reachable_after_island_hides() {
+        assert_eq!(
+            OPERATION_HISTORY_MENU_ITEM,
+            ("Operation History", "win.operation-history")
+        );
+    }
+
+    #[test]
     fn phase_6k2_operation_island_layout_keeps_every_child_within_content_width() {
         let layout = OperationIslandLayout::CURRENT;
 
@@ -2423,6 +2561,10 @@ mod tests {
         assert_eq!(
             RESET_SIDEBAR_WIDTH_MENU_ITEM,
             ("Reset Sidebar Width", "win.reset-sidebar-width")
+        );
+        assert_eq!(
+            OPERATION_HISTORY_MENU_ITEM,
+            ("Operation History", "win.operation-history")
         );
     }
 

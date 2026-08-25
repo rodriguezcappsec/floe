@@ -20,11 +20,12 @@ pub use error::DirectoryError;
 pub use jobs::{
     InvalidJobProgress, JobCommand, JobCommandKind, JobEvent, JobEventKind, JobFailure,
     JobFailureKind, JobId, JobProgress, JobRecord, JobState, JobTransitionError, OperationId,
+    ProgressUnit,
 };
 pub use model::{DirectoryEntry, DirectoryListing, EntryKind, ThumbnailState, TrashMetadata};
 pub use move_operation::{
-    MoveCancellation, MoveError, MoveOutcome, MoveRequest, RenameRequest, execute_move,
-    execute_move_with_progress, execute_rename,
+    FileIdentity, MoveCancellation, MoveError, MoveOutcome, MoveRequest, RenameRequest,
+    execute_move, execute_move_with_progress, execute_rename,
 };
 pub use navigation::NavigationState;
 pub use permanent_delete::{
