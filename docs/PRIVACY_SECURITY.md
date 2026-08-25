@@ -401,9 +401,9 @@ Sandbox setup failure stops Open Safely. A user may separately choose normal Ope
 
 Child processes, D-Bus and session-bus access, portals, file chooser grants, downloads, save and export behavior, and cleanup require tests. An unsupported application is reported unsupported, not sandboxed.
 
-## Inspector selection facts
+## Inspector selection facts and metadata providers
 
-Status: **IMPLEMENTED through Phase 10A foundation only**.
+Status: **IMPLEMENTED through Phase 10B read-only providers**.
 
 The Inspector foundation aggregates only metadata already held by the current
 successful directory listing: exact selected paths, entry kinds, known byte
@@ -414,9 +414,25 @@ selection result cannot replace current Inspector state.
 
 The versioned preference file stores only the independently clamped Inspector
 column width. It does not store selected paths, aggregate facts, or Inspector
-history. Rich metadata providers, privacy findings, permission inspection,
-checksums, and all property edits remain later phases and must not be inferred
-from this read-only foundation.
+history. The foundation itself performs no filesystem reads; the Phase 10B
+provider boundary below adds only explicit-demand, read-only metadata work.
+
+Phase 10B lazily reads metadata only after the user exposes Inspector. Its
+application-owned worker has fixed request and result bounds, retains exact
+`PathBuf` identity, opens image sources with `O_NOFOLLOW`, revalidates source
+identity, and cancels superseded generations. It reports MIME, exact timestamps,
+Unix UID/GID/mode, stored symlink target and no-follow target-entry status,
+safely limited raster dimensions, and per-entry missing/changed/inaccessible
+outcomes. Provider work never executes content, uses the network, or runs in GTK
+callbacks.
+
+Folder facts enumerate immediate children only, share a 16,384-entry request
+budget, and label known bytes non-recursive and truncated when limited. They are
+not recursive folder sizes. Selected paths and provider facts remain bounded
+memory-only state and are discarded with Inspector; only Inspector width is
+persisted. Normal logs do not gain paths or metadata values. Properties and
+permission edits, checksums, EXIF/media tags, privacy findings, and persistent
+metadata caching remain later phases.
 
 ## Suspicious files and metadata privacy
 

@@ -246,24 +246,9 @@ impl From<&MillerDetailState> for MillerDetailPresentation {
             },
             MillerDetailState::Inspected { target, facts } => Self {
                 title: target.surface().title(),
-                message: format!(
-                    "{} selected\n{} files, {} folders, {} links, {} other\n{} known bytes; {} unknown sizes\nCommon parent: {}{}",
-                    facts.selection_count(),
-                    facts.regular_files,
-                    facts.directories,
-                    facts.symbolic_links,
-                    facts.other_entries,
-                    facts.known_bytes,
-                    facts.unknown_sizes,
-                    facts.common_parent.to_string_lossy(),
-                    if facts.bytes_overflowed {
-                        " (total overflowed)"
-                    } else {
-                        ""
-                    }
-                ),
+                message: inspector_message(facts),
                 accessible_description: format!(
-                    "Read-only Inspector summary for {} selected items.",
+                    "Read-only Inspector metadata summary for {} selected items. Folder sizes are immediate and non-recursive.",
                     facts.selection_count()
                 ),
             },
@@ -279,6 +264,146 @@ impl From<&MillerDetailState> for MillerDetailPresentation {
             },
         }
     }
+}
+
+fn inspector_message(facts: &crate::inspector::InspectorFacts) -> String {
+    use crate::inspector::{ImageDimensionFacts, SymlinkTargetStatus};
+
+    let mut lines = vec![
+        format!("{} selected", facts.selection_count()),
+        format!(
+            "{} files, {} folders, {} links, {} other",
+            facts.regular_files, facts.directories, facts.symbolic_links, facts.other_entries
+        ),
+        format!(
+            "{} known bytes; {} unknown sizes{}",
+            facts.known_bytes,
+            facts.unknown_sizes,
+            if facts.bytes_overflowed {
+                " (total overflowed)"
+            } else {
+                ""
+            }
+        ),
+        format!("Common parent: {}", facts.common_parent.to_string_lossy()),
+    ];
+
+    let failures = facts
+        .metadata
+        .iter()
+        .filter(|entry| entry.result.is_err())
+        .count();
+    if facts.selection_count() != 1 {
+        lines.push(format!(
+            "Metadata: {} loaded, {failures} unavailable",
+            facts.metadata.len().saturating_sub(failures)
+        ));
+        let folders = facts
+            .metadata
+            .iter()
+            .filter_map(|entry| entry.result.as_ref().ok()?.folder.as_ref())
+            .collect::<Vec<_>>();
+        if !folders.is_empty() {
+            let children = folders.iter().fold(0usize, |sum, folder| {
+                sum.saturating_add(folder.inspected_children)
+            });
+            let known_bytes = folders.iter().fold(0u64, |sum, folder| {
+                sum.saturating_add(folder.known_immediate_bytes)
+            });
+            let limited = folders.iter().any(|folder| folder.truncated);
+            lines.push(format!(
+                "Selected folders: {children} immediate children, {known_bytes} known immediate bytes (non-recursive{})",
+                if limited { ", limited" } else { "" }
+            ));
+        }
+        return lines.join("\n");
+    }
+
+    let Some(entry) = facts.metadata.first() else {
+        return lines.join("\n");
+    };
+    let details = match &entry.result {
+        Ok(details) => details,
+        Err(error) => {
+            lines.push(format!("Metadata unavailable: {error}"));
+            return lines.join("\n");
+        }
+    };
+    lines.push(format!(
+        "MIME type: {}",
+        details.mime_type.as_deref().unwrap_or("Unknown")
+    ));
+    lines.push(format!(
+        "Created: {} · Modified: {} · Accessed: {}",
+        format_inspector_time(details.created),
+        format_inspector_time(details.modified),
+        format_inspector_time(details.accessed)
+    ));
+    if let (Some(uid), Some(gid), Some(mode)) =
+        (details.unix_uid, details.unix_gid, details.unix_mode)
+    {
+        lines.push(format!(
+            "Owner UID: {uid} · Group GID: {gid} · Mode: {:04o}",
+            mode & 0o7777
+        ));
+    }
+    match details.image_dimensions {
+        ImageDimensionFacts::Dimensions(dimensions) => {
+            lines.push(format!(
+                "Image dimensions: {} × {} pixels",
+                dimensions.width, dimensions.height
+            ));
+        }
+        ImageDimensionFacts::Unavailable => {
+            lines.push("Image dimensions: unavailable".to_owned());
+        }
+        ImageDimensionFacts::LimitExceeded => {
+            lines.push("Image dimensions: withheld by safety limits".to_owned());
+        }
+        ImageDimensionFacts::NotImage => {}
+    }
+    if let Some(link) = &details.symlink {
+        let status = match link.status {
+            SymlinkTargetStatus::EntryPresent => "entry present",
+            SymlinkTargetStatus::Missing => "missing",
+            SymlinkTargetStatus::Inaccessible => "inaccessible",
+        };
+        lines.push(format!(
+            "Stored link target: {} ({status})",
+            link.stored_target.to_string_lossy()
+        ));
+    }
+    if let Some(folder) = &details.folder {
+        lines.push(format!(
+            "Folder: {} immediate children; {} known immediate bytes (non-recursive{})",
+            folder.inspected_children,
+            folder.known_immediate_bytes,
+            if folder.truncated { ", limited" } else { "" }
+        ));
+    }
+    lines.push("Read-only metadata; no properties were changed.".to_owned());
+    lines.join("\n")
+}
+
+fn format_inspector_time(value: Option<std::time::SystemTime>) -> String {
+    use std::time::UNIX_EPOCH;
+
+    let Some(value) = value else {
+        return "Unknown".to_owned();
+    };
+    let seconds = match value.duration_since(UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_secs()).ok(),
+        Err(error) => i64::try_from(error.duration().as_secs())
+            .ok()
+            .and_then(i64::checked_neg),
+    };
+    let Some(seconds) = seconds else {
+        return "Unknown".to_owned();
+    };
+    glib::DateTime::from_unix_local(seconds)
+        .ok()
+        .and_then(|local| local.format("%x · %T").ok())
+        .map_or_else(|| "Unknown".to_owned(), |formatted| formatted.to_string())
 }
 
 #[derive(Default)]
@@ -674,6 +799,7 @@ mod tests {
             unknown_sizes: 0,
             bytes_overflowed: false,
             common_parent: root.path().to_path_buf(),
+            metadata: Arc::from([]),
         };
         assert!(!hooks.finish_inspector(70, Ok(facts.clone())));
         assert!(matches!(
@@ -852,5 +978,87 @@ mod tests {
             hooks.state(),
             MillerDetailState::Unsupported { .. }
         ));
+    }
+
+    #[test]
+    fn phase_10b_inspector_metadata_is_read_only_single_and_truthful_multi_selection() {
+        use crate::inspector::{
+            FolderAggregate, ImageDimensionFacts, ImageDimensions, InspectorEntryFacts,
+            InspectorEntryResult, InspectorFacts,
+        };
+
+        let single = InspectorFacts {
+            selection_paths: Arc::from([PathBuf::from("/tmp/photo.png")]),
+            regular_files: 1,
+            directories: 0,
+            symbolic_links: 0,
+            other_entries: 0,
+            known_bytes: 42,
+            unknown_sizes: 0,
+            bytes_overflowed: false,
+            common_parent: PathBuf::from("/tmp"),
+            metadata: Arc::from([InspectorEntryResult {
+                path: PathBuf::from("/tmp/photo.png"),
+                result: Ok(InspectorEntryFacts {
+                    path: PathBuf::from("/tmp/photo.png"),
+                    mime_type: Some("image/png".to_owned()),
+                    created: None,
+                    modified: None,
+                    accessed: None,
+                    unix_uid: Some(1000),
+                    unix_gid: Some(1001),
+                    unix_mode: Some(0o100640),
+                    symlink: None,
+                    image_dimensions: ImageDimensionFacts::Dimensions(ImageDimensions {
+                        width: 320,
+                        height: 200,
+                    }),
+                    folder: None,
+                }),
+            }]),
+        };
+        let single_message = inspector_message(&single);
+        assert!(single_message.contains("MIME type: image/png"));
+        assert!(single_message.contains("320 × 200"));
+        assert!(single_message.contains("Owner UID: 1000"));
+        assert!(single_message.contains("Mode: 0640"));
+        assert!(single_message.contains("Read-only metadata"));
+
+        let mut multi = single.clone();
+        multi.selection_paths = Arc::from([
+            PathBuf::from("/tmp/photo.png"),
+            PathBuf::from("/tmp/folder"),
+        ]);
+        multi.directories = 1;
+        multi.metadata = Arc::from([
+            multi.metadata[0].clone(),
+            InspectorEntryResult {
+                path: PathBuf::from("/tmp/folder"),
+                result: Ok(InspectorEntryFacts {
+                    path: PathBuf::from("/tmp/folder"),
+                    mime_type: Some("inode/directory".to_owned()),
+                    created: None,
+                    modified: None,
+                    accessed: None,
+                    unix_uid: Some(1000),
+                    unix_gid: Some(1001),
+                    unix_mode: Some(0o40750),
+                    symlink: None,
+                    image_dimensions: ImageDimensionFacts::NotImage,
+                    folder: Some(FolderAggregate {
+                        inspected_children: 3,
+                        regular_files: 2,
+                        directories: 1,
+                        known_immediate_bytes: 9,
+                        ..FolderAggregate::default()
+                    }),
+                }),
+            },
+        ]);
+        let multi_message = inspector_message(&multi);
+        assert!(multi_message.contains("Metadata: 2 loaded, 0 unavailable"));
+        assert!(multi_message.contains("3 immediate children"));
+        assert!(multi_message.contains("9 known immediate bytes (non-recursive)"));
+        assert!(!multi_message.contains("Owner UID"));
     }
 }

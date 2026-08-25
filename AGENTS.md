@@ -1176,12 +1176,23 @@ Last updated:
 Current phase:
 
 ```text
-Phase 10 — Inspector and properties (Phase 10A complete)
+Phase 10 — Inspector and properties (Phase 10B complete)
 ```
 
 Status:
 
 ```text
+Phase 10B extends the read-only Inspector with a fixed-capacity, generation-
+superseding metadata provider. Exact selected local identities receive no-follow
+MIME, created/modified/accessed timestamps, Unix UID/GID/mode, raw symlink target
+and target-entry status, safely limited raster dimensions, and explicit per-item
+missing/changed/inaccessible results. Selected folders share a 16,384 immediate-
+child budget and report only known non-recursive bytes with truthful truncation.
+Requests and results are both capped at 16; facts remain memory-only, source
+identity is revalidated, GTK performs no filesystem work, and no property edit,
+recursive size, persistent metadata cache, checksum, EXIF, or privacy claim is
+made.
+
 Phase 10A adds a read-only Inspector final column backed by a fixed-capacity
 GTK-independent worker. It aggregates only exact raw selected paths and listing
 facts already in memory: entry-kind counts, known bytes, unknown sizes, overflow,
@@ -1634,14 +1645,18 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 10A is complete. The one recommended next branch is
-`phase-10b-metadata-providers`, adding bounded lazy read-only dates, MIME, link,
-ownership, dimensions, and folder aggregate providers without eager recursion.
+Phase 10B is complete. The one recommended next branch is
+`phase-10c-properties`, adding native General, Open With, filesystem/mount, and
+truthful multi-selection properties over shared read-only Inspector facts.
 ```
 
 Verified:
 
 ```text
+Phase 10B passes focused metadata-provider and Inspector-presentation tests,
+formatting, workspace check, strict all-target/all-feature Clippy, full workspace
+tests, native build, diff hygiene, and native Wayland Inspector lifecycle smoke.
+
 Phase 10A passes formatting, workspace check, strict all-target/all-feature
 Clippy, and 375 tests: 284 application and 91 core. Focused tests cover bounded
 raw non-UTF-8 aggregation, oversized selection rejection, multi-selection and
@@ -1948,6 +1963,11 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 10B metadata providers on `phase-10b-metadata-providers`.
+* Added bounded exact-path read-only MIME/time/Unix/link/image/folder facts with
+  generation supersession, no-follow identity checks, and non-recursive wording.
+* Integrated single/multi-selection facts into the accessible Inspector without
+  property edits, eager enrichment, recursion, persistent caches, or GTK I/O.
 * Completed Phase 10A Inspector foundation on
   `phase-10a-inspector-foundation`.
 * Added bounded asynchronous exact-path aggregate facts, stale-generation
@@ -2299,9 +2319,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-10b-metadata-providers` and implement bounded lazy read-only dates,
-MIME, link, ownership, dimensions, and folder count/size provider facts. Do not
-add Phase 10C properties dialogs or any metadata/permission edits.
+Create `phase-10c-properties` and implement native General, Open With,
+filesystem/mount, and truthful multi-selection properties over Phase 10B facts.
+Do not add Phase 10D permission or ownership editing.
 ```
 
 ---
