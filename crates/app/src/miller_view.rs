@@ -27,6 +27,8 @@ use crate::{
 
 pub const MILLER_SNAPSHOT_ENTRY_CAPACITY: usize = 4_096;
 const MILLER_TRACKPAD_SCALE: f64 = 48.0;
+const PREVIEW_ZOOM_MIN: u16 = 50;
+const PREVIEW_ZOOM_MAX: u16 = 400;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MillerNavigationCommand {
@@ -248,6 +250,7 @@ pub struct MillerView {
     active_list: RefCell<Option<gtk::ListView>>,
     detail_widget: RefCell<Option<gtk::Box>>,
     detail_media: RefCell<Option<gtk::MediaFile>>,
+    detail_zoom_percent: Cell<u16>,
     file_context_model: gio::MenuModel,
     background_context_model: gio::MenuModel,
     drop_dispatcher: DropDispatcher,
@@ -319,6 +322,7 @@ impl MillerView {
             active_list: RefCell::new(None),
             detail_widget: RefCell::new(None),
             detail_media: RefCell::new(None),
+            detail_zoom_percent: Cell::new(100),
             file_context_model: file_context_model.clone(),
             background_context_model: background_context_model.clone(),
             drop_dispatcher: drop_dispatcher.clone(),
@@ -358,6 +362,20 @@ impl MillerView {
 
     pub fn width(&self) -> MillerColumnWidth {
         self.width.get()
+    }
+
+    pub fn preview_zoom_in(&self) {
+        self.detail_zoom_percent
+            .set(adjust_preview_zoom(self.detail_zoom_percent.get(), 25));
+    }
+
+    pub fn preview_zoom_out(&self) {
+        self.detail_zoom_percent
+            .set(adjust_preview_zoom(self.detail_zoom_percent.get(), -25));
+    }
+
+    pub fn preview_zoom_reset(&self) {
+        self.detail_zoom_percent.set(100);
     }
 
     pub fn set_width(&self, width: MillerColumnWidth) {
@@ -466,6 +484,7 @@ impl MillerView {
                     picture.set_margin_start(10);
                     picture.set_margin_end(10);
                     picture.set_accessible_role(gtk::AccessibleRole::Img);
+                    self.apply_preview_zoom(&picture, width, height);
                     picture.upcast::<gtk::Widget>()
                 }
                 PreviewContent::Text { text, .. } => {
@@ -526,6 +545,7 @@ impl MillerView {
                     picture.set_margin_start(10);
                     picture.set_margin_end(10);
                     picture.set_accessible_role(gtk::AccessibleRole::Img);
+                    self.apply_preview_zoom(&picture, width, height);
                     picture.update_property(&[gtk::accessible::Property::Description(
                         "Passive first-page document rendition.",
                     )]);
@@ -641,6 +661,7 @@ impl MillerView {
                     picture.update_property(&[gtk::accessible::Property::Description(
                         "Passive font specimen image. The font is not installed.",
                     )]);
+                    self.apply_preview_zoom(&picture, width, height);
                     picture.upcast::<gtk::Widget>()
                 }
                 PreviewContent::Archive { listing, .. } => {
@@ -683,7 +704,49 @@ impl MillerView {
             .vexpand(true)
             .build();
         content.append(&provided_content);
+        if matches!(
+            state,
+            MillerDetailState::Provided {
+                payload: crate::preview::PreviewPayload {
+                    content: PreviewContent::Image { .. }
+                        | PreviewContent::Document { .. }
+                        | PreviewContent::Font { .. },
+                    ..
+                },
+                ..
+            }
+        ) {
+            let zoom_controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            zoom_controls.set_halign(gtk::Align::Center);
+            zoom_controls.set_margin_top(8);
+            for (label, action, description) in [
+                ("−", "win.preview-zoom-out", "Zoom preview out"),
+                ("100%", "win.preview-zoom-reset", "Reset preview zoom"),
+                ("+", "win.preview-zoom-in", "Zoom preview in"),
+                (
+                    "Fullscreen",
+                    "win.preview-fullscreen",
+                    "Toggle fullscreen preview",
+                ),
+            ] {
+                let button = gtk::Button::with_label(label);
+                button.set_action_name(Some(action));
+                button.update_property(&[gtk::accessible::Property::Description(description)]);
+                zoom_controls.append(&button);
+            }
+            content.append(&zoom_controls);
+        }
         content.append(&message);
+        if matches!(state, MillerDetailState::Provided { .. }) {
+            let clear_cache = gtk::Button::with_label("Clear Preview Cache");
+            clear_cache.set_halign(gtk::Align::Center);
+            clear_cache.set_margin_top(8);
+            clear_cache.set_action_name(Some("win.preview-clear-cache"));
+            clear_cache.update_property(&[gtk::accessible::Property::Description(
+                "Clear Floe's memory-only Preview cache and cancel current Preview work.",
+            )]);
+            content.append(&clear_cache);
+        }
         content.append(&close);
 
         let shell = gtk::Box::builder()
@@ -701,6 +764,16 @@ impl MillerView {
         shell.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         shell.append(&content);
         shell
+    }
+
+    fn apply_preview_zoom(&self, picture: &gtk::Picture, width: i32, height: i32) {
+        let percent = i32::from(self.detail_zoom_percent.get());
+        let scaled_width = width.saturating_mul(percent).saturating_div(100).max(1);
+        let scaled_height = height.saturating_mul(percent).saturating_div(100).max(1);
+        picture.set_size_request(scaled_width, scaled_height);
+        picture.update_property(&[gtk::accessible::Property::Description(&format!(
+            "Preview image at {percent} percent zoom; GTK scales for the active monitor."
+        ))]);
     }
 
     fn build_unavailable_detail_column(&self, state: &MillerDetailState, reason: &str) -> gtk::Box {
@@ -1057,6 +1130,11 @@ impl MillerView {
     }
 }
 
+fn adjust_preview_zoom(current: u16, delta: i16) -> u16 {
+    let adjusted = i32::from(current).saturating_add(i32::from(delta));
+    adjusted.clamp(i32::from(PREVIEW_ZOOM_MIN), i32::from(PREVIEW_ZOOM_MAX)) as u16
+}
+
 fn miller_column_status(column: &MillerRenderColumn) -> String {
     if column.is_active {
         return "Active column".to_owned();
@@ -1265,12 +1343,22 @@ mod tests {
     use super::{
         MILLER_ACTION_SELECTION_CAPACITY, MILLER_SNAPSHOT_ENTRY_CAPACITY, MillerActionContext,
         MillerActionContextError, MillerItemCommand, MillerMotionPolicy, MillerNavigationCommand,
-        MillerPresentationState, MillerRenderColumn, context_menu_key, drag_paths_for_entries,
-        horizontal_scroll_target, item_command_for_key, item_selection_target,
-        logical_navigation_for_key, miller_child_hover_target,
-        miller_column_accessible_description, navigation_modifiers_allowed,
-        resolve_action_context_entries, trackpad_prefers_horizontal,
+        MillerPresentationState, MillerRenderColumn, PREVIEW_ZOOM_MAX, PREVIEW_ZOOM_MIN,
+        adjust_preview_zoom, context_menu_key, drag_paths_for_entries, horizontal_scroll_target,
+        item_command_for_key, item_selection_target, logical_navigation_for_key,
+        miller_child_hover_target, miller_column_accessible_description,
+        navigation_modifiers_allowed, resolve_action_context_entries, trackpad_prefers_horizontal,
     };
+
+    #[test]
+    fn phase_9f_presentation_zoom_is_bounded_resettable_and_presentation_only() {
+        assert_eq!(adjust_preview_zoom(100, 25), 125);
+        assert_eq!(adjust_preview_zoom(PREVIEW_ZOOM_MAX, 25), PREVIEW_ZOOM_MAX);
+        assert_eq!(adjust_preview_zoom(PREVIEW_ZOOM_MIN, -25), PREVIEW_ZOOM_MIN);
+        assert_eq!(adjust_preview_zoom(100, -25), 75);
+        assert_eq!(PREVIEW_ZOOM_MIN, 50);
+        assert_eq!(PREVIEW_ZOOM_MAX, 400);
+    }
     use crate::drag_drop::{DropDestination, DropHoverTarget};
     use crate::view::{
         MILLER_COLUMN_WIDTH_DEFAULT, MILLER_COLUMN_WIDTH_MAX, MILLER_COLUMN_WIDTH_MIN,

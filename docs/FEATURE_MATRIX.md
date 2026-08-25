@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 9E. Phase 9F is the only
+The implementation baseline for this matrix is Phase 9F. Phase 10A is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -355,18 +355,18 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | Preview provider architecture | `COMPLETE` | 9A | Fixed-capacity typed registry/worker uses exact source identity, explicit limits, cooperative generation cancellation, stale rejection, memory-only cache, deterministic fallback, and bounded GTK draining. No renderer or sandbox claim. |
-| Space toggles Quick Preview | `PLANNED` | 9A | Must not interfere with text entry or selection commands. |
+| Space toggles Quick Preview | `COMPLETE` | 9F | Miller Preview uses a stable Space action that yields to Entry/SearchEntry/SpinButton/TextView focus. |
 | Raster/animated image preview | `COMPLETE` | 9B | Exact no-follow identity and decoder allocation limits produce owned RGBA; animated GIF/WebP is explicitly presented as first-frame-only. |
 | Text/Markdown/source/JSON/XML preview | `COMPLETE` | 9B | Bounded UTF-8/BOM UTF-16 source is selectable and inert; binary, HTML, SVG, malformed encodings, scripts and external-resource rendering are rejected. |
 | PDF/document preview | `COMPLETE` | 9C | Reviewed installed freedesktop providers return a bounded PNG first-page/document rendition through supervised argv-only execution; helpers retain normal user authority until 18L. |
 | Audio/video preview | `COMPLETE` | 9D | Exact local media identity feeds main-thread GTK native playback/seek controls, optional bounded poster, audio fallback, truthful decoder errors, and explicit retired-stream pause/clear. |
 | Font/archive preview | `COMPLETE` | 9E | Reviewed bounded PNG font specimens never install; built-in capped ZIP/uncompressed TAR listings preserve raw names, flag unsafe paths, and never extract. |
-| Navigate while preview remains open | `NEXT` | 9F | Cancel stale work and preserve keyboard focus hierarchy. |
-| Image zoom/rotate/fullscreen | `PLANNED` | 9F | Presentation-only transforms must not silently modify source. |
-| Media seeking | `PLANNED` | 9D/9F | Must remain responsive and cancel cleanly. |
+| Navigate while preview remains open | `COMPLETE` | 9F | Exact target reconciliation cancels stale work and close restores active Miller focus. |
+| Image zoom/rotate/fullscreen | `PARTIAL` | 9F | 50–400% zoom/reset and fullscreen are presentation-only; rotation remains deliberately deferred. |
+| Media seeking | `COMPLETE` | 9D/9F | Native GTK controls remain responsive and retired streams pause/clear. |
 | Preview metadata | `PLANNED` | 9F/10 | Reuse metadata providers rather duplicate parsing. |
-| Unsupported/failure state | `PLANNED` | 9A | Plain, recoverable, accessible, and non-color-only. |
-| Read-only safe inspection | `PLANNED` | 9/18L | Preview/Inspect Read-Only never executes active content. |
+| Unsupported/failure state | `COMPLETE` | 9A/9F | Plain, recoverable, accessible, and non-color-only. |
+| Read-only safe inspection | `PARTIAL` | 9/18L | Built-ins are passive and helpers are supervised, but provider sandboxing remains 18L. |
 | Sandboxed preview providers | `PLANNED` | 18L | Restrict selected file, filesystem, network, temporary storage, time, and resources where enforceable. |
 | Vault lock clears preview state | `PLANNED` | 18J | Dependency: vault lifecycle plus privacy-safe in-memory cache invalidation. |
 
@@ -374,7 +374,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Inspector foundation / Ctrl+I | `PLANNED` | 10A | Toggleable, accessible, asynchronous surface usable as final Miller column. |
+| Inspector foundation / Ctrl+I | `NEXT` | 10A | Toggleable, accessible, asynchronous surface usable as final Miller column. |
 | General properties | `PLANNED` | 10C | Filename, exact path, type, MIME, size, and dates. |
 | Open With properties page | `PARTIAL` | 5D/10C | Chooser/default setting exists; integrated properties/association management does not. |
 | Owner/group/permissions | `PLANNED` | 10C-10D | Inspect first, then deliberate editing with partial-failure semantics. |

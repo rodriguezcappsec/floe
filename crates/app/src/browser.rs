@@ -50,6 +50,7 @@ const SPLIT_SNAPSHOT_CAPACITY: usize = 512;
 #[cfg(test)]
 const MILLER_NAVIGATION_ACTIONS: [&str; 2] = ["win.miller-parent", "win.miller-child"];
 const MILLER_DETAIL_ACTIONS: [&str; 2] = ["miller-preview-hook", "miller-inspector-hook"];
+const QUICK_PREVIEW_ACCELERATOR: &str = "space";
 #[cfg(test)]
 const SPLIT_ACTION_NAMES: [&str; 10] = [
     "win.toggle-split",
@@ -1570,6 +1571,40 @@ impl BrowserController {
             controller.toggle_miller_detail(MillerDetailSurface::Preview);
         });
         preview_hook.set_enabled(self.view_mode.get() == ViewMode::Miller);
+        self.add_action("quick-preview", |controller| {
+            if preview_space_should_toggle(controller.focus_consumes_space()) {
+                controller.toggle_miller_detail(MillerDetailSurface::Preview);
+            }
+        });
+        self.add_action("preview-zoom-in", |controller| {
+            controller.widgets.miller_view.preview_zoom_in();
+            controller.render_miller();
+        });
+        self.add_action("preview-zoom-out", |controller| {
+            controller.widgets.miller_view.preview_zoom_out();
+            controller.render_miller();
+        });
+        self.add_action("preview-zoom-reset", |controller| {
+            controller.widgets.miller_view.preview_zoom_reset();
+            controller.render_miller();
+        });
+        self.add_action("preview-fullscreen", |controller| {
+            if controller.widgets.window.is_fullscreen() {
+                controller.widgets.window.unfullscreen();
+            } else {
+                controller.widgets.window.fullscreen();
+            }
+        });
+        self.add_action("preview-clear-cache", |controller| {
+            if let Some(worker) = controller.preview_worker.borrow().as_ref() {
+                worker.clear_memory_cache();
+            }
+            controller.miller_detail.borrow_mut().hide();
+            controller.widgets.window.unfullscreen();
+            controller.render_miller();
+            controller.widgets.miller_view.focus_active();
+            controller.show_toast("Memory-only Preview cache cleared", 4);
+        });
         let inspector_hook = self.add_action(MILLER_DETAIL_ACTIONS[1], |controller| {
             controller.toggle_miller_detail(MillerDetailSurface::Inspector);
         });
@@ -1800,6 +1835,7 @@ impl BrowserController {
         application.set_accels_for_action("win.refresh", &["F5", "<Control>r"]);
         application.set_accels_for_action("win.select-all", &["<Control>a"]);
         application.set_accels_for_action("win.clear-selection", &["<Control><Shift>a"]);
+        application.set_accels_for_action("win.quick-preview", &[QUICK_PREVIEW_ACCELERATOR]);
         application.set_accels_for_action("win.new-tab", &["<Control>t"]);
         application.set_accels_for_action("win.close-tab-active", &["<Control>w"]);
         application.set_accels_for_action("win.reopen-closed-tab", &[REOPEN_CLOSED_ACCELERATOR]);
@@ -2741,8 +2777,18 @@ impl BrowserController {
         if visible {
             let _ = self.widgets.miller_view.focus_detail();
         } else {
+            self.widgets.window.unfullscreen();
             self.widgets.miller_view.focus_active();
         }
+    }
+
+    fn focus_consumes_space(&self) -> bool {
+        gtk::prelude::RootExt::focus(&self.widgets.window).is_some_and(|focus| {
+            focus.is::<gtk::Entry>()
+                || focus.is::<gtk::SearchEntry>()
+                || focus.is::<gtk::SpinButton>()
+                || focus.is::<gtk::TextView>()
+        })
     }
 
     fn ensure_preview_request(&self) {
@@ -5216,6 +5262,10 @@ fn is_context_menu_shortcut(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierTyp
         || (key == gtk::gdk::Key::F10 && relevant == gtk::gdk::ModifierType::SHIFT_MASK)
 }
 
+const fn preview_space_should_toggle(focus_consumes_space: bool) -> bool {
+    !focus_consumes_space
+}
+
 fn open_with_eligible(entry: &DirectoryEntry) -> bool {
     open_with_kind_eligible(entry.kind())
 }
@@ -5392,6 +5442,14 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn phase_9f_interaction_space_respects_text_focus_and_exports_stable_accelerator() {
+        assert_eq!(QUICK_PREVIEW_ACCELERATOR, "space");
+        assert!(preview_space_should_toggle(false));
+        assert!(!preview_space_should_toggle(true));
+        assert_eq!(MILLER_DETAIL_ACTIONS[0], "miller-preview-hook");
+    }
 
     #[test]
     fn phase_7b_session_snapshot_preserves_exact_selection_scroll_and_view() {

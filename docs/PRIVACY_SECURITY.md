@@ -32,6 +32,12 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 9F adds an explicit Preview cache purge that advances cancellation,
+  clears only the bounded memory-only success cache before the next request,
+  closes the detail surface, and leaves persistent thumbnail storage untouched.
+  Space yields to editable/text controls. Zoom/fullscreen operate only on GTK
+  presentation and never alter source bytes. This does not add provider
+  sandboxing; Phase 18L remains authoritative for isolation.
 - Phase 9E font Preview accepts only bounded passive PNG from a reviewed
   installed provider and never installs or loads the font into Floe. Archive
   Preview parses capped ZIP central-directory and uncompressed TAR headers in
