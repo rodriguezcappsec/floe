@@ -174,7 +174,8 @@ use crate::{
     locations::Location,
     metadata::{MetadataSubmitError, MetadataWorker},
     miller_view::{
-        MillerActivation, MillerNavigation, MillerNavigationCommand, MillerPresentationState,
+        MillerActionContext, MillerActivation, MillerNavigation, MillerNavigationCommand,
+        MillerPresentationState, resolve_action_context_entries,
     },
     preferences::{
         PreferenceSubmitError, PreferenceWorker, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
@@ -351,6 +352,7 @@ pub struct BrowserController {
     view_mode: Cell<ViewMode>,
     miller_model: RefCell<Option<MillerColumnModel>>,
     miller_state: RefCell<MillerPresentationState>,
+    miller_action_context: RefCell<Option<MillerActionContext>>,
     grid_size: Cell<GridSize>,
     file_density: Cell<FileViewDensity>,
     list_columns: Cell<crate::view::ListColumnLayout>,
@@ -457,6 +459,7 @@ impl BrowserController {
             view_mode: Cell::new(initial_view.mode),
             miller_model: RefCell::new(None),
             miller_state: RefCell::new(MillerPresentationState::default()),
+            miller_action_context: RefCell::new(None),
             grid_size: Cell::new(initial_view.grid_size),
             file_density: Cell::new(initial_view.density),
             list_columns: Cell::new(initial_view.columns),
@@ -612,6 +615,14 @@ impl BrowserController {
                 controller.navigate_miller_keyboard(navigation);
             }
         });
+        let controller = Rc::downgrade(self);
+        self.widgets
+            .miller_view
+            .bind_action_context(move |context| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.own_miller_action_context(context);
+                }
+            });
 
         let controller = Rc::downgrade(self);
         self.widgets
@@ -2606,6 +2617,74 @@ impl BrowserController {
             .render(&columns, &self.widgets.selection);
     }
 
+    fn own_miller_action_context(&self, context: MillerActionContext) {
+        if self.view_mode.get() != ViewMode::Miller || self.trash_active.get() {
+            return;
+        }
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
+        let model = self.miller_model.borrow();
+        let Some(model) = model.as_ref() else {
+            return;
+        };
+        let columns = self.miller_state.borrow().columns(model, &current);
+        let Some(column) = columns
+            .iter()
+            .find(|column| column.depth == context.depth && column.directory == context.directory)
+        else {
+            self.show_toast("That Miller column is no longer retained", 5);
+            return;
+        };
+        let available = if column.is_active {
+            self.visible_entries.borrow().clone()
+        } else {
+            column.entries.clone()
+        };
+        let resolved = match resolve_action_context_entries(&context, &available) {
+            Ok(resolved) => resolved,
+            Err(error) => {
+                tracing::debug!(?error, "rejected stale Miller action context");
+                self.show_toast("That Miller action context is no longer valid", 5);
+                return;
+            }
+        };
+        let is_active = column.is_active;
+        let owned = MillerActionContext {
+            selected_entries: resolved.clone(),
+            ..context
+        };
+        self.miller_action_context.replace(Some(owned));
+        self.apply_action_selection(resolved);
+        self.set_miller_context_navigation_actions_enabled(is_active);
+        self.refresh_paste_enabled();
+        self.widgets.status_label.set_label(if is_active {
+            "Actions target the active Miller column"
+        } else {
+            "Actions target the retained Miller column"
+        });
+    }
+
+    fn set_miller_context_navigation_actions_enabled(&self, enabled: bool) {
+        for name in ["refresh", "location", "select-all"] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(enabled);
+            }
+        }
+    }
+
+    fn action_directory(&self) -> PathBuf {
+        self.miller_action_context
+            .borrow()
+            .as_ref()
+            .filter(|_| self.view_mode.get() == ViewMode::Miller)
+            .map(|context| context.directory.clone())
+            .unwrap_or_else(|| self.tabs.borrow().active().current().path().to_path_buf())
+    }
+
     fn activate_miller_entry(&self, activation: MillerActivation) {
         if self.view_mode.get() != ViewMode::Miller || self.trash_active.get() {
             return;
@@ -3633,6 +3712,12 @@ impl BrowserController {
 
     fn selection_changed(&self) {
         let selected_entries = self.selected_model_entries();
+        self.miller_action_context.borrow_mut().take();
+        self.set_miller_context_navigation_actions_enabled(true);
+        self.apply_action_selection(selected_entries);
+    }
+
+    fn apply_action_selection(&self, selected_entries: Vec<Arc<DirectoryEntry>>) {
         let state = selection_action_state(&selected_entries);
         let folder_tab = folder_tab_eligible(&selected_entries, self.trash_active.get());
         self.selected_entries.replace(selected_entries);
@@ -3974,7 +4059,7 @@ impl BrowserController {
     }
 
     fn paste_transfer(&self) {
-        let destination = self.tabs.borrow().active().current().path().to_path_buf();
+        let destination = self.action_directory();
         let clipboard = self.widgets.window.clipboard();
         if clipboard::contains_transfer(&clipboard) {
             let application_state = Rc::clone(&self.application_state);
@@ -4342,7 +4427,7 @@ impl BrowserController {
             self.show_toast("Creation is unavailable while browsing Trash", 4);
             return;
         }
-        let destination_directory = self.tabs.borrow().active().current().path().to_path_buf();
+        let destination_directory = self.action_directory();
         let dialog = ui::build_name_dialog(
             kind.title(),
             "New item name",
@@ -4414,7 +4499,7 @@ impl BrowserController {
 
     fn copy_selection_text(&self, mode: ClipboardTextMode) {
         let paths = self.selected_paths();
-        let base = self.tabs.borrow().active().current().path().to_path_buf();
+        let base = self.action_directory();
         match selection_clipboard_text(&paths, &base, mode) {
             Ok(text) => {
                 self.widgets.window.clipboard().set_text(&text);

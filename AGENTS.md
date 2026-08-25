@@ -1160,12 +1160,22 @@ Last updated:
 Current phase:
 
 ```text
-Phase 8 — Miller and spatial navigation (Phase 8C complete)
+Phase 8 — Miller and spatial navigation (Phase 8D complete)
 ```
 
 Status:
 
 ```text
+Phase 8D adds native file/background context menus to every active and retained
+Miller column. Pointer and Shift+F10/Menu paths emit bounded exact depth,
+directory, and shared-entry identities; controller revalidation rejects stale,
+overflowed, wrong-parent, and evicted contexts. Existing application actions,
+no-overwrite jobs, and GTK responsiveness remain unchanged. Retained-column
+paste/create/relative-path commands use the validated owner directory, while
+navigation-only background actions are disabled when ownership is not active.
+No drag/drop, preview provider, new filesystem worker, or persisted path state
+was added.
+
 Phase 8C adds bounded Up/Down/Home/End item movement, logical parent/child
 directory movement with LTR/RTL reversal, and dominant-horizontal trackpad
 scrolling that leaves vertical column scrolling intact. Modified key chords
@@ -2173,9 +2183,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-8d-miller-actions` and add selection-aware standard file actions
-and context menus to every retained/active Miller column with exact
-active-column ownership and pointer/keyboard parity. Do not add Phase 8E drag.
+Create `phase-8e-miller-drag-drop` and add exact cross-column drag/drop with
+modifier parity, bounded hover navigation/autoscroll, and existing no-overwrite
+job routing. Do not add Phase 8F detail hooks.
 ```
 
 ---
