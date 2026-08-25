@@ -486,6 +486,13 @@ textually announced action owner before dispatch. Menu targets come from exact
 column identity, never the visible title. Unsupported retained-column
 navigation commands are disabled instead of silently acting on another column.
 
+Phase 8E makes the spatial surface continuous: files can be dragged between
+retained or active columns and onward to tabs, the other split pane, Places,
+bookmarks, or mounted devices. Dashed target state and action/destination text
+remain the non-color cue. A short cancellable hover delay opens exact folder,
+tab, pane, or Miller-child targets; pointer motion at an edge scrolls the
+relevant vertical column or horizontal strip without an unbounded animation.
+
 ### Open without a default application
 
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.

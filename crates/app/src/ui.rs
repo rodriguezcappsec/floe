@@ -2715,7 +2715,11 @@ fn build_directory_panel(
         .build();
     let miller_file_context: gio::MenuModel = build_file_context_menu_model().upcast();
     let miller_background_context: gio::MenuModel = build_background_context_menu_model().upcast();
-    let miller_view = MillerView::new(&miller_file_context, &miller_background_context);
+    let miller_view = MillerView::new(
+        &miller_file_context,
+        &miller_background_context,
+        drop_dispatcher,
+    );
     miller_view.set_width(preferences.miller_column_width);
     let view_stack = gtk::Stack::new();
     view_stack.set_transition_type(gtk::StackTransitionType::Crossfade);

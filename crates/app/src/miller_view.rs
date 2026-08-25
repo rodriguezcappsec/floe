@@ -15,7 +15,13 @@ use std::{
 use floe_core::{DirectoryEntry, MILLER_COLUMN_CAPACITY, MillerColumnModel};
 use gtk::{gio, glib, prelude::*};
 
-use crate::view::MillerColumnWidth;
+use crate::{
+    drag_drop::{
+        DropDestination, DropDispatcher, DropHoverTarget, install_drag_source, install_drop_target,
+        install_drop_target_with_hover,
+    },
+    view::MillerColumnWidth,
+};
 
 pub const MILLER_SNAPSHOT_ENTRY_CAPACITY: usize = 4_096;
 const MILLER_TRACKPAD_SCALE: f64 = 48.0;
@@ -240,12 +246,14 @@ pub struct MillerView {
     active_list: RefCell<Option<gtk::ListView>>,
     file_context_model: gio::MenuModel,
     background_context_model: gio::MenuModel,
+    drop_dispatcher: DropDispatcher,
 }
 
 impl MillerView {
     pub fn new(
         file_context_model: &gio::MenuModel,
         background_context_model: &gio::MenuModel,
+        drop_dispatcher: &DropDispatcher,
     ) -> Self {
         let columns = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
@@ -307,6 +315,7 @@ impl MillerView {
             active_list: RefCell::new(None),
             file_context_model: file_context_model.clone(),
             background_context_model: background_context_model.clone(),
+            drop_dispatcher: drop_dispatcher.clone(),
         }
     }
 
@@ -414,6 +423,7 @@ impl MillerView {
         let row_model = model.clone();
         let row_menu = item_menu.clone();
         let row_dispatcher = self.action_dispatcher.clone();
+        let row_drop_dispatcher = self.drop_dispatcher.clone();
         let row_directory = column.directory.clone();
         let row_depth = column.depth;
         factory.connect_setup(move |_, object| {
@@ -461,6 +471,26 @@ impl MillerView {
                 gesture.set_state(gtk::EventSequenceState::Claimed);
             });
             label.add_controller(secondary_click);
+
+            let destination_item = item.downgrade();
+            let destination = Rc::new(move || {
+                let item = destination_item.upgrade()?;
+                let object = item.item()?.downcast::<glib::BoxedAnyObject>().ok()?;
+                let entry = object.borrow::<Arc<DirectoryEntry>>();
+                entry
+                    .is_navigable_directory()
+                    .then(|| DropDestination::Directory(entry.path().to_path_buf()))
+            });
+            let hover = Rc::new(move |destination: &DropDestination| {
+                miller_child_hover_target(row_depth, destination)
+            });
+            install_drop_target_with_hover(
+                &label,
+                destination,
+                hover,
+                row_drop_dispatcher.clone(),
+                true,
+            );
             item.set_child(Some(&label));
         });
         factory.connect_bind(|_, object| {
@@ -479,6 +509,7 @@ impl MillerView {
             label.set_tooltip_text(Some(&name));
         });
 
+        let drag_model = model.clone();
         let list = gtk::ListView::new(Some(model), Some(factory));
         list.set_single_click_activate(false);
         list.add_css_class("floe-miller-column-list");
@@ -486,6 +517,15 @@ impl MillerView {
             "Miller column {}. Use Up and Down to select items; logical Left and Right move between folders.",
             column.depth + 1
         ))]);
+        install_drag_source(&list, Rc::new(move || drag_paths(&drag_model)));
+        let column_destination = column.directory.clone();
+        install_drop_target(
+            &list,
+            Rc::new(move || Some(DropDestination::Directory(column_destination.clone()))),
+            self.drop_dispatcher.clone(),
+            false,
+            true,
+        );
         item_menu.set_parent(&list);
         background_menu.set_parent(&list);
 
@@ -751,6 +791,35 @@ fn action_selection(model: &gtk::SelectionModel) -> (Vec<Arc<DirectoryEntry>>, b
     (entries, overflowed)
 }
 
+fn drag_paths(model: &gtk::SelectionModel) -> Vec<PathBuf> {
+    let (entries, overflowed) = action_selection(model);
+    drag_paths_for_entries(entries, overflowed)
+}
+
+fn drag_paths_for_entries(entries: Vec<Arc<DirectoryEntry>>, overflowed: bool) -> Vec<PathBuf> {
+    if overflowed {
+        Vec::new()
+    } else {
+        entries
+            .into_iter()
+            .map(|entry| entry.path().to_path_buf())
+            .collect()
+    }
+}
+
+fn miller_child_hover_target(
+    depth: usize,
+    destination: &DropDestination,
+) -> Option<DropHoverTarget> {
+    match destination {
+        DropDestination::Directory(path) => Some(DropHoverTarget::MillerChild {
+            depth,
+            path: path.clone(),
+        }),
+        DropDestination::Trash => None,
+    }
+}
+
 fn popup_at_widget_point(menu: &gtk::PopoverMenu, widget: &gtk::Widget, x: f64, y: f64) {
     let Some(parent) = menu.parent() else {
         return;
@@ -817,11 +886,13 @@ mod tests {
     use super::{
         MILLER_ACTION_SELECTION_CAPACITY, MILLER_SNAPSHOT_ENTRY_CAPACITY, MillerActionContext,
         MillerActionContextError, MillerItemCommand, MillerMotionPolicy, MillerNavigationCommand,
-        MillerPresentationState, MillerRenderColumn, context_menu_key, horizontal_scroll_target,
-        item_command_for_key, item_selection_target, logical_navigation_for_key,
+        MillerPresentationState, MillerRenderColumn, context_menu_key, drag_paths_for_entries,
+        horizontal_scroll_target, item_command_for_key, item_selection_target,
+        logical_navigation_for_key, miller_child_hover_target,
         miller_column_accessible_description, navigation_modifiers_allowed,
         resolve_action_context_entries, trackpad_prefers_horizontal,
     };
+    use crate::drag_drop::{DropDestination, DropHoverTarget};
     use crate::view::{
         MILLER_COLUMN_WIDTH_DEFAULT, MILLER_COLUMN_WIDTH_MAX, MILLER_COLUMN_WIDTH_MIN,
         MillerColumnWidth, VIEW_ACTIONS, ViewCommand, ViewMode,
@@ -1097,5 +1168,34 @@ mod tests {
         assert!(VIEW_ACTIONS.contains(&("view-grid", ViewCommand::Grid)));
         assert!(VIEW_ACTIONS.contains(&("view-miller", ViewCommand::Miller)));
         assert!(navigation_modifiers_allowed(gtk::gdk::ModifierType::empty()));
+    }
+
+    #[test]
+    fn phase_8e_miller_drags_exact_raw_selection_and_targets_exact_children() {
+        let root = tempdir().expect("temporary root");
+        let raw_name = std::ffi::OsString::from_vec(b"drag-\xff".to_vec());
+        let raw_path = root.path().join(&raw_name);
+        fs::write(&raw_path, b"x").expect("raw fixture");
+        let entries = enumerate_directory(root.path())
+            .expect("fixture listing")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            drag_paths_for_entries(entries.clone(), false),
+            vec![raw_path.clone()]
+        );
+        assert!(drag_paths_for_entries(entries, true).is_empty());
+
+        let destination = DropDestination::Directory(raw_path.clone());
+        assert_eq!(
+            miller_child_hover_target(5, &destination),
+            Some(DropHoverTarget::MillerChild {
+                depth: 5,
+                path: raw_path,
+            })
+        );
+        assert_eq!(miller_child_hover_target(5, &DropDestination::Trash), None);
     }
 }

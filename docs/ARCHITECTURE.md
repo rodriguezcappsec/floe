@@ -229,6 +229,15 @@ create, paste, and relative-path commands use the validated owner directory;
 navigation-only background commands stay disabled when that directory is not
 the active browser session.
 
+Phase 8E extends the existing `drag_drop` adapter rather than adding an
+operation path. Active and retained Miller selection models publish standard
+GDK local-file lists; exact folder and column directories become typed
+destinations. One application dispatcher resolves live tab/split/sidebar/device
+state and submits the existing validated copy/move/link requests. Typed hover
+targets distinguish directory, tab, opposite-pane, and Miller-child ownership;
+the single cancellable timer revalidates state before navigation. Edge motion
+walks ancestor scrollers and clamps both vertical and horizontal adjustments.
+
 ### `application.rs` and `main.rs`
 
 `main.rs` declares modules and starts `application::run`. `application.rs`

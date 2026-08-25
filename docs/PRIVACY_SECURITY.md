@@ -32,6 +32,10 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 8E adds no drag history or new persistent path channel. Standard local
+  file-list payloads and typed hover destinations remain interaction-lifetime
+  state. Timers are single, cancellable, and revalidate live tab/Miller
+  ownership; normal logs receive aggregate failures rather than source lists.
 - Phase 8D column action contexts remain memory-only and bounded to 4,096
   selected identities. Floe revalidates the exact retained depth, directory,
   and direct-child entry before dispatch; stale and overflowed contexts are

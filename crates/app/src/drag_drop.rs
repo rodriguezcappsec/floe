@@ -199,8 +199,16 @@ pub fn file_list_provider(paths: &[PathBuf]) -> Option<gdk::ContentProvider> {
 pub enum DropEvent {
     Commit(DropRequest),
     Feedback(Option<String>),
-    HoverEnter(PathBuf),
+    HoverEnter(DropHoverTarget),
     HoverLeave,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DropHoverTarget {
+    Directory(PathBuf),
+    Tab(u64),
+    OppositePane,
+    MillerChild { depth: usize, path: PathBuf },
 }
 
 type DropHandler = Rc<dyn Fn(DropEvent)>;
@@ -223,6 +231,7 @@ impl DropDispatcher {
 }
 
 pub type DestinationResolver = Rc<dyn Fn() -> Option<DropDestination>>;
+pub type HoverResolver = Rc<dyn Fn(&DropDestination) -> Option<DropHoverTarget>>;
 
 pub fn install_drag_source(widget: &impl IsA<gtk::Widget>, sources: Rc<dyn Fn() -> Vec<PathBuf>>) {
     let drag_source = gtk::DragSource::new();
@@ -238,12 +247,34 @@ pub fn install_drop_target(
     hover_open: bool,
     autoscroll: bool,
 ) {
+    let hover: HoverResolver = Rc::new(move |destination| {
+        if !hover_open {
+            return None;
+        }
+        match destination {
+            DropDestination::Directory(path) => {
+                Some(DropHoverTarget::Directory(path.to_path_buf()))
+            }
+            DropDestination::Trash => None,
+        }
+    });
+    install_drop_target_with_hover(widget, destination, hover, dispatcher, autoscroll);
+}
+
+pub fn install_drop_target_with_hover(
+    widget: &impl IsA<gtk::Widget>,
+    destination: DestinationResolver,
+    hover: HoverResolver,
+    dispatcher: DropDispatcher,
+    autoscroll: bool,
+) {
     let widget = widget.as_ref().clone();
     let target = gtk::DropTarget::new(gdk::FileList::static_type(), DROP_ACTIONS);
     target.set_preload(true);
 
     let enter_widget = widget.clone();
     let enter_destination = Rc::clone(&destination);
+    let enter_hover = Rc::clone(&hover);
     let enter_dispatcher = dispatcher.clone();
     target.connect_enter(move |target, _, _| {
         let Some(destination) = enter_destination() else {
@@ -255,8 +286,8 @@ pub fn install_drop_target(
         let message = drop_feedback(&destination, action);
         enter_widget.update_property(&[gtk::accessible::Property::Description(&message)]);
         enter_dispatcher.emit(DropEvent::Feedback(Some(message)));
-        if hover_open && let DropDestination::Directory(path) = destination {
-            enter_dispatcher.emit(DropEvent::HoverEnter(path));
+        if let Some(target) = enter_hover(&destination) {
+            enter_dispatcher.emit(DropEvent::HoverEnter(target));
         }
         action_to_gdk(action)
     });
@@ -264,7 +295,7 @@ pub fn install_drop_target(
     let motion_widget = widget.clone();
     let motion_destination = Rc::clone(&destination);
     let motion_dispatcher = dispatcher.clone();
-    target.connect_motion(move |target, _, y| {
+    target.connect_motion(move |target, x, y| {
         let Some(destination) = motion_destination() else {
             target.reject();
             return gdk::DragAction::empty();
@@ -274,7 +305,7 @@ pub fn install_drop_target(
         motion_widget.update_property(&[gtk::accessible::Property::Description(&message)]);
         motion_dispatcher.emit(DropEvent::Feedback(Some(message)));
         if autoscroll {
-            scroll_at_edge(&motion_widget, y);
+            scroll_at_edge(&motion_widget, x, y);
         }
         action_to_gdk(action)
     });
@@ -366,20 +397,40 @@ pub fn edge_scroll_delta(y: f64, height: f64) -> f64 {
     }
 }
 
-fn scroll_at_edge(widget: &gtk::Widget, y: f64) {
-    let delta = edge_scroll_delta(y, f64::from(widget.height()));
+fn scroll_at_edge(widget: &gtk::Widget, x: f64, y: f64) {
+    scroll_ancestor_adjustment(
+        widget,
+        edge_scroll_delta(y, f64::from(widget.height())),
+        false,
+    );
+    scroll_ancestor_adjustment(
+        widget,
+        edge_scroll_delta(x, f64::from(widget.width())),
+        true,
+    );
+}
+
+fn scroll_ancestor_adjustment(widget: &gtk::Widget, delta: f64, horizontal: bool) {
     if delta == 0.0 {
         return;
     }
-    let Some(scroller) = widget
-        .ancestor(gtk::ScrolledWindow::static_type())
-        .and_downcast::<gtk::ScrolledWindow>()
-    else {
-        return;
-    };
-    let adjustment = scroller.vadjustment();
-    let maximum = (adjustment.upper() - adjustment.page_size()).max(adjustment.lower());
-    adjustment.set_value((adjustment.value() + delta).clamp(adjustment.lower(), maximum));
+    let mut ancestor = widget.parent();
+    while let Some(candidate) = ancestor {
+        if let Ok(scroller) = candidate.clone().downcast::<gtk::ScrolledWindow>() {
+            let adjustment = if horizontal {
+                scroller.hadjustment()
+            } else {
+                scroller.vadjustment()
+            };
+            let maximum = (adjustment.upper() - adjustment.page_size()).max(adjustment.lower());
+            if maximum > adjustment.lower() {
+                adjustment
+                    .set_value((adjustment.value() + delta).clamp(adjustment.lower(), maximum));
+                return;
+            }
+        }
+        ancestor = candidate.parent();
+    }
 }
 
 #[cfg(test)]
@@ -479,6 +530,58 @@ mod tests {
         );
         assert!(message.contains("Move"));
         assert!(message.contains("/opposite-pane"));
+        assert!(message.contains("release to apply"));
+    }
+
+    #[test]
+    fn phase_8e_policy_keeps_typed_raw_hover_targets_and_drop_rejections() {
+        let raw = PathBuf::from(std::ffi::OsString::from_vec(
+            b"/tmp/miller-\xff/child".to_vec(),
+        ));
+        let target = DropHoverTarget::MillerChild {
+            depth: 7,
+            path: raw.clone(),
+        };
+        assert_eq!(
+            target,
+            DropHoverTarget::MillerChild {
+                depth: 7,
+                path: raw
+            }
+        );
+        assert!(matches!(
+            paths_from_files(&[gio::File::for_uri("sftp://host/item")]),
+            Err(DropPolicyError::NonLocalFile)
+        ));
+        assert!(matches!(
+            DropRequest::new(
+                vec![PathBuf::from("/tmp/item")],
+                DropDestination::Directory(PathBuf::from("/tmp")),
+                DropAction::Copy,
+            ),
+            Err(DropPolicyError::SameDestination(_))
+        ));
+        assert!(matches!(
+            DropRequest::new(
+                vec![PathBuf::from("/tmp/tree")],
+                DropDestination::Directory(PathBuf::from("/tmp/tree/child")),
+                DropAction::Move,
+            ),
+            Err(DropPolicyError::SelfNesting(_))
+        ));
+    }
+
+    #[test]
+    fn phase_8e_autoscroll_clamps_both_axes_and_keeps_textual_feedback() {
+        assert_eq!(edge_scroll_delta(1.0, 600.0), -EDGE_SCROLL_STEP);
+        assert_eq!(edge_scroll_delta(300.0, 600.0), 0.0);
+        assert_eq!(edge_scroll_delta(599.0, 600.0), EDGE_SCROLL_STEP);
+        let message = drop_feedback(
+            &DropDestination::Directory(PathBuf::from("/columns/target")),
+            DropAction::Link,
+        );
+        assert!(message.contains("Create links in"));
+        assert!(message.contains("/columns/target"));
         assert!(message.contains("release to apply"));
     }
 }
