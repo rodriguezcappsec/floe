@@ -17,6 +17,7 @@ use std::{
 };
 
 use floe_core::{DirectoryEntry, EntryKind};
+use gtk::{gio, prelude::*};
 use image::{ImageDecoder, ImageFormat, ImageReader, Limits, metadata::Orientation};
 use rustix::fs::{Mode, OFlags};
 use thiserror::Error;
@@ -97,6 +98,20 @@ pub enum PreviewContent {
         content_type: Arc<str>,
         first_page_only: bool,
     },
+    Media {
+        path: PathBuf,
+        content_type: Arc<str>,
+        is_video: bool,
+        poster: Option<PreviewPoster>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreviewPoster {
+    pub width: u32,
+    pub height: u32,
+    pub rowstride: usize,
+    pub rgba: Arc<[u8]>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -262,6 +277,9 @@ impl PreviewProviderRegistry {
         registry
             .register(Arc::new(DocumentPreviewProvider::discover()))
             .expect("first-party document provider registration is bounded and unique");
+        registry
+            .register(Arc::new(MediaPreviewProvider::discover()))
+            .expect("first-party media provider registration is bounded and unique");
         registry
     }
 
@@ -495,6 +513,97 @@ impl PreviewProvider for DocumentPreviewProvider {
     }
 }
 
+#[derive(Clone, Debug)]
+struct MediaPreviewProvider {
+    poster_providers: SystemThumbnailerRegistry,
+}
+
+impl MediaPreviewProvider {
+    fn discover() -> Self {
+        Self {
+            poster_providers: SystemThumbnailerRegistry::discover(),
+        }
+    }
+
+    #[cfg(test)]
+    fn discover_from_data_dirs(data_dirs: &[PathBuf]) -> Self {
+        Self {
+            poster_providers: SystemThumbnailerRegistry::discover_from_data_dirs(data_dirs),
+        }
+    }
+}
+
+impl PreviewProvider for MediaPreviewProvider {
+    fn id(&self) -> &'static str {
+        "floe.media"
+    }
+
+    fn supports(&self, request: &PreviewRequest) -> bool {
+        media_extension_kind(request.source().path()).is_some()
+    }
+
+    fn load(
+        &self,
+        request: &PreviewRequest,
+        cancellation: &PreviewCancellation,
+    ) -> Result<PreviewPayload, PreviewProviderError> {
+        let extension_is_video = media_extension_kind(request.source().path())
+            .ok_or(PreviewProviderError::Unsupported)?;
+        let source = open_verified_source(request)?;
+        let content_type = content_type_no_follow(request.source().path())?;
+        let mime_is_video = content_type.starts_with("video/");
+        let mime_is_audio = content_type.starts_with("audio/");
+        if (!mime_is_video && !mime_is_audio) || mime_is_video != extension_is_video {
+            return Err(PreviewProviderError::Unsupported);
+        }
+        drop(source);
+
+        let poster = if mime_is_video {
+            match self
+                .poster_providers
+                .generate(request.source().path(), 768, || cancellation.is_cancelled())
+            {
+                Ok(output) if output.bytes.len() as u64 <= request.limits().max_output_bytes => {
+                    decode_rgba(
+                        output.bytes,
+                        ImageFormat::Png,
+                        request.limits().max_output_bytes,
+                    )
+                    .ok()
+                    .map(|decoded| PreviewPoster {
+                        width: decoded.width,
+                        height: decoded.height,
+                        rowstride: decoded.rowstride,
+                        rgba: decoded.rgba,
+                    })
+                }
+                Err(SystemThumbnailerError::Cancelled) => {
+                    return Err(PreviewProviderError::Cancelled);
+                }
+                Ok(_) | Err(_) => None,
+            }
+        } else {
+            None
+        };
+        let source = open_verified_source(request)?;
+        revalidate_source(&source, request.source())?;
+        if cancellation.is_cancelled() {
+            return Err(PreviewProviderError::Cancelled);
+        }
+
+        Ok(PreviewPayload {
+            provider_id: self.id(),
+            kind: PreviewKind::Media,
+            content: PreviewContent::Media {
+                path: request.source().path().to_path_buf(),
+                content_type: Arc::from(content_type),
+                is_video: mime_is_video,
+                poster,
+            },
+        })
+    }
+}
+
 fn raster_format(path: &Path) -> Option<ImageFormat> {
     let extension = path.extension()?.to_str()?;
     if extension.eq_ignore_ascii_case("png") {
@@ -542,6 +651,37 @@ fn document_extension_allowed(path: &Path) -> bool {
     ]
     .iter()
     .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+}
+
+fn media_extension_kind(path: &Path) -> Option<bool> {
+    let extension = path.extension()?.to_str()?;
+    if [
+        "mp4", "m4v", "mkv", "webm", "mov", "avi", "mpeg", "mpg", "ogv", "flv", "wmv",
+    ]
+    .iter()
+    .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    {
+        return Some(true);
+    }
+    [
+        "mp3", "flac", "ogg", "oga", "opus", "wav", "m4a", "aac", "wma", "aiff", "aif",
+    ]
+    .iter()
+    .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    .then_some(false)
+}
+
+fn content_type_no_follow(path: &Path) -> Result<String, PreviewProviderError> {
+    let info = gio::File::for_path(path)
+        .query_info(
+            "standard::content-type",
+            gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
+            None::<&gio::Cancellable>,
+        )
+        .map_err(|error| PreviewProviderError::Failed(error.to_string()))?;
+    info.content_type()
+        .map(|content_type| content_type.to_string())
+        .ok_or(PreviewProviderError::Unsupported)
 }
 
 struct DecodedRgba {
@@ -1517,6 +1657,156 @@ mod tests {
         symlink(&source, &link).expect("document symlink");
         assert!(matches!(
             load_document_provider(provider, source_for(&link), PreviewLimits::default()),
+            PreviewOutcome::Failed(_)
+        ));
+    }
+
+    fn controlled_media_provider(root: &Path, script_body: &str) -> MediaPreviewProvider {
+        use std::os::unix::fs::PermissionsExt;
+
+        let data = root.join("data");
+        let definitions = data.join("thumbnailers");
+        fs::create_dir_all(&definitions).expect("media definitions");
+        let script = root.join("media-provider");
+        fs::write(&script, format!("#!/bin/sh\nset -eu\n{script_body}\n"))
+            .expect("media provider script");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700))
+            .expect("media provider executable");
+        fs::write(
+            definitions.join("media.thumbnailer"),
+            format!(
+                "[Thumbnailer Entry]\nExec={} %i %o %s\nMimeType=video/mp4;video/webm;\n",
+                script.display()
+            ),
+        )
+        .expect("media provider definition");
+        MediaPreviewProvider::discover_from_data_dirs(&[data])
+    }
+
+    fn load_media_provider(
+        provider: MediaPreviewProvider,
+        source: PreviewSourceKey,
+    ) -> PreviewOutcome {
+        let generation = 63;
+        let request = PreviewRequest::new(
+            generation,
+            source,
+            PreviewLimits::default(),
+            PreviewCachePolicy::Disabled,
+        )
+        .expect("media request");
+        PreviewProviderRegistry {
+            providers: vec![Arc::new(provider)],
+            ids: HashSet::from(["floe.media"]),
+        }
+        .load(
+            &request,
+            &PreviewCancellation {
+                active_generation: Arc::new(AtomicU64::new(generation)),
+                generation,
+                started: Instant::now(),
+                deadline: Duration::from_secs(2),
+            },
+        )
+    }
+
+    #[test]
+    fn phase_9d_media_contract_requires_reviewed_extension_and_mime_without_codec_install() {
+        let root = tempdir().expect("media contract root");
+        for name in [
+            "clip.mp4",
+            "clip.mkv",
+            "clip.webm",
+            "sound.mp3",
+            "sound.flac",
+            "sound.opus",
+        ] {
+            assert!(
+                media_extension_kind(&root.path().join(name)).is_some(),
+                "{name}"
+            );
+        }
+        for name in ["playlist.m3u", "script.sh", "active.html", "unknown.bin"] {
+            assert!(
+                media_extension_kind(&root.path().join(name)).is_none(),
+                "{name}"
+            );
+        }
+
+        let audio = root.path().join("sound.mp3");
+        fs::write(&audio, b"ID3 passive fixture").expect("audio fixture");
+        let payload = match load_media_provider(
+            MediaPreviewProvider {
+                poster_providers: SystemThumbnailerRegistry::default(),
+            },
+            source_for(&audio),
+        ) {
+            PreviewOutcome::Ready(payload) => payload,
+            outcome => panic!("unexpected audio outcome: {outcome:?}"),
+        };
+        assert!(matches!(
+            payload.content,
+            PreviewContent::Media {
+                is_video: false,
+                poster: None,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn phase_9d_media_provider_validates_identity_and_optional_bounded_poster() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().expect("media provider root");
+        let poster = root.path().join("poster.png");
+        image::RgbaImage::from_raw(2, 1, [90, 70, 50, 255].repeat(2))
+            .expect("poster pixels")
+            .save(&poster)
+            .expect("poster PNG");
+        let provider =
+            controlled_media_provider(root.path(), &format!("cp '{}' \"$2\"", poster.display()));
+        let video = root
+            .path()
+            .join(std::ffi::OsString::from_vec(b"clip-\xff.mp4".to_vec()));
+        fs::write(&video, b"passive video fixture").expect("video fixture");
+        let payload = match load_media_provider(provider.clone(), source_for(&video)) {
+            PreviewOutcome::Ready(payload) => payload,
+            outcome => panic!("unexpected video outcome: {outcome:?}"),
+        };
+        assert!(matches!(
+            payload.content,
+            PreviewContent::Media {
+                is_video: true,
+                poster: Some(PreviewPoster {
+                    width: 2,
+                    height: 1,
+                    rowstride: 8,
+                    ..
+                }),
+                ..
+            }
+        ));
+        assert!(video.as_os_str().as_bytes().contains(&0xff));
+
+        let changing_provider = controlled_media_provider(
+            &root.path().join("changing-media"),
+            &format!(
+                "printf 'changed by provider' > \"$1\"\ncp '{}' \"$2\"",
+                poster.display()
+            ),
+        );
+        let changing = root.path().join("changing.mp4");
+        fs::write(&changing, b"original video").expect("changing video");
+        assert!(matches!(
+            load_media_provider(changing_provider, source_for(&changing)),
+            PreviewOutcome::Failed(message) if message.contains("changed")
+        ));
+
+        let link = root.path().join("linked.mp4");
+        symlink(&video, &link).expect("media symlink");
+        assert!(matches!(
+            load_media_provider(provider, source_for(&link)),
             PreviewOutcome::Failed(_)
         ));
     }

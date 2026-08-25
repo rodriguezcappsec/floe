@@ -1160,12 +1160,20 @@ Last updated:
 Current phase:
 
 ```text
-Phase 9 — Quick Preview (Phase 9C complete)
+Phase 9 — Quick Preview (Phase 9D complete)
 ```
 
 Status:
 
 ```text
+Phase 9D adds exact local audio/video Preview through main-thread GTK
+MediaFile/Video/MediaControls. A worker validates no-follow extension and GIO
+MIME identity and may request one bounded passive video poster through the
+existing supervised Phase 6L provider boundary. Native controls provide
+play/pause and seeking; audio has an honest icon fallback. Detail rerender,
+selection change, navigation, or closure explicitly pauses and clears the
+retired stream. Floe neither shells out for playback nor installs codecs.
+
 Phase 9C adds passive PDF and reviewed office/document previews by reusing the
 Phase 6L freedesktop thumbnailer registry and supervised argv-only process
 boundary. Exact sources are opened no-follow before dispatch and reopened after
@@ -2231,9 +2239,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-9d-preview-media` and implement bounded audio/video Preview
-playback, seeking, metadata, poster fallback, and resource retirement. Do not
-install codecs or add font/archive providers.
+Create `phase-9e-preview-fonts-archives` and implement bounded read-only font
+specimens and archive listings. Do not install fonts, extract archives, or add
+preview interaction polish.
 ```
 
 ---
