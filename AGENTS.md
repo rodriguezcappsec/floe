@@ -1160,12 +1160,27 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — Browser filesystem foundations (Phase 6T complete)
+Phase 7 — Tabs and split view (Phase 7A complete)
 ```
 
 Status:
 
 ```text
+Phase 7A establishes the GTK-independent tab/session foundation without changing
+runtime UI. `floe-core` now canonically owns list/grid, grid-size, density,
+sorting/grouping/folder-placement, and list-column view policy. `BrowserSession`
+owns a stable nonzero ID plus bounded complete current/back/forward locations:
+exact absolute path, exact multi-selection, path/index scroll anchor, and full
+folder view state. Whole-location navigation preserves restoration state, clears
+forward history after new navigation, and stops parent traversal at root.
+
+The bounded version-1 in-memory codec preserves raw non-UTF-8 Unix path bytes and
+rejects invalid IDs, relative/oversized paths, invalid policy fields, duplicate
+selection paths, oversized history/selection, malformed/truncated data, and
+trailing bytes. The application does not call the codec and Phase 7A performs no
+session persistence. No tab widget, action, shortcut, split view, or duplicated
+browser worker was added.
+
 Phase 6T completes the daily browser surface. Raw-extension sorting,
 folders-first/folders-last placement, and independent None/Type/Extension
 grouping remain GTK-independent and deterministic. Compact, Comfortable, and
@@ -1427,15 +1442,21 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6T is complete. The one recommended next branch is
-`phase-7a-tabs-foundation`, adding only the GTK-independent serializable
-browser-session model. Do not add tab widgets, tab shortcuts, split view, or
-session persistence in Phase 7A.
+Phase 7A is complete. The one recommended next branch is
+`phase-7b-tabs-interaction`, adding tab widgets and new/close/switch/duplicate/
+reorder/foreground-background interaction on the reusable session model. Do not
+add closed-tab/startup persistence or split view in Phase 7B.
 ```
 
 Verified:
 
 ```text
+Phase 7A passes formatting, workspace check, strict all-target/all-feature
+Clippy, and 296 tests: 74 core and 222 application. Focused coverage includes
+canonical view policy, complete history transitions, explicit history/selection
+bounds, non-UTF-8 path round-trip, and malformed codec rejection. No native
+Wayland smoke is claimed because Phase 7A adds no runtime application wiring.
+
 Phase 6T passes formatting, workspace check, strict all-target/all-feature
 Clippy, and 294 tests: 66 core and 228 application. Focused coverage includes
 raw extension/grouping identity, metadata staleness/capacity/cache, column and
@@ -1683,6 +1704,13 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 7A tab/session foundation on `phase-7a-tabs-foundation`.
+* Moved canonical GTK-independent view policy from the app into `floe-core` and
+  added stable-ID bounded complete browser-session state plus versioned raw-path
+  in-memory codec without runtime UI or persistence.
+* Verified 296 tests, formatting, workspace check, strict Clippy, and diff
+  hygiene; updated roadmap, matrix, architecture, development, privacy, plan,
+  and gates with exactly Phase 7B next.
 * Completed Phase 6T browser completeness on `phase-6t-browser-completeness`.
 * Added exact extension sorting, independent Type/Extension grouping,
   folder placement, shared density, optional/resizable columns, bounded lazy
@@ -1968,10 +1996,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-7a-tabs-foundation` and implement only the GTK-independent,
-serializable browser-session model for exact path, navigation history,
-selection, scroll anchor, sort, and view state. Do not add tab widgets,
-shortcuts, split view, or persistence yet.
+Create `phase-7b-tabs-interaction` and implement tab widgets plus new, close,
+switch, duplicate, reorder, foreground/background open, and middle-click
+interaction over Phase 7A sessions. Do not add closed-tab/startup persistence or
+split view yet.
 ```
 
 ---

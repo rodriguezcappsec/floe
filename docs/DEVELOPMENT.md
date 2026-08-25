@@ -355,8 +355,24 @@ columns, and a widened Name column across two launches. Both instances answered
 action state, persistence, D-Bus health, and clean process lifecycle are the
 runtime evidence. The first live resizing pass emitted transient one-pixel GTK
 measurement warnings plus the documented RADV `VK_SUBOPTIMAL_KHR` warning; the
-restored second launch emitted no warning. After verified Phase 6T, continue
-only on `phase-7a-tabs-foundation`.
+restored second launch emitted no warning. That checkpoint handed off to
+`phase-7a-tabs-foundation`.
+
+Phase 7A adds no dependency and no runtime UI path. Focused checks are:
+
+```bash
+cargo test -p floe-core phase_7a_view -- --nocapture
+cargo test -p floe-core phase_7a_session -- --nocapture
+cargo test -p floe-core phase_7a_codec -- --nocapture
+```
+
+The full gate passes 296 tests: 222 application and 74 core. Formatting,
+workspace check, strict all-target/all-feature Clippy, and diff hygiene pass.
+The application continues to compile against the moved canonical core view
+types. No native Wayland smoke is claimed for Phase 7A because it adds no tab
+widget, action, shortcut, persistence, application wiring, or other runtime UI
+behavior. After verified Phase 7A, continue only on
+`phase-7b-tabs-interaction`.
 
 ## Wayland environments
 

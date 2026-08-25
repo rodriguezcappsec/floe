@@ -63,7 +63,7 @@ phases add hostile-input, failure-path, cache-leak, and claim-accuracy tests.
 | 6L | COMPLETE | Supervised freedesktop system-thumbnailer providers with bounded cache integration. |
 | 6M | COMPLETE | Confirmed multi-target permanent deletion with mount/symlink safety and truthful partial failure. |
 
-The actual completed phase is **Phase 6T**.
+The actual completed phase is **Phase 7A**.
 
 ## Phase 6 — Finish browser and filesystem foundations
 
@@ -142,8 +142,8 @@ Goal: make standards-correct local Trash a first-class Floe location.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 7A — Tab/session model | NEXT | `phase-7a-tabs-foundation` | Serializable browser sessions: path, history, selection, scroll, sort, view. | 6S/6T; no widgets or duplicated workers; verify exact GTK-independent state. |
-| 7B — Tab interaction | PLANNED | `phase-7b-tabs-interaction` | New, close, switch, duplicate, reorder, foreground/background open, middle-click. | 7A; no restore/split; verify pointer, keyboard, focus and native smoke. |
+| 7A — Tab/session model | COMPLETE | `phase-7a-tabs-foundation` | Serializable browser sessions: path, history, selection, scroll, sort, view. | Verified exact bounded GTK-independent state and raw non-UTF-8 codec; no widgets, persistence, or duplicated workers. |
+| 7B — Tab interaction | NEXT | `phase-7b-tabs-interaction` | New, close, switch, duplicate, reorder, foreground/background open, middle-click. | 7A; no restore/split; verify pointer, keyboard, focus and native smoke. |
 | 7C — Closed tabs/restore | PLANNED | `phase-7c-tab-session-restore` | Reopen closed, close variants, optional names/pins, startup session restore. | 7A/7B; suppress private state; verify atomic versioned persistence and Ctrl+Shift+T. |
 | 7D — Split state | PLANNED | `phase-7d-split-state` | Two independent contexts, active side, histories, ratio and view modes. | 7A; widgets are not source of truth; verify serialization and focus identity. |
 | 7E — Split interaction | PLANNED | `phase-7e-split-interaction` | Toggle, close, swap, switch side, opposite-pane open and search/filter hooks. | 7D; no drag; active side uses non-color semantics and passes native smoke. |

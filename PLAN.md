@@ -1,61 +1,42 @@
-# Plan: Floe Phase 6T Browser completeness
+# Plan: Floe Phase 7A Tab/session model
 
-Mode: sequential solo phase, depth 5.
+Mode: sequential solo phase, depth 4.
 
 ## Contract
 
-- Preserve the shared virtualized list/grid model, exact `PathBuf`/`OsString`
-  identity, 256-entry insertion batches, watcher reconciliation, selection,
-  scroll anchors, context menus, and drag/drop.
-- Add extension sorting, independent type/extension grouping, configurable
-  folder placement, Compact/Comfortable/Spacious density, optional list columns,
-  and clamped pointer plus keyboard/menu column resizing.
-- Request MIME, Created, Accessed, and Permissions only for bound rows through a
-  fixed-capacity worker and bounded presentation cache. Metadata arrival must
-  never reorder the directory.
-- Migrate legacy view preferences; persist complete global policy plus opt-in,
-  capped exact raw-path per-folder overrides outside GTK callbacks.
-- Report only known non-recursive bytes. Query current-location and mounted-local
-  device size/free/read-only facts asynchronously through bounded GIO work with
-  generation and identity rejection.
-- Exclude tabs, tab widgets, session restore, Inspector, recursive folder sizes,
-  owner-name lookup, media metadata, search, and future settings UI.
+- Implement only a GTK-independent browser-session foundation. No tab widgets,
+  tab bar, shortcuts, close/reorder behavior, startup restore, persistence,
+  split view, duplicated browser workers, or changes to visible runtime UX.
+- Reuse one canonical view-policy type family. Move the existing GTK-independent
+  mode/grid/density/column/folder-view policy into `floe-core` rather than create
+  duplicate session-only enums.
+- A session owns stable ID and bounded complete location states: exact current
+  path, back/forward history, exact multi-selection, stable path/index scroll
+  anchor, sort/group/folder placement, view mode/grid size/density/columns.
+- Navigation transitions move complete location state so Back/Forward can later
+  restore selection, scroll, sort, and view without reading widget state.
+- Provide a versioned, bounded, in-memory codec that preserves non-UTF-8 Linux
+  paths and rejects relative paths, malformed/truncated/oversized data, invalid
+  enum values, invalid/zero session IDs, and trailing bytes. Phase 7C owns file
+  persistence and privacy policy; Phase 7A performs no I/O.
 
 ## Depth tree
 
-1. Core view policy
-   - Extension sort and raw identity.
-   - Directory first/last independent from sort direction.
-   - None/Type/Extension grouping independent from sorting.
-2. Bounded enrichment and presentation
-   - Capacity-64 metadata worker, 512-result cache, exact source identity.
-   - Nine stable columns, optional visibility, clamped widths, accessible sort
-     state, recycled-row-safe bindings.
-   - Shared list/grid density classes without density-only factory replacement.
-3. Preference scope
-   - Version-2 migration preserving legacy view/grid/sidebar values.
-   - Global policy plus opt-in 256-entry raw-path folder overrides.
-4. Status and storage
-   - Known selected/visible bytes without recursive directory size claims.
-   - Capacity-32 GIO storage worker for current location and mounted devices.
-5. Verification and handoff
-   - Focused and full Rust gates, diff audit, native two-launch Wayland smoke.
-   - Update architecture, design, privacy/security, roadmap, matrix, and status.
-
-## Evidence
-
-- Focused Phase 6T suites: 3 core sorting/grouping tests and 17 application
-  metadata/column/density/preference/status tests passed.
-- Full workspace: 228 application plus 66 core tests passed (294 total).
-- `cargo fmt --all -- --check`, workspace check, strict all-target/all-feature
-  Clippy, and `git diff --check` passed.
-- Native Niri/Wayland smoke exported 73 actions, exercised density, grouping,
-  directory placement, optional columns, and width adjustment, restored their
-  state on a second isolated launch, answered D-Bus `Peer.Ping`, quit cleanly,
-  and released the application name twice.
-- Spectacle produced no capture on this host. Runtime action/persistence/health
-  evidence is recorded in `docs/DEVELOPMENT.md`.
+1. Canonical view policy
+   - Relocate existing GTK-independent view types and focused tests to core.
+   - Keep application action mapping as a thin app-owned layer.
+2. Session state machine
+   - Stable nonzero session ID.
+   - Complete current/back/forward location state with explicit bounds.
+   - Exact selection and scroll-anchor updates; navigation preserves full state.
+3. Versioned serialization boundary
+   - Raw Unix path-byte encoding, deterministic view encoding, explicit limits.
+   - Round-trip and hostile-input tests without filesystem/config writes.
+4. Verification and handoff
+   - Focused session/view tests plus full formatting/check/Clippy/tests/diff gates.
+   - No native Wayland smoke unless runtime code changes; update persistent docs,
+     mark Phase 7A complete, set exactly Phase 7B next, and stop.
 
 ## Status
 
-COMPLETE — exactly one recommended next phase: `phase-7a-tabs-foundation`.
+COMPLETE — exactly one recommended next phase: `phase-7b-tabs-interaction`.

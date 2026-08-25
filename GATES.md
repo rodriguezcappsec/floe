@@ -1,44 +1,32 @@
-# Gates: Floe Phase 6T Browser completeness
+# Gates: Floe Phase 7A Tab/session model
 
 Status: COMPLETE
 
-- [x] G1: Work stayed on `phase-6t-browser-completeness`; no Phase 7 code was
-  introduced. `git branch --show-current` and diff audit confirmed scope.
-- [x] G2: Extension sorting, directory placement, and independent Type/Extension
-  grouping are GTK-independent, deterministic, and exact-path-safe. Three
-  `phase_6t_sort_group` core tests passed, including non-UTF-8 identity.
-- [x] G3: Extended metadata is requested only by bound rows through a capacity-64
-  worker and 512-entry cache. Stale identity, saturation, deduplication, eviction,
-  and safe fallback tests passed; recycled row bindings reject delayed prior work.
-- [x] G4: Nine list columns have stable semantics, optional visibility, clamped
-  pointer widths, keyboard/menu parity, and accessible Extension sorting. Three
-  `phase_6t_columns` tests passed; the shared model and selection remain intact.
-- [x] G5: Compact, Comfortable, and Spacious apply to shared list/grid widgets;
-  density-only changes do not replace the factory and focus remains visible. Two
-  `phase_6t_density` tests passed.
-- [x] G6: Legacy preferences migrate; complete global state and opt-in exact
-  raw-path folder overrides persist atomically with a 256-record cap. Three
-  `phase_6t_preferences` tests passed.
-- [x] G7: Status text reports known non-recursive bytes honestly. A capacity-32
-  GIO worker supplies current-location and mounted-device total/free/read-only
-  facts with generation, device ID, and exact path checks. Five
-  six `phase_6t_status` tests passed.
-- [x] G8: Lazy metadata callbacks update presentation only. Deliberate sort/group
-  changes use the existing browser worker and preserve exact selection/anchors.
-- [x] G9: Source/dependency audit found no new shell, privilege, recursive walk,
-  eager directory enrichment, lossy path reconstruction, unbounded worker/cache,
-  filesystem mutation in GTK callbacks, or dependency addition.
-- [x] G10: `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy,
-  `cargo test --workspace`, and `git diff --check` passed. Totals: 228 application
-  and 66 core tests, 294 overall.
-- [x] G11: Native Niri/Wayland smoke used isolated HOME/XDG roots, exported 73
-  actions, exercised/restored density, grouping, directory placement, columns,
-  and width across two launches, answered D-Bus health checks, exited cleanly,
-  and released `io.github.floe.FileManager` twice. Spectacle produced no image;
-  action state and lifecycle are the native evidence.
-- [x] G12: Roadmap, matrix, design, architecture, development, privacy/security,
-  plan, gates, and persistent status record verified Phase 6T and mark exactly
-  Phase 7A as `NEXT`.
+- [x] G1: Work is isolated on `phase-7a-tabs-foundation`; no tab widget, tab
+  action/shortcut, persistence, split-view, or future interaction code exists.
+- [x] G2: Existing GTK-independent view mode/grid/density/column/folder policy
+  has one canonical core definition and application behavior remains unchanged.
+  CHECK: `cargo test -p floe-core phase_7a_view -- --nocapture`
+- [x] G3: A stable-ID browser session owns exact complete current/back/forward
+  location state including path, selection, path/index scroll anchor, sort,
+  grouping, directory placement, mode, grid size, density, and columns.
+  CHECK: `cargo test -p floe-core phase_7a_session -- --nocapture`
+- [x] G4: Navigation transitions preserve complete history entries, clear
+  forward history after new navigation, stop at root, and enforce explicit
+  history/selection bounds without silent identity loss.
+  CHECK: focused transition, bound, duplicate-selection, and non-UTF-8 tests.
+- [x] G5: Versioned in-memory serialization round-trips raw non-UTF-8 paths and
+  all policy fields; malformed, relative, truncated, oversized, invalid-enum,
+  and trailing-byte inputs fail structurally without panic or filesystem I/O.
+  CHECK: `cargo test -p floe-core phase_7a_codec -- --nocapture`
+- [x] G6: `floe-core` remains free of GTK/GIO/compositor dependencies and no new
+  dependency, shell, unsafe, filesystem operation, or lossy path reconstruction
+  is introduced.
+- [x] G7: Formatting, workspace check, strict all-target/all-feature Clippy,
+  222 application plus 74 core tests (296 total), and diff hygiene pass.
+- [x] G8: Roadmap, matrix, architecture, development, privacy/security, plan,
+  gates, and AGENTS status mark verified Phase 7A complete and exactly Phase 7B
+  as `NEXT`. No native smoke is claimed because runtime UI is unchanged.
 
-Recommended next phase: `phase-7a-tabs-foundation`. Stop before implementing it
+Recommended next phase: `phase-7b-tabs-interaction`. Stop before implementing it
 on this branch.
