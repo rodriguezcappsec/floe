@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 11C. Phase 11D is the only `NEXT`
+The implementation baseline for this matrix is Phase 11D. Phase 11E is the only `NEXT`
 phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -237,7 +237,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Inspector final column | `COMPLETE` | 8F | Optional aggregate-selection hook shares exact bounded lifecycle and explicitly defers metadata providers to Phase 10. |
 | Niri-friendly behavior | `PLANNED` | 8/15 | Core mode stays generic; Niri can add optional spatial enhancements later. |
 | Plasma-friendly behavior | `PLANNED` | 8/16 | No KDE dependency is required for the base column mode. |
-| Optional Vim bindings | `DEFERRED` | 11D | Use central keybinding architecture, never force Vim behavior. |
+| Optional Vim bindings | `COMPLETE` | 11D | Explicit opt-in reuses the central keybinding/action architecture and never changes normal-user defaults. |
 
 ## Views, sorting, grouping, and metadata columns
 
@@ -433,10 +433,10 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Directory-background context menu | `COMPLETE` | 6J | Paste, Select All, Refresh, and Edit Location are separate from file actions. |
 | Expanded context actions | `PLANNED` | 10-19 | Preview, Properties, paths, links, archives, checksum, privacy, safe-open, and custom actions arrive with owning features. |
 | Avoid giant context-menu wall | `PLANNED` | 11A/20 | Central command metadata should prioritize common actions and coherent submenus. |
-| Central command registry | `COMPLETE` | 11A/11C | 60 bounded human-readable commands map to existing GActions; live enabled state remains authoritative, effective accelerators and menu metadata are centralized, and internal parameterized plumbing is excluded. |
+| Central command registry | `COMPLETE` | 11A/11C-11D | 61 bounded human-readable commands map to existing GActions; live enabled state remains authoritative, effective accelerators and menu metadata are centralized, and internal parameterized plumbing is excluded. |
 | Command palette / Ctrl+Shift+P | `COMPLETE` | 11B | Native bounded metadata-only search delegates to live GActions, exposes disabled context, keyboard/accessibility semantics, and 16-entry memory-only recents. |
 | Customizable shortcuts | `COMPLETE` | 11C | Versioned bounded overrides support up to four bindings per normal/recoverable command, exact conflict feedback, disabling, individual/all reset, legacy migration, and asynchronous persistence. Confirmation-required and irreversible bindings retain reviewed defaults. |
-| Optional Vim mode | `DEFERRED` | 11D | Layer on the keymap architecture; never force on normal users. |
+| Optional Vim mode | `COMPLETE` | 11D | Explicit persisted opt-in adds h/j/k/l, g/G, and o only on list/grid/Miller file-view controllers; modifiers, entries, search, spin, text views, and dialogs retain native behavior. |
 | Open Terminal Here | `PLANNED` | 11E | Preferred terminal, selected-folder semantics, and no shell interpolation. |
 | Embedded terminal | `DEFERRED` | 11E | Requires dependency and security architecture review. |
 | Security-sensitive shortcut guardrails | `COMPLETE` | 11C/18X | Confirmation-required and irreversible command bindings retain reviewed defaults; broader operation-scale guardrails remain Phase 18X. |

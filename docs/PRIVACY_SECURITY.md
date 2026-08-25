@@ -321,6 +321,11 @@ Malformed, unknown, conflicting, or over-capacity records are ignored during
 migration. Confirmation-required and irreversible actions cannot be remapped,
 so customization does not weaken their reviewed activation boundary.
 
+Phase 11D persists one boolean Vim-mode preference. Floe does not record typed
+keys, navigation sequences, focus history, or mode usage. Key capture is
+installed only on file-view controllers and is inactive by default; editable
+widgets and dialogs retain native input behavior.
+
 ## Sensitive Folder, Private Mode, and Protected Folder
 
 These terms are deliberately distinct and all are **PLANNED**.

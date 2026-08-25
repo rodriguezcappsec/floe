@@ -1,41 +1,41 @@
-# Gates: Floe Phase 11C — Keybindings
+# Gates: Floe Phase 11D — Optional Vim Mode
 
-Scope: Deliver bounded, persistent, conflict-safe shortcut customization and complete native shortcut discovery without adding Vim or terminal behavior.
+Scope: Deliver an off-by-default, focus-safe Vim navigation layer for list/grid/Miller views without intercepting text entry or adding terminal behavior.
 
-- [x] G1: The active branch and diff contain only Phase 11C work.
+- [x] G1: The active branch and diff contain only Phase 11D work.
   CHECK: git branch --show-current
-  EXPECT: phase-11c-keybindings
-  EVIDENCE: Confirmed `phase-11c-keybindings`; implementation and documentation are limited to shortcut model, preferences, native dialog, action/menu wiring, and phase ledgers.
+  EXPECT: phase-11d-vim-mode
+  EVIDENCE: Confirmed `phase-11d-vim-mode`; changes are limited to Vim policy, preference/state/action/view wiring, indicator/menu, tests, and phase ledgers.
 
-- [x] G2: Override parsing, canonicalization, bounds, migration, conflict detection, reset-one/reset-all, and conservative risk guardrails are verified.
-  CHECK: cargo test -p floe-app phase_11c_keybinding_model -- --nocapture
+- [x] G2: Vim key policy maps reviewed navigation keys, preserves modifiers/native fallthrough, and rejects every editable or dialog focus context.
+  CHECK: cargo test -p floe-app phase_11d_vim_policy -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Two focused model tests passed, including malformed/hostile records, four-binding and 64-override bounds, exact conflicts, typing-key rejection, protected destructive actions, and resets.
+  EVIDENCE: Two focused policy tests passed for h/j/k/l/g/G/o, disabled mode, modifier fallthrough, and non-file-view focus; runtime controllers exist only on list/grid/Miller file views.
 
-- [x] G3: Preferences round-trip validated effective shortcuts through the existing bounded worker while legacy files retain defaults.
-  CHECK: cargo test -p floe-app phase_11c_keybinding_preferences -- --nocapture
+- [x] G3: Vim mode is disabled by default and versioned preference migration/round-trip preserve explicit opt-in only.
+  CHECK: cargo test -p floe-app phase_11d_vim_preferences -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused migration/round-trip test passed for version-4 defaults, version-5 custom and disabled bindings; full existing capacity-one worker persistence tests also passed.
+  EVIDENCE: Focused test passed version-5 migration to disabled, explicit version-6 true round-trip, and invalid-value fallback; native two-launch restoration retained true in a 0600 preference file.
 
-- [x] G4: The native Keyboard Shortcuts surface discovers every registered command and supports edit, conflict feedback, individual reset, and reset-all through existing GActions.
-  CHECK: cargo test -p floe-app phase_11c_keybinding_ui -- --nocapture
+- [x] G4: Existing list/grid/Miller selection, activation, and parent/child action paths own execution; GTK key handling adds no filesystem work.
+  CHECK: cargo test -p floe-app phase_11d_vim_dispatch -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: UI contract test passed for all 60 bounded registry entries, 128-character search, registered action, native editor controls, accessible labels/status, custom/default and unavailable context.
+  EVIDENCE: Focused dispatch test passed selection clamping/empty handling and existing parent/open/Miller-child paths; list/grid select shared model and Miller uses its established dispatchers.
 
-- [x] G5: Existing default accelerators remain unchanged when no override exists, and effective accelerators update without duplicating command eligibility logic.
-  CHECK: cargo test -p floe-app phase_11c_effective_accelerators -- --nocapture
+- [x] G5: Registered toggle, header/palette discoverability, visible text indicator, and accessible enabled/disabled state are verified.
+  CHECK: cargo test -p floe-app phase_11d_vim_ui -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused test preserved Back and Refresh defaults; runtime installer derives only effective registry metadata while existing live GActions remain execution/eligibility authority.
+  EVIDENCE: UI test passed registered searchable `win.vim-mode`, no forced shortcut, hjkl search metadata, explicit `Vim On`/`Vim Off` text, tooltip, header menu and accessible label wiring.
 
-- [x] G6: Native Wayland smoke verifies dialog activation, searchable shortcut discovery, accessibility, accelerator update, D-Bus health, and clean quit.
-  EVIDENCE: Isolated Niri/Wayland run exported `keyboard-shortcuts`, D-Bus activation opened the native dialog, AT-SPI exposed `Keyboard Shortcuts`, Peer.Ping stayed healthy, Quit exited 0, and application-name ownership became false; only known RADV/Vulkan warnings appeared. Unit/persistence tests verify effective accelerator updates.
+- [x] G6: Native Wayland smoke verifies opt-in toggle/action state, indicator accessibility, input-safe health, D-Bus ping, clean quit, and name release.
+  EVIDENCE: Isolated Niri/Wayland action changed exported boolean state false to true; 0600 version-6 preference recorded true; a second launch restored true. Indicator has code/tested accessible On/Off text. Both launches answered Ping, exited 0, and released the application name; only known RADV warning appeared.
 
 - [x] G7: Formatting, workspace check, strict Clippy, all tests, native build, and diff hygiene pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check
   EXPECT: Finished
-  EVIDENCE: All commands exited 0; 412 tests passed (318 application plus 94 core), zero failed, native application build and diff hygiene passed.
+  EVIDENCE: All commands exited 0; 417 tests passed (323 application plus 94 core), zero failed, native application build and diff hygiene passed.
 
-- [x] G8: Persistent documentation marks 11C complete, selects exactly 11D next, and records shortcut persistence and risk limits truthfully.
-  CHECK: test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "11C.*COMPLETE|11D.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
-  EXPECT: 11D
-  EVIDENCE: ROADMAP has exactly one NEXT at 11D; AGENTS, matrix, privacy/security, plan, and gates record bounded persistence, no usage/path history, and protected destructive bindings.
+- [x] G8: Documentation marks 11D complete, selects exactly 11E next, and truthfully records opt-in/focus exclusions.
+  CHECK: test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "11D.*COMPLETE|11E.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
+  EXPECT: 11E
+  EVIDENCE: ROADMAP has exactly one NEXT at 11E; AGENTS, matrix, privacy/security, plan, and gates record default-off state, file-view capture boundary, native input fallthrough, and no key history.

@@ -1176,10 +1176,25 @@ Last updated:
 Current phase:
 
 ```text
-Phase 11 — Commands, keyboard, and terminal (Phase 11C complete)
+Phase 11 — Commands, keyboard, and terminal (Phase 11D complete)
 ```
 
 Status:
+
+```text
+Phase 11D adds an optional Vim-style browser navigation layer that is disabled
+by default and persisted as one version-6 boolean preference. When explicitly
+enabled, h/j/k/l move parent/next/previous/child, g/G select first/last, and o
+opens through existing list/grid/Miller selection, navigation, and activation
+paths. Controllers are attached only to file views; command/location/shortcut
+entries, search entries, spin buttons, text views, passive preview text, and
+dialogs retain native input. Control, Alt, Super, and unreviewed shifted chords
+fall through. A stateful `win.vim-mode` GAction is searchable in the command
+palette and available in the header menu; a persistent `Vim On`/`Vim Off`
+header control provides non-color and accessible state. Preference writes remain
+on the capacity-one application worker and no key or navigation history is
+stored. Phase 11E terminal integration is not included.
+```
 
 ```text
 Phase 11C adds bounded persistent shortcut customization over the central

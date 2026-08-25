@@ -490,6 +490,7 @@ impl BrowserController {
         let initial_view = tabs.active().current().view();
         let command_palette = crate::command_palette::CommandPalette::new(&widgets.window);
         let keyboard_shortcuts = crate::keyboard_shortcuts::KeyboardShortcuts::new(&widgets.window);
+        widgets.miller_view.set_vim_mode(view_preferences.vim_mode);
         Rc::new(Self {
             widgets,
             command_palette,
@@ -1368,6 +1369,11 @@ impl BrowserController {
                     controller.show_context_menu();
                 }
                 glib::Propagation::Stop
+            } else if let Some(controller) = controller.upgrade()
+                && let Some(command) = controller.vim_command_for_key(key, modifiers)
+            {
+                controller.dispatch_vim_file_view(command);
+                glib::Propagation::Stop
             } else {
                 glib::Propagation::Proceed
             }
@@ -1513,6 +1519,21 @@ impl BrowserController {
                     }
                 });
         });
+        let vim_enabled = self.current_preferences.borrow().vim_mode;
+        let vim_action =
+            gio::SimpleAction::new_stateful("vim-mode", None, &vim_enabled.to_variant());
+        let controller = Rc::downgrade(self);
+        vim_action.connect_activate(move |action, _| {
+            let enabled = !action
+                .state()
+                .and_then(|state| state.get::<bool>())
+                .unwrap_or(false);
+            if let Some(controller) = controller.upgrade() {
+                controller.change_vim_mode(enabled);
+                action.set_state(&enabled.to_variant());
+            }
+        });
+        self.widgets.window.add_action(&vim_action);
         self.add_action("back", |controller| controller.go_back());
         self.add_action("forward", |controller| controller.go_forward());
         self.add_action("parent", |controller| controller.go_parent());
@@ -2830,6 +2851,55 @@ impl BrowserController {
         })
     }
 
+    fn vim_command_for_key(
+        &self,
+        key: gtk::gdk::Key,
+        modifiers: gtk::gdk::ModifierType,
+    ) -> Option<crate::vim_mode::VimCommand> {
+        crate::vim_mode::command_for_input(
+            self.current_preferences.borrow().vim_mode,
+            true,
+            key.to_unicode(),
+            crate::vim_mode::VimModifiers {
+                control: modifiers.contains(gtk::gdk::ModifierType::CONTROL_MASK),
+                alt: modifiers.contains(gtk::gdk::ModifierType::ALT_MASK),
+                shift: modifiers.contains(gtk::gdk::ModifierType::SHIFT_MASK),
+                super_key: modifiers.contains(gtk::gdk::ModifierType::SUPER_MASK),
+            },
+        )
+    }
+
+    fn dispatch_vim_file_view(&self, command: crate::vim_mode::VimCommand) {
+        use crate::vim_mode::VimCommand;
+
+        match command {
+            VimCommand::Parent => self.go_parent(),
+            VimCommand::Child | VimCommand::Open => self.activate_selected(),
+            VimCommand::Previous | VimCommand::Next | VimCommand::First | VimCommand::Last => {
+                let item_count = self.widgets.selection.n_items();
+                let selected =
+                    (0..item_count).find(|index| self.widgets.selection.is_selected(*index));
+                let Some(target) = vim_selection_target(selected, item_count, command) else {
+                    return;
+                };
+                self.widgets.selection.select_item(target, true);
+                match self.view_mode.get() {
+                    ViewMode::List => self.widgets.list_view.scroll_to(
+                        target,
+                        gtk::ListScrollFlags::FOCUS,
+                        None::<gtk::ScrollInfo>,
+                    ),
+                    ViewMode::Grid => self.widgets.grid_view.scroll_to(
+                        target,
+                        gtk::ListScrollFlags::FOCUS,
+                        None::<gtk::ScrollInfo>,
+                    ),
+                    ViewMode::Miller => {}
+                }
+            }
+        }
+    }
+
     fn ensure_preview_request(&self) {
         let should_start = matches!(
             self.miller_detail.borrow().state(),
@@ -3254,6 +3324,35 @@ impl BrowserController {
         {
             crate::keybindings::install_effective_window_shortcuts(&application, &keybindings);
         }
+        self.queue_preferences();
+    }
+
+    fn change_vim_mode(&self, enabled: bool) {
+        if self.current_preferences.borrow().vim_mode == enabled {
+            return;
+        }
+        self.current_preferences.borrow_mut().vim_mode = enabled;
+        self.widgets.miller_view.set_vim_mode(enabled);
+        self.widgets.vim_mode_button.set_label(if enabled {
+            ui::VIM_MODE_ON_LABEL
+        } else {
+            ui::VIM_MODE_OFF_LABEL
+        });
+        self.widgets
+            .vim_mode_button
+            .update_property(&[gtk::accessible::Property::Label(if enabled {
+                "Vim navigation mode enabled"
+            } else {
+                "Vim navigation mode disabled"
+            })]);
+        self.show_toast(
+            if enabled {
+                "Vim navigation enabled for file views"
+            } else {
+                "Vim navigation disabled"
+            },
+            3,
+        );
         self.queue_preferences();
     }
 
@@ -5636,6 +5735,26 @@ const fn preview_space_should_toggle(focus_consumes_space: bool) -> bool {
     !focus_consumes_space
 }
 
+fn vim_selection_target(
+    selected: Option<u32>,
+    item_count: u32,
+    command: crate::vim_mode::VimCommand,
+) -> Option<u32> {
+    use crate::vim_mode::VimCommand;
+
+    if item_count == 0 {
+        return None;
+    }
+    let last = item_count - 1;
+    match command {
+        VimCommand::Previous => Some(selected.unwrap_or(0).saturating_sub(1)),
+        VimCommand::Next => Some(selected.map_or(0, |index| index.saturating_add(1).min(last))),
+        VimCommand::First => Some(0),
+        VimCommand::Last => Some(last),
+        VimCommand::Parent | VimCommand::Child | VimCommand::Open => None,
+    }
+}
+
 fn open_with_eligible(entry: &DirectoryEntry) -> bool {
     open_with_kind_eligible(entry.kind())
 }
@@ -5819,6 +5938,24 @@ mod tests {
         assert!(preview_space_should_toggle(false));
         assert!(!preview_space_should_toggle(true));
         assert_eq!(MILLER_DETAIL_ACTIONS[0], "miller-preview-hook");
+    }
+
+    #[test]
+    fn phase_11d_vim_dispatch_reuses_bounded_selection_and_registered_actions() {
+        use crate::vim_mode::VimCommand;
+
+        assert_eq!(vim_selection_target(None, 4, VimCommand::Next), Some(0));
+        assert_eq!(
+            vim_selection_target(Some(0), 4, VimCommand::Previous),
+            Some(0)
+        );
+        assert_eq!(vim_selection_target(Some(3), 4, VimCommand::Next), Some(3));
+        assert_eq!(vim_selection_target(Some(2), 4, VimCommand::First), Some(0));
+        assert_eq!(vim_selection_target(Some(2), 4, VimCommand::Last), Some(3));
+        assert_eq!(vim_selection_target(None, 0, VimCommand::First), None);
+        assert!(crate::command_registry::command("win.parent").is_some());
+        assert!(crate::command_registry::command("win.open").is_some());
+        assert!(MILLER_NAVIGATION_ACTIONS.contains(&"win.miller-child"));
     }
 
     #[test]

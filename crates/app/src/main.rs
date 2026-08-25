@@ -42,6 +42,7 @@ mod thumbnail_cache;
 pub mod trash_executor;
 mod ui;
 mod view;
+mod vim_mode;
 mod worker;
 
 fn main() -> gtk::glib::ExitCode {
