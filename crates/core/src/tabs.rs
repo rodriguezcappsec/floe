@@ -5,13 +5,17 @@ use std::{collections::HashSet, convert::TryInto};
 
 use thiserror::Error;
 
-use crate::{BrowserSession, BrowserSessionId, FolderViewState, SessionStateError};
+use crate::{
+    BrowserSession, BrowserSessionId, BrowserSplit, FolderViewState, SessionStateError, SplitRatio,
+    SplitSide, SplitStateError,
+};
 
 pub const TAB_CAPACITY: usize = 64;
 pub const RECENTLY_CLOSED_CAPACITY: usize = 32;
 pub const WORKSPACE_MAX_SERIALIZED_BYTES: usize = 64 * 1_048_576;
 const WORKSPACE_MAGIC: &[u8; 8] = b"FLOETABS";
-const WORKSPACE_VERSION: u16 = 1;
+const LEGACY_WORKSPACE_VERSION: u16 = 1;
+const WORKSPACE_VERSION: u16 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TabActivation {
@@ -21,43 +25,81 @@ pub enum TabActivation {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClosedTab {
-    pub session: BrowserSession,
+    pub session: BrowserSplit,
     pub active_changed: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BrowserTabs {
-    sessions: Vec<BrowserSession>,
+    sessions: Vec<BrowserSplit>,
     active: usize,
     next_id: u64,
-    recently_closed: Vec<BrowserSession>,
+    recently_closed: Vec<BrowserSplit>,
 }
 
 impl BrowserTabs {
     pub fn new(initial_path: PathBuf, view: FolderViewState) -> Result<Self, TabError> {
         let session = BrowserSession::new(BrowserSessionId::new(1)?, initial_path, view)?;
         Ok(Self {
-            sessions: vec![session],
+            sessions: vec![BrowserSplit::new(session)],
             active: 0,
             next_id: 2,
             recently_closed: Vec::new(),
         })
     }
 
-    pub fn sessions(&self) -> &[BrowserSession] {
+    pub fn sessions(&self) -> &[BrowserSplit] {
         &self.sessions
     }
 
     pub fn active(&self) -> &BrowserSession {
-        &self.sessions[self.active]
+        self.sessions[self.active].active()
     }
 
     pub fn active_mut(&mut self) -> &mut BrowserSession {
+        self.sessions[self.active].active_mut()
+    }
+
+    pub fn active_split(&self) -> &BrowserSplit {
+        &self.sessions[self.active]
+    }
+
+    pub fn active_split_mut(&mut self) -> &mut BrowserSplit {
         &mut self.sessions[self.active]
     }
 
+    pub fn split_active(
+        &mut self,
+        path: PathBuf,
+        view: FolderViewState,
+    ) -> Result<BrowserSessionId, TabError> {
+        if self.active_split().is_split() {
+            return Err(SplitStateError::AlreadySplit.into());
+        }
+        let id = self.allocate_id()?;
+        let session = BrowserSession::new(id, path, view)?;
+        self.active_split_mut().split(session)?;
+        Ok(id)
+    }
+
+    pub fn activate_split_side(&mut self, side: SplitSide) -> Result<bool, TabError> {
+        self.active_split_mut().activate(side).map_err(Into::into)
+    }
+
+    pub fn set_split_ratio(&mut self, ratio: SplitRatio) {
+        self.active_split_mut().set_ratio(ratio);
+    }
+
+    pub fn close_split_side(&mut self, side: SplitSide) -> Result<BrowserSession, TabError> {
+        self.active_split_mut().close(side).map_err(Into::into)
+    }
+
+    pub fn swap_split_sides(&mut self) -> Result<(), TabError> {
+        self.active_split_mut().swap().map_err(Into::into)
+    }
+
     pub fn active_id(&self) -> BrowserSessionId {
-        self.active().id()
+        self.active_split().id()
     }
 
     pub const fn active_index(&self) -> usize {
@@ -80,7 +122,7 @@ impl BrowserTabs {
         !self.recently_closed.is_empty() && self.sessions.len() < TAB_CAPACITY
     }
 
-    pub fn session(&self, id: BrowserSessionId) -> Option<&BrowserSession> {
+    pub fn session(&self, id: BrowserSessionId) -> Option<&BrowserSplit> {
         self.sessions.iter().find(|session| session.id() == id)
     }
 
@@ -111,7 +153,7 @@ impl BrowserTabs {
         self.ensure_capacity()?;
         let id = self.allocate_id()?;
         let session = BrowserSession::new(id, path, view)?;
-        self.sessions.push(session);
+        self.sessions.push(BrowserSplit::new(session));
         if activation == TabActivation::Foreground {
             self.active = self.sessions.len() - 1;
         }
@@ -126,7 +168,12 @@ impl BrowserTabs {
         self.ensure_capacity()?;
         let index = self.index_of(source)?;
         let id = self.allocate_id()?;
-        let duplicate = self.sessions[index].duplicate(id);
+        let secondary_id = if self.sessions[index].is_split() {
+            Some(self.allocate_id()?)
+        } else {
+            None
+        };
+        let duplicate = self.sessions[index].duplicate_with_ids(id, secondary_id)?;
         self.sessions.insert(index + 1, duplicate);
         if activation == TabActivation::Foreground {
             self.active = index + 1;
@@ -156,9 +203,20 @@ impl BrowserTabs {
 
     pub fn reopen_closed(&mut self) -> Result<BrowserSessionId, TabError> {
         self.ensure_capacity()?;
-        let closed = self.recently_closed.pop().ok_or(TabError::NoClosedTab)?;
+        let closed = self
+            .recently_closed
+            .last()
+            .ok_or(TabError::NoClosedTab)?
+            .clone();
         let id = self.allocate_id()?;
-        self.sessions.insert(self.active + 1, closed.duplicate(id));
+        let secondary_id = if closed.is_split() {
+            Some(self.allocate_id()?)
+        } else {
+            None
+        };
+        let reopened = closed.duplicate_with_ids(id, secondary_id)?;
+        self.recently_closed.pop();
+        self.sessions.insert(self.active + 1, reopened);
         self.active += 1;
         Ok(id)
     }
@@ -167,7 +225,7 @@ impl BrowserTabs {
         let index = self.index_of(id)?;
         let targets = self.sessions[..index]
             .iter()
-            .map(BrowserSession::id)
+            .map(BrowserSplit::id)
             .collect::<Vec<_>>();
         self.close_many(targets)
     }
@@ -176,7 +234,7 @@ impl BrowserTabs {
         let index = self.index_of(id)?;
         let targets = self.sessions[index + 1..]
             .iter()
-            .map(BrowserSession::id)
+            .map(BrowserSplit::id)
             .rev()
             .collect::<Vec<_>>();
         self.close_many(targets)
@@ -188,7 +246,7 @@ impl BrowserTabs {
             .sessions
             .iter()
             .filter(|session| session.id() != id)
-            .map(BrowserSession::id)
+            .map(BrowserSplit::id)
             .collect::<Vec<_>>();
         self.close_many(targets)
     }
@@ -200,11 +258,11 @@ impl BrowserTabs {
         bytes.extend_from_slice(&self.active_id().get().to_le_bytes());
         write_count(&mut bytes, self.sessions.len())?;
         for session in &self.sessions {
-            write_session(&mut bytes, session)?;
+            write_split(&mut bytes, session)?;
         }
         write_count(&mut bytes, self.recently_closed.len())?;
         for session in &self.recently_closed {
-            write_session(&mut bytes, session)?;
+            write_split(&mut bytes, session)?;
         }
         if bytes.len() > WORKSPACE_MAX_SERIALIZED_BYTES {
             return Err(WorkspaceCodecError::LimitExceeded("workspace bytes"));
@@ -221,7 +279,7 @@ impl BrowserTabs {
             return Err(WorkspaceCodecError::InvalidHeader);
         }
         let version = decoder.read_u16()?;
-        if version != WORKSPACE_VERSION {
+        if version != LEGACY_WORKSPACE_VERSION && version != WORKSPACE_VERSION {
             return Err(WorkspaceCodecError::UnsupportedVersion(version));
         }
         let active_id = BrowserSessionId::new(decoder.read_u64()?)?;
@@ -231,20 +289,30 @@ impl BrowserTabs {
         }
         let mut sessions = Vec::with_capacity(session_count);
         for _ in 0..session_count {
-            sessions.push(decoder.read_session()?);
+            sessions.push(if version == LEGACY_WORKSPACE_VERSION {
+                BrowserSplit::new(decoder.read_session()?)
+            } else {
+                decoder.read_split()?
+            });
         }
         let closed_count = decoder.read_count(RECENTLY_CLOSED_CAPACITY)?;
         let mut recently_closed = Vec::with_capacity(closed_count);
         for _ in 0..closed_count {
-            recently_closed.push(decoder.read_session()?);
+            recently_closed.push(if version == LEGACY_WORKSPACE_VERSION {
+                BrowserSplit::new(decoder.read_session()?)
+            } else {
+                decoder.read_split()?
+            });
         }
         if !decoder.finished() {
             return Err(WorkspaceCodecError::TrailingBytes);
         }
-        let mut ids = HashSet::with_capacity(sessions.len() + recently_closed.len());
+        let mut ids = HashSet::with_capacity((sessions.len() + recently_closed.len()) * 2);
         for session in sessions.iter().chain(&recently_closed) {
-            if !ids.insert(session.id()) {
-                return Err(WorkspaceCodecError::DuplicateSessionId(session.id().get()));
+            for id in session.pane_ids() {
+                if !ids.insert(id) {
+                    return Err(WorkspaceCodecError::DuplicateSessionId(id.get()));
+                }
             }
         }
         let active = sessions
@@ -315,7 +383,7 @@ impl BrowserTabs {
         Ok(id)
     }
 
-    fn push_recently_closed(&mut self, session: BrowserSession) {
+    fn push_recently_closed(&mut self, session: BrowserSplit) {
         if self.recently_closed.len() == RECENTLY_CLOSED_CAPACITY {
             self.recently_closed.remove(0);
         }
@@ -336,6 +404,8 @@ impl BrowserTabs {
 pub enum TabError {
     #[error(transparent)]
     Session(#[from] SessionStateError),
+    #[error(transparent)]
+    Split(#[from] SplitStateError),
     #[error("the maximum of {0} tabs is already open")]
     Capacity(usize),
     #[error("tab {0} does not exist")]
@@ -356,6 +426,8 @@ pub enum WorkspaceCodecError {
     Session(#[from] crate::SessionCodecError),
     #[error(transparent)]
     SessionState(#[from] SessionStateError),
+    #[error(transparent)]
+    Split(#[from] SplitStateError),
     #[error("workspace header is invalid")]
     InvalidHeader,
     #[error("workspace version {0} is unsupported")]
@@ -366,6 +438,8 @@ pub enum WorkspaceCodecError {
     UnknownActiveTab(u64),
     #[error("workspace repeats session ID {0}")]
     DuplicateSessionId(u64),
+    #[error("workspace split-presence flag is invalid")]
+    InvalidSplitFlag,
     #[error("workspace is truncated")]
     Truncated,
     #[error("workspace has trailing bytes")]
@@ -377,6 +451,17 @@ pub enum WorkspaceCodecError {
 fn write_count(bytes: &mut Vec<u8>, count: usize) -> Result<(), WorkspaceCodecError> {
     let count = u32::try_from(count).map_err(|_| WorkspaceCodecError::LimitExceeded("count"))?;
     bytes.extend_from_slice(&count.to_le_bytes());
+    Ok(())
+}
+
+fn write_split(bytes: &mut Vec<u8>, split: &BrowserSplit) -> Result<(), WorkspaceCodecError> {
+    bytes.push(u8::from(split.is_split()));
+    bytes.push(split.active_side().encoded());
+    bytes.extend_from_slice(&split.ratio().basis_points().to_le_bytes());
+    write_session(bytes, split.primary())?;
+    if let Some(secondary) = split.secondary() {
+        write_session(bytes, secondary)?;
+    }
     Ok(())
 }
 
@@ -426,6 +511,10 @@ impl<'a> WorkspaceDecoder<'a> {
         ))
     }
 
+    fn read_u8(&mut self) -> Result<u8, WorkspaceCodecError> {
+        Ok(self.read_exact(1)?[0])
+    }
+
     fn read_u32(&mut self) -> Result<u32, WorkspaceCodecError> {
         Ok(u32::from_le_bytes(
             self.read_exact(4)?
@@ -455,6 +544,23 @@ impl<'a> WorkspaceDecoder<'a> {
         BrowserSession::decode(self.read_exact(length)?).map_err(Into::into)
     }
 
+    fn read_split(&mut self) -> Result<BrowserSplit, WorkspaceCodecError> {
+        let has_secondary = match self.read_u8()? {
+            0 => false,
+            1 => true,
+            _ => return Err(WorkspaceCodecError::InvalidSplitFlag),
+        };
+        let active = SplitSide::from_encoded(self.read_u8()?)?;
+        let ratio = SplitRatio::new(self.read_u16()?)?;
+        let primary = self.read_session()?;
+        let secondary = if has_secondary {
+            Some(self.read_session()?)
+        } else {
+            None
+        };
+        BrowserSplit::from_parts(primary, secondary, active, ratio).map_err(Into::into)
+    }
+
     fn finished(&self) -> bool {
         self.offset == self.bytes.len()
     }
@@ -464,7 +570,7 @@ impl<'a> WorkspaceDecoder<'a> {
 mod tests {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt, path::PathBuf};
 
-    use crate::{FolderViewState, ViewMode};
+    use crate::{FolderViewState, SplitRatio, SplitSide, ViewMode};
 
     use super::{BrowserTabs, TAB_CAPACITY, TabActivation, TabError};
 
@@ -718,16 +824,163 @@ mod tests {
             .encode_workspace()
             .expect("two-tab workspace");
         let first_length = u32::from_le_bytes(
-            duplicate[22..26]
+            duplicate[26..30]
                 .try_into()
                 .expect("first session length bytes"),
         ) as usize;
-        let first_id = duplicate[36..44].to_vec();
-        let second_id_offset = 26 + first_length + 4 + 10;
+        let first_id = duplicate[40..48].to_vec();
+        let second_id_offset = 30 + first_length + 4 + 4 + 10;
         duplicate[second_id_offset..second_id_offset + 8].copy_from_slice(&first_id);
         assert!(matches!(
             BrowserTabs::decode_workspace(&duplicate),
             Err(super::WorkspaceCodecError::DuplicateSessionId(_))
+        ));
+    }
+
+    #[test]
+    fn phase_7d_split_tabs_duplicate_and_reopen_with_fresh_pane_ids() {
+        let mut tabs = BrowserTabs::new(PathBuf::from("/left"), FolderViewState::default())
+            .expect("initial tab");
+        tabs.split_active(PathBuf::from("/right"), FolderViewState::default())
+            .expect("split active tab");
+        tabs.activate_split_side(SplitSide::Secondary)
+            .expect("secondary active");
+        let original_ids = tabs
+            .active_split()
+            .pane_ids()
+            .map(|id| id.get())
+            .collect::<Vec<_>>();
+        let original_tab = tabs.active_id();
+        let duplicate = tabs
+            .duplicate(original_tab, TabActivation::Foreground)
+            .expect("duplicate split tab");
+        let duplicate_ids = tabs
+            .active_split()
+            .pane_ids()
+            .map(|id| id.get())
+            .collect::<Vec<_>>();
+        assert!(tabs.active_split().is_split());
+        assert_eq!(tabs.active_split().active_side(), SplitSide::Secondary);
+        assert_eq!(tabs.active().current().path(), PathBuf::from("/right"));
+        assert!(duplicate_ids.iter().all(|id| !original_ids.contains(id)));
+        tabs.close(duplicate).expect("close duplicate");
+        let reopened = tabs.reopen_closed().expect("reopen split tab");
+        let reopened_ids = tabs
+            .active_split()
+            .pane_ids()
+            .map(|id| id.get())
+            .collect::<Vec<_>>();
+        assert_eq!(reopened, tabs.active_id());
+        assert!(
+            reopened_ids
+                .iter()
+                .all(|id| !original_ids.contains(id) && !duplicate_ids.contains(id))
+        );
+        assert_eq!(tabs.active().current().path(), PathBuf::from("/right"));
+    }
+
+    #[test]
+    fn phase_7d_split_codec_round_trips_focus_ratio_raw_paths_and_migrates_v1() {
+        let raw = PathBuf::from(OsString::from_vec(b"/tmp/split-\xff".to_vec()));
+        let mut tabs =
+            BrowserTabs::new(raw.clone(), FolderViewState::default()).expect("raw primary");
+        tabs.split_active(
+            PathBuf::from("/secondary"),
+            FolderViewState {
+                mode: ViewMode::Grid,
+                ..FolderViewState::default()
+            },
+        )
+        .expect("secondary");
+        tabs.activate_split_side(SplitSide::Secondary)
+            .expect("secondary active");
+        tabs.set_split_ratio(SplitRatio::new(6_125).expect("bounded ratio"));
+        let encoded = tabs.encode_workspace().expect("version 2 workspace");
+        let restored = BrowserTabs::decode_workspace(&encoded).expect("decode split workspace");
+        assert_eq!(restored.active_split().primary().current().path(), raw);
+        assert_eq!(
+            restored
+                .active_split()
+                .secondary()
+                .expect("secondary")
+                .current()
+                .view()
+                .mode,
+            ViewMode::Grid
+        );
+        assert_eq!(restored.active_split().active_side(), SplitSide::Secondary);
+        assert_eq!(restored.active_split().ratio().basis_points(), 6_125);
+
+        let legacy = BrowserTabs::new(PathBuf::from("/legacy"), FolderViewState::default())
+            .expect("legacy fixture");
+        let mut legacy_bytes = Vec::new();
+        legacy_bytes.extend_from_slice(super::WORKSPACE_MAGIC);
+        legacy_bytes.extend_from_slice(&super::LEGACY_WORKSPACE_VERSION.to_le_bytes());
+        legacy_bytes.extend_from_slice(&legacy.active_id().get().to_le_bytes());
+        super::write_count(&mut legacy_bytes, legacy.sessions.len()).expect("live count");
+        for split in &legacy.sessions {
+            super::write_session(&mut legacy_bytes, split.primary()).expect("legacy session");
+        }
+        super::write_count(&mut legacy_bytes, 0).expect("closed count");
+        let migrated = BrowserTabs::decode_workspace(&legacy_bytes).expect("migrate v1");
+        assert!(!migrated.active_split().is_split());
+        assert_eq!(migrated.active().current().path(), PathBuf::from("/legacy"));
+    }
+
+    #[test]
+    fn phase_7d_split_codec_rejects_hostile_split_fields_and_duplicate_ids() {
+        let mut tabs = BrowserTabs::new(PathBuf::from("/left"), FolderViewState::default())
+            .expect("initial tab");
+        tabs.split_active(PathBuf::from("/right"), FolderViewState::default())
+            .expect("split active tab");
+        let encoded = tabs.encode_workspace().expect("split workspace");
+        let split_offset = super::WORKSPACE_MAGIC.len() + 2 + 8 + 4;
+
+        let mut bad_flag = encoded.clone();
+        bad_flag[split_offset] = 2;
+        assert!(matches!(
+            BrowserTabs::decode_workspace(&bad_flag),
+            Err(super::WorkspaceCodecError::InvalidSplitFlag)
+        ));
+
+        let mut bad_side = encoded.clone();
+        bad_side[split_offset + 1] = 9;
+        assert!(matches!(
+            BrowserTabs::decode_workspace(&bad_side),
+            Err(super::WorkspaceCodecError::Split(
+                crate::SplitStateError::InvalidSide(9)
+            ))
+        ));
+
+        let mut bad_ratio = encoded.clone();
+        bad_ratio[split_offset + 2..split_offset + 4].copy_from_slice(&1_u16.to_le_bytes());
+        assert!(matches!(
+            BrowserTabs::decode_workspace(&bad_ratio),
+            Err(super::WorkspaceCodecError::Split(
+                crate::SplitStateError::RatioOutOfRange { .. }
+            ))
+        ));
+
+        let primary_length = tabs
+            .active_split()
+            .primary()
+            .encode()
+            .expect("primary encoding")
+            .len();
+        let secondary_session_start = split_offset + 4 + 4 + primary_length + 4;
+        let session_id_offset = secondary_session_start + 8 + 2;
+        let mut duplicate = encoded.clone();
+        duplicate[session_id_offset..session_id_offset + 8]
+            .copy_from_slice(&tabs.active_id().get().to_le_bytes());
+        assert!(matches!(
+            BrowserTabs::decode_workspace(&duplicate),
+            Err(super::WorkspaceCodecError::Split(
+                crate::SplitStateError::DuplicatePaneId(_)
+            ))
+        ));
+        assert!(matches!(
+            BrowserTabs::decode_workspace(&encoded[..encoded.len() - 1]),
+            Err(super::WorkspaceCodecError::Truncated)
         ));
     }
 }

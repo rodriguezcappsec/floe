@@ -437,6 +437,13 @@ active tab, complete navigation/view state, and bounded closed tabs on the next
 launch. Missing or corrupt state quietly falls back to one normal tab. Optional
 custom tab names and pins remain deferred.
 
+Phase 7D makes each tab own a GTK-independent split context: a primary
+`BrowserSession`, optional secondary session, explicit active side, and a
+bounded 20–80% ratio. Each pane retains independent history, selection, scroll,
+and view policy while the tab's primary identity remains stable through
+close/swap transitions. Workspace version 2 persists this state and migrates
+version-1 unsplit sessions. No split widget or shortcut is exposed until 7E.
+
 ### Open without a default application
 
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.

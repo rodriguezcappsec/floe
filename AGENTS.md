@@ -1160,12 +1160,22 @@ Last updated:
 Current phase:
 
 ```text
-Phase 7 — Tabs and split view (Phase 7C complete)
+Phase 7 — Tabs and split view (Phase 7D complete)
 ```
 
 Status:
 
 ```text
+Phase 7D adds GTK-independent per-tab split state. Every live and recently
+closed tab now owns a primary `BrowserSession`, optional secondary session,
+explicit active side, and bounded 20–80% ratio while retaining stable tab
+identity. Pane histories, selections, scroll anchors, raw non-UTF-8 paths, and
+view policies remain independent. Deterministic close/swap transitions preserve
+the surviving content. Workspace version 2 persists complete split state,
+rejects hostile side/ratio/duplicate-ID input, and migrates Phase 7C version-1
+unsplit files. No GTK split widget, shortcut, second browser worker, or
+inter-pane drag is added.
+
 Phase 7C adds a bounded 32-entry recently closed LIFO with fresh-ID reopen,
 Close Left/Right/Others, and Ctrl+Shift+T. A versioned workspace envelope
 preserves up to 64 ordered live tabs, active ID, complete raw-path session state,
@@ -2071,10 +2081,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-7d-split-state` and implement only GTK-independent two-pane state:
-left/right browser contexts, active side, independent histories/view policy,
-bounded split ratio, focus identity, and versioned serialization. Do not add
-split widgets or interaction yet.
+Create `phase-7e-split-interaction` and implement visible two-pane interaction:
+toggle/close/swap, explicit active-side focus, opposite-pane open, and
+search/filter hooks. Reuse shared bounded services; do not add inter-pane
+drag-and-drop until Phase 7F.
 ```
 
 ---

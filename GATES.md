@@ -1,64 +1,54 @@
-# Gates: Floe Phase 7C Closed tabs and session restore
+# Gates: Floe Phase 7D Split state
 
 Status: COMPLETE
 
-- [x] G1: Work is isolated on `phase-7c-tab-session-restore`; no split view,
-  detached tabs/windows, optional names/pins, or later phase code exists.
+- [x] G1: Work is isolated on `phase-7d-split-state`; no GTK split widgets,
+  shortcuts, drag-and-drop, second browser worker, or Miller model is added.
   CHECK: git branch --show-current
-  EXPECT: phase-7c-tab-session-restore
-  EVIDENCE: Branch command returned `phase-7c-tab-session-restore`.
+  EXPECT: phase-7d-split-state
+  EVIDENCE: Branch command returned `phase-7d-split-state`; code review found no
+  GTK split widget/action, worker, drag, or Miller implementation.
 
-- [x] G2: Recently closed state is bounded LIFO; reopen, close-left/right/others,
-  active ownership, fresh IDs, and last-tab invariants are deterministic.
-  CHECK: cargo test -p floe-core phase_7c_closed_tabs -- --nocapture
+- [x] G2: A GTK-independent split model owns primary/secondary sessions, active
+  side, bounded ratio, stable tab identity, and deterministic split/close/swap.
+  CHECK: cargo test -p floe-core phase_7d_split_state -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Two focused closed-tab tests passed with a 32-entry cap and fresh IDs.
+  EVIDENCE: Focused state test passed ratio bounds, missing-side rejection,
+  stable identity, active-side transfer, swap, and close behavior.
 
-- [x] G3: A versioned bounded workspace codec preserves raw non-UTF-8 paths and
-  rejects malformed, oversized, empty, duplicate-ID, relative, unsupported, and
-  trailing input without panic or I/O.
-  CHECK: cargo test -p floe-core phase_7c_workspace_codec -- --nocapture
+- [x] G3: Pane paths, histories, selections, scroll anchors, and view policies
+  remain independent and preserve exact raw non-UTF-8 path identity.
+  CHECK: cargo test -p floe-core phase_7d_independent_panes -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Two codec tests passed raw round-trip and hostile envelope cases;
-  nested session validation retains Phase 7A relative/path/history limits.
+  EVIDENCE: Focused independent-pane test passed raw non-UTF-8 history,
+  selection, path, and per-pane grid/list view separation.
 
-- [x] G4: Session storage uses no-follow bounded reads, 0700/0600 ownership,
-  same-directory atomic replacement, capacity-one shutdown, shutdown flush,
-  corruption fallback, and no GTK-thread filesystem work.
-  CHECK: cargo test -p floe-app phase_7c_session_store -- --nocapture
+- [x] G4: Browser tabs, duplicate, close/reopen, and fresh-ID allocation retain
+  complete split state while existing unsplit application behavior remains valid.
+  CHECK: cargo test -p floe-core phase_7d_split_tabs -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Store tests passed atomic round-trip, modes, corruption and symlink
-  fallback; code review confirmed the named worker owns startup read/codec and
-  suppression cleanup; native first launch wrote one 824-byte private session file.
+  EVIDENCE: Focused tab test passed split duplicate, close/reopen, complete state,
+  and fresh primary/secondary IDs; all 230 existing app tests passed unchanged.
 
-- [x] G5: Explicit Private/Sensitive policy suppresses persistence and removes
-  Floe's session file; no cryptographic or same-user-process privacy claim is made.
-  CHECK: cargo test -p floe-app phase_7c_session_privacy -- --nocapture
+- [x] G5: Workspace version 2 round-trips split focus/ratio/raw state, migrates
+  version 1, and rejects malformed sides, ratios, duplicate IDs, and truncation.
+  CHECK: cargo test -p floe-core phase_7d_split_codec -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Unit tests covered both policies; native private-policy launch removed
-  the owned file and clean shutdown did not recreate it.
+  EVIDENCE: Two focused codec tests passed version-2 round-trip, version-1
+  migration, raw paths, focus/ratio, invalid flags/sides/ratios/IDs/truncation.
 
-- [x] G6: Ctrl+Shift+T and tab context close variants operate accessibly; startup
-  restore preserves active tab/order/state while invalid data falls back safely.
-  CHECK: cargo test -p floe-app phase_7c_tab_actions -- --nocapture
-  EXPECT: test result: ok
-  EVIDENCE: Action contract passed. Second native launch restored multiple tabs,
-  exposed enabled reopen, reopened, ran Close Others, and remained healthy.
-
-- [x] G7: Formatting, workspace check, strict all-target/all-feature Clippy,
-  workspace tests, diff hygiene, and two-launch native Wayland restore/action/
-  D-Bus lifecycle smoke pass.
+- [x] G6: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, diff hygiene, and existing application behavior pass.
   CHECK: cargo fmt --all -- --check
   EXPECT: /^$/
-  EVIDENCE: Formatting, check, strict Clippy, 312 tests, and diff hygiene passed
-  again after the final worker-ownership correction. Three isolated launches
-  quit cleanly; only documented RADV warnings appeared.
+  EVIDENCE: Formatting, workspace check, strict Clippy, 317 tests (230 app and
+  87 core), and diff hygiene passed.
 
-- [x] G8: Persistent docs mark verified Phase 7C complete and exactly Phase 7D
-  as `NEXT`, with truthful privacy and persistence limits.
-  CHECK: rg -n '7C — Closed tabs/restore.*COMPLETE|7D — Split state.*NEXT' docs/ROADMAP.md
-  EXPECT: 7D — Split state
+- [x] G7: Persistent docs mark verified Phase 7D complete and exactly Phase 7E
+  as `NEXT`, without claiming visible split interaction or inter-pane drag.
+  CHECK: rg -n '7D — Split state.*COMPLETE|7E — Split interaction.*NEXT' docs/ROADMAP.md
+  EXPECT: 7E — Split interaction
   EVIDENCE: Roadmap, matrix, design, architecture, development, privacy/security,
-  plan, gates, and AGENTS mark 7C complete and exactly 7D next.
+  plan, gates, and AGENTS mark 7D complete and exactly 7E next.
 
-Recommended next phase: `phase-7d-split-state`.
+Recommended next phase: `phase-7e-split-interaction`.

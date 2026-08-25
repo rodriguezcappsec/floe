@@ -419,6 +419,16 @@ or `sensitive` is an explicit integration/testing policy that suppresses this
 owned trace; it is not a complete user-facing Private Mode and makes no claim
 about other applications, the same-user processes, backups, or storage history.
 
+Phase 7D adds no dependency. Its focused GTK-independent checks are:
+
+```bash
+cargo test -p floe-core phase_7d_ -- --nocapture
+```
+
+The version-2 workspace codec retains the existing file location and migrates
+version-1 unsplit records. It adds bounded primary/secondary pane sessions,
+active side, and ratio; Phase 7D intentionally exposes no GTK split control.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

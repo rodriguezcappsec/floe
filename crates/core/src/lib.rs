@@ -11,6 +11,7 @@ mod navigation;
 mod permanent_delete;
 mod session;
 mod sorting;
+mod split;
 mod tabs;
 mod trash_lifecycle;
 mod view;
@@ -47,6 +48,10 @@ pub use session::{
 };
 pub use sorting::{
     DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn, SortDirection,
+};
+pub use split::{
+    BrowserSplit, SPLIT_RATIO_DEFAULT, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN, SplitRatio, SplitSide,
+    SplitStateError,
 };
 pub use tabs::{
     BrowserTabs, ClosedTab, RECENTLY_CLOSED_CAPACITY, TAB_CAPACITY, TabActivation, TabError,
