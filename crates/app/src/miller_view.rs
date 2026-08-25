@@ -255,6 +255,7 @@ pub struct MillerView {
     file_context_model: gio::MenuModel,
     background_context_model: gio::MenuModel,
     drop_dispatcher: DropDispatcher,
+    vim_mode: Rc<Cell<bool>>,
 }
 
 impl MillerView {
@@ -328,6 +329,7 @@ impl MillerView {
             file_context_model: file_context_model.clone(),
             background_context_model: background_context_model.clone(),
             drop_dispatcher: drop_dispatcher.clone(),
+            vim_mode: Rc::new(Cell::new(false)),
         }
     }
 
@@ -364,6 +366,16 @@ impl MillerView {
 
     pub fn width(&self) -> MillerColumnWidth {
         self.width.get()
+    }
+
+    pub fn set_vim_mode(&self, enabled: bool) {
+        self.vim_mode.set(enabled);
+        self.scroller
+            .update_property(&[gtk::accessible::Property::Description(if enabled {
+                "Miller column browser. Vim navigation mode enabled."
+            } else {
+                "Miller column browser. Vim navigation mode disabled."
+            })]);
     }
 
     pub fn detail_width(&self) -> MillerColumnWidth {
@@ -1029,6 +1041,8 @@ impl MillerView {
 
         let key_navigation = gtk::EventControllerKey::new();
         let navigation_dispatcher = self.navigation_dispatcher.clone();
+        let activation_dispatcher = self.dispatcher.clone();
+        let vim_mode = Rc::clone(&self.vim_mode);
         let action_dispatcher = self.action_dispatcher.clone();
         let item_menu_for_keys = item_menu.clone();
         let background_menu_for_keys = background_menu.clone();
@@ -1060,6 +1074,75 @@ impl MillerView {
             }
             if !navigation_modifiers_allowed(modifiers) {
                 return glib::Propagation::Proceed;
+            }
+            if let Some(command) = crate::vim_mode::command_for_input(
+                vim_mode.get(),
+                true,
+                key.to_unicode(),
+                crate::vim_mode::VimModifiers {
+                    control: modifiers.contains(gtk::gdk::ModifierType::CONTROL_MASK),
+                    alt: modifiers.contains(gtk::gdk::ModifierType::ALT_MASK),
+                    shift: modifiers.contains(gtk::gdk::ModifierType::SHIFT_MASK),
+                    super_key: modifiers.contains(gtk::gdk::ModifierType::SUPER_MASK),
+                },
+            ) {
+                use crate::vim_mode::VimCommand;
+
+                match command {
+                    VimCommand::Previous
+                    | VimCommand::Next
+                    | VimCommand::First
+                    | VimCommand::Last => {
+                        let Some(model) = list_for_keys.model() else {
+                            return glib::Propagation::Proceed;
+                        };
+                        let item_command = match command {
+                            VimCommand::Previous => MillerItemCommand::Previous,
+                            VimCommand::Next => MillerItemCommand::Next,
+                            VimCommand::First => MillerItemCommand::First,
+                            VimCommand::Last => MillerItemCommand::Last,
+                            _ => unreachable!(),
+                        };
+                        if let Some(target) = item_selection_target(
+                            first_selected_index(&model),
+                            model.n_items(),
+                            item_command,
+                        ) {
+                            model.select_item(target, true);
+                            list_for_keys.scroll_to(
+                                target,
+                                gtk::ListScrollFlags::FOCUS,
+                                None::<gtk::ScrollInfo>,
+                            );
+                        }
+                    }
+                    VimCommand::Parent | VimCommand::Child => {
+                        let selected_entry = list_for_keys
+                            .model()
+                            .and_then(|model| selected_entry_from_model(&model));
+                        navigation_dispatcher.dispatch(MillerNavigation {
+                            depth: depth_for_keys,
+                            command: if command == VimCommand::Parent {
+                                MillerNavigationCommand::Parent
+                            } else {
+                                MillerNavigationCommand::Child
+                            },
+                            selected_entry,
+                        });
+                    }
+                    VimCommand::Open => {
+                        if let Some(entry) = list_for_keys
+                            .model()
+                            .and_then(|model| selected_entry_from_model(&model))
+                        {
+                            activation_dispatcher.dispatch(MillerActivation {
+                                depth: depth_for_keys,
+                                entry,
+                            });
+                        }
+                    }
+                }
+                return glib::Propagation::Stop;
             }
             if let Some(command) = item_command_for_key(key) {
                 let Some(model) = list_for_keys.model() else {

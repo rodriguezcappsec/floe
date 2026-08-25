@@ -45,6 +45,9 @@ const RESET_SIDEBAR_WIDTH_MENU_ITEM: (&str, &str) =
 const OPERATION_HISTORY_MENU_ITEM: (&str, &str) = ("Operation History", "win.operation-history");
 const KEYBOARD_SHORTCUTS_MENU_ITEM: (&str, &str) =
     ("Keyboard Shortcuts…", "win.keyboard-shortcuts");
+pub const VIM_MODE_ON_LABEL: &str = "Vim On";
+pub const VIM_MODE_OFF_LABEL: &str = "Vim Off";
+pub const VIM_MODE_TOOLTIP: &str = "Vim navigation mode: h/j/k/l, g/G, o";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OperationIslandRow {
@@ -882,6 +885,7 @@ pub struct BrowserWidgets {
     pub list_view_button: gtk::ToggleButton,
     pub grid_view_button: gtk::ToggleButton,
     pub miller_view_button: gtk::ToggleButton,
+    pub vim_mode_button: gtk::ToggleButton,
     pub grid_size_controls: gtk::Box,
     pub grid_size_scale: gtk::Scale,
     pub empty_state: gtk::Box,
@@ -1390,6 +1394,7 @@ pub fn build(
         Some("Remember View per Folder"),
         Some("win.remember-folder-view"),
     );
+    browser_view_model.append(Some("Vim Navigation Mode"), Some("win.vim-mode"));
     file_actions_model.append_section(Some("Browser View"), &browser_view_model);
     let split_view_model = gio::Menu::new();
     split_view_model.append(Some("Toggle Split View"), Some("win.toggle-split"));
@@ -1491,9 +1496,29 @@ pub fn build(
     grid_size_controls.append(&zoom_in_button);
     grid_size_controls.set_visible(preferences.mode == ViewMode::Grid);
 
+    let vim_mode_button = gtk::ToggleButton::builder()
+        .label(if preferences.vim_mode {
+            VIM_MODE_ON_LABEL
+        } else {
+            VIM_MODE_OFF_LABEL
+        })
+        .tooltip_text(VIM_MODE_TOOLTIP)
+        .action_name("win.vim-mode")
+        .build();
+    vim_mode_button.add_css_class("flat");
+    set_accessible_label(
+        &vim_mode_button,
+        if preferences.vim_mode {
+            "Vim navigation mode enabled"
+        } else {
+            "Vim navigation mode disabled"
+        },
+    );
+
     header.pack_end(&hidden_button);
     header.pack_end(&open_button);
     header.pack_end(&file_actions);
+    header.pack_end(&vim_mode_button);
     header.pack_end(&grid_size_controls);
     header.pack_end(&view_controls);
 
@@ -1731,6 +1756,7 @@ pub fn build(
         list_view_button,
         grid_view_button,
         miller_view_button,
+        vim_mode_button,
         grid_size_controls,
         grid_size_scale,
         empty_state,

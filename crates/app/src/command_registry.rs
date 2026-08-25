@@ -461,6 +461,15 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [H, W]
     ),
     command!(
+        "vim-mode",
+        "Vim Navigation Mode",
+        "Toggle opt-in h/j/k/l browser navigation",
+        View,
+        ["keyboard", "modal", "hjkl", "power user"],
+        [],
+        [H, W]
+    ),
+    command!(
         "zoom-out",
         "Decrease Grid Size",
         "Use smaller grid items",

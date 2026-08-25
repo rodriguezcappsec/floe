@@ -84,6 +84,7 @@ pub struct ViewPreferences {
     pub columns: ListColumnLayout,
     pub remember_per_folder: bool,
     pub keybindings: KeybindingOverrides,
+    pub vim_mode: bool,
     folder_views: Vec<FolderViewOverride>,
 }
 
@@ -102,6 +103,7 @@ impl Default for ViewPreferences {
             columns: state.columns,
             remember_per_folder: false,
             keybindings: KeybindingOverrides::default(),
+            vim_mode: false,
             folder_views: Vec::new(),
         }
     }
@@ -236,6 +238,7 @@ impl ViewPreferences {
                 "keybinding" => {
                     preferences.keybindings.apply_record(value);
                 }
+                "vim-mode" => preferences.vim_mode = value == "true",
                 "folder" => {
                     if let Some(folder) = parse_folder_override(value) {
                         preferences
@@ -255,7 +258,7 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=5\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\n",
+            "version=6\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\n",
             self.mode.persisted(),
             self.grid_size.edge(),
             self.sidebar_density.persisted(),
@@ -269,6 +272,7 @@ impl ViewPreferences {
             self.columns.visible_names(),
             self.columns.widths_text(),
             self.remember_per_folder,
+            self.vim_mode,
         );
         if let Some(width) = self.sidebar_width {
             serialized.push_str(&format!("sidebar-width={}\n", clamp_sidebar_width(width)));
@@ -591,7 +595,7 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=5\n"));
+        assert!(serialized.starts_with("version=6\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
     }
@@ -610,7 +614,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=5\n"));
+        assert!(serialized.starts_with("version=6\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,
