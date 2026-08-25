@@ -144,8 +144,8 @@ Goal: make standards-correct local Trash a first-class Floe location.
 | --- | --- | --- | --- | --- |
 | 7A — Tab/session model | COMPLETE | `phase-7a-tabs-foundation` | Serializable browser sessions: path, history, selection, scroll, sort, view. | Verified exact bounded GTK-independent state and raw non-UTF-8 codec; no widgets, persistence, or duplicated workers. |
 | 7B — Tab interaction | COMPLETE | `phase-7b-tabs-interaction` | New, close, switch, duplicate, reorder, foreground/background open, middle-click. | Verified bounded stable-ID tabs, complete exact session restoration, one shared browser pipeline, pointer/keyboard parity, and native Wayland lifecycle; no restore/split. |
-| 7C — Closed tabs/restore | NEXT | `phase-7c-tab-session-restore` | Reopen closed, close variants, optional names/pins, startup session restore. | 7A/7B; suppress private state; verify atomic versioned persistence and Ctrl+Shift+T. |
-| 7D — Split state | PLANNED | `phase-7d-split-state` | Two independent contexts, active side, histories, ratio and view modes. | 7A; widgets are not source of truth; verify serialization and focus identity. |
+| 7C — Closed tabs/restore | COMPLETE | `phase-7c-tab-session-restore` | Reopen closed, close variants, startup session restore; optional names/pins remain deferred. | Verified bounded LIFO/fresh IDs, hostile-input codec, private atomic worker, explicit Private/Sensitive suppression, Ctrl+Shift+T, and two-launch native restore. |
+| 7D — Split state | NEXT | `phase-7d-split-state` | Two independent contexts, active side, histories, ratio and view modes. | 7A; widgets are not source of truth; verify serialization and focus identity. |
 | 7E — Split interaction | PLANNED | `phase-7e-split-interaction` | Toggle, close, swap, switch side, opposite-pane open and search/filter hooks. | 7D; no drag; active side uses non-color semantics and passes native smoke. |
 | 7F — Tab/split drag | PLANNED | `phase-7f-tab-split-drag` | Tab reorder/detach where supported and file operations between contexts. | 6R/7B/7E; no Miller drag; verify destinations, modifiers and keyboard alternatives. |
 

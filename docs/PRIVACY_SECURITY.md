@@ -16,17 +16,26 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ## Current security and privacy baseline
 
-- Phase 7B live tabs are memory-only. They retain exact paths, history,
-  selection, and scroll/view state only for the running process and add no disk
-  persistence, telemetry, logging of tab paths, or claim of Private Mode.
+- Phase 7C normally persists bounded ordered live tabs, active tab, recently
+  closed tabs, exact paths, history, selection, scroll anchors, and view policy
+  across clean shutdown in `$XDG_CONFIG_HOME/floe/browser-session-v1.bin`.
+  The application-owned worker uses a 0700 directory, 0600 same-directory
+  atomic file, bounded no-follow reads, version and hostile-input validation,
+  and directory synchronization. It stores no file contents or credentials.
+- Explicit `Private` and `Sensitive` session trace policy loads no workspace,
+  removes Floe's owned session file, and suppresses shutdown recreation. The
+  current environment integration is not a complete user-facing Private Mode:
+  it does not clear view preferences, bookmarks, thumbnails, clipboard/desktop
+  history, backups, storage history, or traces owned by another process, and
+  private file permissions do not defend against the same user.
 
 ### IMPLEMENTED
 
-- Phase 7A's versioned browser-session codec preserves exact raw path bytes and
-  therefore can represent sensitive navigation, selection, and history data. It
-  is bounded and malformed-input checked, but is currently in-memory only and is
-  not called by the application or written to storage. Session persistence,
-  retention, Private/Sensitive suppression, and cleanup remain Phase 7C.
+- Phase 7A's per-session codec and Phase 7C's workspace envelope preserve exact
+  raw path bytes and therefore contain sensitive navigation, selection, and
+  history data. Both are bounded and malformed-input checked; corruption,
+  unsupported versions, relative paths, duplicate IDs, and oversized data fall
+  back to one normal tab rather than partial restore.
 
 - Floe runs as the calling desktop user. It does not run its GTK process as root and does not expose `Open as Administrator...` today.
 - The Cargo workspace forbids Rust `unsafe` code. The core crate is GTK-independent, and filesystem work stays out of GTK callbacks.
@@ -269,6 +278,13 @@ A future Privacy and Security Center may summarize real vault, Sensitive Folder,
 ### History, search, and indexes
 
 Policy covers navigation, recent locations, closed tabs, session restore, operation and recovery history, search history, command recents, previews, and saved searches. Locked vault names and content never appear in ordinary indexes or results. A future private vault index must be memory-only or encrypted under vault-derived keys and unavailable while locked.
+
+**Current session policy:** normal clean shutdown retains at most 64 live tabs,
+32 recently closed tabs, and each session's bounded history and selection.
+Private or Sensitive policy removes and suppresses only Floe's workspace file.
+No claim is made that shutdown writes survive crashes before atomic publication
+or that deleting the file erases backups, snapshots, journals, or prior storage
+blocks.
 
 ### Logging and diagnostics
 

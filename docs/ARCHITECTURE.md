@@ -161,6 +161,16 @@ thumbnail/metadata workers, file watcher, application jobs, and Operations
 Island. Dormant tabs retain data state only; they do not own hidden widgets or
 background directory enumerations.
 
+Phase 7C extends that collection with a 32-entry recently closed LIFO and a
+versioned workspace envelope covering ordered live sessions, active stable ID,
+and closed sessions. Reopened tabs receive fresh IDs. The application-owned
+`SessionStoreWorker` performs bounded no-follow reads, codec work, private
+0700/0600 same-directory atomic writes, directory synchronization, suppression,
+and clean-shutdown flush outside GTK callbacks. Corruption and unsupported
+versions return no workspace and the application constructs one normal tab.
+One capacity-one worker exists per application window; no filesystem worker is
+added per tab.
+
 
 ### `application.rs` and `main.rs`
 

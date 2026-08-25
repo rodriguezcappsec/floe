@@ -397,6 +397,28 @@ actions, answered `org.freedesktop.DBus.Peer.Ping`, quit cleanly, and released
 `io.github.floe.FileManager`. Only the documented RADV/Vulkan swapchain warning
 appeared. Spectacle again produced no file, so no visual capture is claimed.
 
+Phase 7C adds no dependency. Focused checks are:
+
+```bash
+cargo test -p floe-core phase_7c_ -- --nocapture
+cargo test -p floe-app phase_7c_ -- --nocapture
+```
+
+The full gate passes 312 tests: 230 application and 82 core, plus formatting,
+workspace check, strict all-target/all-feature Clippy, and diff hygiene. A
+two-launch isolated Niri/Wayland smoke saved two live tabs and closed-tab state
+to a 0700/0600 file, restored multiple live tabs, observed enabled Reopen Closed
+Tab, reopened and ran Close Other Tabs, remained D-Bus healthy, quit cleanly,
+and released the application name. A third isolated launch with
+`FLOE_SESSION_POLICY=private` removed the Floe-owned session file and did not
+recreate it. Only documented RADV/Vulkan warnings appeared.
+
+Normal clean-shutdown session state is stored at
+`$XDG_CONFIG_HOME/floe/browser-session-v1.bin`. `FLOE_SESSION_POLICY=private`
+or `sensitive` is an explicit integration/testing policy that suppresses this
+owned trace; it is not a complete user-facing Private Mode and makes no claim
+about other applications, the same-user processes, backups, or storage history.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

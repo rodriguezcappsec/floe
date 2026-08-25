@@ -1160,12 +1160,23 @@ Last updated:
 Current phase:
 
 ```text
-Phase 7 — Tabs and split view (Phase 7B complete)
+Phase 7 — Tabs and split view (Phase 7C complete)
 ```
 
 Status:
 
 ```text
+Phase 7C adds a bounded 32-entry recently closed LIFO with fresh-ID reopen,
+Close Left/Right/Others, and Ctrl+Shift+T. A versioned workspace envelope
+preserves up to 64 ordered live tabs, active ID, complete raw-path session state,
+and recently closed state. The application-owned capacity-one worker performs
+bounded no-follow startup reads and 0700/0600 synchronized atomic clean-shutdown
+writes outside GTK callbacks. Missing, corrupt, hostile, or unsupported state
+falls back to one normal tab. Explicit Private/Sensitive integration policy
+loads no workspace, removes Floe's owned session file, and suppresses shutdown
+recreation; this is not a complete user-facing Private Mode. Optional names,
+pins, split view, and crash journaling remain deferred.
+
 Phase 7B adds bounded live tab interaction over the Phase 7A session model. The
 compact native strip supports new, close, switch, duplicate, stable-ID pointer
 and keyboard reorder, foreground/background folder open, middle-click folder
@@ -1459,15 +1470,23 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 7B is complete. The one recommended next branch is
-`phase-7c-tab-session-restore`, adding bounded recently closed tabs, close
-variants, Ctrl+Shift+T, and privacy-aware atomic startup persistence. Do not add
-split view in Phase 7C.
+Phase 7C is complete. The one recommended next branch is
+`phase-7d-split-state`, adding GTK-independent two-pane state, active side,
+independent histories/view policy, and bounded ratio/focus serialization. Do not
+add split widgets or interaction in Phase 7D.
 ```
 
 Verified:
 
 ```text
+Phase 7C passes formatting, workspace check, strict all-target/all-feature
+Clippy, and 312 tests: 82 core and 230 application. Focused coverage includes
+bounded closed-tab transitions, hostile workspace input, private atomic storage,
+corruption/symlink fallback, explicit trace suppression, and action contracts.
+Two-launch native Niri/Wayland smoke verified 0700/0600 state, multiple restored
+tabs, enabled reopen, Close Others, D-Bus health, clean quit, and name release.
+An isolated private-policy launch removed and did not recreate the session file.
+
 Phase 7B passes formatting, workspace check, strict all-target/all-feature
 Clippy, and 304 tests: 78 core and 226 application. Native Niri/Wayland smoke
 exported and activated new/switch/reorder/duplicate/close actions, answered
@@ -1663,8 +1682,11 @@ eviction. Formatting, strict Clippy, and native smoke status are in `GATES.md`.
 Known issues:
 
 ```text
-Live tabs intentionally disappear at exit and closed tabs are not retained;
-Phase 7C owns privacy-aware session persistence and reopen-closed behavior.
+Normal tab state now persists across clean shutdown. It can expose paths,
+history, selection, and view state to same-user processes, backups, snapshots,
+or storage history. Private/Sensitive environment policy suppresses only Floe's
+owned session file and is not a complete user-facing Private Mode. Crash-time
+latest-state journaling, optional tab names/pins, and split view remain deferred.
 
 Phase 6T supports sorting by Extension and grouping by Type/Extension only.
 MIME/Created/Accessed/Permissions sorting, date/size grouping, natural-name
@@ -1738,6 +1760,13 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 7C closed tabs/session restore on
+  `phase-7c-tab-session-restore`.
+* Added bounded LIFO reopen/close variants, hostile-input workspace codec,
+  capacity-one private atomic worker, clean startup restore, and explicit
+  Private/Sensitive owned-trace suppression.
+* Verified 312 tests, two-launch restored action/D-Bus lifecycle, 0700/0600
+  state, and native private-policy deletion; Phase 7D is sole recommended next.
 * Completed Phase 7B tab interaction on `phase-7b-tabs-interaction`.
 * Added bounded stable-ID tabs, exact complete session capture/restoration,
   accessible native strip, pointer/keyboard reorder, foreground/background and
@@ -2042,9 +2071,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-7c-tab-session-restore` and implement bounded recently closed
-tabs, close-left/right/others, Ctrl+Shift+T, and versioned atomic startup session
-restore with explicit private/sensitive suppression. Do not add split view yet.
+Create `phase-7d-split-state` and implement only GTK-independent two-pane state:
+left/right browser contexts, active side, independent histories/view policy,
+bounded split ratio, focus identity, and versioned serialization. Do not add
+split widgets or interaction yet.
 ```
 
 ---

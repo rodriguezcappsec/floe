@@ -48,7 +48,10 @@ pub use session::{
 pub use sorting::{
     DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn, SortDirection,
 };
-pub use tabs::{BrowserTabs, ClosedTab, TAB_CAPACITY, TabActivation, TabError};
+pub use tabs::{
+    BrowserTabs, ClosedTab, RECENTLY_CLOSED_CAPACITY, TAB_CAPACITY, TabActivation, TabError,
+    WORKSPACE_MAX_SERIALIZED_BYTES, WorkspaceCodecError,
+};
 pub use trash_lifecycle::{
     RestoreError, RestoreOutcome, RestoreRequest, RestoreRequestError, TrashEnumerateError,
     TrashRoot, enumerate_trash_with_cancel, execute_restore,

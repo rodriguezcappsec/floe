@@ -13,6 +13,7 @@ use crate::{
     metadata::MetadataWorker,
     operations::OperationController,
     preferences::{PreferenceWorker, ViewPreferences},
+    session_store::{SessionStoreWorker, SessionTracePolicy},
     state::ApplicationState,
     storage::StorageWorker,
     thumbnail::ThumbnailWorker,
@@ -33,6 +34,16 @@ pub fn run() -> glib::ExitCode {
         }
     };
     let preference_worker = Rc::new(RefCell::new(preference_worker));
+    let session_policy = SessionTracePolicy::from_environment();
+    let (restored_tabs, session_worker) = match SessionStoreWorker::spawn(session_policy) {
+        Ok(result) => (result.0, Some(result.1)),
+        Err(error) => {
+            tracing::warn!(%error, "could not start session store; using one new tab");
+            (None, None)
+        }
+    };
+    let restored_tabs = Rc::new(RefCell::new(restored_tabs));
+    let session_worker = Rc::new(RefCell::new(session_worker));
 
     let application = adw::Application::builder()
         .application_id(APPLICATION_ID)
@@ -40,11 +51,15 @@ pub fn run() -> glib::ExitCode {
         .build();
 
     let preference_worker_for_activate = Rc::clone(&preference_worker);
+    let restored_tabs_for_activate = Rc::clone(&restored_tabs);
+    let session_worker_for_activate = Rc::clone(&session_worker);
     application.connect_activate(move |application| {
         build_window(
             application,
             view_preferences.clone(),
             &preference_worker_for_activate,
+            &restored_tabs_for_activate,
+            &session_worker_for_activate,
         );
     });
 
@@ -65,6 +80,8 @@ fn build_window(
     application: &adw::Application,
     view_preferences: ViewPreferences,
     preference_worker: &Rc<RefCell<Option<PreferenceWorker>>>,
+    restored_tabs: &Rc<RefCell<Option<floe_core::BrowserTabs>>>,
+    session_worker: &Rc<RefCell<Option<SessionStoreWorker>>>,
 ) {
     if let Some(window) = application.active_window() {
         window.present();
@@ -78,9 +95,11 @@ fn build_window(
     }
 
     let places = locations::standard_locations();
-    let initial_path = places
-        .first()
-        .map(|place| place.path.clone())
+    let restored_tabs = restored_tabs.borrow_mut().take();
+    let initial_path = restored_tabs
+        .as_ref()
+        .map(|tabs| tabs.active().current().path().to_path_buf())
+        .or_else(|| places.first().map(|place| place.path.clone()))
         .unwrap_or_else(glib::home_dir);
     let widgets = ui::build(application, &places, appearance, view_preferences.clone());
     let worker = match BrowserWorker::spawn() {
@@ -160,6 +179,7 @@ fn build_window(
     let controller = BrowserController::new(
         widgets,
         initial_path,
+        restored_tabs,
         BrowserServices::new(
             worker,
             thumbnail_worker,
@@ -168,11 +188,18 @@ fn build_window(
             bookmark_worker,
             device_monitor,
             preference_worker.borrow_mut().take(),
+            session_worker.borrow_mut().take(),
         ),
         view_preferences,
         Rc::clone(&application_state),
     );
     let browser = Rc::downgrade(&controller);
+    let browser_for_shutdown = Rc::downgrade(&controller);
+    application.connect_shutdown(move |_| {
+        if let Some(browser) = browser_for_shutdown.upgrade() {
+            browser.persist_session_for_shutdown();
+        }
+    });
     let operation_controller = OperationController::new(
         operation_window,
         operation_toasts,
