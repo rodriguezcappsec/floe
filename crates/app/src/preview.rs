@@ -2,6 +2,8 @@
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    fs::File,
+    io::{Cursor, Read},
     panic::{AssertUnwindSafe, catch_unwind},
     path::{Path, PathBuf},
     sync::{
@@ -14,6 +16,8 @@ use std::{
 };
 
 use floe_core::{DirectoryEntry, EntryKind};
+use image::{ImageDecoder, ImageFormat, ImageReader, Limits, metadata::Orientation};
+use rustix::fs::{Mode, OFlags};
 use thiserror::Error;
 
 pub const PREVIEW_QUEUE_CAPACITY: usize = 16;
@@ -59,6 +63,31 @@ pub enum PreviewKind {
     Unknown,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PreviewTextFormat {
+    Plain,
+    Markdown,
+    Code,
+    Json,
+    Xml,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PreviewContent {
+    None,
+    Image {
+        width: u32,
+        height: u32,
+        rowstride: usize,
+        rgba: Arc<[u8]>,
+        first_frame_only: bool,
+    },
+    Text {
+        text: Arc<str>,
+        format: PreviewTextFormat,
+    },
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct PreviewSourceKey {
     path: PathBuf,
@@ -84,6 +113,14 @@ impl PreviewSourceKey {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub const fn size(&self) -> Option<u64> {
+        self.size
+    }
+
+    pub const fn modified(&self) -> Option<SystemTime> {
+        self.modified
     }
 }
 
@@ -131,6 +168,7 @@ impl PreviewRequest {
 pub struct PreviewPayload {
     pub provider_id: &'static str,
     pub kind: PreviewKind,
+    pub content: PreviewContent,
 }
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
@@ -200,6 +238,17 @@ pub struct PreviewProviderRegistry {
 }
 
 impl PreviewProviderRegistry {
+    pub fn first_party() -> Self {
+        let mut registry = Self::default();
+        registry
+            .register(Arc::new(RasterPreviewProvider))
+            .expect("first-party raster provider registration is bounded and unique");
+        registry
+            .register(Arc::new(TextPreviewProvider))
+            .expect("first-party text provider registration is bounded and unique");
+        registry
+    }
+
     pub fn register(
         &mut self,
         provider: Arc<dyn PreviewProvider>,
@@ -241,6 +290,272 @@ impl PreviewProviderRegistry {
             Err(_) => PreviewOutcome::Failed("preview provider panicked".to_owned()),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RasterPreviewProvider;
+
+impl PreviewProvider for RasterPreviewProvider {
+    fn id(&self) -> &'static str {
+        "floe.raster"
+    }
+
+    fn supports(&self, request: &PreviewRequest) -> bool {
+        raster_format(request.source().path()).is_some()
+    }
+
+    fn load(
+        &self,
+        request: &PreviewRequest,
+        cancellation: &PreviewCancellation,
+    ) -> Result<PreviewPayload, PreviewProviderError> {
+        let format = raster_format(request.source().path()).ok_or_else(|| {
+            PreviewProviderError::Failed("unsupported raster image format".to_owned())
+        })?;
+        let mut source = open_verified_source(request)?;
+        let encoded = read_bounded_source(&mut source, request, cancellation)?;
+        revalidate_source(&source, request.source())?;
+        if cancellation.is_cancelled() {
+            return Err(PreviewProviderError::Cancelled);
+        }
+
+        let mut reader = ImageReader::with_format(Cursor::new(encoded), format);
+        let mut limits = Limits::default();
+        limits.max_image_width = Some(65_535);
+        limits.max_image_height = Some(65_535);
+        limits.max_alloc = Some(request.limits().max_output_bytes);
+        reader.limits(limits);
+        let mut decoder = reader.into_decoder().map_err(map_image_error)?;
+        let (width, height) = decoder.dimensions();
+        if width == 0 || height == 0 || decoder.total_bytes() > request.limits().max_output_bytes {
+            return Err(PreviewProviderError::LimitExceeded);
+        }
+        let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+        let mut decoded = image::DynamicImage::from_decoder(decoder).map_err(map_image_error)?;
+        decoded.apply_orientation(orientation);
+        let rgba = decoded.into_rgba8();
+        let width = rgba.width();
+        let height = rgba.height();
+        let rowstride = usize::try_from(width)
+            .ok()
+            .and_then(|width| width.checked_mul(4))
+            .ok_or(PreviewProviderError::LimitExceeded)?;
+        let pixels = rgba.into_raw();
+        if pixels.len() as u64 > request.limits().max_output_bytes {
+            return Err(PreviewProviderError::LimitExceeded);
+        }
+
+        Ok(PreviewPayload {
+            provider_id: self.id(),
+            kind: PreviewKind::Image,
+            content: PreviewContent::Image {
+                width,
+                height,
+                rowstride,
+                rgba: pixels.into(),
+                first_frame_only: matches!(format, ImageFormat::Gif | ImageFormat::WebP),
+            },
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TextPreviewProvider;
+
+impl PreviewProvider for TextPreviewProvider {
+    fn id(&self) -> &'static str {
+        "floe.text"
+    }
+
+    fn supports(&self, request: &PreviewRequest) -> bool {
+        text_format(request.source().path()).is_some()
+    }
+
+    fn load(
+        &self,
+        request: &PreviewRequest,
+        cancellation: &PreviewCancellation,
+    ) -> Result<PreviewPayload, PreviewProviderError> {
+        let format = text_format(request.source().path()).ok_or_else(|| {
+            PreviewProviderError::Failed("unsupported passive text format".to_owned())
+        })?;
+        let mut source = open_verified_source(request)?;
+        let encoded = read_bounded_source(&mut source, request, cancellation)?;
+        revalidate_source(&source, request.source())?;
+        if encoded.len() > request.limits().max_text_bytes {
+            return Err(PreviewProviderError::LimitExceeded);
+        }
+        let text = decode_passive_text(&encoded)?;
+        if cancellation.is_cancelled() {
+            return Err(PreviewProviderError::Cancelled);
+        }
+        Ok(PreviewPayload {
+            provider_id: self.id(),
+            kind: PreviewKind::Text,
+            content: PreviewContent::Text {
+                text: Arc::from(text),
+                format,
+            },
+        })
+    }
+}
+
+fn raster_format(path: &Path) -> Option<ImageFormat> {
+    let extension = path.extension()?.to_str()?;
+    if extension.eq_ignore_ascii_case("png") {
+        Some(ImageFormat::Png)
+    } else if extension.eq_ignore_ascii_case("jpg") || extension.eq_ignore_ascii_case("jpeg") {
+        Some(ImageFormat::Jpeg)
+    } else if extension.eq_ignore_ascii_case("webp") {
+        Some(ImageFormat::WebP)
+    } else if extension.eq_ignore_ascii_case("gif") {
+        Some(ImageFormat::Gif)
+    } else if extension.eq_ignore_ascii_case("bmp") {
+        Some(ImageFormat::Bmp)
+    } else if extension.eq_ignore_ascii_case("tif") || extension.eq_ignore_ascii_case("tiff") {
+        Some(ImageFormat::Tiff)
+    } else if extension.eq_ignore_ascii_case("ico") {
+        Some(ImageFormat::Ico)
+    } else {
+        None
+    }
+}
+
+fn map_image_error(error: image::ImageError) -> PreviewProviderError {
+    match error {
+        image::ImageError::Limits(_) => PreviewProviderError::LimitExceeded,
+        error => PreviewProviderError::Failed(error.to_string()),
+    }
+}
+
+fn text_format(path: &Path) -> Option<PreviewTextFormat> {
+    let extension = path.extension()?.to_str()?;
+    if ["md", "markdown", "mdown", "mkd"]
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    {
+        return Some(PreviewTextFormat::Markdown);
+    }
+    if extension.eq_ignore_ascii_case("json") {
+        return Some(PreviewTextFormat::Json);
+    }
+    if ["xml", "xsd", "xsl", "xslt"]
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    {
+        return Some(PreviewTextFormat::Xml);
+    }
+    if [
+        "c", "cc", "cpp", "cxx", "h", "hpp", "rs", "go", "java", "kt", "kts", "py", "rb", "php",
+        "swift", "js", "mjs", "cjs", "ts", "tsx", "jsx", "css", "scss", "sass", "less", "sh",
+        "bash", "zsh", "fish", "nu", "lua", "pl", "r", "sql", "toml", "yaml", "yml", "ini", "conf",
+        "cfg", "desktop", "service", "gradle", "cmake", "makefile",
+    ]
+    .iter()
+    .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+    {
+        return Some(PreviewTextFormat::Code);
+    }
+    ["txt", "text", "log", "csv", "tsv", "nfo", "readme"]
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+        .then_some(PreviewTextFormat::Plain)
+}
+
+fn open_verified_source(request: &PreviewRequest) -> Result<File, PreviewProviderError> {
+    let descriptor = rustix::fs::open(
+        request.source().path(),
+        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+        Mode::empty(),
+    )
+    .map_err(|error| PreviewProviderError::Failed(error.to_string()))?;
+    let source = File::from(descriptor);
+    revalidate_source(&source, request.source())?;
+    let metadata = source
+        .metadata()
+        .map_err(|error| PreviewProviderError::Failed(error.to_string()))?;
+    if !metadata.is_file() {
+        return Err(PreviewProviderError::Failed(
+            "preview source is not a regular file".to_owned(),
+        ));
+    }
+    if metadata.len() > request.limits().max_source_bytes {
+        return Err(PreviewProviderError::LimitExceeded);
+    }
+    Ok(source)
+}
+
+fn read_bounded_source(
+    source: &mut File,
+    request: &PreviewRequest,
+    cancellation: &PreviewCancellation,
+) -> Result<Vec<u8>, PreviewProviderError> {
+    if cancellation.is_cancelled() {
+        return Err(PreviewProviderError::Cancelled);
+    }
+    let maximum = request.limits().max_source_bytes;
+    let mut encoded = Vec::with_capacity(
+        source
+            .metadata()
+            .map(|metadata| metadata.len().min(maximum) as usize)
+            .unwrap_or_default(),
+    );
+    source
+        .take(maximum.saturating_add(1))
+        .read_to_end(&mut encoded)
+        .map_err(|error| PreviewProviderError::Failed(error.to_string()))?;
+    if encoded.len() as u64 > maximum {
+        return Err(PreviewProviderError::LimitExceeded);
+    }
+    Ok(encoded)
+}
+
+fn revalidate_source(source: &File, key: &PreviewSourceKey) -> Result<(), PreviewProviderError> {
+    let metadata = source
+        .metadata()
+        .map_err(|error| PreviewProviderError::Failed(error.to_string()))?;
+    if key.size() != Some(metadata.len()) || key.modified() != metadata.modified().ok() {
+        return Err(PreviewProviderError::SourceChanged);
+    }
+    Ok(())
+}
+
+fn decode_passive_text(encoded: &[u8]) -> Result<String, PreviewProviderError> {
+    if let Some(body) = encoded.strip_prefix(&[0xff, 0xfe]) {
+        if body.len() % 2 != 0 {
+            return Err(PreviewProviderError::Failed(
+                "malformed UTF-16LE text".to_owned(),
+            ));
+        }
+        let units = body
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect::<Vec<_>>();
+        return String::from_utf16(&units)
+            .map_err(|_| PreviewProviderError::Failed("malformed UTF-16LE text".to_owned()));
+    }
+    if let Some(body) = encoded.strip_prefix(&[0xfe, 0xff]) {
+        if body.len() % 2 != 0 {
+            return Err(PreviewProviderError::Failed(
+                "malformed UTF-16BE text".to_owned(),
+            ));
+        }
+        let units = body
+            .chunks_exact(2)
+            .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+            .collect::<Vec<_>>();
+        return String::from_utf16(&units)
+            .map_err(|_| PreviewProviderError::Failed("malformed UTF-16BE text".to_owned()));
+    }
+    let body = encoded.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(encoded);
+    if body.contains(&0) {
+        return Err(PreviewProviderError::Failed(
+            "binary content is not shown as text".to_owned(),
+        ));
+    }
+    std::str::from_utf8(body)
+        .map(str::to_owned)
+        .map_err(|_| PreviewProviderError::Failed("text is not valid UTF-8".to_owned()))
 }
 
 #[derive(Debug, Error)]
@@ -451,6 +766,7 @@ mod tests {
             Ok(PreviewPayload {
                 provider_id: self.id,
                 kind: PreviewKind::Unknown,
+                content: PreviewContent::None,
             })
         }
     }
@@ -661,5 +977,209 @@ mod tests {
             thread::yield_now();
         };
         assert!(matches!(failed.outcome, PreviewOutcome::Failed(_)));
+    }
+
+    fn source_for(path: &Path) -> PreviewSourceKey {
+        let entry = enumerate_directory(path.parent().expect("fixture parent"))
+            .expect("fixture listing")
+            .into_entries()
+            .into_iter()
+            .find(|entry| entry.path() == path)
+            .expect("fixture entry");
+        PreviewSourceKey::from_entry(&entry).expect("preview source")
+    }
+
+    fn load_first_party(source: PreviewSourceKey, limits: PreviewLimits) -> PreviewOutcome {
+        let generation = 41;
+        PreviewProviderRegistry::first_party().load(
+            &PreviewRequest::new(generation, source, limits, PreviewCachePolicy::Disabled)
+                .expect("request"),
+            &PreviewCancellation {
+                active_generation: Arc::new(AtomicU64::new(generation)),
+                generation,
+                started: Instant::now(),
+                deadline: Duration::from_secs(2),
+            },
+        )
+    }
+
+    #[test]
+    fn phase_9b_image_decodes_bounded_first_frames_and_rejects_unsafe_sources() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().expect("image root");
+        let png = root
+            .path()
+            .join(std::ffi::OsString::from_vec(b"raw-\xff.png".to_vec()));
+        image::RgbaImage::from_raw(2, 1, vec![255, 0, 0, 255, 0, 255, 0, 255])
+            .expect("pixels")
+            .save(&png)
+            .expect("png");
+        let payload = match load_first_party(source_for(&png), PreviewLimits::default()) {
+            PreviewOutcome::Ready(payload) => payload,
+            outcome => panic!("unexpected PNG outcome: {outcome:?}"),
+        };
+        assert_eq!(payload.kind, PreviewKind::Image);
+        assert!(matches!(
+            payload.content,
+            PreviewContent::Image {
+                width: 2,
+                height: 1,
+                rowstride: 8,
+                first_frame_only: false,
+                ..
+            }
+        ));
+        assert!(png.as_os_str().as_bytes().contains(&0xff));
+
+        let gif = root.path().join("animated.gif");
+        let file = File::create(&gif).expect("gif file");
+        let mut encoder = image::codecs::gif::GifEncoder::new(file);
+        encoder
+            .encode_frame(image::Frame::new(
+                image::RgbaImage::from_raw(1, 1, vec![0, 0, 255, 255]).expect("frame one"),
+            ))
+            .expect("first frame");
+        encoder
+            .encode_frame(image::Frame::new(
+                image::RgbaImage::from_raw(1, 1, vec![255, 255, 0, 255]).expect("frame two"),
+            ))
+            .expect("second frame");
+        drop(encoder);
+        assert!(matches!(
+            load_first_party(source_for(&gif), PreviewLimits::default()),
+            PreviewOutcome::Ready(PreviewPayload {
+                content: PreviewContent::Image {
+                    first_frame_only: true,
+                    ..
+                },
+                ..
+            })
+        ));
+
+        let tiny_output = PreviewLimits {
+            max_output_bytes: 3,
+            ..PreviewLimits::default()
+        };
+        assert!(matches!(
+            load_first_party(source_for(&png), tiny_output),
+            PreviewOutcome::Failed(message) if message.contains("limits")
+        ));
+
+        let link = root.path().join("link.png");
+        symlink(&png, &link).expect("symlink");
+        assert!(matches!(
+            load_first_party(source_for(&link), PreviewLimits::default()),
+            PreviewOutcome::Failed(_)
+        ));
+
+        let malformed = root.path().join("malformed.png");
+        fs::write(&malformed, b"not a PNG").expect("malformed source");
+        assert!(matches!(
+            load_first_party(source_for(&malformed), PreviewLimits::default()),
+            PreviewOutcome::Failed(_)
+        ));
+
+        let changed = root.path().join("changed.png");
+        fs::copy(&png, &changed).expect("changed fixture");
+        let stale_key = source_for(&changed);
+        fs::write(&changed, b"changed after enumeration").expect("change source");
+        assert!(matches!(
+            load_first_party(stale_key, PreviewLimits::default()),
+            PreviewOutcome::Failed(message) if message.contains("changed")
+        ));
+    }
+
+    #[test]
+    fn phase_9b_text_decodes_inert_utf8_utf16_and_rejects_active_or_binary_content() {
+        let root = tempdir().expect("text root");
+        let markdown = root.path().join("notes.md");
+        fs::write(&markdown, b"# Heading\n<script>inert text</script>").expect("markdown source");
+        let payload = match load_first_party(source_for(&markdown), PreviewLimits::default()) {
+            PreviewOutcome::Ready(payload) => payload,
+            outcome => panic!("unexpected Markdown outcome: {outcome:?}"),
+        };
+        assert!(matches!(
+            payload.content,
+            PreviewContent::Text {
+                format: PreviewTextFormat::Markdown,
+                ref text,
+            } if text.contains("<script>")
+        ));
+
+        for (name, bytes) in [
+            (
+                "little.txt",
+                [0xff, 0xfe]
+                    .into_iter()
+                    .chain("Hello".encode_utf16().flat_map(u16::to_le_bytes))
+                    .collect::<Vec<_>>(),
+            ),
+            (
+                "big.txt",
+                [0xfe, 0xff]
+                    .into_iter()
+                    .chain("Hello".encode_utf16().flat_map(u16::to_be_bytes))
+                    .collect::<Vec<_>>(),
+            ),
+        ] {
+            let path = root.path().join(name);
+            fs::write(&path, bytes).expect("UTF-16 fixture");
+            assert!(matches!(
+                load_first_party(source_for(&path), PreviewLimits::default()),
+                PreviewOutcome::Ready(PreviewPayload {
+                    content: PreviewContent::Text { ref text, .. },
+                    ..
+                }) if text.as_ref() == "Hello"
+            ));
+        }
+
+        for (name, bytes) in [
+            ("binary.txt", b"hello\0binary".as_slice()),
+            ("invalid.txt", &[0xff, 0x00, 0x01][..]),
+        ] {
+            let path = root.path().join(name);
+            fs::write(&path, bytes).expect("rejected text fixture");
+            assert!(matches!(
+                load_first_party(source_for(&path), PreviewLimits::default()),
+                PreviewOutcome::Failed(_)
+            ));
+        }
+
+        let oversized = root.path().join("oversized.txt");
+        fs::write(&oversized, b"too much text").expect("oversized fixture");
+        let limits = PreviewLimits {
+            max_text_bytes: 4,
+            ..PreviewLimits::default()
+        };
+        assert!(matches!(
+            load_first_party(source_for(&oversized), limits),
+            PreviewOutcome::Failed(message) if message.contains("limits")
+        ));
+
+        for name in ["active.html", "vector.svg"] {
+            let path = root.path().join(name);
+            fs::write(&path, b"<active/>").expect("active fixture");
+            assert_eq!(
+                load_first_party(source_for(&path), PreviewLimits::default()),
+                PreviewOutcome::Unsupported
+            );
+        }
+
+        for (name, format) in [
+            ("data.json", PreviewTextFormat::Json),
+            ("data.xml", PreviewTextFormat::Xml),
+            ("code.rs", PreviewTextFormat::Code),
+        ] {
+            let path = root.path().join(name);
+            fs::write(&path, b"<not interpreted>").expect("passive fixture");
+            assert!(matches!(
+                load_first_party(source_for(&path), PreviewLimits::default()),
+                PreviewOutcome::Ready(PreviewPayload {
+                    content: PreviewContent::Text { format: actual, .. },
+                    ..
+                }) if actual == format
+            ));
+        }
     }
 }

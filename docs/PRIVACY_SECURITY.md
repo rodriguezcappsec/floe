@@ -32,11 +32,14 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
-- Phase 9A Preview requests carry one exact selected source identity to a
-  fixed-capacity local worker. Default cache policy is memory-only and bounded
-  to 32 successful entries; no persistent preview cache exists. The default
-  registry has no renderer, network, shell, active-content, unrelated-file, or
-  sandbox claim. Phase 18L still owns real renderer isolation.
+- Phase 9B registers built-in raster and passive-text providers on the Phase 9A
+  fixed-capacity local worker. Sources are opened no-follow and revalidated by
+  exact path/size/modified identity. Owned RGBA and UTF-8/BOM UTF-16 payloads
+  remain in the bounded 32-entry memory-only cache and are dropped when detail
+  state is retired. HTML and SVG are unsupported; Markdown, code, JSON, and XML
+  remain selectable inert source with no script, macro, network, shell, or
+  external-resource rendering. These in-process decoders are not sandboxed;
+  Phase 18L still owns real renderer isolation.
 - Phase 8F detail hooks retain at most 4,096 exact selected paths in memory and
   no file content. Leaving Miller or closing the hook drops presentation state.
   The phase adds no cache, history, persistence, provider execution, metadata

@@ -1,61 +1,32 @@
-# Gates: Floe Phase 9A — Preview provider architecture
+# Gates: Floe Phase 9B — Image and passive text Preview
 
-Scope: deliver bounded cancellable Preview provider lifecycle without format renderers.
-
-- [x] G1: Work is isolated on the prescribed phase branch.
+- [x] G1: Correct phase branch.
   CHECK: git branch --show-current
-  EXPECT: phase-9a-preview-providers
-  EVIDENCE: phase-9a-preview-providers
-
-- [x] G2: Typed registry ordering, exact raw targets, limits, cache policy, and unsupported fallback are deterministic.
-  CHECK: cargo test -p floe-app phase_9a_contract -- --nocapture
+  EXPECT: phase-9b-preview-images-text
+  EVIDENCE: phase-9b-preview-images-text.
+- [x] G2: Raster provider enforces no-follow identity/size/decode limits and returns bounded owned RGBA/first-frame state.
+  CHECK: cargo test -p floe-app phase_9b_image -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: phase_9a_contract passed 1/1 with raw non-UTF-8 identity, explicit limits/default memory cache, nonzero generation, empty-registry fallback.
-
-- [x] G3: Fixed-capacity worker handles cancellation, stale generations, queue pressure, provider failure, and clean shutdown.
-  CHECK: cargo test -p floe-app phase_9a_worker -- --nocapture
+  EVIDENCE: phase_9b_image passed 1/1; PNG/raw-name identity, animated GIF first-frame state, allocation limit, no-follow symlink, malformed and changed sources verified.
+- [x] G3: Text provider handles bounded UTF-8/UTF-16 and inert Markdown/code/JSON/XML while rejecting binary/active/oversized input.
+  CHECK: cargo test -p floe-app phase_9b_text -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: phase_9a_worker passed 1/1; memory reuse, full queue, stale submit, cooperative cancel, provider failure, and worker drops verified.
-
-- [x] G4: Phase 8F detail hook shows truthful loading/unsupported/failed lifecycle and drops stale responses.
-  CHECK: cargo test -p floe-app phase_9a_lifecycle -- --nocapture
+  EVIDENCE: phase_9b_text passed 1/1; UTF-8, both BOM UTF-16 byte orders, inert formats, binary/invalid/oversized text, HTML and SVG verified.
+- [x] G4: Final column presents image/text payloads accessibly and stale payloads do not replace current state.
+  CHECK: cargo test -p floe-app phase_9b_presentation -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: phase_9a_lifecycle passed 1/1; loading accepts only matching request generation and unsupported fallback is explicit.
-
-- [x] G5: GTK drain integration stays bounded and existing thumbnails/Miller/list/grid behavior remain intact.
-  CHECK: cargo test -p floe-app phase_9a_integration -- --nocapture
+  EVIDENCE: phase_9b_presentation passed 1/1; terminal payload retention, stale-generation rejection, inert-source accessibility, same-target preservation and retirement verified.
+- [x] G5: Native Wayland Preview action/health/lifecycle smoke passes.
+  EVIDENCE: Native Wayland app exported view-miller/miller-preview-hook, accepted both actions, answered Peer.Ping, and exited 0 through app quit; known non-fatal VK_SUBOPTIMAL_KHR warning only.
+- [x] G6: Formatting, check, strict Clippy, and all workspace tests pass.
+  CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace
   EXPECT: test result: ok
-  EVIDENCE: phase_9a_integration passed 1/1; queue is 16, drain cap is 8, existing views and detail actions remain.
-
-- [x] G6: Native Wayland smoke verifies Preview loading/fallback action lifecycle, health, and clean shutdown.
-  EVIDENCE: Isolated Wayland launch activated Miller, described enabled Preview hook, opened/closed Preview lifecycle, answered D-Bus Ping, quit status 0.
-
-- [x] G7: Rust formatting is clean.
-  CHECK: cargo fmt --all -- --check
-  EXPECT: /^$/
-  EVIDENCE: cargo fmt --all -- --check exited 0 with no output.
-
-- [x] G8: The full workspace type-checks.
-  CHECK: cargo check --workspace
-  EXPECT: Finished `dev` profile
-  EVIDENCE: Finished dev profile successfully for the workspace.
-
-- [x] G9: Strict all-target/all-feature Clippy is warning-free.
-  CHECK: cargo clippy --workspace --all-targets --all-features -- -D warnings
-  EXPECT: Finished `dev` profile
-  EVIDENCE: Strict Clippy completed successfully with -D warnings.
-
-- [x] G10: All workspace tests pass.
-  CHECK: cargo test --workspace
-  EXPECT: test result: ok
-  EVIDENCE: 356 tests passed (265 application, 91 core); no failures.
-
-- [x] G11: Patch hygiene is clean.
+  EVIDENCE: fmt/check/strict all-target all-feature Clippy passed; 359 tests passed (268 app, 91 core), no failures.
+- [x] G7: Patch hygiene is clean.
   CHECK: git diff --check
   EXPECT: /^$/
   EVIDENCE: git diff --check exited 0 with no output.
-
-- [x] G12: Persistent documentation marks 9A complete, exactly 9B next, and records no-renderer/no-sandbox boundaries.
-  CHECK: rg -n "9A.*COMPLETE|9B.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
-  EXPECT: 9B
-  EVIDENCE: Roadmap, matrix, AGENTS, architecture, design, development, and privacy docs record 9A complete and sole 9B NEXT.
+- [x] G8: Docs mark 9B complete and exactly 9C next with passive/no-active-content boundaries.
+  CHECK: rg -n "9B.*COMPLETE|9C.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
+  EXPECT: 9C
+  EVIDENCE: Roadmap, matrix, privacy/security, and AGENTS record 9B COMPLETE, sole 9C NEXT, inert content, and no sandbox claim.

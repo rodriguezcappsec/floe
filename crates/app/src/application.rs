@@ -135,7 +135,7 @@ fn build_window(
             None
         }
     };
-    let preview_worker = match PreviewWorker::spawn(PreviewProviderRegistry::default()) {
+    let preview_worker = match PreviewWorker::spawn(PreviewProviderRegistry::first_party()) {
         Ok(worker) => Some(worker),
         Err(error) => {
             tracing::warn!(%error, "could not start preview worker; Preview unavailable");

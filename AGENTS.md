@@ -1160,12 +1160,21 @@ Last updated:
 Current phase:
 
 ```text
-Phase 9 — Quick Preview (Phase 9A complete)
+Phase 9 — Quick Preview (Phase 9B complete)
 ```
 
 Status:
 
 ```text
+Phase 9B adds deterministic built-in raster and passive-text Preview providers.
+Exact source path/size/modified identity is opened no-follow and revalidated;
+explicit source/output/text limits bound first-frame RGBA and UTF-8/BOM UTF-16
+payloads. Markdown, code, JSON, and XML remain inert selectable source. HTML,
+SVG, binary content, malformed encodings, oversized input, and stale results are
+rejected. GTK textures and text widgets are created only on the main thread;
+retired payloads remain memory-only and bounded. Providers are in-process and
+are not called sandboxed; Phase 18L still owns renderer isolation.
+
 Phase 9A adds a GTK-independent Preview provider registry and fixed-capacity
 single worker. At most 32 deterministic providers feed a 16-request queue;
 requests retain exact path/size/modified identity, nonzero generation, explicit
@@ -2213,9 +2222,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-9b-preview-images-text` and implement bounded passive raster image
-and text/Markdown/source/JSON/XML Preview providers on the Phase 9A lifecycle.
-Do not add PDF/document, media, font, archive, or active HTML rendering.
+Create `phase-9c-preview-documents` and implement bounded passive PDF and
+reviewed document Preview providers on the Phase 9A lifecycle. Do not execute
+macros or active document content, and do not add media, font, or archive
+providers.
 ```
 
 ---

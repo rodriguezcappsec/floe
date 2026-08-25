@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 9A. Phase 9B is the only
+The implementation baseline for this matrix is Phase 9B. Phase 9C is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -356,9 +356,9 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | --- | --- | --- | --- |
 | Preview provider architecture | `COMPLETE` | 9A | Fixed-capacity typed registry/worker uses exact source identity, explicit limits, cooperative generation cancellation, stale rejection, memory-only cache, deterministic fallback, and bounded GTK draining. No renderer or sandbox claim. |
 | Space toggles Quick Preview | `PLANNED` | 9A | Must not interfere with text entry or selection commands. |
-| Raster/animated image preview | `NEXT` | 9B | Reuse safe decode infrastructure; animation remains bounded. |
-| Text/Markdown/source/JSON/XML preview | `PLANNED` | 9B | Passive rendering only; no scripts, external resources, or active Markdown. |
-| PDF/document preview | `PLANNED` | 9C | Reuse Phase 6L providers where appropriate; sandbox path is Phase 18L. |
+| Raster/animated image preview | `COMPLETE` | 9B | Exact no-follow identity and decoder allocation limits produce owned RGBA; animated GIF/WebP is explicitly presented as first-frame-only. |
+| Text/Markdown/source/JSON/XML preview | `COMPLETE` | 9B | Bounded UTF-8/BOM UTF-16 source is selectable and inert; binary, HTML, SVG, malformed encodings, scripts and external-resource rendering are rejected. |
+| PDF/document preview | `NEXT` | 9C | Reuse Phase 6L providers where appropriate; sandbox path is Phase 18L. |
 | Audio/video preview | `PLANNED` | 9D | Bounded media pipeline with seek/playback and clear unsupported state. |
 | Font/archive preview | `PLANNED` | 9E | Archive view lists safely without implicit extraction. |
 | Navigate while preview remains open | `PLANNED` | 9F | Cancel stale work and preserve keyboard focus hierarchy. |
