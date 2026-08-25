@@ -472,20 +472,36 @@ struct MetadataLabels {
     created: glib::WeakRef<gtk::Label>,
     accessed: glib::WeakRef<gtk::Label>,
     permissions: glib::WeakRef<gtk::Label>,
+    dimensions: glib::WeakRef<gtk::Label>,
+    duration: glib::WeakRef<gtk::Label>,
+    artist: glib::WeakRef<gtk::Label>,
+    album: glib::WeakRef<gtk::Label>,
+    track: glib::WeakRef<gtk::Label>,
 }
 
 impl MetadataLabels {
-    fn new(
-        mime: &gtk::Label,
-        created: &gtk::Label,
-        accessed: &gtk::Label,
-        permissions: &gtk::Label,
-    ) -> Self {
+    fn new(labels: [&gtk::Label; 9]) -> Self {
+        let [
+            mime,
+            created,
+            accessed,
+            permissions,
+            dimensions,
+            duration,
+            artist,
+            album,
+            track,
+        ] = labels;
         Self {
             mime: mime.downgrade(),
             created: created.downgrade(),
             accessed: accessed.downgrade(),
             permissions: permissions.downgrade(),
+            dimensions: dimensions.downgrade(),
+            duration: duration.downgrade(),
+            artist: artist.downgrade(),
+            album: album.downgrade(),
+            track: track.downgrade(),
         }
     }
 
@@ -494,6 +510,11 @@ impl MetadataLabels {
             && self.created.upgrade().is_some()
             && self.accessed.upgrade().is_some()
             && self.permissions.upgrade().is_some()
+            && self.dimensions.upgrade().is_some()
+            && self.duration.upgrade().is_some()
+            && self.artist.upgrade().is_some()
+            && self.album.upgrade().is_some()
+            && self.track.upgrade().is_some()
     }
 
     fn same_row(&self, other: &Self) -> bool {
@@ -509,6 +530,11 @@ impl MetadataLabels {
             self.created.upgrade(),
             self.accessed.upgrade(),
             self.permissions.upgrade(),
+            self.dimensions.upgrade(),
+            self.duration.upgrade(),
+            self.artist.upgrade(),
+            self.album.upgrade(),
+            self.track.upgrade(),
         ]
         .into_iter()
         .flatten()
@@ -536,9 +562,9 @@ pub struct MetadataPresentation {
 }
 
 impl MetadataPresentation {
-    fn request(&self, entry: &DirectoryEntry, labels: MetadataLabels) {
+    fn request(&self, entry: &DirectoryEntry, labels: MetadataLabels, include_advanced: bool) {
         labels.clear();
-        let key = MetadataKey::from_entry(entry);
+        let key = MetadataKey::from_entry(entry, include_advanced);
         let cached = {
             let mut state = self.state.borrow_mut();
             state
@@ -620,6 +646,82 @@ fn apply_metadata_details(labels: &MetadataLabels, details: &MetadataDetails) {
             .unwrap_or_default();
         label.set_label(&text);
         label.set_tooltip_text((!text.is_empty()).then_some(text.as_str()));
+    }
+    let [dimensions, duration, artist, album, track] = advanced_column_texts(details);
+    for (label, text) in [
+        (labels.dimensions.upgrade(), dimensions),
+        (labels.duration.upgrade(), duration),
+        (labels.artist.upgrade(), artist),
+        (labels.album.upgrade(), album),
+        (labels.track.upgrade(), track),
+    ] {
+        if let Some(label) = label {
+            label.set_label(&text);
+            label.set_tooltip_text((!text.is_empty()).then_some(text.as_str()));
+        }
+    }
+}
+
+fn advanced_column_texts(details: &MetadataDetails) -> [String; 5] {
+    use crate::{advanced_metadata::AdvancedMetadataState, inspector::ImageDimensionFacts};
+
+    let dimensions = match details.image_dimensions {
+        ImageDimensionFacts::Dimensions(size) => format!("{} × {}", size.width, size.height),
+        ImageDimensionFacts::LimitExceeded => "Limited".to_owned(),
+        ImageDimensionFacts::Unavailable => "Unavailable".to_owned(),
+        ImageDimensionFacts::NotImage => String::new(),
+    };
+    let AdvancedMetadataState::Present(advanced) = &details.advanced else {
+        let state = match &details.advanced {
+            AdvancedMetadataState::LimitExceeded => "Limited",
+            AdvancedMetadataState::Malformed(_) => "Malformed",
+            AdvancedMetadataState::Unsupported | AdvancedMetadataState::NoMetadata => "",
+            AdvancedMetadataState::Present(_) => unreachable!(),
+        };
+        return [
+            dimensions,
+            state.to_owned(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ];
+    };
+    let Some(media) = &advanced.media else {
+        return [
+            dimensions,
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+        ];
+    };
+    let duration = media
+        .duration
+        .map(format_media_duration)
+        .unwrap_or_default();
+    let track = media.track.map_or_else(String::new, |track| {
+        media
+            .track_total
+            .map_or_else(|| track.to_string(), |total| format!("{track}/{total}"))
+    });
+    [
+        dimensions,
+        duration,
+        media.artist.clone().unwrap_or_default(),
+        media.album.clone().unwrap_or_default(),
+        track,
+    ]
+}
+
+fn format_media_duration(duration: std::time::Duration) -> String {
+    let total = duration.as_secs();
+    let hours = total / 3_600;
+    let minutes = (total % 3_600) / 60;
+    let seconds = total % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
     }
 }
 
@@ -2926,6 +3028,11 @@ fn build_directory_panel(
         let created = list_column_label(ListColumn::Created);
         let accessed = list_column_label(ListColumn::Accessed);
         let permissions = list_column_label(ListColumn::Permissions);
+        let dimensions = list_column_label(ListColumn::Dimensions);
+        let duration = list_column_label(ListColumn::Duration);
+        let artist = list_column_label(ListColumn::Artist);
+        let album = list_column_label(ListColumn::Album);
+        let track = list_column_label(ListColumn::Track);
         row.append(&group);
         row.append(&icon);
         row.append(&name);
@@ -2937,6 +3044,11 @@ fn build_directory_panel(
         row.append(&created);
         row.append(&accessed);
         row.append(&permissions);
+        row.append(&dimensions);
+        row.append(&duration);
+        row.append(&artist);
+        row.append(&album);
+        row.append(&track);
 
         let secondary_click = gtk::GestureClick::new();
         secondary_click.set_button(gtk::gdk::BUTTON_SECONDARY);
@@ -3052,6 +3164,21 @@ fn build_directory_panel(
         let Some(permissions) = accessed.next_sibling().and_downcast::<gtk::Label>() else {
             return;
         };
+        let Some(dimensions) = permissions.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(duration) = dimensions.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(artist) = duration.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(album) = artist.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(track) = album.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
         let Some(object) = list_item.item().and_downcast::<glib::BoxedAnyObject>() else {
             return;
         };
@@ -3126,6 +3253,11 @@ fn build_directory_panel(
             (ListColumn::Created, &created),
             (ListColumn::Accessed, &accessed),
             (ListColumn::Permissions, &permissions),
+            (ListColumn::Dimensions, &dimensions),
+            (ListColumn::Duration, &duration),
+            (ListColumn::Artist, &artist),
+            (ListColumn::Album, &album),
+            (ListColumn::Track, &track),
         ] {
             label.set_visible(layout.is_visible(column));
             label.set_width_request(i32::from(layout.width(column)));
@@ -3133,10 +3265,32 @@ fn build_directory_panel(
         if layout.needs_lazy_metadata() {
             metadata_for_bind.request(
                 &entry,
-                MetadataLabels::new(&mime, &created, &accessed, &permissions),
+                MetadataLabels::new([
+                    &mime,
+                    &created,
+                    &accessed,
+                    &permissions,
+                    &dimensions,
+                    &duration,
+                    &artist,
+                    &album,
+                    &track,
+                ]),
+                layout.needs_advanced_metadata(),
             );
         } else {
-            MetadataLabels::new(&mime, &created, &accessed, &permissions).clear();
+            MetadataLabels::new([
+                &mime,
+                &created,
+                &accessed,
+                &permissions,
+                &dimensions,
+                &duration,
+                &artist,
+                &album,
+                &track,
+            ])
+            .clear();
         }
     });
     let thumbnails_for_unbind = thumbnails.clone();
@@ -3833,6 +3987,11 @@ fn build_list_header(
         ListColumn::Created,
         ListColumn::Accessed,
         ListColumn::Permissions,
+        ListColumn::Dimensions,
+        ListColumn::Duration,
+        ListColumn::Artist,
+        ListColumn::Album,
+        ListColumn::Track,
     ] {
         let label = gtk::Label::builder()
             .label(column.label())
@@ -4422,6 +4581,61 @@ mod tests {
             file_view_density_class(FileViewDensity::Spacious),
             "view-spacious"
         );
+    }
+
+    #[test]
+    fn phase_10f_advanced_columns_present_bounded_lazy_values_truthfully() {
+        let details = MetadataDetails {
+            mime_type: Some("audio/flac".to_owned()),
+            created: None,
+            accessed: None,
+            unix_mode: Some(0o100644),
+            image_dimensions: crate::inspector::ImageDimensionFacts::NotImage,
+            advanced: crate::advanced_metadata::AdvancedMetadataState::Present(
+                crate::advanced_metadata::AdvancedMetadata {
+                    exif: None,
+                    media: Some(crate::advanced_metadata::MediaMetadata {
+                        duration: Some(Duration::from_secs(3_725)),
+                        artist: Some("Floe Artist".to_owned()),
+                        album: Some("Floe Album".to_owned()),
+                        track: Some(3),
+                        track_total: Some(12),
+                        ..crate::advanced_metadata::MediaMetadata::default()
+                    }),
+                },
+            ),
+        };
+        assert_eq!(
+            advanced_column_texts(&details),
+            ["", "1:02:05", "Floe Artist", "Floe Album", "3/12"]
+        );
+
+        let limited = MetadataDetails {
+            advanced: crate::advanced_metadata::AdvancedMetadataState::LimitExceeded,
+            ..details
+        };
+        assert_eq!(advanced_column_texts(&limited)[1], "Limited");
+        assert!(ListColumn::OPTIONAL.contains(&ListColumn::Duration));
+    }
+
+    #[test]
+    fn phase_10f_advanced_metadata_ui_uses_explicit_non_verdict_states() {
+        let malformed = MetadataDetails {
+            mime_type: Some("audio/mpeg".to_owned()),
+            created: None,
+            accessed: None,
+            unix_mode: None,
+            image_dimensions: crate::inspector::ImageDimensionFacts::NotImage,
+            advanced: crate::advanced_metadata::AdvancedMetadataState::Malformed(
+                "invalid frame".to_owned(),
+            ),
+        };
+        let columns = advanced_column_texts(&malformed);
+        assert_eq!(columns[1], "Malformed");
+        assert!(columns.iter().all(|value| {
+            !value.contains("safe") && !value.contains("malicious") && !value.contains("verified")
+        }));
+        assert_eq!(format_media_duration(Duration::from_secs(65)), "1:05");
     }
 
     #[test]

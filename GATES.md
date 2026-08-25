@@ -1,39 +1,44 @@
-# Gates: Floe Phase 10E — Checksums
+# Gates: Floe Phase 10F — Advanced Metadata
 
-- [x] G1: Correct phase branch.
-  CHECK: git branch --show-current
-  EXPECT: phase-10e-checksums
-  EVIDENCE: `phase-10e-checksums` confirmed before implementation and final verification.
+- [x] G1: Correct phase branch; reviewed parser dependencies remain compatible with Rust 1.85.
+  CHECK: git branch --show-current && cargo tree -p floe-app --depth 1
+  EXPECT: `phase-10f-advanced-metadata`; `kamadak-exif 0.6.1` and `lofty 0.22.4` are direct dependencies.
+  EVIDENCE: Branch confirmed; dependency tree reports exact reviewed pinned versions and dependency MSRVs were reviewed as Rust 1.60 and 1.85 respectively.
 
-- [x] G2: Typed checksum requests preserve exact paths and strictly validate algorithm-specific expected digests and selection bounds.
-  CHECK: cargo test -p floe-core phase_10e_checksum_request -- --nocapture
+- [x] G2: Advanced metadata requests/results preserve exact paths and explicit bounded, unsupported, malformed, and changed states.
+  CHECK: cargo test -p floe-app phase_10f_advanced_metadata_contract -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused core test passed for raw non-UTF-8 identity, strict SHA-256/SHA-512/MD5 lengths, uppercase normalization, duplicate/relative/root/unnormalized rejection, and one-target expected verification.
+  EVIDENCE: Passed; exact PathBuf keys, 16 MiB reads, 1,024-character strings, ten EXIF fields, and explicit state contract are covered.
 
-- [x] G3: The fixed-capacity executor produces standard SHA-256, SHA-512, and legacy MD5 vectors with byte progress and explicit expected match or mismatch.
-  CHECK: cargo test -p floe-app phase_10e_checksum_vectors -- --nocapture
+- [x] G3: EXIF parsing is bounded, no-follow, source-revalidated, passive, and exposes only reviewed presentation fields.
+  CHECK: cargo test -p floe-app phase_10f_exif_metadata -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused executor test passed standard `abc` vectors for all three algorithms, Match/Mismatch outcomes, worker completion, byte progress, and result retrieval.
+  EVIDENCE: Passed TIFF fixture, symlink refusal, identity validation, reviewed-field policy, and sparse safety-limit coverage.
 
-- [x] G4: Streaming is cancellable and bounded, uses no-follow opens, and rejects non-regular, replaced, or changed inputs.
-  CHECK: cargo test -p floe-app phase_10e_checksum_streaming -- --nocapture
+- [x] G4: Audio/media metadata parsing handles duration and reviewed tags while bounding oversized input and rejecting malformed, symlink, and changed inputs safely.
+  CHECK: cargo test -p floe-app phase_10f_media_metadata -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused streaming test passed 1 MiB chunk cancellation, symlink no-follow rejection, and deterministic source replacement/change detection; requests cap at 4,096 targets, queue at 4, and retained results at 16.
+  EVIDENCE: Passed tagged WAV duration/artist/album/track, malformed MP3, stale size, symlink, and sparse oversized input coverage.
 
-- [x] G5: Native selection-aware checksum request and result policy validates input, labels MD5 as legacy, exposes copyable digest text, and avoids authenticity claims.
-  CHECK: cargo test -p floe-app phase_10e_checksum_ui -- --nocapture
+- [x] G5: Optional Dimensions, Duration, Artist, Album, and Track columns are lazy, virtualized, bounded, persisted, migration-safe, and stable during enrichment.
+  CHECK: cargo test -p floe-app phase_10f_advanced_columns -- --nocapture && cargo test -p floe-core phase_10f_advanced_columns -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused UI-policy test passed strict expected input, multi-target expected rejection, legacy MD5 result wording, mismatch presentation, digest-only copy text, and explicit no-authenticity notice.
+  EVIDENCE: Passed bound-row presentation, truthful states, textual persistence, legacy nine-column migration, default widths, and non-sortable stability coverage.
 
-- [x] G6: Native Wayland smoke verifies action/dialog behavior, exact temporary-fixture SHA-256 output, Operations lifecycle wording, accessibility, D-Bus health/focus, clean quit, and name release.
-  EVIDENCE: Isolated `/tmp/floe-phase10e-smoke.rBTTVG` smoke activated selection and checksum actions, exposed native request/results through AT-SPI, returned exact `ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad` for `abc`, exposed Calculated/not-compared, copy, legacy/no-authenticity text, completed a sparse-file lifecycle while D-Bus Ping remained healthy, quit cleanly, and released `io.github.floe.FileManager`; only documented RADV/Vulkan warnings appeared.
+- [x] G6: Inspector and Properties presentation is accessible and truthful for present, limited, and malformed metadata without privacy, safety, or authenticity verdicts.
+  CHECK: cargo test -p floe-app phase_10f_advanced_metadata_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Six Phase 10F app tests pass, including Inspector EXIF text, Properties EXIF/media rows, limited/malformed labels, and non-verdict assertions.
 
-- [x] G7: Formatting, workspace check, strict Clippy, full tests, build, and diff hygiene pass.
+- [x] G7: Native Wayland smoke verifies optional columns, Inspector metadata, asynchronous responsiveness, accessibility, D-Bus health/focus, clean quit, and name release.
+  EVIDENCE: Niri/Wayland launch loaded enabled Dimensions and Duration column actions from isolated version-4 preferences; D-Bus Ping returned, AT-SPI exposed accessible ID `io.github.floe.FileManager` and window name `rocappsec — Floe`, standard Quit exited cleanly, and the application bus name was released.
+
+- [x] G8: Formatting, workspace check, strict Clippy, full tests, native build, and diff hygiene pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check
-  EXPECT: test result: ok
-  EVIDENCE: Full command passed: 392 tests total (299 application, 93 core), strict Clippy, native build, and diff hygiene all clean.
+  EXPECT: all commands exit 0
+  EVIDENCE: Passed; 399 tests total (305 app, 94 core), zero failures, native app build succeeded, and diff hygiene is clean.
 
-- [x] G8: Documentation marks 10E complete, sets exactly 10F next, and keeps legacy-MD5 and no-authenticity language explicit.
-  CHECK: test "$(rg -o '\\| NEXT \\|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "10E.*COMPLETE|10F.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
-  EXPECT: 10F is the sole next phase
-  EVIDENCE: Roadmap has one `NEXT` row at 10F; roadmap, matrix, AGENTS, and privacy/security documentation describe 10E truthfully and retain legacy/no-authenticity/no-persistence boundaries.
+- [x] G9: Documentation marks 10F complete, sets exactly 11A next, and retains lazy, no-persistence, and no-privacy-finding boundaries.
+  CHECK: test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "10F.*COMPLETE|11A.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
+  EXPECT: 11A is the sole next phase.
+  EVIDENCE: Roadmap has exactly one NEXT row at 11A; AGENTS, matrix, roadmap, privacy/security, plan, and gates describe the verified 10F boundary.

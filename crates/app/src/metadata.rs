@@ -18,6 +18,11 @@ use floe_core::DirectoryEntry;
 use gtk::gio;
 use thiserror::Error;
 
+use crate::advanced_metadata::{
+    AdvancedMetadataError, AdvancedMetadataState, load_advanced_metadata,
+};
+use crate::inspector::{ImageDimensionFacts, load_image_dimensions};
+
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 
@@ -29,14 +34,16 @@ pub struct MetadataKey {
     path: PathBuf,
     size: Option<u64>,
     modified: Option<SystemTime>,
+    include_advanced: bool,
 }
 
 impl MetadataKey {
-    pub fn from_entry(entry: &DirectoryEntry) -> Self {
+    pub fn from_entry(entry: &DirectoryEntry, include_advanced: bool) -> Self {
         Self {
             path: entry.path().to_path_buf(),
             size: entry.size(),
             modified: entry.modified(),
+            include_advanced,
         }
     }
 
@@ -51,6 +58,8 @@ pub struct MetadataDetails {
     pub created: Option<SystemTime>,
     pub accessed: Option<SystemTime>,
     pub unix_mode: Option<u32>,
+    pub image_dimensions: ImageDimensionFacts,
+    pub advanced: AdvancedMetadataState,
 }
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
@@ -155,6 +164,26 @@ fn load_metadata(key: &MetadataKey) -> Result<MetadataDetails, MetadataError> {
 
     let (content_type, _) = gio::content_type_guess(Some(key.path()), None::<&[u8]>);
     let mime_type = (!content_type.is_empty()).then(|| content_type.to_string());
+    let image_dimensions = if key.include_advanced
+        && metadata.is_file()
+        && mime_type
+            .as_deref()
+            .is_some_and(|value| value.starts_with("image/"))
+    {
+        load_image_dimensions(&key.path, &metadata)
+    } else {
+        ImageDimensionFacts::NotImage
+    };
+    let advanced = if key.include_advanced && metadata.is_file() {
+        load_advanced_metadata(&key.path, key.size, key.modified).map_err(|error| match error {
+            AdvancedMetadataError::Missing => MetadataError::Missing,
+            AdvancedMetadataError::Changed => MetadataError::Stale,
+            AdvancedMetadataError::NotRegular => MetadataError::Stale,
+            AdvancedMetadataError::Inaccessible(message) => MetadataError::Unavailable(message),
+        })?
+    } else {
+        AdvancedMetadataState::Unsupported
+    };
     #[cfg(unix)]
     let unix_mode = Some(metadata.mode());
     #[cfg(not(unix))]
@@ -165,6 +194,8 @@ fn load_metadata(key: &MetadataKey) -> Result<MetadataDetails, MetadataError> {
         created: metadata.created().ok(),
         accessed: metadata.accessed().ok(),
         unix_mode,
+        image_dimensions,
+        advanced,
     })
 }
 
@@ -232,6 +263,7 @@ mod tests {
             path: path.to_path_buf(),
             size: metadata.is_file().then_some(metadata.len()),
             modified: metadata.modified().ok(),
+            include_advanced: true,
         }
     }
 
@@ -276,6 +308,7 @@ mod tests {
                     path: PathBuf::from(format!("/missing/{index}")),
                     size: None,
                     modified: None,
+                    include_advanced: false,
                 })
                 .expect("bounded request");
         }
@@ -284,6 +317,7 @@ mod tests {
                 path: PathBuf::from("/missing/full"),
                 size: None,
                 modified: None,
+                include_advanced: false,
             }),
             Err(MetadataSubmitError::Full(_))
         ));
@@ -298,12 +332,15 @@ mod tests {
             created: None,
             accessed: None,
             unix_mode: None,
+            image_dimensions: ImageDimensionFacts::NotImage,
+            advanced: AdvancedMetadataState::Unsupported,
         };
         for index in 0..=METADATA_CACHE_CAPACITY {
             let key = MetadataKey {
                 path: PathBuf::from(format!("/entry/{index}")),
                 size: Some(index as u64),
                 modified: None,
+                include_advanced: false,
             };
             assert!(cache.request(key.clone()).is_none());
             cache.complete(key, Ok(details.clone()));

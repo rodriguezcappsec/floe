@@ -21,6 +21,10 @@ use image::{ImageDecoder, ImageReader, Limits};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawDir};
 use thiserror::Error;
 
+use crate::advanced_metadata::{
+    AdvancedMetadataError, AdvancedMetadataState, load_advanced_metadata,
+};
+
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 
@@ -128,6 +132,7 @@ pub struct InspectorEntryFacts {
     pub unix_mode: Option<u32>,
     pub symlink: Option<SymlinkFacts>,
     pub image_dimensions: ImageDimensionFacts,
+    pub advanced_metadata: AdvancedMetadataState,
     pub folder: Option<FolderAggregate>,
 }
 
@@ -396,6 +401,19 @@ fn collect_entry_facts(
     } else {
         ImageDimensionFacts::NotImage
     };
+    let advanced_metadata = if before.is_file() {
+        load_advanced_metadata(&key.path, key.size, key.modified).map_err(|error| match error {
+            AdvancedMetadataError::Missing => InspectorEntryError::Missing,
+            AdvancedMetadataError::Changed | AdvancedMetadataError::NotRegular => {
+                InspectorEntryError::Changed
+            }
+            AdvancedMetadataError::Inaccessible(message) => {
+                InspectorEntryError::Inaccessible(message)
+            }
+        })?
+    } else {
+        AdvancedMetadataState::Unsupported
+    };
 
     let folder = if before.is_dir() {
         Some(aggregate_folder(
@@ -434,6 +452,7 @@ fn collect_entry_facts(
         unix_mode,
         symlink,
         image_dimensions,
+        advanced_metadata,
         folder,
     })
 }
@@ -514,7 +533,7 @@ fn accumulate_bytes(total: &mut u64, overflowed: &mut bool, next: u64) {
     }
 }
 
-fn load_image_dimensions(path: &Path, metadata: &Metadata) -> ImageDimensionFacts {
+pub(crate) fn load_image_dimensions(path: &Path, metadata: &Metadata) -> ImageDimensionFacts {
     if metadata.len() > INSPECTOR_IMAGE_SOURCE_CAPACITY {
         return ImageDimensionFacts::LimitExceeded;
     }

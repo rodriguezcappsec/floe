@@ -1,3 +1,4 @@
+mod advanced_metadata;
 mod appearance;
 mod application;
 mod bookmarks;

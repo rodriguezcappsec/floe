@@ -77,10 +77,15 @@ pub enum ListColumn {
     Created,
     Accessed,
     Permissions,
+    Dimensions,
+    Duration,
+    Artist,
+    Album,
+    Track,
 }
 
 impl ListColumn {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 14] = [
         Self::Name,
         Self::Type,
         Self::Size,
@@ -90,9 +95,14 @@ impl ListColumn {
         Self::Created,
         Self::Accessed,
         Self::Permissions,
+        Self::Dimensions,
+        Self::Duration,
+        Self::Artist,
+        Self::Album,
+        Self::Track,
     ];
 
-    pub const OPTIONAL: [Self; 8] = [
+    pub const OPTIONAL: [Self; 13] = [
         Self::Type,
         Self::Size,
         Self::Modified,
@@ -101,6 +111,11 @@ impl ListColumn {
         Self::Created,
         Self::Accessed,
         Self::Permissions,
+        Self::Dimensions,
+        Self::Duration,
+        Self::Artist,
+        Self::Album,
+        Self::Track,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -114,6 +129,11 @@ impl ListColumn {
             Self::Created => "Created",
             Self::Accessed => "Accessed",
             Self::Permissions => "Permissions",
+            Self::Dimensions => "Dimensions",
+            Self::Duration => "Duration",
+            Self::Artist => "Artist",
+            Self::Album => "Album",
+            Self::Track => "Track",
         }
     }
 
@@ -128,6 +148,11 @@ impl ListColumn {
             Self::Created => "created",
             Self::Accessed => "accessed",
             Self::Permissions => "permissions",
+            Self::Dimensions => "dimensions",
+            Self::Duration => "duration",
+            Self::Artist => "artist",
+            Self::Album => "album",
+            Self::Track => "track",
         }
     }
 
@@ -150,6 +175,10 @@ impl ListColumn {
             Self::Extension => 112,
             Self::Mime => 176,
             Self::Permissions => 128,
+            Self::Dimensions => 128,
+            Self::Duration => 104,
+            Self::Artist | Self::Album => 176,
+            Self::Track => 96,
         }
     }
 
@@ -164,7 +193,15 @@ impl ListColumn {
     pub const fn requires_lazy_metadata(self) -> bool {
         matches!(
             self,
-            Self::Mime | Self::Created | Self::Accessed | Self::Permissions
+            Self::Mime
+                | Self::Created
+                | Self::Accessed
+                | Self::Permissions
+                | Self::Dimensions
+                | Self::Duration
+                | Self::Artist
+                | Self::Album
+                | Self::Track
         )
     }
 
@@ -175,7 +212,15 @@ impl ListColumn {
             Self::Size => Some(SortColumn::Size),
             Self::Modified => Some(SortColumn::Modified),
             Self::Extension => Some(SortColumn::Extension),
-            Self::Mime | Self::Created | Self::Accessed | Self::Permissions => None,
+            Self::Mime
+            | Self::Created
+            | Self::Accessed
+            | Self::Permissions
+            | Self::Dimensions
+            | Self::Duration
+            | Self::Artist
+            | Self::Album
+            | Self::Track => None,
         }
     }
 }
@@ -236,6 +281,18 @@ impl ListColumnLayout {
         ListColumn::ALL
             .into_iter()
             .any(|column| self.is_visible(column) && column.requires_lazy_metadata())
+    }
+
+    pub fn needs_advanced_metadata(self) -> bool {
+        [
+            ListColumn::Dimensions,
+            ListColumn::Duration,
+            ListColumn::Artist,
+            ListColumn::Album,
+            ListColumn::Track,
+        ]
+        .into_iter()
+        .any(|column| self.is_visible(column))
     }
 
     pub fn visible_names(self) -> String {
@@ -386,11 +443,53 @@ mod tests {
         assert_eq!(layout.width(ListColumn::Name), 320);
         assert_eq!(layout.width(ListColumn::Size), 72);
         assert!(layout.needs_lazy_metadata());
+        assert!(!layout.needs_advanced_metadata());
         layout.set_visible(ListColumn::Name, false);
         assert!(layout.is_visible(ListColumn::Name));
         assert_eq!(
             ListColumn::Extension.sort_column(),
             Some(SortColumn::Extension)
+        );
+    }
+
+    #[test]
+    fn phase_10f_advanced_columns_are_optional_lazy_and_persisted() {
+        let advanced = [
+            ListColumn::Dimensions,
+            ListColumn::Duration,
+            ListColumn::Artist,
+            ListColumn::Album,
+            ListColumn::Track,
+        ];
+        for column in advanced {
+            assert!(ListColumn::OPTIONAL.contains(&column));
+            assert!(column.requires_lazy_metadata());
+            assert_eq!(column.sort_column(), None);
+        }
+        let mut layout =
+            ListColumnLayout::parse_visible("name,dimensions,duration,artist,album,track");
+        layout.apply_widths_text("dimensions:150,duration:100,artist:220,album:230,track:95");
+        assert_eq!(
+            layout.visible_names(),
+            "name,dimensions,duration,artist,album,track"
+        );
+        assert_eq!(layout.width(ListColumn::Artist), 220);
+        assert!(layout.needs_lazy_metadata());
+
+        let mut legacy = ListColumnLayout::parse_visible(
+            "name,type,size,modified,extension,mime,created,accessed,permissions",
+        );
+        legacy.apply_widths_text(
+            "name:300,type:110,size:90,modified:170,extension:120,mime:190,created:130,accessed:140,permissions:150",
+        );
+        assert_eq!(
+            legacy.visible_names(),
+            "name,type,size,modified,extension,mime,created,accessed,permissions"
+        );
+        assert!(!legacy.needs_advanced_metadata());
+        assert_eq!(
+            legacy.width(ListColumn::Artist),
+            ListColumn::Artist.default_width()
         );
     }
 }

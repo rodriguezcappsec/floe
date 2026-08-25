@@ -1176,13 +1176,15 @@ Last updated:
 Current phase:
 
 ```text
-Phase 10 — Inspector, properties, and metadata (Phase 10E complete)
+Phase 10 — Inspector, properties, and metadata (Phase 10F complete)
 ```
 
 Status:
 
 ```text
-Phase 10E adds explicit checksum calculation for exact selected local regular files. Typed requests accept SHA-256, SHA-512, and clearly legacy-labelled MD5, with one optional strict expected hexadecimal digest for a single target. A capacity-4 application-owned executor streams 1 MiB chunks, reports determinate byte progress, supports cancellation, opens no-follow, and revalidates device/inode/size/mtime/ctime before accepting results. Standard vectors and explicit match/mismatch are covered. Native selection-aware dialogs expose selectable results and digest-only clipboard text; GTK submits jobs and never reads file contents. Results remain memory-only. A checksum match compares bytes at calculation time and does not prove authenticity, authorship, freshness, safety, signature validity, or future integrity. Phase 10F advanced metadata is not included.
+Phase 10F adds lazy bounded advanced metadata to Inspector, Properties, and five opt-in list columns: Dimensions, Duration, Artist, Album, and Track. The existing capacity-64 metadata worker performs exact no-follow local regular-file parsing only on explicit Inspector demand or for bound visible rows when an advanced column is enabled. It revalidates device/inode/size/mtime/ctime, caps cumulative reads at 16 MiB and text at 1,024 characters, limits EXIF to ten reviewed presentation fields, uses strict media parsing with cover art disabled, and keeps results in a 512-entry memory-only cache. Unsupported, absent, malformed, changed, inaccessible, and limit states remain explicit. Asynchronous enrichment is non-sortable, so it cannot reorder rows; legacy nine-column preferences migrate through stable textual names. GPS/privacy findings remain Phase 18O, and no safety, authenticity, or sanitization claim is made.
+
+Phase 10E adds explicit checksum calculation for exact selected local regular files. Typed requests accept SHA-256, SHA-512, and clearly legacy-labelled MD5, with one optional strict expected hexadecimal digest for a single target. A capacity-4 application-owned executor streams 1 MiB chunks, reports determinate byte progress, supports cancellation, opens no-follow, and revalidates device/inode/size/mtime/ctime before accepting results. Standard vectors and explicit match/mismatch are covered. Native selection-aware dialogs expose selectable results and digest-only clipboard text; GTK submits jobs and never reads file contents. Results remain memory-only. A checksum match compares bytes at calculation time and does not prove authenticity, authorship, freshness, safety, signature validity, or future integrity.
 
 Phase 10D adds explicit Unix permission editing from Properties for exact selected local entries. Typed requests accept separate file/directory octal modes, executable-file enable/disable, numeric UID/GID values, and validated local owner/group names. A capacity-4 application-owned executor resolves local names off GTK, performs whole-request no-follow preflight capped at 250,000 entries and depth 1,024, refuses roots and mount crossings, revalidates device/inode identity, reports pre-commit cancellation separately from committed partial failure, and refreshes affected parents through Operations feedback. Recursive and ownership changes require explicit acknowledgement. Symbolic links are never followed; ACLs, xattrs, capabilities, immutable flags, checksums, password collection, and whole-process elevation remain out of scope.
 
@@ -2352,10 +2354,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-10f-advanced-metadata` and implement bounded, lazy, safe EXIF and
-media/audio metadata with malformed-input handling and stable optional-column
-enrichment. Do not add Phase 18O privacy findings or Phase 11A command-registry
-work.
+Create `phase-11a-command-registry` and centralize human-readable command
+metadata, eligibility, shortcuts, and menu placement over existing application
+actions without duplicating business logic. Do not add the Phase 11B palette.
 ```
 
 ---
