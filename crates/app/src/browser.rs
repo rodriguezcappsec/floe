@@ -372,6 +372,7 @@ impl BrowserServices {
 pub struct BrowserController {
     widgets: BrowserWidgets,
     command_palette: crate::command_palette::CommandPalette,
+    keyboard_shortcuts: crate::keyboard_shortcuts::KeyboardShortcuts,
     tabs: Rc<RefCell<BrowserTabs>>,
     worker: RefCell<BrowserWorker>,
     thumbnail_worker: RefCell<Option<ThumbnailWorker>>,
@@ -488,9 +489,11 @@ impl BrowserController {
         });
         let initial_view = tabs.active().current().view();
         let command_palette = crate::command_palette::CommandPalette::new(&widgets.window);
+        let keyboard_shortcuts = crate::keyboard_shortcuts::KeyboardShortcuts::new(&widgets.window);
         Rc::new(Self {
             widgets,
             command_palette,
+            keyboard_shortcuts,
             tabs: Rc::new(RefCell::new(tabs)),
             worker: RefCell::new(browser),
             thumbnail_worker: RefCell::new(thumbnails),
@@ -1499,6 +1502,17 @@ impl BrowserController {
         self.add_action("command-palette", |controller| {
             controller.command_palette.present();
         });
+        self.add_action("keyboard-shortcuts", |controller| {
+            let current = controller.current_preferences.borrow().keybindings.clone();
+            let weak = Rc::downgrade(controller);
+            controller
+                .keyboard_shortcuts
+                .present(current, move |keybindings| {
+                    if let Some(controller) = weak.upgrade() {
+                        controller.apply_keybinding_overrides(keybindings);
+                    }
+                });
+        });
         self.add_action("back", |controller| controller.go_back());
         self.add_action("forward", |controller| controller.go_forward());
         self.add_action("parent", |controller| controller.go_parent());
@@ -1884,7 +1898,10 @@ impl BrowserController {
             self.add_action(name, move |controller| controller.change_sort(column));
         }
 
-        crate::command_registry::install_default_window_shortcuts(application);
+        crate::keybindings::install_effective_window_shortcuts(
+            application,
+            &self.current_preferences.borrow().keybindings,
+        );
     }
 
     fn add_action<F>(self: &Rc<Self>, name: &str, callback: F) -> gio::SimpleAction
@@ -3225,6 +3242,19 @@ impl BrowserController {
             sort: self.sort_order.get(),
             columns: self.list_columns.get(),
         }
+    }
+
+    fn apply_keybinding_overrides(&self, keybindings: crate::keybindings::KeybindingOverrides) {
+        self.current_preferences.borrow_mut().keybindings = keybindings.clone();
+        if let Some(application) = self
+            .widgets
+            .window
+            .application()
+            .and_downcast::<adw::Application>()
+        {
+            crate::keybindings::install_effective_window_shortcuts(&application, &keybindings);
+        }
+        self.queue_preferences();
     }
 
     fn queue_preferences(&self) {

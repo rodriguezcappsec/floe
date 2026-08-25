@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 11B. Phase 11C is the only `NEXT`
+The implementation baseline for this matrix is Phase 11C. Phase 11D is the only `NEXT`
 phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -433,13 +433,13 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Directory-background context menu | `COMPLETE` | 6J | Paste, Select All, Refresh, and Edit Location are separate from file actions. |
 | Expanded context actions | `PLANNED` | 10-19 | Preview, Properties, paths, links, archives, checksum, privacy, safe-open, and custom actions arrive with owning features. |
 | Avoid giant context-menu wall | `PLANNED` | 11A/20 | Central command metadata should prioritize common actions and coherent submenus. |
-| Central command registry | `COMPLETE` | 11A | 59 bounded human-readable commands map to existing GActions; live enabled state remains authoritative, default accelerators and background-menu metadata are centralized, and internal parameterized plumbing is excluded. |
+| Central command registry | `COMPLETE` | 11A/11C | 60 bounded human-readable commands map to existing GActions; live enabled state remains authoritative, effective accelerators and menu metadata are centralized, and internal parameterized plumbing is excluded. |
 | Command palette / Ctrl+Shift+P | `COMPLETE` | 11B | Native bounded metadata-only search delegates to live GActions, exposes disabled context, keyboard/accessibility semantics, and 16-entry memory-only recents. |
-| Customizable shortcuts | `PLANNED` | 11C | Conflict detection, reset individual/all, discoverability, and multiple bindings where useful. |
+| Customizable shortcuts | `COMPLETE` | 11C | Versioned bounded overrides support up to four bindings per normal/recoverable command, exact conflict feedback, disabling, individual/all reset, legacy migration, and asynchronous persistence. Confirmation-required and irreversible bindings retain reviewed defaults. |
 | Optional Vim mode | `DEFERRED` | 11D | Layer on the keymap architecture; never force on normal users. |
 | Open Terminal Here | `PLANNED` | 11E | Preferred terminal, selected-folder semantics, and no shell interpolation. |
 | Embedded terminal | `DEFERRED` | 11E | Requires dependency and security architecture review. |
-| Security-sensitive shortcut guardrails | `PLANNED` | 11C/18X | Irreversible operations must not become accidentally easy to trigger. |
+| Security-sensitive shortcut guardrails | `COMPLETE` | 11C/18X | Confirmation-required and irreversible command bindings retain reviewed defaults; broader operation-scale guardrails remain Phase 18X. |
 
 ## Remote, external-device, and desktop integration
 
@@ -679,7 +679,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Watcher storms coalesced | `COMPLETE` | 6S | One 140 ms cancellable timer deduplicates paths and caps 16,384 events, 4,096 paths, and 1,024 rename pairs before conservative overflow reconciliation. |
 | Context menus selection-aware | `COMPLETE` | 6J | Existing multi-selection is preserved when appropriate. |
 | Upgrades preserve settings | `PARTIAL` | 6D/6K2/20 | View preference parser is backward compatible; full migration framework remains. |
-| Shortcut discoverability | `PARTIAL` | 0-6K2/11C | Tooltips/menu labels expose current shortcuts; centralized discovery is planned. |
+| Shortcut discoverability | `COMPLETE` | 0-6K2/11C | Header menu, Ctrl+?, and command palette open one searchable native dialog listing every registered command, category, description, availability, effective bindings, and custom/default state. |
 | Password reveal/hide and Caps Lock feedback | `PLANNED` | 18C/18H/20 | Use native accessible password widgets where platform support exists. |
 | Password confirmation on vault creation/change | `PLANNED` | 18H | Prevent mistyped unrecoverable credentials without weakening key design. |
 | Conservative wrong-password errors | `PLANNED` | 18B/18H | Do not leak unnecessary oracle detail; remain useful to legitimate users. |
@@ -698,7 +698,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Miller columns | `COMPLETE` | 8A-8F | Exact model, virtualized columns, keyboard/trackpad, actions, cross-surface drag/drop, and truthful final-column Preview/Inspector handoff are verified. Provider content remains Phases 9/10. |
 | Quick Preview | `PLANNED` | 9A-9F | Existing thumbnails plus cancellable provider boundary designed for Phase 18L sandboxing. |
 | Inspector | `COMPLETE` | 10A-10F | Shared bounded lazy metadata providers; no eager whole-directory enrichment, persistent metadata cache, privacy finding, or authenticity claim. |
-| Command palette | `PLANNED` | 11A-11B | Central command registry; no business logic in palette callbacks. |
+| Command palette | `COMPLETE` | 11A-11B | Central command registry and metadata-only palette delegate execution and eligibility to existing GActions. |
 | Archives | `PLANNED` | 12A-12B | Job lifecycle, conflict handling, cancellation, path traversal defense. |
 | Search/indexing and duplicate discovery | `PLANNED` | 13A-13G | Bounded workers, privacy-safe exclusion/history policy, exact-path duplicate review, and a complete non-indexed duplicate path. |
 | Niri/Plasma integrations | `PLANNED` | 15-16 | Generic desktop capability boundary in Phase 14. |

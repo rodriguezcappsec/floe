@@ -18,6 +18,7 @@ use std::{
 use floe_core::{DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn, SortDirection};
 use thiserror::Error;
 
+use crate::keybindings::KeybindingOverrides;
 use crate::view::{
     FileViewDensity, FolderViewState, GridSize, ListColumnLayout, MillerColumnWidth, ViewMode,
 };
@@ -82,6 +83,7 @@ pub struct ViewPreferences {
     pub sort: DirectorySort,
     pub columns: ListColumnLayout,
     pub remember_per_folder: bool,
+    pub keybindings: KeybindingOverrides,
     folder_views: Vec<FolderViewOverride>,
 }
 
@@ -99,6 +101,7 @@ impl Default for ViewPreferences {
             sort: state.sort,
             columns: state.columns,
             remember_per_folder: false,
+            keybindings: KeybindingOverrides::default(),
             folder_views: Vec::new(),
         }
     }
@@ -158,7 +161,7 @@ impl ViewPreferences {
         self.folder_views.len()
     }
 
-    fn parse(contents: &str) -> Self {
+    pub(crate) fn parse(contents: &str) -> Self {
         let mut preferences = Self::default();
         for line in contents.lines() {
             let Some((key, value)) = line.split_once('=') else {
@@ -230,6 +233,9 @@ impl ViewPreferences {
                 "remember-per-folder" => {
                     preferences.remember_per_folder = value == "true";
                 }
+                "keybinding" => {
+                    preferences.keybindings.apply_record(value);
+                }
                 "folder" => {
                     if let Some(folder) = parse_folder_override(value) {
                         preferences
@@ -247,9 +253,9 @@ impl ViewPreferences {
         preferences
     }
 
-    fn serialize(&self) -> String {
+    pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=4\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\n",
+            "version=5\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\n",
             self.mode.persisted(),
             self.grid_size.edge(),
             self.sidebar_density.persisted(),
@@ -266,6 +272,11 @@ impl ViewPreferences {
         );
         if let Some(width) = self.sidebar_width {
             serialized.push_str(&format!("sidebar-width={}\n", clamp_sidebar_width(width)));
+        }
+        for record in self.keybindings.serialize_records() {
+            serialized.push_str("keybinding=");
+            serialized.push_str(&record);
+            serialized.push('\n');
         }
         for folder in &self.folder_views {
             if let Some(encoded) = serialize_folder_override(folder) {
@@ -580,7 +591,7 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=4\n"));
+        assert!(serialized.starts_with("version=5\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
     }
@@ -599,7 +610,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=4\n"));
+        assert!(serialized.starts_with("version=5\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,

@@ -1176,10 +1176,28 @@ Last updated:
 Current phase:
 
 ```text
-Phase 11 — Commands, keyboard, and terminal (Phase 11B complete)
+Phase 11 — Commands, keyboard, and terminal (Phase 11C complete)
 ```
 
 Status:
+
+```text
+Phase 11C adds bounded persistent shortcut customization over the central
+command registry. Version-5 view preferences migrate legacy files with defaults,
+store at most 64 overrides and four canonical GTK accelerators per command, and
+continue writing only through the existing capacity-one application worker.
+Effective-binding conflicts, malformed input, duplicate bindings, unknown
+commands, and over-capacity records are rejected deterministically. Normal and
+recoverable commands may be changed or disabled; confirmation-required and
+irreversible commands keep their reviewed defaults. The native Keyboard
+Shortcuts dialog is reachable from Ctrl+?, the header menu, and command palette;
+it searches at most 128 characters across all 60 registered command metadata
+records and exposes category, description, availability, current binding, and
+custom/default state. Individual reset, reset-all, and successful edits reinstall
+accelerators immediately and queue asynchronous persistence. Only action IDs and
+accelerator text persist; search and usage history remain memory-only. Phase 11D
+Vim mode and Phase 11E terminal integration are not included.
+```
 
 ```text
 Phase 11B adds a native Ctrl+Shift+P command palette over the Phase 11A registry and existing live GActions. Search is limited to 128 Unicode scalar values and static command names, actions, descriptions, categories, and search terms; results are deterministically ranked and capped at 64. Disabled and missing commands remain visible with explicit context and cannot activate. Enter runs only an enabled existing GAction, while Down transfers focus to the result list and Escape uses native dialog dismissal. Rows expose accessible names/descriptions, shortcut/category context, focus state, and confirmation-required warnings. At most 16 successful command action IDs are deduplicated in memory only; queries and recents are never persisted or logged. No paths, filenames, contents, or clipboard data are searched. Phase 11C shortcut customization is not included.

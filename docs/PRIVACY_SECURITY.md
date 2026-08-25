@@ -314,6 +314,13 @@ current process and are discarded on exit. Disabled and missing activation
 attempts are not recorded. Persistent command history remains prohibited until
 a later privacy review explicitly changes this policy.
 
+Phase 11C persists only bounded registered action IDs and validated accelerator
+text in Floe's existing private preferences file. It does not persist shortcut
+search queries, command usage, paths, filenames, clipboard data, or content.
+Malformed, unknown, conflicting, or over-capacity records are ignored during
+migration. Confirmation-required and irreversible actions cannot be remapped,
+so customization does not weaken their reviewed activation boundary.
+
 ## Sensitive Folder, Private Mode, and Protected Folder
 
 These terms are deliberately distinct and all are **PLANNED**.
