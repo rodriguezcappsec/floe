@@ -215,6 +215,7 @@ Miller mode is generic Wayland functionality and must never require Niri.
 | 13D — Content search | PLANNED | `phase-13d-content-search` | Opt-in bounded text search with glob/regex/case controls. | 13B; no binary/secret upload; verify encodings, permission and cancellation. |
 | 13E — Saved searches | PLANNED | `phase-13e-saved-searches` | Versioned saved queries and privacy-aware history. | 13C/13D; verify migration, corruption and private suppression. |
 | 13F — Optional indexing | PLANNED | `phase-13f-search-indexing` | Capability-reviewed index with complete non-indexed fallback. | 13E/18J/18K; exclude locked/sensitive content by default; verify stale/fallback. |
+| 13G — Duplicate finder | PLANNED | `phase-13g-duplicate-finder` | “Check for Duplicates…” over explicit files or roots with size-first candidate grouping, streaming hashes, byte-for-byte confirmation, and review/reveal/Trash actions. | 10E/job boundary; no index requirement, symlink following, or automatic deletion; distinguish hard-link aliases, revalidate changing files, and verify cancellation, raw paths, permissions, huge/sparse files, mount boundaries, and hash-collision safety. |
 
 ## Phases 14–17 — Desktop and location integration
 

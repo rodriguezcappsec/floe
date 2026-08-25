@@ -327,6 +327,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Reveal/search-result context actions | `PLANNED` | 13B | Reuse normal actions with exact source identity. |
 | Optional indexed backend | `DEFERRED` | 13F | Must have non-indexed fallback and exclude private/sensitive content safely. |
 | Locked-vault search leakage prevention | `PLANNED` | 18J | Locked names/content must not enter global or Floe indexes. |
+| Check for Duplicates / duplicate finder | `PLANNED` | 13G | Explicit selected files/roots; group by exact size, stream candidate hashes, then confirm byte-for-byte before calling files identical. Results distinguish hard-link aliases and never delete automatically. |
 
 ## Thumbnails
 
@@ -699,7 +700,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Inspector | `PLANNED` | 10A-10F | Shared lazy metadata providers; no eager whole-directory enrichment. |
 | Command palette | `PLANNED` | 11A-11B | Central command registry; no business logic in palette callbacks. |
 | Archives | `PLANNED` | 12A-12B | Job lifecycle, conflict handling, cancellation, path traversal defense. |
-| Search/indexing | `PLANNED` | 13A-13F | Bounded workers and privacy-safe exclusion/history policy. |
+| Search/indexing and duplicate discovery | `PLANNED` | 13A-13G | Bounded workers, privacy-safe exclusion/history policy, exact-path duplicate review, and a complete non-indexed duplicate path. |
 | Niri/Plasma integrations | `PLANNED` | 15-16 | Generic desktop capability boundary in Phase 14. |
 | Remote locations | `PLANNED` | 17 | GFile/URI identity separate from local `PathBuf`; credential and cache policy. |
 | Portable encryption | `PLANNED` | 18B-18C | Phase 18A threat model plus existing progress/cancellation/conflict jobs. |
