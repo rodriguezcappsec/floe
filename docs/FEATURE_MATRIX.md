@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 7D. Phase 7E is the only
+The implementation baseline for this matrix is Phase 7F. Phase 8A is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -147,9 +147,9 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Hover-open folder | `COMPLETE` | 6R | One cancellable 720 ms main-loop timer navigates exact folder targets and clears on leave/drop/shutdown. |
 | Drag autoscroll | `COMPLETE` | 6R | Bounded 56 px edge zones adjust the active virtualized view by a clamped 22 px motion step. |
 | Drop destination highlighting | `COMPLETE` | 6R | Dashed outline plus action/destination accessible description and status text avoid color-only feedback. |
-| Tab reordering by drag | `PLANNED` | 7B | Non-drag keyboard/pointer alternatives are also required. |
+| Tab reordering by drag | `COMPLETE` | 7B | Stable-ID pointer drag plus Ctrl+Shift+PageUp/PageDown alternatives. |
 | Tab detachment | `DEFERRED` | 7F | Optional after tabs, session transfer, and window ownership are stable. |
-| Pane-to-pane drag | `PLANNED` | 7F | Depends on split ownership and existing job commands. |
+| Pane-to-pane drag | `COMPLETE` | 7F | Inactive pane resolves the live exact opposite path and reuses copy/move/link job commands. |
 | Miller column-to-column drag | `PLANNED` | 8E | Depends on exact column destination state and recycling-safe identity. |
 | Batch rename | `PLANNED` | 12C | Preview, find/replace, regex, numbering, collision validation, and undo are one bounded operation family. |
 | Archive compress/extract | `PLANNED` | 12A-12B | Must reuse job progress, cancellation, and conflict handling. |
@@ -197,7 +197,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Session restore | `PLANNED` | 7C | Must be versioned and suppressed in Private/Sensitive modes. |
 | Middle-click folder opens tab | `PLANNED` | 7B | Requires pointer parity with an explicit context/command action. |
 | Middle-click tab closes tab | `PLANNED` | 7B | Conventional behavior with accessible alternative. |
-| Drag tabs | `PLANNED` | 7B | Depends on stable tab IDs rather indices. |
+| Drag tabs | `COMPLETE` | 7B | Stable tab IDs, not indices, own reorder identity. |
 | Optional tab detachment | `DEFERRED` | 7F | Needs safe cross-window state transfer and session ownership. |
 
 ## Split view
@@ -216,7 +216,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Different view modes per pane | `COMPLETE` | 7D/7E | Each session retains independent view policy and restores it when activated. |
 | Active-pane filter/search | `PLANNED` | 13A-13B | Search ownership must follow active pane. |
 | Optional synchronized navigation | `DEFERRED` | 7F | Only after independent behavior is reliable and understandable. |
-| Drag between panes | `PLANNED` | 7F | Reuse exact operation requests and active destination highlighting. |
+| Drag between panes | `COMPLETE` | 7F | Standard local file-list drops reuse exact no-overwrite copy/move/link requests; action, destination, and commit wording supplement dashed highlighting. |
 
 ## Miller / spatial columns
 

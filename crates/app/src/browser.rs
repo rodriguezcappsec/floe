@@ -47,7 +47,7 @@ fn folder_tab_eligible(entries: &[Arc<DirectoryEntry>], trash_active: bool) -> b
 
 const SPLIT_SNAPSHOT_CAPACITY: usize = 512;
 #[cfg(test)]
-const SPLIT_ACTION_NAMES: [&str; 9] = [
+const SPLIT_ACTION_NAMES: [&str; 10] = [
     "win.toggle-split",
     "win.switch-split-side",
     "win.swap-split-sides",
@@ -57,6 +57,7 @@ const SPLIT_ACTION_NAMES: [&str; 9] = [
     "win.open-opposite-pane",
     "win.copy-to-opposite-pane",
     "win.move-to-opposite-pane",
+    "win.link-to-opposite-pane",
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -113,6 +114,12 @@ fn opposite_pane_destination(tabs: &BrowserTabs) -> Option<PathBuf> {
         .map(|session| session.current().path().to_path_buf())
 }
 
+fn split_drop_destination(tabs: &BrowserTabs, trash_active: bool) -> Option<DropDestination> {
+    (!trash_active)
+        .then(|| opposite_pane_destination(tabs).map(DropDestination::Directory))
+        .flatten()
+}
+
 fn tab_menu_item(label: &str, action: &str, id: BrowserSessionId) -> gio::MenuItem {
     let item = gio::MenuItem::new(Some(label), None);
     item.set_action_and_target_value(Some(action), Some(&id.get().to_variant()));
@@ -134,6 +141,7 @@ const WIDEN_PRIMARY_PANE_ACCELERATOR: &str = "<Control><Alt>Right";
 const OPEN_OPPOSITE_ACCELERATOR: &str = "<Control><Shift>Return";
 const COPY_OPPOSITE_ACCELERATOR: &str = "<Control><Alt>c";
 const MOVE_OPPOSITE_ACCELERATOR: &str = "<Control><Alt>m";
+const LINK_OPPOSITE_ACCELERATOR: &str = "<Control><Alt>l";
 const TAB_CLOSE_VARIANT_ACTIONS: [&str; 3] = [
     "win.close-tabs-left",
     "win.close-tabs-right",
@@ -149,7 +157,8 @@ use crate::{
         DeviceSubscriptionId,
     },
     drag_drop::{
-        DropDestination, DropEvent, DropRequest, install_drag_source, install_drop_target,
+        DropAction, DropDestination, DropEvent, DropRequest, install_drag_source,
+        install_drop_target,
     },
     file_watcher::{
         FileWatcher, RenamePair, ViewStateSnapshot, WatchBatch, batch_is_current,
@@ -510,6 +519,17 @@ impl BrowserController {
 
         self.install_file_view_drag_drop(&self.widgets.list_view);
         self.install_file_view_drag_drop(&self.widgets.grid_view);
+        let controller = Rc::downgrade(self);
+        install_drop_target(
+            &self.widgets.inactive_pane,
+            Rc::new(move || {
+                let controller = controller.upgrade()?;
+                split_drop_destination(&controller.tabs.borrow(), controller.trash_active.get())
+            }),
+            self.widgets.drop_dispatcher.clone(),
+            false,
+            false,
+        );
 
         for (button, location) in self.widgets.location_buttons.iter().zip(locations) {
             let controller = Rc::downgrade(self);
@@ -1402,6 +1422,10 @@ impl BrowserController {
             controller.transfer_selected_to_opposite(TransferIntent::Move)
         });
         move_opposite.set_enabled(false);
+        let link_opposite = self.add_action("link-to-opposite-pane", |controller| {
+            controller.link_selected_to_opposite()
+        });
+        link_opposite.set_enabled(false);
         self.add_action("next-tab", |controller| controller.switch_relative_tab(1));
         self.add_action("previous-tab", |controller| {
             controller.switch_relative_tab(-1);
@@ -1684,6 +1708,8 @@ impl BrowserController {
             .set_accels_for_action("win.copy-to-opposite-pane", &[COPY_OPPOSITE_ACCELERATOR]);
         application
             .set_accels_for_action("win.move-to-opposite-pane", &[MOVE_OPPOSITE_ACCELERATOR]);
+        application
+            .set_accels_for_action("win.link-to-opposite-pane", &[LINK_OPPOSITE_ACCELERATOR]);
         application.set_accels_for_action("win.next-tab", &["<Control>Tab"]);
         application.set_accels_for_action("win.previous-tab", &["<Control><Shift>Tab"]);
         application.set_accels_for_action("win.move-tab-left", &["<Control><Shift>Page_Up"]);
@@ -1997,6 +2023,26 @@ impl BrowserController {
                 ));
             }
             Err(error) => self.show_toast(&format!("Could not start pane transfer: {error}"), 6),
+        }
+    }
+
+    fn link_selected_to_opposite(&self) {
+        let destination = {
+            let tabs = self.tabs.borrow();
+            let Some(destination) = split_drop_destination(&tabs, self.trash_active.get()) else {
+                self.show_toast("Open split view before linking between panes", 4);
+                return;
+            };
+            destination
+        };
+        let paths = self.selected_paths();
+        if paths.is_empty() {
+            self.show_toast("Select one or more items first", 4);
+            return;
+        }
+        match DropRequest::new(paths, destination, DropAction::Link) {
+            Ok(request) => self.submit_drop(request),
+            Err(error) => self.show_toast(&format!("Could not link to other pane: {error}"), 6),
         }
     }
 
@@ -3386,6 +3432,7 @@ impl BrowserController {
             ("open-opposite-pane", state.open_opposite),
             ("copy-to-opposite-pane", state.transfer_opposite),
             ("move-to-opposite-pane", state.transfer_opposite),
+            ("link-to-opposite-pane", state.transfer_opposite),
         ] {
             if let Some(action) = self
                 .widgets
@@ -5417,17 +5464,52 @@ mod tests {
 
     #[test]
     fn phase_7e_split_accessibility_has_actions_and_keyboard_alternatives() {
-        assert_eq!(SPLIT_ACTION_NAMES.len(), 9);
+        assert_eq!(SPLIT_ACTION_NAMES.len(), 10);
         assert!(SPLIT_ACTION_NAMES.contains(&"win.toggle-split"));
         assert!(SPLIT_ACTION_NAMES.contains(&"win.switch-split-side"));
         assert!(SPLIT_ACTION_NAMES.contains(&"win.narrow-primary-pane"));
         assert!(SPLIT_ACTION_NAMES.contains(&"win.widen-primary-pane"));
         assert!(SPLIT_ACTION_NAMES.contains(&"win.open-opposite-pane"));
+        assert!(SPLIT_ACTION_NAMES.contains(&"win.link-to-opposite-pane"));
         assert_eq!(TOGGLE_SPLIT_ACCELERATOR, "F3");
         assert_eq!(SWITCH_SPLIT_ACCELERATOR, "F6");
         assert_eq!(NARROW_PRIMARY_PANE_ACCELERATOR, "<Control><Alt>Left");
         assert_eq!(WIDEN_PRIMARY_PANE_ACCELERATOR, "<Control><Alt>Right");
         assert_eq!(OPEN_OPPOSITE_ACCELERATOR, "<Control><Shift>Return");
         assert_ne!(COPY_OPPOSITE_ACCELERATOR, MOVE_OPPOSITE_ACCELERATOR);
+    }
+
+    #[test]
+    fn phase_7f_split_drop_destination_is_live_exact_and_trash_safe() {
+        let raw = PathBuf::from(OsString::from_vec(b"/tmp/drop-\xff".to_vec()));
+        let mut tabs = floe_core::BrowserTabs::new(
+            PathBuf::from("/primary"),
+            floe_core::FolderViewState::default(),
+        )
+        .expect("initial tab");
+        assert_eq!(split_drop_destination(&tabs, false), None);
+        tabs.split_active(raw.clone(), floe_core::FolderViewState::default())
+            .expect("secondary pane");
+        assert_eq!(
+            split_drop_destination(&tabs, false),
+            Some(DropDestination::Directory(raw))
+        );
+        assert_eq!(split_drop_destination(&tabs, true), None);
+        tabs.activate_split_side(SplitSide::Secondary)
+            .expect("secondary active");
+        assert_eq!(
+            split_drop_destination(&tabs, false),
+            Some(DropDestination::Directory(PathBuf::from("/primary")))
+        );
+    }
+
+    #[test]
+    fn phase_7f_split_drag_accessibility_has_complete_action_alternatives() {
+        assert!(SPLIT_ACTION_NAMES.contains(&"win.copy-to-opposite-pane"));
+        assert!(SPLIT_ACTION_NAMES.contains(&"win.move-to-opposite-pane"));
+        assert!(SPLIT_ACTION_NAMES.contains(&"win.link-to-opposite-pane"));
+        assert_ne!(COPY_OPPOSITE_ACCELERATOR, MOVE_OPPOSITE_ACCELERATOR);
+        assert_ne!(MOVE_OPPOSITE_ACCELERATOR, LINK_OPPOSITE_ACCELERATOR);
+        assert_eq!(LINK_OPPOSITE_ACCELERATOR, "<Control><Alt>l");
     }
 }

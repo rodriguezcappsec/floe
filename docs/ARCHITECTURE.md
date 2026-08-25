@@ -187,6 +187,14 @@ existing generation-safe pipeline. Opposite-pane transfers resolve exact paths
 from `BrowserTabs` and submit typed requests to `ApplicationState`; GTK callbacks
 do not enumerate or mutate the filesystem.
 
+Phase 7F attaches the existing `drag_drop` destination adapter to the inactive
+pane. Its resolver reads the current opposite `BrowserSession` path at event
+time, rejects unsplit and Trash contexts, and emits the same typed
+`DropRequest` used by list/grid/sidebar destinations. Copy, move, and symbolic
+link operations therefore retain existing FIFO, conflict, cancellation, and
+no-overwrite semantics. The inactive pane owns no enumerator, watcher, job
+executor, or hover-navigation timer.
+
 
 ### `application.rs` and `main.rs`
 

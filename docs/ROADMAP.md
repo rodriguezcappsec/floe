@@ -147,13 +147,13 @@ Goal: make standards-correct local Trash a first-class Floe location.
 | 7C — Closed tabs/restore | COMPLETE | `phase-7c-tab-session-restore` | Reopen closed, close variants, startup session restore; optional names/pins remain deferred. | Verified bounded LIFO/fresh IDs, hostile-input codec, private atomic worker, explicit Private/Sensitive suppression, Ctrl+Shift+T, and two-launch native restore. |
 | 7D — Split state | COMPLETE | `phase-7d-split-state` | Two independent contexts, active side, histories, ratio and view modes. | Verified per-tab primary/secondary sessions, stable tab identity, bounded ratio, close/swap transitions, workspace-v2 hostile-input handling and v1 migration; no GTK interaction. |
 | 7E — Split interaction | COMPLETE | `phase-7e-split-interaction` | Toggle, close, swap, switch side, resizable ratio, opposite-pane open/copy/move. | Verified one native `GtkPaned`, textual active-side ownership, bounded stale-labelled inactive snapshots, exact destinations, existing no-overwrite FIFO jobs, keyboard/menu parity, two-launch native restore; no inter-pane drag, detached windows, or second browser pipeline. |
-| 7F — Tab/split drag | NEXT | `phase-7f-tab-split-drag` | File-operation drag/drop between split contexts; existing tab reorder remains supported, detachment stays optional. | 6R/7B/7E; no Miller drag; verify exact destinations, modifiers, feedback, and keyboard alternatives. |
+| 7F — Tab/split drag | COMPLETE | `phase-7f-tab-split-drag` | File-operation drag/drop between split contexts; existing tab reorder remains supported, detachment stays deferred. | Verified live exact opposite-session destinations, local file-list copy/move/link negotiation, no-overwrite FIFO jobs, accessible action/path/commit feedback, and Open/Copy/Move/Link keyboard/menu alternatives; no hover-open, Miller drag, detachment, or second pipeline. |
 
 ## Phase 8 — Miller and spatial navigation
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 8A — Column model | PLANNED | `phase-8a-miller-model` | Exact parent/selected-child chain and bounded retained columns. | 7A; no GTK; verify rename/delete/non-UTF-8 state transitions. |
+| 8A — Column model | NEXT | `phase-8a-miller-model` | Exact parent/selected-child chain and bounded retained columns. | 7A; no GTK; verify rename/delete/non-UTF-8 state transitions. |
 | 8B — Virtualized columns | PLANNED | `phase-8b-miller-ui` | Recyclable floating columns and adjustable widths. | 8A/6T; no detail column; verify bounded memory and no duplicate enumeration. |
 | 8C — Keyboard/trackpad | PLANNED | `phase-8c-miller-navigation` | Left/right, up/down and smooth horizontal trackpad interaction. | 8B; Vim stays 11D; verify RTL, focus, reduced motion and native smoke. |
 | 8D — Column actions | PLANNED | `phase-8d-miller-actions` | Selection-aware normal context actions in every column. | 8B/6P/6Q; verify exact active-column ownership and parity. |

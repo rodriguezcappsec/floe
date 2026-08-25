@@ -3429,4 +3429,40 @@ mod tests {
         );
         assert!(!move_source.exists());
     }
+
+    #[test]
+    fn phase_7f_split_drop_jobs_reuse_copy_move_link_fifo() {
+        let fixture = tempdir().expect("temporary fixture");
+        let destination = fixture.path().join("opposite");
+        fs::create_dir(&destination).expect("opposite directory");
+        let state = ApplicationState::new().expect("application state");
+
+        for (name, action) in [
+            ("copy.txt", DropAction::Copy),
+            ("move.txt", DropAction::Move),
+            ("link.txt", DropAction::Link),
+        ] {
+            let source = fixture.path().join(name);
+            fs::write(&source, name.as_bytes()).expect("source file");
+            let request = DropRequest::new(
+                vec![source.clone()],
+                DropDestination::Directory(destination.clone()),
+                action,
+            )
+            .expect("valid split drop");
+            let batch = state.submit_drop(request).expect("queued split drop");
+            assert_eq!(batch.queued(), 1);
+            let job = state.batch_active.get().expect("active split drop");
+            assert_eq!(wait_for_terminal(&state, job), JobState::Completed);
+            state.finish_operation(job, TerminalOutcome::Completed);
+            assert!(destination.join(name).exists());
+        }
+
+        assert!(fixture.path().join("copy.txt").exists());
+        assert!(!fixture.path().join("move.txt").exists());
+        assert_eq!(
+            fs::read_link(destination.join("link.txt")).expect("symbolic link target"),
+            fixture.path().join("link.txt")
+        );
+    }
 }

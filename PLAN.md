@@ -1,36 +1,32 @@
-# Plan: Floe Phase 7E — Split interaction
+# Plan: Floe Phase 7F — Tab/split drag
 
-Mode: sequential solo phase, depth 4.
+Mode: sequential solo phase, depth 3.
 
 ## Contract
 
-- Expose Phase 7D per-tab split state through one native horizontal `GtkPaned`:
-  toggle, activate opposite side, close, swap, pointer and keyboard ratio changes.
-- Keep one active virtualized list/grid model, browser worker, thumbnail worker,
-  metadata worker, watcher, job manager, and Operations Island. The inactive pane
-  shows a bounded read-only snapshot and exact path; activation restores its
-  session through the existing shared pipeline.
-- Provide explicit Open in Other Pane, Copy to Other Pane, and Move to Other Pane
-  commands using exact paths and existing no-overwrite jobs. Do not add
-  inter-pane drag-and-drop, detached windows, or Miller columns.
-- Make active/inactive ownership textual and accessible, with pointer, menu, and
-  keyboard alternatives. Preserve per-tab split state through clean restore.
+- Accept standard local-file drops on the inactive split pane and resolve the
+  authoritative opposite `BrowserSession` path at interaction time.
+- Reuse Phase 6R file-list decoding, copy/move/link modifier negotiation,
+  no-overwrite FIFO jobs, self-nesting rejection, and accessible feedback.
+- Preserve exact `PathBuf` identity. GTK callbacks may submit typed requests but
+  may not enumerate or mutate the filesystem.
+- Keep explicit Open/Copy/Move and add Link to Other Pane as complete keyboard and
+  menu alternatives. Existing stable-ID tab reorder remains intact. Do not add
+  tab detachment, Miller-column drag, a second browser pipeline, or hover-open of
+  the inactive pane.
 
 ## Depth tree
 
-1. Split presentation
-   - Native paned surface, active shell, inactive snapshot, bounded ratio.
-   - Reparent one active virtualized presentation without cloning workers.
-2. State interaction
-   - Toggle, side switch, close, swap, and ratio capture/restore.
-   - Per-tab restoration through existing generation-safe browser ownership.
-3. Opposite-pane workflows
-   - Folder open without focus theft; copy/move through existing bounded jobs.
-   - Selection-sensitive actions, menus, shortcuts, and truthful feedback.
-4. Verification and handoff
-   - Focused tests, full gates, two-launch native Wayland smoke, persistent docs.
+1. Destination contract
+   - Exact opposite-side resolver with split/trash gating and non-UTF-8 coverage.
+2. Native interaction
+   - Inactive-pane drop target using the shared dispatcher and accessible state.
+   - Link-to-opposite action plus keyboard/menu alternative.
+3. Verification and handoff
+   - Focused tests, full gates, native Wayland action/drop-target lifecycle,
+     persistent docs, exactly Phase 8A next.
 
 ## Status
 
-COMPLETE — all Phase 7E gates verified. Exactly one recommended next phase:
-`phase-7f-tab-split-drag`.
+COMPLETE — all Phase 7F gates verified. Exactly one recommended next phase:
+`phase-8a-miller-model`.
