@@ -471,6 +471,17 @@ D-Bus, quits through the application action, and checks the version-3 private
 preference file records the clamped global width. The active column must keep
 using the one existing browser result model and worker.
 
+Phase 8C focused verification is:
+
+```bash
+cargo test -p floe-app phase_8c -- --nocapture
+```
+
+The native Wayland smoke activates Miller mode, describes and invokes the
+logical `miller-parent`/`miller-child` actions, checks D-Bus health, quits, and
+confirms name release. Policy tests cover LTR/RTL mapping, bounded item movement,
+modified-key fallthrough, dominant-horizontal clamping, and reduced motion.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

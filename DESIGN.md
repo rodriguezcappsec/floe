@@ -472,6 +472,13 @@ column shares the browser model; prior columns are visibly retained snapshots,
 never new enumerators. Text identifies the active column without relying on
 color. One global width is adjustable from 180–520 pixels and persists without
 creating per-folder width state. Keyboard/trackpad navigation remains Phase 8C.
+Phase 8C makes that surface keyboard-native: Up/Down/Home/End move bounded item
+focus, while logical parent/child movement maps to Left/Right in LTR and reverses
+in RTL. Modified selection chords remain GTK-owned. Dominant horizontal
+trackpad/wheel motion scrolls the column strip without stealing ordinary
+vertical column scrolling. Active columns expose text descriptions, and GTK's
+disabled-animation setting turns off kinetic scrolling rather than making
+navigation unavailable.
 
 ### Open without a default application
 

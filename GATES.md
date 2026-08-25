@@ -1,39 +1,39 @@
-# Gates: Floe Phase 8B — Virtualized Miller columns
+# Gates: Floe Phase 8C — Miller keyboard and trackpad navigation
 
-Scope: deliver bounded native Miller columns over the existing exact-path browser pipeline, without Phase 8C–9 work.
+Scope: deliver exact focus-visible Miller keyboard/trackpad navigation without Phase 8D actions.
 
 - [x] G1: Work is isolated on the prescribed phase branch.
   CHECK: git branch --show-current
-  EXPECT: phase-8b-miller-ui
-  EVIDENCE: phase-8b-miller-ui
+  EXPECT: phase-8c-miller-navigation
+  EVIDENCE: phase-8c-miller-navigation
 
-- [x] G2: Miller presentation state has explicit bounded columns, entries, and width policy while preserving exact raw path identity.
-  CHECK: cargo test --workspace phase_8b_policy -- --nocapture
-  EXPECT: test result: ok
-  EVIDENCE: Running unittests src/main.rs (target/debug/deps/floe_app-c34335fcae0cf6e5) | Running unittests src/lib.rs (target/debug/deps/floe_core-9689122403c8558b)
-
-- [x] G3: The native Miller surface recycles column/row widgets and exposes non-color-only active-column and width controls.
-  CHECK: cargo test -p floe-app phase_8b_ui -- --nocapture
+- [x] G2: Direction policy covers bounded Up/Down, logical Left/Right, RTL, Home/End, and reduced motion.
+  CHECK: cargo test -p floe-app phase_8c_policy -- --nocapture
   EXPECT: test result: ok
   EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s | Running unittests src/main.rs (target/debug/deps/floe_app-c34335fcae0cf6e5)
 
-- [x] G4: Miller mode reuses the existing browser result pipeline and does not add a second directory worker or GTK filesystem enumeration.
-  CHECK: cargo test -p floe-app phase_8b_pipeline -- --nocapture
+- [x] G3: Recycled columns retain exact active depth/selection and expose focus state without relying on color.
+  CHECK: cargo test -p floe-app phase_8c_focus -- --nocapture
   EXPECT: test result: ok
   EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s | Running unittests src/main.rs (target/debug/deps/floe_app-c34335fcae0cf6e5)
 
-- [x] G5: List/grid/tabs/split behavior remains available and Miller selection/activation uses authoritative `PathBuf` values.
-  CHECK: cargo test -p floe-app phase_8b_integration -- --nocapture
+- [x] G4: Horizontal trackpad/wheel handling is bounded and does not consume ordinary vertical column scrolling.
+  CHECK: cargo test -p floe-app phase_8c_trackpad -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s | Running unittests src/main.rs (target/debug/deps/floe_app-c34335fcae0cf6e5)
+  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s | Running unittests src/main.rs (target/debug/deps/floe_app-c34335fcae0cf6e5)
 
-- [x] G6: Native Wayland smoke verifies Miller activation, width adjustment, application health, and clean shutdown.
-  EVIDENCE: Two isolated launches activated `view-miller` and `widen-miller-columns`, answered D-Bus Ping, migrated/restored `miller-column-width=320`, quit with status 0, and released `io.github.floe.FileManager`.
+- [x] G5: List/grid/text-entry shortcuts and single browser pipeline remain intact.
+  CHECK: cargo test -p floe-app phase_8c_integration -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s | Running unittests src/main.rs (target/debug/deps/floe_app-c34335fcae0cf6e5)
+
+- [x] G6: Native Wayland smoke verifies Miller keyboard action state, horizontal navigation health, and clean shutdown.
+  EVIDENCE: Isolated native Wayland launch activated Miller, described both logical navigation actions, invoked safe root-parent navigation, answered D-Bus Ping, quit status 0, and released the application name.
 
 - [x] G7: Rust formatting is clean.
   CHECK: cargo fmt --all -- --check
   EXPECT: /^$/
-  EVIDENCE: `cargo fmt --all -- --check` exited 0 with no output after final documentation and code edits.
+  EVIDENCE: `cargo fmt --all -- --check` exited 0 with no output after final edits.
 
 - [x] G8: The full workspace type-checks.
   CHECK: cargo check --workspace
@@ -43,7 +43,7 @@ Scope: deliver bounded native Miller columns over the existing exact-path browse
 - [x] G9: Strict all-target/all-feature Clippy is warning-free.
   CHECK: cargo clippy --workspace --all-targets --all-features -- -D warnings
   EXPECT: Finished `dev` profile
-  EVIDENCE: Checking floe-app v0.1.0 (/run/media/<redacted>/LNX-games-more/app-ideas/floe_file_manager/crates/app) | Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.51s
+  EVIDENCE: Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.04s
 
 - [x] G10: All workspace tests pass.
   CHECK: cargo test --workspace
@@ -55,7 +55,7 @@ Scope: deliver bounded native Miller columns over the existing exact-path browse
   EXPECT: /^$/
   EVIDENCE: `git diff --check` exited 0 with no output after final edits.
 
-- [x] G12: Persistent documentation marks 8B complete, exactly 8C next, and records verified architecture/security boundaries.
-  CHECK: rg -n "8B.*COMPLETE|8C.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
-  EXPECT: 8C
-  EVIDENCE: docs/ROADMAP.md:157:| 8B — Virtualized columns | COMPLETE | `phase-8b-miller-ui` | Recyclable floating columns and adjustable widths. | Verified one shared active browser model, capacity-16 retained c
+- [x] G12: Persistent documentation marks 8C complete, exactly 8D next, and records verified focus/RTL/motion boundaries.
+  CHECK: rg -n "8C.*COMPLETE|8D.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
+  EXPECT: 8D
+  EVIDENCE: docs/ROADMAP.md:158:| 8C — Keyboard/trackpad | COMPLETE | `phase-8c-miller-navigation` | Left/right, up/down and smooth horizontal trackpad interaction. | Verified bounded Up/Down/Home/End, logical LT
