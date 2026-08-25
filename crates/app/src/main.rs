@@ -14,6 +14,7 @@ mod launcher;
 mod location_input;
 mod locations;
 mod metadata;
+mod miller_detail;
 mod miller_view;
 pub mod move_executor;
 mod operation_control;

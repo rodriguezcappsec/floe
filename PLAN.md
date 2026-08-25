@@ -1,39 +1,38 @@
-# Plan: Floe Phase 8E — Miller cross-column drag/drop
+# Plan: Floe Phase 8F — Miller final-column detail hooks
 
 Mode: sequential phase delivery with explicit implementation and verification gates.
 
 ## Contract
 
-- Make active and retained Miller columns exact local-file drag sources and
-  directory drop destinations without adding a second browser pipeline.
-- Reuse the existing GDK file-list payload, copy/move/link negotiation,
-  `DropRequest` validation, bounded FIFO jobs, and no-overwrite behavior.
-- Resolve tab, split-pane, sidebar, device, and Miller destinations from
-  authoritative application state at interaction time; never from labels.
-- Add one cancellable bounded hover-open path for directory, tab, opposite-pane,
-  and Miller child targets. Leaving, dropping, navigation, and shutdown cancel it.
-- Preserve vertical edge autoscroll and add clamped horizontal edge autoscroll
-  for the Miller strip. Feedback must name action and destination in text.
-- Reject non-local, empty, same-destination, self-nesting, stale-column, and
-  unavailable destination drops without direct GTK filesystem mutation.
-- Exclude Phase 8F detail hooks and all Preview providers/content.
+- Add a GTK-independent application-owned detail-hook lifecycle for Preview and
+  Inspector without implementing any Phase 9/10 provider content.
+- Carry exact generation, Miller depth, directory, and bounded raw selected
+  paths; never reconstruct targets from visible names.
+- Represent hidden, empty-selection, ready-for-provider, and unsupported states
+  explicitly. Preview requires one supported local file candidate; Inspector
+  may hand off a bounded aggregate selection.
+- Add optional final-column presentation and focus-visible Preview/Inspector
+  controls only in Miller mode. Closing or leaving Miller returns focus safely.
+- Reconcile navigation and selection changes without filesystem I/O, provider
+  execution, new workers, caches, persistence, or active-content claims.
+- Exclude Phase 9 providers/shortcuts/content and Phase 10 inspector metadata.
 
 ## Depth tree
 
-1. Typed hover/drop policy
-   - Replace boolean hover ownership with typed exact targets and bounded
-     cancellation; extend clamped edge scrolling to both axes.
-2. Miller sources and destinations
-   - Bind recycled active/retained selection models to file-list drag sources,
-     folder/background destinations, exact logical depth, and hover activation.
-3. Cross-surface integration
-   - Add live tab destinations and hover activation; preserve sidebar, mounted
-     device, and split-pane destination semantics with explicit ownership.
+1. Exact lifecycle model
+   - Define surface, generation, target, eligibility, stale reconciliation, and
+     bounded selection policy with non-UTF-8 tests.
+2. Final-column presentation
+   - Render a truthful optional surface after active columns with non-color-only
+     state text and focus behavior; expose accessible controls.
+3. Controller integration
+   - Bind actions, reconcile current Miller selection/navigation, hide on mode
+     exit, and keep list/grid behavior untouched.
 4. Verification and handoff
-   - Focused hostile-path/stale/modifier/autoscroll tests, native Wayland action
-     lifecycle smoke, full checks, docs, and exactly Phase 8F as `NEXT`.
+   - Focused lifecycle/presentation/integration tests, native Wayland smoke,
+     full checks, docs, and exactly Phase 9A as `NEXT`.
 
 ## Status
 
-COMPLETE on `phase-8e-miller-drag-drop`. All gates are met. The sole
-recommended next phase is `phase-8f-miller-detail-hooks`.
+COMPLETE on `phase-8f-miller-detail-hooks`. All gates are met. The sole
+recommended next phase is `phase-9a-preview-providers`.

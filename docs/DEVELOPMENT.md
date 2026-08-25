@@ -506,6 +506,18 @@ quits cleanly. Synthetic drag serials are not used for native automation;
 focused tests cover exact raw sources, live destinations, typed stale hover
 rejection, modifier-preserving requests, and two-axis clamping.
 
+Phase 8F focused verification is:
+
+```bash
+cargo test -p floe-app phase_8f -- --nocapture
+```
+
+The native Wayland smoke activates Miller mode, verifies both detail-hook
+actions are enabled, opens and closes the empty Preview surface, pings the
+window action object, and quits cleanly. Tests cover raw target identity,
+generation stability, stale/unsupported states, truthful provider boundaries,
+accessible presentation text, and list/grid/Miller integration.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

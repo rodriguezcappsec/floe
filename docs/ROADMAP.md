@@ -158,7 +158,7 @@ Goal: make standards-correct local Trash a first-class Floe location.
 | 8C — Keyboard/trackpad | COMPLETE | `phase-8c-miller-navigation` | Left/right, up/down and smooth horizontal trackpad interaction. | Verified bounded Up/Down/Home/End, logical LTR/RTL parent/child movement, modified-key fallthrough, dominant-horizontal gesture clamping, focus-visible active list, reduced-motion kinetic suppression, exported logical actions, and native Wayland lifecycle; Vim remains 11D. |
 | 8D — Column actions | COMPLETE | `phase-8d-miller-actions` | Selection-aware normal context actions in every column. | Verified exact depth/directory/raw-entry ownership, stale and overflow rejection, retained-column action directories, pointer/keyboard menus, existing no-overwrite command routing, and native Wayland lifecycle; no drag/drop. |
 | 8E — Cross-column drag | COMPLETE | `phase-8e-miller-drag-drop` | Drag/drop and hover navigation across columns, sidebar, tabs and panes. | Verified exact raw file-list sources, live tab/split/sidebar/device/Miller destinations, typed cancellable hover ownership, copy/move/link modifier reuse, two-axis clamped autoscroll, no-overwrite jobs, and native lifecycle; no detail providers. |
-| 8F — Detail hooks | NEXT | `phase-8f-miller-detail-hooks` | Optional final-column Preview/Inspector contracts. | 8B; Phases 9/10 own content; verify unsupported, focus and lifecycle states. |
+| 8F — Detail hooks | COMPLETE | `phase-8f-miller-detail-hooks` | Optional final-column Preview/Inspector contracts. | Verified exact bounded generation/depth/directory/path handoff, hidden/empty/ready/unsupported lifecycle, accessible focus controls, truthful no-provider final column, mode-exit cleanup, and native action lifecycle; no Preview or metadata content. |
 
 Miller mode is generic Wayland functionality and must never require Niri.
 
@@ -166,7 +166,7 @@ Miller mode is generic Wayland functionality and must never require Niri.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 9A — Provider architecture | PLANNED | `phase-9a-preview-providers` | Typed, cancellable provider lifecycle, limits, cache policy and fallback. | 6L; no active content/sandbox claim; verify hostile, stale and failed providers. |
+| 9A — Provider architecture | NEXT | `phase-9a-preview-providers` | Typed, cancellable provider lifecycle, limits, cache policy and fallback. | 6L; no active content/sandbox claim; verify hostile, stale and failed providers. |
 | 9B — Images/text/code | PLANNED | `phase-9b-preview-images-text` | Images, bounded text, Markdown source, code, JSON and XML read-only preview. | 9A; no active HTML; verify encodings, huge files, malformed input and zoom. |
 | 9C — PDF/documents | PLANNED | `phase-9c-preview-documents` | Passive PDF and reviewed office/document rendering. | 9A/provider review; no macros; verify malformed documents, limits and cancellation. |
 | 9D — Audio/video | PLANNED | `phase-9d-preview-media` | Playback, seeking, metadata and poster frames. | 9A/6L; no codec installer; verify retired sources and resource release. |

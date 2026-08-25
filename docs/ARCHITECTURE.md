@@ -238,6 +238,14 @@ targets distinguish directory, tab, opposite-pane, and Miller-child ownership;
 the single cancellable timer revalidates state before navigation. Edge motion
 walks ancestor scrollers and clamps both vertical and horizontal adjustments.
 
+Phase 8F adds GTK-independent `miller_detail.rs`. It owns only bounded exact
+handoff state: surface kind, monotonically revised generation, active logical
+depth/directory, and at most 4,096 original paths. Hidden, empty, ready, and
+unsupported states are explicit. `BrowserController` reconciles selection and
+navigation, while `MillerView` renders an optional accessible final column.
+There is no provider worker, decoding, metadata lookup, cache, persistence, or
+sandbox claim; Phases 9 and 10 consume this contract.
+
 ### `application.rs` and `main.rs`
 
 `main.rs` declares modules and starts `application::run`. `application.rs`

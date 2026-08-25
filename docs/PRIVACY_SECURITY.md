@@ -32,6 +32,10 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 8F detail hooks retain at most 4,096 exact selected paths in memory and
+  no file content. Leaving Miller or closing the hook drops presentation state.
+  The phase adds no cache, history, persistence, provider execution, metadata
+  access, active-content rendering, or sandbox claim.
 - Phase 8E adds no drag history or new persistent path channel. Standard local
   file-list payloads and typed hover destinations remain interaction-lifetime
   state. Timers are single, cancellable, and revalidate live tab/Miller

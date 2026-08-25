@@ -1,0 +1,338 @@
+//! GTK-independent lifecycle for optional Miller final-column detail surfaces.
+//!
+//! Phase 8F only defines exact handoff state. Preview and Inspector providers
+//! remain owned by Phases 9 and 10 respectively.
+
+use std::{path::PathBuf, sync::Arc};
+
+use floe_core::{DirectoryEntry, EntryKind};
+
+pub const MILLER_DETAIL_SELECTION_CAPACITY: usize = 4_096;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MillerDetailSurface {
+    Preview,
+    Inspector,
+}
+
+impl MillerDetailSurface {
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Preview => "Quick Preview",
+            Self::Inspector => "Inspector",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MillerDetailTarget {
+    generation: u64,
+    surface: MillerDetailSurface,
+    depth: usize,
+    directory: PathBuf,
+    paths: Vec<PathBuf>,
+}
+
+impl MillerDetailTarget {
+    pub const fn surface(&self) -> MillerDetailSurface {
+        self.surface
+    }
+
+    pub fn paths(&self) -> &[PathBuf] {
+        &self.paths
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum MillerDetailState {
+    #[default]
+    Hidden,
+    Empty {
+        surface: MillerDetailSurface,
+    },
+    Ready(MillerDetailTarget),
+    Unsupported {
+        surface: MillerDetailSurface,
+        reason: &'static str,
+    },
+}
+
+impl MillerDetailState {
+    pub const fn surface(&self) -> Option<MillerDetailSurface> {
+        match self {
+            Self::Hidden => None,
+            Self::Empty { surface }
+            | Self::Unsupported { surface, .. }
+            | Self::Ready(MillerDetailTarget { surface, .. }) => Some(*surface),
+        }
+    }
+
+    pub const fn is_visible(&self) -> bool {
+        !matches!(self, Self::Hidden)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MillerDetailPresentation {
+    pub title: &'static str,
+    pub message: String,
+    pub accessible_description: String,
+}
+
+impl From<&MillerDetailState> for MillerDetailPresentation {
+    fn from(state: &MillerDetailState) -> Self {
+        match state {
+            MillerDetailState::Hidden => Self {
+                title: "Details",
+                message: "Detail surface hidden".to_owned(),
+                accessible_description: "Miller detail surface hidden".to_owned(),
+            },
+            MillerDetailState::Empty { surface } => Self {
+                title: surface.title(),
+                message: "Select an item to prepare this detail surface.".to_owned(),
+                accessible_description: format!(
+                    "{} detail surface. No item selected.",
+                    surface.title()
+                ),
+            },
+            MillerDetailState::Ready(target) => Self {
+                title: target.surface().title(),
+                message: match target.surface() {
+                    MillerDetailSurface::Preview => {
+                        "Preview handoff ready. Content providers begin in Phase 9.".to_owned()
+                    }
+                    MillerDetailSurface::Inspector => format!(
+                        "Inspector handoff ready for {} item{}. Metadata providers begin in Phase 10.",
+                        target.paths().len(),
+                        if target.paths().len() == 1 { "" } else { "s" }
+                    ),
+                },
+                accessible_description: format!(
+                    "{} provider handoff ready for {} selected item{}; content is not loaded yet.",
+                    target.surface().title(),
+                    target.paths().len(),
+                    if target.paths().len() == 1 { "" } else { "s" }
+                ),
+            },
+            MillerDetailState::Unsupported { surface, reason } => Self {
+                title: surface.title(),
+                message: (*reason).to_owned(),
+                accessible_description: format!("{} unavailable. {reason}", surface.title()),
+            },
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct MillerDetailHooks {
+    generation: u64,
+    state: MillerDetailState,
+}
+
+impl MillerDetailHooks {
+    pub fn state(&self) -> &MillerDetailState {
+        &self.state
+    }
+
+    pub fn hide(&mut self) {
+        self.state = MillerDetailState::Hidden;
+    }
+
+    pub fn toggle(
+        &mut self,
+        surface: MillerDetailSurface,
+        depth: Option<usize>,
+        directory: PathBuf,
+        entries: &[Arc<DirectoryEntry>],
+    ) {
+        if self.state.surface() == Some(surface) {
+            self.hide();
+        } else {
+            self.reconcile(surface, depth, directory, entries);
+        }
+    }
+
+    pub fn refresh(
+        &mut self,
+        depth: Option<usize>,
+        directory: PathBuf,
+        entries: &[Arc<DirectoryEntry>],
+    ) {
+        if let Some(surface) = self.state.surface() {
+            self.reconcile(surface, depth, directory, entries);
+        }
+    }
+
+    fn reconcile(
+        &mut self,
+        surface: MillerDetailSurface,
+        depth: Option<usize>,
+        directory: PathBuf,
+        entries: &[Arc<DirectoryEntry>],
+    ) {
+        let Some(depth) = depth else {
+            self.state = MillerDetailState::Unsupported {
+                surface,
+                reason: "The active Miller column is no longer available.",
+            };
+            return;
+        };
+        if entries.is_empty() {
+            self.state = MillerDetailState::Empty { surface };
+            return;
+        }
+        if entries.len() > MILLER_DETAIL_SELECTION_CAPACITY {
+            self.state = MillerDetailState::Unsupported {
+                surface,
+                reason: "The selection is too large for the bounded detail handoff.",
+            };
+            return;
+        }
+        if entries
+            .iter()
+            .any(|entry| entry.path().parent() != Some(directory.as_path()))
+        {
+            self.state = MillerDetailState::Unsupported {
+                surface,
+                reason: "The selected item no longer belongs to the active Miller column.",
+            };
+            return;
+        }
+        if surface == MillerDetailSurface::Preview {
+            if entries.len() != 1 {
+                self.state = MillerDetailState::Unsupported {
+                    surface,
+                    reason: "Quick Preview requires exactly one selected file.",
+                };
+                return;
+            }
+            if !matches!(
+                entries[0].kind(),
+                EntryKind::RegularFile
+                    | EntryKind::SymbolicLink {
+                        target_is_directory: false
+                    }
+            ) {
+                self.state = MillerDetailState::Unsupported {
+                    surface,
+                    reason: "Quick Preview is not available for this filesystem entry.",
+                };
+                return;
+            }
+        }
+
+        let paths = entries
+            .iter()
+            .map(|entry| entry.path().to_path_buf())
+            .collect::<Vec<_>>();
+        if let MillerDetailState::Ready(current) = &self.state
+            && current.surface == surface
+            && current.depth == depth
+            && current.directory == directory
+            && current.paths == paths
+        {
+            return;
+        }
+        self.generation = self.generation.wrapping_add(1).max(1);
+        self.state = MillerDetailState::Ready(MillerDetailTarget {
+            generation: self.generation,
+            surface,
+            depth,
+            directory,
+            paths,
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, os::unix::ffi::OsStringExt};
+
+    use floe_core::enumerate_directory;
+    use tempfile::tempdir;
+
+    use super::*;
+
+    fn fixture_entries() -> (tempfile::TempDir, Vec<Arc<DirectoryEntry>>, PathBuf) {
+        let root = tempdir().expect("temporary root");
+        let raw = root
+            .path()
+            .join(std::ffi::OsString::from_vec(b"preview-\xff.txt".to_vec()));
+        fs::write(&raw, b"preview").expect("fixture");
+        let entries = enumerate_directory(root.path())
+            .expect("listing")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect();
+        (root, entries, raw)
+    }
+
+    #[test]
+    fn phase_8f_lifecycle_preserves_raw_targets_generations_and_stale_states() {
+        let (root, entries, raw) = fixture_entries();
+        let mut hooks = MillerDetailHooks::default();
+        hooks.toggle(
+            MillerDetailSurface::Preview,
+            Some(2),
+            root.path().to_path_buf(),
+            &entries,
+        );
+        let MillerDetailState::Ready(first) = hooks.state() else {
+            panic!("ready preview hook");
+        };
+        assert_eq!(first.generation, 1);
+        assert_eq!(first.paths(), &[raw]);
+        hooks.refresh(Some(2), root.path().to_path_buf(), &entries);
+        let MillerDetailState::Ready(same) = hooks.state() else {
+            panic!("stable preview hook");
+        };
+        assert_eq!(same.generation, 1);
+        hooks.refresh(None, root.path().to_path_buf(), &entries);
+        assert!(matches!(
+            hooks.state(),
+            MillerDetailState::Unsupported { .. }
+        ));
+        hooks.hide();
+        assert_eq!(hooks.state(), &MillerDetailState::Hidden);
+    }
+
+    #[test]
+    fn phase_8f_contract_keeps_preview_and_inspector_provider_boundaries_truthful() {
+        let (root, entries, _) = fixture_entries();
+        let mut hooks = MillerDetailHooks::default();
+        hooks.toggle(
+            MillerDetailSurface::Inspector,
+            Some(0),
+            root.path().to_path_buf(),
+            &entries,
+        );
+        let presentation = MillerDetailPresentation::from(hooks.state());
+        assert!(presentation.message.contains("Phase 10"));
+        hooks.hide();
+        hooks.toggle(
+            MillerDetailSurface::Preview,
+            Some(0),
+            root.path().to_path_buf(),
+            &[],
+        );
+        assert!(matches!(hooks.state(), MillerDetailState::Empty { .. }));
+        assert!(
+            !MillerDetailPresentation::from(hooks.state())
+                .message
+                .contains("loaded")
+        );
+    }
+
+    #[test]
+    fn phase_8f_presentation_names_state_without_color_or_provider_claims() {
+        let state = MillerDetailState::Unsupported {
+            surface: MillerDetailSurface::Preview,
+            reason: "Unsupported fixture",
+        };
+        let presentation = MillerDetailPresentation::from(&state);
+        assert_eq!(presentation.title, "Quick Preview");
+        assert!(presentation.accessible_description.contains("unavailable"));
+        assert!(presentation.message.contains("Unsupported"));
+    }
+}

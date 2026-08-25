@@ -20,6 +20,7 @@ use crate::{
         DropDestination, DropDispatcher, DropHoverTarget, install_drag_source, install_drop_target,
         install_drop_target_with_hover,
     },
+    miller_detail::{MillerDetailPresentation, MillerDetailState, MillerDetailSurface},
     view::MillerColumnWidth,
 };
 
@@ -244,6 +245,7 @@ pub struct MillerView {
     navigation_dispatcher: MillerNavigationDispatcher,
     action_dispatcher: MillerActionDispatcher,
     active_list: RefCell<Option<gtk::ListView>>,
+    detail_widget: RefCell<Option<gtk::Box>>,
     file_context_model: gio::MenuModel,
     background_context_model: gio::MenuModel,
     drop_dispatcher: DropDispatcher,
@@ -313,6 +315,7 @@ impl MillerView {
             navigation_dispatcher: MillerNavigationDispatcher::default(),
             action_dispatcher: MillerActionDispatcher::default(),
             active_list: RefCell::new(None),
+            detail_widget: RefCell::new(None),
             file_context_model: file_context_model.clone(),
             background_context_model: background_context_model.clone(),
             drop_dispatcher: drop_dispatcher.clone(),
@@ -343,6 +346,13 @@ impl MillerView {
         }
     }
 
+    pub fn focus_detail(&self) -> bool {
+        self.detail_widget
+            .borrow()
+            .as_ref()
+            .is_some_and(|detail| detail.grab_focus())
+    }
+
     pub fn width(&self) -> MillerColumnWidth {
         self.width.get()
     }
@@ -359,16 +369,89 @@ impl MillerView {
             .update_property(&[gtk::accessible::Property::Description(&description)]);
     }
 
-    pub fn render(&self, columns: &[MillerRenderColumn], active_selection: &gtk::MultiSelection) {
+    pub fn render(
+        &self,
+        columns: &[MillerRenderColumn],
+        active_selection: &gtk::MultiSelection,
+        detail_state: &MillerDetailState,
+    ) {
         while let Some(child) = self.columns.first_child() {
             self.columns.remove(&child);
         }
         self.active_list.borrow_mut().take();
+        self.detail_widget.borrow_mut().take();
 
         for column in columns {
             let shell = self.build_column(column, active_selection);
             self.columns.append(&shell);
         }
+        if detail_state.is_visible() {
+            let detail = self.build_detail_column(detail_state);
+            self.columns.append(&detail);
+            self.detail_widget.replace(Some(detail));
+        }
+    }
+
+    fn build_detail_column(&self, state: &MillerDetailState) -> gtk::Box {
+        let presentation = MillerDetailPresentation::from(state);
+        let heading = gtk::Label::builder()
+            .label(presentation.title)
+            .xalign(0.0)
+            .margin_start(12)
+            .margin_end(12)
+            .margin_top(10)
+            .margin_bottom(8)
+            .build();
+        heading.add_css_class("heading");
+        let icon_name = match state.surface() {
+            Some(MillerDetailSurface::Preview) => "document-open-symbolic",
+            Some(MillerDetailSurface::Inspector) | None => "dialog-information-symbolic",
+        };
+        let icon = gtk::Image::builder()
+            .icon_name(icon_name)
+            .pixel_size(42)
+            .margin_top(24)
+            .build();
+        icon.set_accessible_role(gtk::AccessibleRole::Presentation);
+        let message = gtk::Label::builder()
+            .label(&presentation.message)
+            .wrap(true)
+            .justify(gtk::Justification::Center)
+            .margin_start(18)
+            .margin_end(18)
+            .margin_top(12)
+            .build();
+        message.add_css_class("dim-label");
+        let close = gtk::Button::with_label("Close Details");
+        close.set_halign(gtk::Align::Center);
+        close.set_margin_top(18);
+        close.set_action_name(Some(match state.surface() {
+            Some(MillerDetailSurface::Preview) => "win.miller-preview-hook",
+            Some(MillerDetailSurface::Inspector) | None => "win.miller-inspector-hook",
+        }));
+        let content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .vexpand(true)
+            .build();
+        content.append(&icon);
+        content.append(&message);
+        content.append(&close);
+
+        let shell = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .width_request(i32::from(self.width.get().get()))
+            .focusable(true)
+            .build();
+        shell.add_css_class("floe-panel");
+        shell.add_css_class("floe-miller-column");
+        shell.add_css_class("floe-miller-detail-column");
+        shell.update_property(&[gtk::accessible::Property::Description(
+            &presentation.accessible_description,
+        )]);
+        shell.append(&heading);
+        shell.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell.append(&content);
+        shell
     }
 
     fn build_column(
@@ -673,6 +756,23 @@ impl MillerView {
         shell.append(&heading);
         shell.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         shell.append(&list_scroller);
+        if column.is_active {
+            let detail_controls = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(6)
+                .halign(gtk::Align::Center)
+                .margin_top(4)
+                .build();
+            let preview = gtk::Button::with_label("Preview");
+            preview.set_action_name(Some("win.miller-preview-hook"));
+            preview.set_tooltip_text(Some("Prepare the selected file for Quick Preview"));
+            let inspector = gtk::Button::with_label("Inspector");
+            inspector.set_action_name(Some("win.miller-inspector-hook"));
+            inspector.set_tooltip_text(Some("Prepare the selection for Inspector"));
+            detail_controls.append(&preview);
+            detail_controls.append(&inspector);
+            shell.append(&detail_controls);
+        }
         shell.append(&status);
         shell
     }
