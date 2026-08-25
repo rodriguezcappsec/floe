@@ -63,7 +63,7 @@ phases add hostile-input, failure-path, cache-leak, and claim-accuracy tests.
 | 6L | COMPLETE | Supervised freedesktop system-thumbnailer providers with bounded cache integration. |
 | 6M | COMPLETE | Confirmed multi-target permanent deletion with mount/symlink safety and truthful partial failure. |
 
-The actual completed phase is **Phase 6N**.
+The actual completed phase is **Phase 6O**.
 
 ## Phase 6 — Finish browser and filesystem foundations
 
@@ -131,8 +131,8 @@ Goal: make standards-correct local Trash a first-class Floe location.
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
 | 6N — Trash lifecycle | COMPLETE | `phase-6n-trash-lifecycle` | Local standards Trash browsing, metadata, restore, permanent delete, Empty Trash. | 4E/4F/6M; verified no-overwrite restore and no secure-erase claim. |
-| 6O — Transfer semantics | NEXT | `phase-6o-transfer-semantics` | Cross-filesystem move, metadata-aware copy, space checks, external clipboard. | 4A–6N; no silent metadata loss; verify crash/cancel, symlinks and non-UTF-8 paths. |
-| 6P — Operation control | PLANNED | `phase-6p-operation-control` | Queueing, item progress, speed/ETA, truthful pause, richer conflicts, safe undo/history. | 6N/6O; irreversible work is not undoable; verify scoped batch policy and recovery. |
+| 6O — Transfer semantics | COMPLETE | `phase-6o-transfer-semantics` | Cross-filesystem move, metadata-aware copy, space checks, external clipboard. | Verified staged no-overwrite EXDEV fallback, exact source revalidation, POSIX mode/timestamps, bounded local URI clipboard; no ownership/ACL/xattr/sparse/reflink or crash-journal claim. |
+| 6P — Operation control | NEXT | `phase-6p-operation-control` | Queueing, item progress, speed/ETA, truthful pause, richer conflicts, safe undo/history. | 6N/6O; irreversible work is not undoable; verify scoped batch policy and recovery. |
 | 6Q — Create/duplicate/links | PLANNED | `phase-6q-create-duplicate-links` | New folder/file, templates, duplicate, links, reveal target, copy path/name/URI. | 6P; no shell or privileged creation; verify collisions, broken links and raw names. |
 | 6R — Drag and drop | PLANNED | `phase-6r-drag-drop` | Internal/external drag, sidebar/Trash, modifiers, hover-open, autoscroll, highlighting. | 6O–6Q; no implicit overwrite; verify exact destinations and keyboard alternatives. |
 | 6S — File watching | PLANNED | `phase-6s-file-watching` | Coalesced external-change reconciliation, refresh, selection/scroll restoration. | 6P; no integrity-monitoring claim; verify storms, deletion, rename and 100k folders. |

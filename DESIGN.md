@@ -168,21 +168,27 @@ surface in an `AdwToastOverlay` while technical context is sent to tracing.
 
 ### Transfer, rename, and Operations Island
 
-Phase 4D uses one application-owned internal transfer buffer. Ctrl+C stages a
-copy, Ctrl+X replaces it with a move intent, and Ctrl+V submits an exact
-destination beneath the current directory. F2 and the visible file-actions
-menu open a focused rename dialog with inline validation. The editable name is
-kept separate from the selected entry's original `PathBuf`; GTK callbacks do
-not execute filesystem work. The buffer remains internal to Floe rather than
-interoperable with other file managers.
+Phase 4D uses one application-owned exact-path transfer buffer. Phase 6O keeps
+that buffer authoritative while Ctrl+C/Ctrl+X also publish bounded local-file
+URI data in freedesktop, GNOME, and KDE-compatible copy/cut formats. Ctrl+V
+asynchronously accepts only supported local file URIs, rejects malformed,
+remote, oversized, or over-count payloads, stages decoded paths through
+application state, then submits exact destinations beneath the current
+directory. A failed desktop clipboard publication is stated as Floe-only
+staging rather than silently claiming interoperability. F2 and the visible
+file-actions menu open a focused rename dialog with inline validation. The
+editable name stays separate from the selected entry's original `PathBuf`;
+GTK callbacks do not execute filesystem work.
 
 Active work appears in a compact, bottom-end Operations Island. It uses visible
 filename and state text, a stable progress bar that pulses before a total is
 known, and a symbolic cancel button with an accessible label and tooltip.
 Completion and cancellation remain visible briefly; conflicts and failures use
 non-modal toasts with a concrete recovery action. The directory refreshes after
-a successful copy, move, or rename affecting the visible location. Move and
-rename remain same-filesystem only; overwrite is unavailable.
+a successful copy, move, or rename affecting the visible location.
+Cross-device move progress uses the same island; a destination-committed,
+source-retained outcome is explicitly partial and non-retryable. Overwrite
+remains unavailable.
 
 Phase 6K2 corrects the island's previous crowded single-row geometry. The
 340-pixel surface uses 12-pixel insets, a title/cancel row, a separate detail

@@ -11,7 +11,7 @@ Floe is a Cargo workspace with two crates:
 floe-app (GTK4, libadwaita, GIO, GLib, tracing)
    |
    v
-floe-core (standard library, thiserror)
+floe-core (standard library, rustix, thiserror)
 ```
 
 `crates/core` never depends on GTK, GIO, GLib, a compositor, or a desktop
@@ -29,7 +29,7 @@ BrowserController      OperationController
  |                       v
  |              shared ApplicationState
  |               |       |          |
- |               |       |          +--> TransferBuffer / tracked operations
+ |               |       |          +--> TransferBuffer / clipboard formats / tracked operations
  |               |       +--> ApplicationJobManager / structured events
  |               +--> CopyExecutor / MoveExecutor / TrashExecutor
  |                    (bounded workers)
@@ -104,15 +104,20 @@ attempt receives a new job ID. Terminal states reject further commands.
 `MoveRequest` retains exact source and destination `PathBuf` values.
 `RenameRequest` retains the original source plus one raw `OsString` filename
 component, so rename never reconstructs a path from UI text. On Linux,
-`execute_move` and `execute_rename` use
+`execute_move` and `execute_rename` first use
 `renameat2(RENAME_NOREPLACE)` through `rustix`; the destination cannot be
 silently replaced even under a race. Files, directories, and symlinks move
 atomically on one filesystem, and symlinks are not followed.
 
-Cancellation is checked before inspection and again immediately before the
-irreversible rename syscall. Cross-filesystem moves return a structured
-unsupported error; a copy-delete fallback is intentionally deferred until
-partial-failure recovery is designed.
+Phase 6O handles `EXDEV` on the same bounded worker. It snapshots exact source
+device/inode/type/mode/size/mtime identity, copies to a collision-safe hidden
+sibling staging path, preserves supported basic metadata, revalidates the
+complete source tree, atomically publishes with `RENAME_NOREPLACE`, synchronizes
+the destination parent, then removes only matching source nodes without
+following links. Cancellation before publication cleans staging and retains the
+source. Cancellation or cleanup failure after publication is an explicit
+non-retryable partial result with the complete destination and retained source
+identified; it is not described as crash-recoverable journaling.
 
 ### `error.rs`
 
@@ -243,8 +248,15 @@ terminal outcomes retain a retryable `JobId`, the button submits through
 `ApplicationState::retry_operation`, and fresh structured events replace the
 terminal presentation. GTK still observes and submits commands only.
 
-The transfer buffer is Floe-internal only. Cross-application clipboard formats,
-operation persistence, history UI, and overwrite policy are not implemented.
+The exact-path `TransferBuffer` remains authoritative for in-process work.
+Phase 6O adds `clipboard.rs` as an application/desktop boundary: copy/cut
+publishes bounded `text/uri-list`, `x-special/gnome-copied-files`, and
+`application/x-kde-cutselection` providers. Paste reads supported MIME streams
+asynchronously with a 4 MiB/4096-item ceiling, accepts only local filename URIs,
+deduplicates exact decoded `PathBuf` values, then stages through
+`ApplicationState`. GTK callbacks perform no filesystem work. Clipboard
+managers and ownership lifetimes remain external desktop behavior; operation
+persistence, history UI, and overwrite policy are not implemented.
 
 ### `ui.rs`
 
@@ -374,12 +386,13 @@ Pending conflicts stay ordered and only one conflict dialog can be active.
 ### `move_executor.rs`
 
 `MoveExecutor` owns one named worker and a fixed-capacity queue for core
-`MoveRequest` and `RenameRequest` values. It starts, completes, cancels, or
-fails jobs through the shared `ApplicationJobManager`, maps core conflicts and
-unsupported cross-filesystem results into structured failure kinds, and
-cancels queued work during shutdown. `ApplicationState` owns the executor so
-its lifetime matches the application. GTK reaches it only through application
-commands and tracked requests.
+`MoveRequest` and `RenameRequest` values. It starts, progresses, completes,
+cancels, or fails jobs through the shared `ApplicationJobManager`. Phase 6O
+maps cross-filesystem copy bytes/entries into existing validated progress and
+maps destination-committed/source-retained outcomes to `JobFailureKind::Partial`,
+which existing application policy refuses to retry blindly. `ApplicationState`
+owns the executor so its lifetime matches the application. GTK reaches it only
+through application commands and tracked requests.
 Move and rename retry methods allocate attempts through
 `ApplicationJobManager::retry` before reusing the same queue path.
 
@@ -581,10 +594,14 @@ removed in reverse order after failure without recursively deleting unknown
 content.
 
 The engine preserves regular-file bytes, directory structure, Unix permission
-bits, and link targets. It does not yet preserve timestamps, ownership, ACLs,
-extended attributes, sparse extents, or reflink state. There is no persistence,
-history UI, cross-application clipboard format, overwrite path, or interactive
-conflict resolver. The current direction is:
+bits, file/directory access and modification timestamps, and link targets. It
+synchronizes regular-file content and resulting metadata. Symlink metadata,
+ownership, ACLs, extended attributes, security labels, sparse extents, and
+reflink state are not claimed as preserved. Planned regular-file bytes are
+checked against destination `statvfs` user-available bytes before output
+creation; this is a point-in-time preflight, not a reservation. There is no
+persistent operation journal, history UI, or overwrite path. The current
+direction is:
 
 ```text
 GTK observers/actions (implemented for copy, move, and rename)
@@ -605,9 +622,10 @@ bounded copy, move/rename, GIO trash, restore, and permanent-delete executors (i
 Phase 4D exposes the Phase 4C move/rename models through application-owned
 commands, a file-actions menu, keyboard shortcuts, validated rename dialog,
 and the generic Operations Island.
-These operations currently support only atomic same-filesystem renames with
-fail-if-exists behavior. Cross-filesystem move, overwrite, operation
-persistence, and interactive conflict resolution remain unimplemented.
+These operations use atomic same-filesystem no-replace rename and Phase 6O's
+staged cross-filesystem fallback. Overwrite and operation persistence remain
+unimplemented; interactive one-conflict Keep Existing/Retry With New Name is
+implemented while richer scoped policies remain Phase 6P.
 
 Phase 4E implements the separate XDG/GIO trash job boundary. Phase 4F exposes
 it through one selection-sensitive “Move to Trash” action and Delete shortcut.
@@ -641,8 +659,9 @@ regular output under 32 MiB, decode it as bounded passive PNG, revalidate the
 source, and reuse the existing cache/pixel result boundary. GTK observes only
 owned pixels or failure and retains generic icons. These helpers are supervised
 but not sandboxed; Phase 18L owns isolation. Phase 6N adds standards-correct
-local Trash browsing and restore; Phase 6O transfer semantics is the sole next
-phase.
+local Trash browsing and restore. Phase 6O adds space-aware, metadata-aware
+copy, staged cross-filesystem move, and bounded desktop clipboard
+interoperability. Phase 6P operation control is the sole recommended next phase.
 
 ## Known architectural debt
 

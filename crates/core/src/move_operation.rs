@@ -1,11 +1,11 @@
 use std::{
     ffi::{OsStr, OsString},
     fs, io,
-    os::unix::ffi::OsStrExt,
+    os::unix::{ffi::OsStrExt, fs::MetadataExt},
     path::{Component, Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
 };
 
@@ -15,7 +15,13 @@ use rustix::{
 };
 use thiserror::Error;
 
-use crate::ConflictPolicy;
+use crate::{
+    ConflictPolicy, CopyCancellation, CopyError, CopyProgress, CopyRequest, SymlinkPolicy,
+    execute_copy,
+};
+
+const MAX_STAGING_ATTEMPTS: u64 = 128;
+static STAGING_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 /// An exact-source, exact-destination move request.
 ///
@@ -88,7 +94,7 @@ impl RenameRequest {
     }
 }
 
-/// Cooperative cancellation checked before the atomic rename syscall.
+/// Cooperative cancellation checked throughout same- and cross-filesystem moves.
 #[derive(Clone, Debug, Default)]
 pub struct MoveCancellation(Arc<AtomicBool>);
 
@@ -129,8 +135,20 @@ pub enum MoveError {
     DestinationInsideSource(PathBuf),
     #[error("destination already exists: {}", .0.display())]
     DestinationExists(PathBuf),
-    #[error("cross-filesystem move is not supported safely yet")]
-    CrossFilesystem,
+    #[error(transparent)]
+    Copy(#[from] CopyError),
+    #[error("source changed while cross-filesystem move was copying: {}", .0.display())]
+    SourceChanged(PathBuf),
+    #[error(
+        "destination was committed but source was retained after {reason}: source {}, destination {}",
+        source_path.display(),
+        destination_path.display()
+    )]
+    Partial {
+        source_path: PathBuf,
+        destination_path: PathBuf,
+        reason: String,
+    },
     #[error("could not {action} {}: {source}", path.display())]
     Io {
         action: &'static str,
@@ -142,45 +160,74 @@ pub enum MoveError {
 
 impl MoveError {
     pub const fn is_conflict(&self) -> bool {
-        matches!(self, Self::SamePath(_) | Self::DestinationExists(_))
+        match self {
+            Self::SamePath(_) | Self::DestinationExists(_) => true,
+            Self::Copy(error) => error.is_conflict(),
+            _ => false,
+        }
     }
 
     pub const fn is_unsupported(&self) -> bool {
-        matches!(self, Self::CrossFilesystem)
+        matches!(self, Self::Copy(error) if error.is_unsupported())
+    }
+
+    pub const fn is_partial(&self) -> bool {
+        matches!(self, Self::Partial { .. })
     }
 
     pub fn io_kind(&self) -> Option<io::ErrorKind> {
         match self {
             Self::Io { source, .. } => Some(source.kind()),
+            Self::Copy(error) => error.io_kind(),
             _ => None,
         }
     }
 }
 
-/// Execute a same-filesystem move synchronously outside GTK's main loop.
+/// Execute a move synchronously outside GTK's main loop.
 ///
 /// Linux `renameat2(RENAME_NOREPLACE)` supplies the atomic conflict guarantee:
-/// an existing destination is never replaced, including under races.
+/// an existing destination is never replaced, including under races. `EXDEV`
+/// falls back to a synchronized hidden staging copy, atomic publication, and
+/// identity-checked no-follow source removal.
 pub fn execute_move(
     request: &MoveRequest,
     cancellation: &MoveCancellation,
 ) -> Result<MoveOutcome, MoveError> {
+    execute_move_with_progress(request, cancellation, |_| {})
+}
+
+/// Execute a move while reporting copy progress when an `EXDEV` fallback is
+/// required. Same-filesystem renames complete without intermediate progress.
+pub fn execute_move_with_progress<F>(
+    request: &MoveRequest,
+    cancellation: &MoveCancellation,
+    mut report_progress: F,
+) -> Result<MoveOutcome, MoveError>
+where
+    F: FnMut(CopyProgress),
+{
     check_cancelled(cancellation)?;
     validate_move(request)?;
     check_cancelled(cancellation)?;
 
-    match request.conflict_policy() {
+    let rename_result = match request.conflict_policy() {
         ConflictPolicy::FailIfExists => renameat_with(
             CWD,
             request.source(),
             CWD,
             request.destination(),
             RenameFlags::NOREPLACE,
-        )
-        .map_err(|error| map_rename_error(request, error))?,
-    }
+        ),
+    };
 
-    Ok(MoveOutcome)
+    match rename_result {
+        Ok(()) => Ok(MoveOutcome),
+        Err(Errno::XDEV) => {
+            execute_cross_filesystem_move(request, cancellation, &mut report_progress)
+        }
+        Err(error) => Err(map_rename_error(request, error)),
+    }
 }
 
 /// Execute a same-directory rename using the same atomic move primitive.
@@ -197,6 +244,320 @@ pub fn execute_rename(
         ),
         cancellation,
     )
+}
+
+#[derive(Debug)]
+struct TreeSnapshot {
+    path: PathBuf,
+    device: u64,
+    inode: u64,
+    mode: u32,
+    length: u64,
+    modified_seconds: i64,
+    modified_nanoseconds: i64,
+    kind: SnapshotKind,
+    children: Vec<TreeSnapshot>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SnapshotKind {
+    File,
+    Directory,
+    Symlink,
+}
+
+fn execute_cross_filesystem_move<F>(
+    request: &MoveRequest,
+    cancellation: &MoveCancellation,
+    report_progress: &mut F,
+) -> Result<MoveOutcome, MoveError>
+where
+    F: FnMut(CopyProgress),
+{
+    check_cancelled(cancellation)?;
+    let source_snapshot = snapshot_tree(request.source())?;
+    let staging = available_staging_path(request.destination())?;
+    let copy_request = CopyRequest::new(
+        request.source(),
+        &staging,
+        ConflictPolicy::FailIfExists,
+        SymlinkPolicy::Preserve,
+    );
+    let copy_cancellation = CopyCancellation::from_shared(Arc::clone(&cancellation.0));
+
+    if let Err(error) = execute_copy(&copy_request, &copy_cancellation, report_progress) {
+        return Err(error.into());
+    }
+
+    if cancellation.is_cancelled() {
+        cleanup_staging(&staging)?;
+        return Err(MoveError::Cancelled);
+    }
+    if !snapshot_matches(&source_snapshot)? {
+        cleanup_staging(&staging)?;
+        return Err(MoveError::SourceChanged(request.source().to_path_buf()));
+    }
+
+    match renameat_with(
+        CWD,
+        &staging,
+        CWD,
+        request.destination(),
+        RenameFlags::NOREPLACE,
+    ) {
+        Ok(()) => {}
+        Err(error) => {
+            cleanup_staging(&staging)?;
+            return Err(map_rename_error(request, error));
+        }
+    }
+
+    if let Err(error) = synchronize_destination_parent(request.destination()) {
+        return Err(committed_partial(request, error.to_string()));
+    }
+
+    if cancellation.is_cancelled() {
+        return Err(committed_partial(request, "cancellation"));
+    }
+    if let Err(reason) = remove_snapshot_tree(&source_snapshot, cancellation) {
+        return Err(committed_partial(request, reason));
+    }
+
+    Ok(MoveOutcome)
+}
+
+fn synchronize_destination_parent(destination: &Path) -> Result<(), MoveError> {
+    let parent = effective_parent(destination)
+        .ok_or_else(|| MoveError::InvalidDestination(destination.to_path_buf()))?;
+    fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|source| MoveError::Io {
+            action: "synchronize destination directory after move",
+            path: parent.to_path_buf(),
+            source,
+        })
+}
+
+fn available_staging_path(destination: &Path) -> Result<PathBuf, MoveError> {
+    let parent = effective_parent(destination)
+        .ok_or_else(|| MoveError::InvalidDestination(destination.to_path_buf()))?;
+    for _ in 0..MAX_STAGING_ATTEMPTS {
+        let sequence = STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let candidate = parent.join(format!(
+            ".floe-transfer-{}-{sequence}.partial",
+            std::process::id()
+        ));
+        match fs::symlink_metadata(&candidate) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(candidate),
+            Ok(_) => {}
+            Err(source) => {
+                return Err(MoveError::Io {
+                    action: "inspect transfer staging path",
+                    path: candidate,
+                    source,
+                });
+            }
+        }
+    }
+    Err(MoveError::Io {
+        action: "allocate transfer staging path",
+        path: parent.to_path_buf(),
+        source: io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "all bounded staging names were occupied",
+        ),
+    })
+}
+
+fn snapshot_tree(path: &Path) -> Result<TreeSnapshot, MoveError> {
+    let metadata = fs::symlink_metadata(path).map_err(|source| MoveError::Io {
+        action: "snapshot move source",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let file_type = metadata.file_type();
+    let kind = if file_type.is_file() {
+        SnapshotKind::File
+    } else if file_type.is_dir() {
+        SnapshotKind::Directory
+    } else if file_type.is_symlink() {
+        SnapshotKind::Symlink
+    } else {
+        return Err(CopyError::UnsupportedFileType(path.to_path_buf()).into());
+    };
+    let mut children = Vec::new();
+    if kind == SnapshotKind::Directory {
+        let entries = fs::read_dir(path).map_err(|source| MoveError::Io {
+            action: "read move source directory",
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let mut paths = entries
+            .map(|entry| {
+                entry
+                    .map(|entry| entry.path())
+                    .map_err(|source| MoveError::Io {
+                        action: "read move source directory entry",
+                        path: path.to_path_buf(),
+                        source,
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        paths.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+        for child in paths {
+            children.push(snapshot_tree(&child)?);
+        }
+    }
+    Ok(TreeSnapshot {
+        path: path.to_path_buf(),
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        mode: metadata.mode(),
+        length: metadata.len(),
+        modified_seconds: metadata.mtime(),
+        modified_nanoseconds: metadata.mtime_nsec(),
+        kind,
+        children,
+    })
+}
+
+fn snapshot_matches(snapshot: &TreeSnapshot) -> Result<bool, MoveError> {
+    let metadata = match fs::symlink_metadata(&snapshot.path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(source) => {
+            return Err(MoveError::Io {
+                action: "revalidate move source",
+                path: snapshot.path.clone(),
+                source,
+            });
+        }
+    };
+    if metadata.dev() != snapshot.device
+        || metadata.ino() != snapshot.inode
+        || metadata.mode() != snapshot.mode
+        || metadata.len() != snapshot.length
+        || metadata.mtime() != snapshot.modified_seconds
+        || metadata.mtime_nsec() != snapshot.modified_nanoseconds
+    {
+        return Ok(false);
+    }
+    if snapshot.kind != SnapshotKind::Directory {
+        return Ok(true);
+    }
+
+    let entries = fs::read_dir(&snapshot.path).map_err(|source| MoveError::Io {
+        action: "revalidate move source directory",
+        path: snapshot.path.clone(),
+        source,
+    })?;
+    let mut names = entries
+        .map(|entry| {
+            entry
+                .map(|entry| entry.file_name())
+                .map_err(|source| MoveError::Io {
+                    action: "revalidate move source directory entry",
+                    path: snapshot.path.clone(),
+                    source,
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    names.sort();
+    let expected = snapshot
+        .children
+        .iter()
+        .filter_map(|child| child.path.file_name().map(OsStr::to_os_string))
+        .collect::<Vec<_>>();
+    if names != expected {
+        return Ok(false);
+    }
+    for child in &snapshot.children {
+        if !snapshot_matches(child)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn remove_snapshot_tree(
+    snapshot: &TreeSnapshot,
+    cancellation: &MoveCancellation,
+) -> Result<(), String> {
+    if cancellation.is_cancelled() {
+        return Err("cancellation during source cleanup".to_owned());
+    }
+    if !snapshot_matches(snapshot).map_err(|error| error.to_string())? {
+        return Err(format!(
+            "source identity changed before cleanup: {}",
+            snapshot.path.display()
+        ));
+    }
+    for child in &snapshot.children {
+        remove_snapshot_tree(child, cancellation)?;
+    }
+    if !snapshot_matches_shallow(snapshot).map_err(|error| error.to_string())? {
+        return Err(format!(
+            "source identity changed during cleanup: {}",
+            snapshot.path.display()
+        ));
+    }
+    let result = match snapshot.kind {
+        SnapshotKind::Directory => fs::remove_dir(&snapshot.path),
+        SnapshotKind::File | SnapshotKind::Symlink => fs::remove_file(&snapshot.path),
+    };
+    result.map_err(|error| {
+        format!(
+            "source cleanup failed at {}: {error}",
+            snapshot.path.display()
+        )
+    })
+}
+
+fn snapshot_matches_shallow(snapshot: &TreeSnapshot) -> Result<bool, MoveError> {
+    let metadata = match fs::symlink_metadata(&snapshot.path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(source) => {
+            return Err(MoveError::Io {
+                action: "revalidate move source during cleanup",
+                path: snapshot.path.clone(),
+                source,
+            });
+        }
+    };
+    let identity_matches = metadata.dev() == snapshot.device
+        && metadata.ino() == snapshot.inode
+        && metadata.mode() == snapshot.mode;
+    if snapshot.kind == SnapshotKind::Directory {
+        Ok(identity_matches)
+    } else {
+        Ok(identity_matches
+            && metadata.len() == snapshot.length
+            && metadata.mtime() == snapshot.modified_seconds
+            && metadata.mtime_nsec() == snapshot.modified_nanoseconds)
+    }
+}
+
+fn cleanup_staging(staging: &Path) -> Result<(), MoveError> {
+    let cleanup = match fs::symlink_metadata(staging) {
+        Ok(metadata) if metadata.file_type().is_dir() => fs::remove_dir_all(staging),
+        Ok(_) => fs::remove_file(staging),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => Err(error),
+    };
+    cleanup.map_err(|source| MoveError::Io {
+        action: "clean cross-filesystem staging path",
+        path: staging.to_path_buf(),
+        source,
+    })
+}
+
+fn committed_partial(request: &MoveRequest, reason: impl Into<String>) -> MoveError {
+    MoveError::Partial {
+        source_path: request.source().to_path_buf(),
+        destination_path: request.destination().to_path_buf(),
+        reason: reason.into(),
+    }
 }
 
 fn validate_move(request: &MoveRequest) -> Result<(), MoveError> {
@@ -297,8 +658,6 @@ fn map_rename_error(request: &MoveRequest, error: Errno) -> MoveError {
                     .to_path_buf(),
             ),
         }
-    } else if error == Errno::XDEV {
-        MoveError::CrossFilesystem
     } else {
         MoveError::Io {
             action: "move item",
@@ -344,10 +703,11 @@ mod tests {
         os::unix::{
             ffi::{OsStrExt, OsStringExt},
             fs as unix_fs,
+            fs::{MetadataExt, PermissionsExt},
         },
     };
 
-    use tempfile::tempdir;
+    use tempfile::{Builder, tempdir};
 
     use super::*;
 
@@ -530,5 +890,156 @@ mod tests {
             .expect("renamed item should exist")
             .expect("renamed entry should be readable");
         assert_eq!(renamed.file_name().as_bytes(), new_name.as_bytes());
+    }
+
+    #[test]
+    fn phase_6o_cross_filesystem_preserves_tree_symlink_and_non_utf8_identity() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("destination");
+        fs::create_dir(&source).expect("source directory should be creatable");
+        let raw_name = OsString::from_vec(b"item-\xff".to_vec());
+        fs::write(source.join(&raw_name), b"payload").expect("non-UTF-8 source should be writable");
+        unix_fs::symlink(&raw_name, source.join("link"))
+            .expect("relative source symlink should be creatable");
+
+        execute_cross_filesystem_move(
+            &move_request(&source, &destination),
+            &MoveCancellation::new(),
+            &mut |_| {},
+        )
+        .expect("injected cross-filesystem fallback should complete");
+
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read(destination.join(&raw_name)).expect("moved file should be readable"),
+            b"payload"
+        );
+        assert_eq!(
+            fs::read_link(destination.join("link")).expect("moved link should be readable"),
+            PathBuf::from(raw_name)
+        );
+    }
+
+    #[test]
+    fn phase_6o_cross_filesystem_real_exdev_uses_fallback_when_devices_differ() {
+        let source_fixture = tempdir().expect("temporary source should be available");
+        let destination_fixture = Builder::new()
+            .prefix("floe-6o-xdev-")
+            .tempdir_in(env!("CARGO_MANIFEST_DIR"))
+            .expect("workspace-device destination should be available");
+        if fs::metadata(source_fixture.path())
+            .expect("source device should be inspectable")
+            .dev()
+            == fs::metadata(destination_fixture.path())
+                .expect("destination device should be inspectable")
+                .dev()
+        {
+            return;
+        }
+
+        let source = source_fixture.path().join("source");
+        let destination = destination_fixture.path().join("destination");
+        fs::write(&source, b"real EXDEV fallback").expect("cross-device source should be writable");
+        execute_move(
+            &move_request(&source, &destination),
+            &MoveCancellation::new(),
+        )
+        .expect("real EXDEV move should use copy-delete fallback");
+
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read(destination).expect("cross-device destination should be readable"),
+            b"real EXDEV fallback"
+        );
+    }
+
+    #[test]
+    fn phase_6o_cross_filesystem_conflict_never_overwrites_and_cleans_staging() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("destination");
+        fs::write(&source, b"source").expect("source fixture should be writable");
+        fs::write(&destination, b"keep").expect("destination fixture should be writable");
+
+        let error = execute_cross_filesystem_move(
+            &move_request(&source, &destination),
+            &MoveCancellation::new(),
+            &mut |_| {},
+        )
+        .expect_err("existing destination must reject staged publication");
+
+        assert!(matches!(error, MoveError::DestinationExists(path) if path == destination));
+        assert_eq!(fs::read(&source).expect("source should remain"), b"source");
+        assert_eq!(
+            fs::read(&destination).expect("destination should remain"),
+            b"keep"
+        );
+        assert!(
+            fs::read_dir(fixture.path())
+                .expect("fixture should be readable")
+                .all(|entry| !entry
+                    .expect("fixture entry should be readable")
+                    .file_name()
+                    .as_bytes()
+                    .starts_with(b".floe-transfer-"))
+        );
+    }
+
+    #[test]
+    fn phase_6o_recovery_source_change_removes_staging_and_retains_source() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("destination");
+        let original = vec![0x31; 128 * 1024 * 2];
+        fs::write(&source, &original).expect("source fixture should be writable");
+        let mut changed = false;
+
+        let error = execute_cross_filesystem_move(
+            &move_request(&source, &destination),
+            &MoveCancellation::new(),
+            &mut |progress| {
+                if !changed && progress.bytes_copied() > 0 {
+                    changed = true;
+                    fs::write(&source, vec![0x32; original.len()])
+                        .expect("source should be changeable during injected copy");
+                }
+            },
+        )
+        .expect_err("changed source must not be removed or published");
+
+        assert!(matches!(error, MoveError::SourceChanged(path) if path == source));
+        assert!(source.exists());
+        assert!(!destination.exists());
+    }
+
+    #[test]
+    fn phase_6o_recovery_post_commit_delete_failure_is_partial() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source_parent = fixture.path().join("locked-source");
+        let destination_parent = fixture.path().join("destination-parent");
+        fs::create_dir(&source_parent).expect("source parent should be creatable");
+        fs::create_dir(&destination_parent).expect("destination parent should be creatable");
+        let source = source_parent.join("source");
+        let destination = destination_parent.join("destination");
+        fs::write(&source, b"payload").expect("source fixture should be writable");
+        fs::set_permissions(&source_parent, fs::Permissions::from_mode(0o500))
+            .expect("source parent should become non-writable");
+
+        let result = execute_cross_filesystem_move(
+            &move_request(&source, &destination),
+            &MoveCancellation::new(),
+            &mut |_| {},
+        );
+        fs::set_permissions(&source_parent, fs::Permissions::from_mode(0o700))
+            .expect("source parent permissions should be restored");
+        let error = result.expect_err("source removal should fail after destination commit");
+
+        assert!(error.is_partial());
+        assert!(source.exists());
+        assert_eq!(
+            fs::read(destination).expect("committed destination should be complete"),
+            b"payload"
+        );
     }
 }

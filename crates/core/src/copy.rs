@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File, OpenOptions, Permissions},
+    fs::{self, File, FileTimes, OpenOptions, Permissions},
     io::{self, Read, Write},
     os::unix::fs::symlink,
     path::{Path, PathBuf},
@@ -7,8 +7,10 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::SystemTime,
 };
 
+use rustix::fs::statvfs;
 use thiserror::Error;
 
 const COPY_BUFFER_SIZE: usize = 128 * 1024;
@@ -88,6 +90,10 @@ impl CopyCancellation {
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Acquire)
     }
+
+    pub(crate) fn from_shared(flag: Arc<AtomicBool>) -> Self {
+        Self(flag)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -120,6 +126,8 @@ impl CopyProgress {
 pub struct CopyOutcome {
     entries_copied: u64,
     bytes_copied: u64,
+    metadata_preserved: u64,
+    metadata_not_preserved: u64,
 }
 
 impl CopyOutcome {
@@ -129,6 +137,17 @@ impl CopyOutcome {
 
     pub const fn bytes_copied(self) -> u64 {
         self.bytes_copied
+    }
+
+    /// Entries whose supported POSIX mode and timestamps were applied.
+    pub const fn metadata_preserved(self) -> u64 {
+        self.metadata_preserved
+    }
+
+    /// Entries, currently symbolic links, for which Floe makes no metadata
+    /// preservation claim. Link targets are still preserved without following.
+    pub const fn metadata_not_preserved(self) -> u64 {
+        self.metadata_not_preserved
     }
 }
 
@@ -146,6 +165,10 @@ pub enum CopyError {
     DestinationInsideSource(PathBuf),
     #[error("destination already exists: {}", .0.display())]
     DestinationExists(PathBuf),
+    #[error(
+        "destination filesystem has insufficient available space: required {required} bytes, available {available} bytes"
+    )]
+    InsufficientSpace { required: u64, available: u64 },
     #[error("symbolic links are rejected by this request: {}", .0.display())]
     SymlinkRejected(PathBuf),
     #[error("unsupported filesystem object: {}", .0.display())]
@@ -202,11 +225,11 @@ struct CopyPlan {
 #[derive(Debug)]
 enum PlannedKind {
     File {
-        permissions: Permissions,
+        metadata: BasicMetadata,
         length: u64,
     },
     Directory {
-        permissions: Permissions,
+        metadata: BasicMetadata,
         children: Vec<CopyPlan>,
     },
     Symlink {
@@ -219,6 +242,25 @@ struct CopyState {
     entries_copied: u64,
     bytes_copied: u64,
     created_paths: Vec<(PathBuf, CreatedKind)>,
+    metadata_preserved: u64,
+    metadata_not_preserved: u64,
+}
+
+#[derive(Debug)]
+struct BasicMetadata {
+    permissions: Permissions,
+    accessed: Option<SystemTime>,
+    modified: Option<SystemTime>,
+}
+
+impl BasicMetadata {
+    fn from_metadata(metadata: &fs::Metadata) -> Self {
+        Self {
+            permissions: metadata.permissions(),
+            accessed: metadata.accessed().ok(),
+            modified: metadata.modified().ok(),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -249,6 +291,7 @@ where
         cancellation,
     )?;
     check_destination_absent(&destination, request.conflict_policy())?;
+    check_destination_space(&destination, plan.total_bytes)?;
 
     let mut state = CopyState::default();
     let result = execute_plan(
@@ -274,6 +317,8 @@ where
     Ok(CopyOutcome {
         entries_copied: state.entries_copied,
         bytes_copied: state.bytes_copied,
+        metadata_preserved: state.metadata_preserved,
+        metadata_not_preserved: state.metadata_not_preserved,
     })
 }
 
@@ -323,7 +368,7 @@ fn build_plan(
         let length = metadata.len();
         (
             PlannedKind::File {
-                permissions: metadata.permissions(),
+                metadata: BasicMetadata::from_metadata(&metadata),
                 length,
             },
             1,
@@ -350,7 +395,7 @@ fn build_plan(
         }
         (
             PlannedKind::Directory {
-                permissions: metadata.permissions(),
+                metadata: BasicMetadata::from_metadata(&metadata),
                 children,
             },
             total_entries,
@@ -392,15 +437,12 @@ where
 {
     check_cancelled(cancellation)?;
     match &plan.kind {
-        PlannedKind::File {
-            permissions,
-            length,
-        } => {
+        PlannedKind::File { metadata, length } => {
             copy_file(
                 &plan.source,
                 &plan.destination,
                 *length,
-                permissions,
+                metadata,
                 cancellation,
                 state,
                 report_progress,
@@ -408,10 +450,7 @@ where
                 total_bytes,
             )?;
         }
-        PlannedKind::Directory {
-            permissions,
-            children,
-        } => {
+        PlannedKind::Directory { metadata, children } => {
             create_directory(&plan.destination, state)?;
             for child in children {
                 execute_plan(
@@ -424,13 +463,8 @@ where
                 )?;
             }
             check_cancelled(cancellation)?;
-            fs::set_permissions(&plan.destination, permissions.clone()).map_err(|source| {
-                CopyError::Io {
-                    action: "set directory permissions on",
-                    path: plan.destination.clone(),
-                    source,
-                }
-            })?;
+            apply_basic_metadata(&plan.destination, metadata, true)?;
+            state.metadata_preserved = state.metadata_preserved.saturating_add(1);
         }
         PlannedKind::Symlink { target } => {
             symlink(target, &plan.destination).map_err(|source| {
@@ -439,6 +473,7 @@ where
             state
                 .created_paths
                 .push((plan.destination.clone(), CreatedKind::FileLike));
+            state.metadata_not_preserved = state.metadata_not_preserved.saturating_add(1);
         }
     }
 
@@ -457,7 +492,7 @@ fn copy_file<F>(
     source_path: &Path,
     destination_path: &Path,
     expected_length: u64,
-    permissions: &Permissions,
+    metadata: &BasicMetadata,
     cancellation: &CopyCancellation,
     state: &mut CopyState,
     report_progress: &mut F,
@@ -524,14 +559,107 @@ where
         });
     }
 
-    destination
-        .set_permissions(permissions.clone())
-        .map_err(|source| CopyError::Io {
-            action: "set destination file permissions on",
+    destination.sync_all().map_err(|source| CopyError::Io {
+        action: "synchronize destination file",
+        path: destination_path.to_path_buf(),
+        source,
+    })?;
+    apply_basic_metadata_to_file(&destination, destination_path, metadata)?;
+    destination.sync_all().map_err(|source| CopyError::Io {
+        action: "synchronize destination file metadata",
+        path: destination_path.to_path_buf(),
+        source,
+    })?;
+    state.metadata_preserved = state.metadata_preserved.saturating_add(1);
+    Ok(())
+}
+
+fn apply_basic_metadata(
+    destination_path: &Path,
+    metadata: &BasicMetadata,
+    synchronize: bool,
+) -> Result<(), CopyError> {
+    let destination = File::open(destination_path).map_err(|source| CopyError::Io {
+        action: "open destination for metadata",
+        path: destination_path.to_path_buf(),
+        source,
+    })?;
+    apply_basic_metadata_to_file(&destination, destination_path, metadata)?;
+    if synchronize {
+        destination.sync_all().map_err(|source| CopyError::Io {
+            action: "synchronize destination directory metadata",
             path: destination_path.to_path_buf(),
             source,
         })?;
+    }
     Ok(())
+}
+
+fn apply_basic_metadata_to_file(
+    destination: &File,
+    destination_path: &Path,
+    metadata: &BasicMetadata,
+) -> Result<(), CopyError> {
+    destination
+        .set_permissions(metadata.permissions.clone())
+        .map_err(|source| CopyError::Io {
+            action: "set destination permissions on",
+            path: destination_path.to_path_buf(),
+            source,
+        })?;
+
+    let mut times = FileTimes::new();
+    if let Some(accessed) = metadata.accessed {
+        times = times.set_accessed(accessed);
+    }
+    if let Some(modified) = metadata.modified {
+        times = times.set_modified(modified);
+    }
+    destination
+        .set_times(times)
+        .map_err(|source| CopyError::Io {
+            action: "set destination timestamps on",
+            path: destination_path.to_path_buf(),
+            source,
+        })
+}
+
+fn check_destination_space(destination: &Path, required: u64) -> Result<(), CopyError> {
+    check_destination_space_with(destination, required, |parent| {
+        let status = statvfs(parent).map_err(io::Error::from)?;
+        Ok(status.f_bavail.saturating_mul(status.f_frsize))
+    })
+}
+
+fn check_destination_space_with<F>(
+    destination: &Path,
+    required: u64,
+    query_available: F,
+) -> Result<(), CopyError>
+where
+    F: FnOnce(&Path) -> io::Result<u64>,
+{
+    if required == 0 {
+        return Ok(());
+    }
+    let parent = destination.parent().unwrap_or_else(|| Path::new("."));
+    let available = query_available(parent).map_err(|source| CopyError::Io {
+        action: "check destination filesystem space for",
+        path: parent.to_path_buf(),
+        source,
+    })?;
+    ensure_available_space(required, available)
+}
+
+fn ensure_available_space(required: u64, available: u64) -> Result<(), CopyError> {
+    if required > available {
+        Err(CopyError::InsufficientSpace {
+            required,
+            available,
+        })
+    } else {
+        Ok(())
+    }
 }
 
 fn create_directory(path: &Path, state: &mut CopyState) -> Result<(), CopyError> {
@@ -849,5 +977,131 @@ mod tests {
             .expect("copied entry should be readable")
             .file_name();
         assert_eq!(copied_name.as_bytes(), raw_name.as_bytes());
+    }
+
+    #[test]
+    fn phase_6o_space_preflight_reports_required_and_available_bytes() {
+        assert!(ensure_available_space(4096, 4096).is_ok());
+        let error = ensure_available_space(4097, 4096)
+            .expect_err("insufficient destination space must reject copy");
+        assert!(matches!(
+            error,
+            CopyError::InsufficientSpace {
+                required: 4097,
+                available: 4096
+            }
+        ));
+        assert!(ensure_available_space(0, 0).is_ok());
+
+        let fixture = tempdir().expect("temporary directory should be available");
+        let destination = fixture.path().join("destination");
+        let error = check_destination_space_with(&destination, 4097, |_| Ok(4096))
+            .expect_err("injected insufficient space must reject preflight");
+        assert!(matches!(
+            error,
+            CopyError::InsufficientSpace {
+                required: 4097,
+                available: 4096
+            }
+        ));
+        assert!(!destination.exists());
+
+        let error = check_destination_space_with(&destination, 1, |_| {
+            Err(io::Error::other("injected space query failure"))
+        })
+        .expect_err("space query failure must remain structured");
+        assert!(matches!(
+            error,
+            CopyError::Io {
+                action: "check destination filesystem space for",
+                path,
+                source,
+            } if path == fixture.path() && source.kind() == io::ErrorKind::Other
+        ));
+
+        let mut queried = false;
+        check_destination_space_with(&destination, 0, |_| {
+            queried = true;
+            Ok(0)
+        })
+        .expect("zero-byte copy should not require a filesystem query");
+        assert!(!queried);
+    }
+
+    #[test]
+    fn phase_6o_metadata_preserves_file_and_directory_mode_and_timestamps() {
+        use std::{
+            os::unix::fs::{MetadataExt, PermissionsExt},
+            time::{Duration, UNIX_EPOCH},
+        };
+
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("destination");
+        fs::create_dir(&source).expect("source directory should be creatable");
+        let child = source.join("child");
+        fs::write(&child, b"metadata").expect("source child should be writable");
+
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o750))
+            .expect("directory mode should be settable");
+        fs::set_permissions(&child, fs::Permissions::from_mode(0o640))
+            .expect("file mode should be settable");
+        let timestamp = UNIX_EPOCH + Duration::from_secs(1_700_000_123);
+        File::open(&source)
+            .expect("source directory should open")
+            .set_times(
+                FileTimes::new()
+                    .set_accessed(timestamp)
+                    .set_modified(timestamp),
+            )
+            .expect("directory timestamps should be settable");
+        File::open(&child)
+            .expect("source file should open")
+            .set_times(
+                FileTimes::new()
+                    .set_accessed(timestamp)
+                    .set_modified(timestamp),
+            )
+            .expect("file timestamps should be settable");
+
+        let outcome = execute_copy(
+            &request(&source, &destination),
+            &CopyCancellation::new(),
+            |_| {},
+        )
+        .expect("metadata-aware copy should succeed");
+        let copied_directory = fs::symlink_metadata(&destination)
+            .expect("copied directory metadata should be readable");
+        let copied_file = fs::symlink_metadata(destination.join("child"))
+            .expect("copied file metadata should be readable");
+
+        assert_eq!(copied_directory.mode() & 0o777, 0o750);
+        assert_eq!(copied_file.mode() & 0o777, 0o640);
+        assert_eq!(copied_directory.mtime(), 1_700_000_123);
+        assert_eq!(copied_file.mtime(), 1_700_000_123);
+        assert_eq!(outcome.metadata_preserved(), 2);
+        assert_eq!(outcome.metadata_not_preserved(), 0);
+    }
+
+    #[test]
+    fn phase_6o_metadata_reports_symlink_metadata_as_not_preserved() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source-link");
+        let destination = fixture.path().join("destination-link");
+        symlink("missing-target", &source).expect("source symlink should be creatable");
+
+        let outcome = execute_copy(
+            &request(&source, &destination),
+            &CopyCancellation::new(),
+            |_| {},
+        )
+        .expect("symlink copy should succeed without following target");
+
+        assert_eq!(outcome.metadata_preserved(), 0);
+        assert_eq!(outcome.metadata_not_preserved(), 1);
+        assert_eq!(
+            fs::read_link(destination).expect("copied symlink should remain a link"),
+            PathBuf::from("missing-target")
+        );
     }
 }

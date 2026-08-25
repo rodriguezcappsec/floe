@@ -9,8 +9,8 @@ use std::{
 };
 
 use floe_core::{
-    JobCommand, JobFailure, JobFailureKind, JobId, MoveCancellation, MoveError, MoveRequest,
-    OperationId, RenameRequest, execute_move, execute_rename,
+    CopyProgress, JobCommand, JobFailure, JobFailureKind, JobId, JobProgress, MoveCancellation,
+    MoveError, MoveRequest, OperationId, RenameRequest, execute_move_with_progress, execute_rename,
 };
 use thiserror::Error;
 
@@ -300,7 +300,13 @@ fn execute_task(
     }
 
     let result = match &task.operation {
-        MoveOperation::Move(request) => execute_move(request, &task.cancellation),
+        MoveOperation::Move(request) => {
+            execute_move_with_progress(request, &task.cancellation, |progress| {
+                if let Some(job_progress) = move_job_progress(progress) {
+                    let _ = transition(jobs, task.job_id, JobCommand::SetProgress(job_progress));
+                }
+            })
+        }
         MoveOperation::Rename(request) => execute_rename(request, &task.cancellation),
     };
     let command = match result {
@@ -310,6 +316,14 @@ fn execute_task(
     };
     let _ = transition(jobs, task.job_id, command);
     lock(cancellations).remove(&task.job_id);
+}
+
+fn move_job_progress(progress: CopyProgress) -> Option<JobProgress> {
+    if progress.total_bytes() > 0 {
+        JobProgress::new(progress.bytes_copied(), Some(progress.total_bytes())).ok()
+    } else {
+        JobProgress::new(progress.entries_copied(), Some(progress.total_entries())).ok()
+    }
 }
 
 fn transition(
@@ -334,7 +348,9 @@ fn fail_submission(jobs: &SharedJobManager, job_id: JobId, message: &'static str
 }
 
 fn move_failure(error: &MoveError) -> JobFailure {
-    let kind = if error.is_conflict() {
+    let kind = if error.is_partial() {
+        JobFailureKind::Partial
+    } else if error.is_conflict() {
         JobFailureKind::Conflict
     } else if error.is_unsupported() {
         JobFailureKind::Unsupported
@@ -356,13 +372,14 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 mod tests {
     use std::{
         fs,
+        os::unix::fs::MetadataExt,
         sync::mpsc,
         thread,
         time::{Duration, Instant},
     };
 
     use floe_core::{ConflictPolicy, JobEventKind, JobState};
-    use tempfile::tempdir;
+    use tempfile::{Builder, tempdir};
 
     use crate::job_manager::ApplicationJobManager;
 
@@ -374,6 +391,62 @@ mod tests {
 
     fn move_request(source: &std::path::Path, destination: &std::path::Path) -> MoveRequest {
         MoveRequest::new(source, destination, ConflictPolicy::FailIfExists)
+    }
+
+    #[test]
+    fn phase_6o_executor_maps_committed_move_failure_as_partial() {
+        let error = MoveError::Partial {
+            source_path: "/tmp/source".into(),
+            destination_path: "/tmp/destination".into(),
+            reason: "injected cleanup refusal".to_owned(),
+        };
+        let failure = move_failure(&error);
+        assert_eq!(failure.kind(), JobFailureKind::Partial);
+        assert!(failure.message().contains("source was retained"));
+    }
+
+    #[test]
+    fn phase_6o_executor_completes_real_exdev_with_progress() {
+        let source_fixture = tempdir().expect("temporary source should be available");
+        let destination_fixture = Builder::new()
+            .prefix("floe-app-6o-xdev-")
+            .tempdir_in(env!("CARGO_MANIFEST_DIR"))
+            .expect("workspace-device destination should be available");
+        if fs::metadata(source_fixture.path())
+            .expect("source device should be inspectable")
+            .dev()
+            == fs::metadata(destination_fixture.path())
+                .expect("destination device should be inspectable")
+                .dev()
+        {
+            return;
+        }
+        let source = source_fixture.path().join("source");
+        let destination = destination_fixture.path().join("destination");
+        fs::write(&source, vec![0x6f; 256 * 1024]).expect("cross-device source should be writable");
+        let jobs = jobs();
+        let executor = MoveExecutor::spawn(Arc::clone(&jobs)).expect("move executor should start");
+
+        let submission = executor
+            .submit_move(move_request(&source, &destination))
+            .expect("cross-device move should submit");
+        assert_eq!(
+            wait_for_terminal(&jobs, submission.job_id()),
+            JobState::Completed
+        );
+        let events = lock(&jobs).drain_events();
+
+        assert!(events.iter().any(|event| {
+            event.job_id() == submission.job_id()
+                && matches!(event.kind(), JobEventKind::Progressed(_))
+        }));
+        assert!(!source.exists());
+        assert_eq!(
+            fs::metadata(destination)
+                .expect("destination should be complete")
+                .len(),
+            256 * 1024
+        );
     }
 
     fn wait_for_terminal(jobs: &SharedJobManager, job_id: JobId) -> JobState {
