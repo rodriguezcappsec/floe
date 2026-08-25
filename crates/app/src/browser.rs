@@ -50,7 +50,9 @@ const SPLIT_SNAPSHOT_CAPACITY: usize = 512;
 #[cfg(test)]
 const MILLER_NAVIGATION_ACTIONS: [&str; 2] = ["win.miller-parent", "win.miller-child"];
 const MILLER_DETAIL_ACTIONS: [&str; 2] = ["miller-preview-hook", "miller-inspector-hook"];
+#[cfg(test)]
 const QUICK_PREVIEW_ACCELERATOR: &str = "space";
+#[cfg(test)]
 const INSPECTOR_ACCELERATOR: &str = "<Control>i";
 #[cfg(test)]
 const SPLIT_ACTION_NAMES: [&str; 10] = [
@@ -151,14 +153,23 @@ enum TabCloseVariant {
     Others,
 }
 
+#[cfg(test)]
 const REOPEN_CLOSED_ACCELERATOR: &str = "<Control><Shift>t";
+#[cfg(test)]
 const TOGGLE_SPLIT_ACCELERATOR: &str = "F3";
+#[cfg(test)]
 const SWITCH_SPLIT_ACCELERATOR: &str = "F6";
+#[cfg(test)]
 const NARROW_PRIMARY_PANE_ACCELERATOR: &str = "<Control><Alt>Left";
+#[cfg(test)]
 const WIDEN_PRIMARY_PANE_ACCELERATOR: &str = "<Control><Alt>Right";
+#[cfg(test)]
 const OPEN_OPPOSITE_ACCELERATOR: &str = "<Control><Shift>Return";
+#[cfg(test)]
 const COPY_OPPOSITE_ACCELERATOR: &str = "<Control><Alt>c";
+#[cfg(test)]
 const MOVE_OPPOSITE_ACCELERATOR: &str = "<Control><Alt>m";
+#[cfg(test)]
 const LINK_OPPOSITE_ACCELERATOR: &str = "<Control><Alt>l";
 const TAB_CLOSE_VARIANT_ACTIONS: [&str; 3] = [
     "win.close-tabs-left",
@@ -1867,52 +1878,7 @@ impl BrowserController {
             self.add_action(name, move |controller| controller.change_sort(column));
         }
 
-        application.set_accels_for_action("win.back", &["<Alt>Left"]);
-        application.set_accels_for_action("win.forward", &["<Alt>Right"]);
-        application.set_accels_for_action("win.parent", &["<Alt>Up"]);
-        application.set_accels_for_action("win.location", &["<Control>l"]);
-        application.set_accels_for_action("win.hidden", &["<Control>h"]);
-        application.set_accels_for_action("win.refresh", &["F5", "<Control>r"]);
-        application.set_accels_for_action("win.select-all", &["<Control>a"]);
-        application.set_accels_for_action("win.clear-selection", &["<Control><Shift>a"]);
-        application.set_accels_for_action("win.quick-preview", &[QUICK_PREVIEW_ACCELERATOR]);
-        application.set_accels_for_action("win.miller-inspector-hook", &[INSPECTOR_ACCELERATOR]);
-        application.set_accels_for_action("win.properties", &["<Alt>Return"]);
-        application.set_accels_for_action("win.new-tab", &["<Control>t"]);
-        application.set_accels_for_action("win.close-tab-active", &["<Control>w"]);
-        application.set_accels_for_action("win.reopen-closed-tab", &[REOPEN_CLOSED_ACCELERATOR]);
-        application.set_accels_for_action("win.toggle-split", &[TOGGLE_SPLIT_ACCELERATOR]);
-        application.set_accels_for_action("win.switch-split-side", &[SWITCH_SPLIT_ACCELERATOR]);
-        application.set_accels_for_action(
-            "win.narrow-primary-pane",
-            &[NARROW_PRIMARY_PANE_ACCELERATOR],
-        );
-        application
-            .set_accels_for_action("win.widen-primary-pane", &[WIDEN_PRIMARY_PANE_ACCELERATOR]);
-        application.set_accels_for_action("win.open-opposite-pane", &[OPEN_OPPOSITE_ACCELERATOR]);
-        application
-            .set_accels_for_action("win.copy-to-opposite-pane", &[COPY_OPPOSITE_ACCELERATOR]);
-        application
-            .set_accels_for_action("win.move-to-opposite-pane", &[MOVE_OPPOSITE_ACCELERATOR]);
-        application
-            .set_accels_for_action("win.link-to-opposite-pane", &[LINK_OPPOSITE_ACCELERATOR]);
-        application.set_accels_for_action("win.next-tab", &["<Control>Tab"]);
-        application.set_accels_for_action("win.previous-tab", &["<Control><Shift>Tab"]);
-        application.set_accels_for_action("win.move-tab-left", &["<Control><Shift>Page_Up"]);
-        application.set_accels_for_action("win.move-tab-right", &["<Control><Shift>Page_Down"]);
-        application.set_accels_for_action("win.cancel-location", &["Escape"]);
-        application.set_accels_for_action("win.copy", &["<Control>c"]);
-        application.set_accels_for_action("win.cut", &["<Control>x"]);
-        application.set_accels_for_action("win.paste", &["<Control>v"]);
-        application.set_accels_for_action("win.rename", &["F2"]);
-        application.set_accels_for_action("win.new-folder", &["<Control><Shift>n"]);
-        application.set_accels_for_action("win.duplicate", &["<Control>d"]);
-        application.set_accels_for_action("win.copy-path", &["<Control><Shift>c"]);
-        application.set_accels_for_action("win.permanent-delete", &["<Shift>Delete"]);
-        application.set_accels_for_action("win.view-list", &["<Control>1"]);
-        application.set_accels_for_action("win.view-grid", &["<Control>2"]);
-        application.set_accels_for_action("win.zoom-out", &["<Control>minus"]);
-        application.set_accels_for_action("win.zoom-in", &["<Control>plus", "<Control>equal"]);
+        crate::command_registry::install_default_window_shortcuts(application);
     }
 
     fn add_action<F>(self: &Rc<Self>, name: &str, callback: F) -> gio::SimpleAction
