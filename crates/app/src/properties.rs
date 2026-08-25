@@ -21,6 +21,7 @@ use gtk::{gio, gio::prelude::*};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawDir};
 use thiserror::Error;
 
+use crate::advanced_metadata::AdvancedMetadataState;
 use crate::inspector::{
     ImageDimensionFacts, InspectorFacts, InspectorRequest, InspectorRequestError,
     SymlinkTargetStatus, collect_inspector_facts,
@@ -567,6 +568,53 @@ pub fn present(snapshot: &PropertiesSnapshot) -> PropertiesPresentation {
                             format!("{} × {} pixels", size.width, size.height),
                         ));
                     }
+                    match &entry.advanced_metadata {
+                        AdvancedMetadataState::Present(metadata) => {
+                            if let Some(exif) = &metadata.exif {
+                                for field in exif.fields.iter() {
+                                    general.push(row(field.label, field.value.clone()));
+                                }
+                                if exif.values_truncated {
+                                    general.push(row("EXIF text", "Truncated by safety limits"));
+                                }
+                            }
+                            if let Some(media) = &metadata.media {
+                                if let Some(duration) = media.duration {
+                                    general.push(row("Duration", format_media_duration(duration)));
+                                }
+                                for (label, value) in [
+                                    ("Title", media.title.as_deref()),
+                                    ("Artist", media.artist.as_deref()),
+                                    ("Album", media.album.as_deref()),
+                                    ("Genre", media.genre.as_deref()),
+                                ] {
+                                    if let Some(value) = value {
+                                        general.push(row(label, value));
+                                    }
+                                }
+                                if let Some(track) = media.track {
+                                    general.push(row(
+                                        "Track",
+                                        media.track_total.map_or_else(
+                                            || track.to_string(),
+                                            |total| format!("{track} of {total}"),
+                                        ),
+                                    ));
+                                }
+                                if media.values_truncated {
+                                    general
+                                        .push(row("Media tag text", "Truncated by safety limits"));
+                                }
+                            }
+                        }
+                        AdvancedMetadataState::LimitExceeded => {
+                            general.push(row("Advanced metadata", "Withheld by safety limits"))
+                        }
+                        AdvancedMetadataState::Malformed(error) => {
+                            general.push(row("Advanced metadata", format!("Malformed: {error}")));
+                        }
+                        AdvancedMetadataState::Unsupported | AdvancedMetadataState::NoMetadata => {}
+                    }
                     if let Some(link) = &entry.symlink {
                         let status = match link.status {
                             SymlinkTargetStatus::EntryPresent => "entry present",
@@ -750,6 +798,18 @@ fn format_time(value: Option<std::time::SystemTime>) -> String {
         .map_or_else(|| "Unknown".to_owned(), |formatted| formatted.to_string())
 }
 
+fn format_media_duration(duration: std::time::Duration) -> String {
+    let total = duration.as_secs();
+    let hours = total / 3_600;
+    let minutes = (total % 3_600) / 60;
+    let seconds = total % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
 fn common_value<T: Eq + Clone>(values: impl Iterator<Item = Option<T>>) -> Option<T> {
     let mut common = None;
     for value in values {
@@ -837,6 +897,108 @@ mod tests {
         assert_eq!(snapshot.recursive_folders[0].regular_files, 1);
         assert_eq!(snapshot.recursive_folders[0].directories, 1);
         assert_eq!(snapshot.recursive_folders[0].known_bytes, 5);
+    }
+
+    #[test]
+    fn phase_10f_advanced_metadata_ui_is_truthful_in_properties() {
+        use crate::{
+            advanced_metadata::{
+                AdvancedMetadata, AdvancedMetadataState, ExifMetadata, MediaMetadata, MetadataField,
+            },
+            inspector::{
+                ImageDimensionFacts, InspectorEntryFacts, InspectorEntryResult, InspectorFacts,
+            },
+        };
+
+        let path = PathBuf::from("/tmp/track.flac");
+        let snapshot_for = |advanced_metadata| PropertiesSnapshot {
+            inspector: InspectorFacts {
+                selection_paths: Arc::from([path.clone()]),
+                regular_files: 1,
+                directories: 0,
+                symbolic_links: 0,
+                other_entries: 0,
+                known_bytes: 42,
+                unknown_sizes: 0,
+                bytes_overflowed: false,
+                common_parent: PathBuf::from("/tmp"),
+                metadata: Arc::from([InspectorEntryResult {
+                    path: path.clone(),
+                    result: Ok(InspectorEntryFacts {
+                        path: path.clone(),
+                        mime_type: Some("audio/flac".to_owned()),
+                        created: None,
+                        modified: None,
+                        accessed: None,
+                        unix_uid: None,
+                        unix_gid: None,
+                        unix_mode: None,
+                        symlink: None,
+                        image_dimensions: ImageDimensionFacts::NotImage,
+                        advanced_metadata,
+                        folder: None,
+                    }),
+                }]),
+            },
+            filesystem: Err("fixture".to_owned()),
+            recursive_folders: Arc::from([]),
+        };
+
+        let presentation = present(&snapshot_for(AdvancedMetadataState::Present(
+            AdvancedMetadata {
+                exif: Some(ExifMetadata {
+                    fields: Arc::from([MetadataField {
+                        label: "Camera maker",
+                        value: "FloeCam".to_owned(),
+                    }]),
+                    values_truncated: false,
+                }),
+                media: Some(MediaMetadata {
+                    duration: Some(std::time::Duration::from_secs(65)),
+                    artist: Some("Floe Artist".to_owned()),
+                    ..MediaMetadata::default()
+                }),
+            },
+        )));
+        assert!(
+            presentation
+                .general
+                .iter()
+                .any(|row| row.label == "Camera maker" && row.value == "FloeCam")
+        );
+        assert!(
+            presentation
+                .general
+                .iter()
+                .any(|row| row.label == "Duration" && row.value == "1:05")
+        );
+        assert!(
+            presentation
+                .general
+                .iter()
+                .any(|row| row.label == "Artist" && row.value == "Floe Artist")
+        );
+
+        for (state, expected) in [
+            (
+                AdvancedMetadataState::LimitExceeded,
+                "Withheld by safety limits",
+            ),
+            (
+                AdvancedMetadataState::Malformed("invalid frame".to_owned()),
+                "Malformed: invalid frame",
+            ),
+        ] {
+            let presentation = present(&snapshot_for(state));
+            let row = presentation
+                .general
+                .iter()
+                .find(|row| row.label == "Advanced metadata")
+                .expect("explicit advanced metadata state");
+            assert_eq!(row.value, expected);
+            assert!(!row.value.contains("verified"));
+            assert!(!row.value.contains("malicious"));
+        }
     }
 
     #[test]

@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 10E. Phase 10F is the only `NEXT`
+The implementation baseline for this matrix is Phase 10F. Phase 11A is the only `NEXT`
 phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -383,8 +383,8 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Filesystem/mount information | `COMPLETE` | 10C | Bounded worker queries containing filesystem type/capacity/read-only and enclosing GIO mount name/root; unavailable values stay explicit. |
 | Multiple-selection aggregate properties | `COMPLETE` | 10A-10C | Exact selected paths retain aggregate kinds/known bytes/common parent; shared MIME appears only when identical and differing/unknown values are not merged. |
 | Recursive folder count/size | `COMPLETE` | 10C | Explicit Properties demand uses cancellable descriptor-relative no-follow traversal capped at 250,000 entries and depth 1,024 with truncation, unreadable, and overflow evidence. |
-| Image dimensions/EXIF | `PARTIAL` | 6F/10B/10F | 10B shows safely limited raster dimensions in Inspector; EXIF and advanced format metadata remain 10F. |
-| Media/audio metadata | `PLANNED` | 10F | Duration, artist, album, track, and safe provider policy. |
+| Image dimensions/EXIF | `COMPLETE` | 6F/10B/10F | Lazy Inspector, Properties, and opt-in list enrichment expose dimensions plus ten reviewed EXIF presentation fields with no-follow identity checks and explicit malformed/limit states; GPS/privacy findings remain 18O. |
+| Media/audio metadata | `COMPLETE` | 10F | Lazy strict parsing exposes bounded duration, title, artist, album, track/disc, genre, year, sample rate, channels, and bitrate facts; no cover-art read, persistent cache, or safety verdict. |
 | Exact timestamps and relative dates | `PARTIAL` | 10B/20 | Inspector preserves exact created/modified/accessed `SystemTime` facts and presents local date/time; optional relative presentation remains 20. |
 | SHA-256 and SHA-512 hashing | `COMPLETE` | 10E | Exact selected local regular files stream through a capacity-4 worker in 1 MiB chunks with byte progress, cancellation, no-follow opens, and source identity revalidation. |
 | MD5 checksum | `COMPLETE` | 10E | Available only as explicitly legacy-labelled compatibility output; it is never presented as modern security or authenticity evidence. |
@@ -697,7 +697,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Split view | `PLANNED` | 7D-7F | Reusable navigation sessions and explicit active-pane ownership. |
 | Miller columns | `COMPLETE` | 8A-8F | Exact model, virtualized columns, keyboard/trackpad, actions, cross-surface drag/drop, and truthful final-column Preview/Inspector handoff are verified. Provider content remains Phases 9/10. |
 | Quick Preview | `PLANNED` | 9A-9F | Existing thumbnails plus cancellable provider boundary designed for Phase 18L sandboxing. |
-| Inspector | `PLANNED` | 10A-10F | Shared lazy metadata providers; no eager whole-directory enrichment. |
+| Inspector | `COMPLETE` | 10A-10F | Shared bounded lazy metadata providers; no eager whole-directory enrichment, persistent metadata cache, privacy finding, or authenticity claim. |
 | Command palette | `PLANNED` | 11A-11B | Central command registry; no business logic in palette callbacks. |
 | Archives | `PLANNED` | 12A-12B | Job lifecycle, conflict handling, cancellation, path traversal defense. |
 | Search/indexing and duplicate discovery | `PLANNED` | 13A-13G | Bounded workers, privacy-safe exclusion/history policy, exact-path duplicate review, and a complete non-indexed duplicate path. |

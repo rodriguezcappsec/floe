@@ -432,8 +432,13 @@ budget, and label known bytes non-recursive and truncated when limited. They are
 not recursive folder sizes. Selected paths and provider facts remain bounded
 memory-only state and are discarded with Inspector; only Inspector width is
 persisted. Normal logs do not gain paths or metadata values. Properties and
-permission edits, checksums, EXIF/media tags, privacy findings, and persistent
-metadata caching remain later phases.
+permission edits and checksums remain separate explicit operations. Phase 10F
+adds memory-only, explicit-demand reviewed EXIF and media/audio presentation
+fields. It uses no-follow local-file opens, revalidates device/inode/size/time,
+caps cumulative reads and displayed strings, disables media cover-art reads,
+and reports malformed or safety-limit states without executing content. GPS and
+other privacy findings remain Phase 18O; metadata values are not logged or
+persisted, and Floe makes no safety, authenticity, or sanitization claim.
 
 Phase 10C Properties reuses those memory-only facts and adds only explicit-demand
 containing-filesystem/mount queries plus recursive folder totals. Recursive work

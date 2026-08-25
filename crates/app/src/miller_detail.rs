@@ -7,6 +7,8 @@ use std::{path::PathBuf, sync::Arc};
 
 use floe_core::{DirectoryEntry, EntryKind};
 
+use crate::advanced_metadata::AdvancedMetadataState;
+
 pub const MILLER_DETAIL_SELECTION_CAPACITY: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -362,6 +364,49 @@ fn inspector_message(facts: &crate::inspector::InspectorFacts) -> String {
         }
         ImageDimensionFacts::NotImage => {}
     }
+    match &details.advanced_metadata {
+        AdvancedMetadataState::Present(metadata) => {
+            if let Some(exif) = &metadata.exif {
+                for field in exif.fields.iter() {
+                    lines.push(format!("{}: {}", field.label, field.value));
+                }
+                if exif.values_truncated {
+                    lines.push("EXIF text: truncated by safety limits".to_owned());
+                }
+            }
+            if let Some(media) = &metadata.media {
+                if let Some(duration) = media.duration {
+                    lines.push(format!("Duration: {}", format_media_duration(duration)));
+                }
+                for (label, value) in [
+                    ("Title", media.title.as_deref()),
+                    ("Artist", media.artist.as_deref()),
+                    ("Album", media.album.as_deref()),
+                    ("Genre", media.genre.as_deref()),
+                ] {
+                    if let Some(value) = value {
+                        lines.push(format!("{label}: {value}"));
+                    }
+                }
+                if let Some(track) = media.track {
+                    lines.push(match media.track_total {
+                        Some(total) => format!("Track: {track} of {total}"),
+                        None => format!("Track: {track}"),
+                    });
+                }
+                if media.values_truncated {
+                    lines.push("Media tag text: truncated by safety limits".to_owned());
+                }
+            }
+        }
+        AdvancedMetadataState::LimitExceeded => {
+            lines.push("Advanced metadata: withheld by safety limits".to_owned());
+        }
+        AdvancedMetadataState::Malformed(error) => {
+            lines.push(format!("Advanced metadata: malformed ({error})"));
+        }
+        AdvancedMetadataState::Unsupported | AdvancedMetadataState::NoMetadata => {}
+    }
     if let Some(link) = &details.symlink {
         let status = match link.status {
             SymlinkTargetStatus::EntryPresent => "entry present",
@@ -404,6 +449,18 @@ fn format_inspector_time(value: Option<std::time::SystemTime>) -> String {
         .ok()
         .and_then(|local| local.format("%x · %T").ok())
         .map_or_else(|| "Unknown".to_owned(), |formatted| formatted.to_string())
+}
+
+fn format_media_duration(duration: std::time::Duration) -> String {
+    let total = duration.as_secs();
+    let hours = total / 3_600;
+    let minutes = (total % 3_600) / 60;
+    let seconds = total % 60;
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
 }
 
 #[derive(Default)]
@@ -1013,6 +1070,18 @@ mod tests {
                         width: 320,
                         height: 200,
                     }),
+                    advanced_metadata: crate::advanced_metadata::AdvancedMetadataState::Present(
+                        crate::advanced_metadata::AdvancedMetadata {
+                            exif: Some(crate::advanced_metadata::ExifMetadata {
+                                fields: Arc::from([crate::advanced_metadata::MetadataField {
+                                    label: "Camera maker",
+                                    value: "FloeCam".to_owned(),
+                                }]),
+                                values_truncated: false,
+                            }),
+                            media: None,
+                        },
+                    ),
                     folder: None,
                 }),
             }]),
@@ -1020,6 +1089,7 @@ mod tests {
         let single_message = inspector_message(&single);
         assert!(single_message.contains("MIME type: image/png"));
         assert!(single_message.contains("320 × 200"));
+        assert!(single_message.contains("Camera maker: FloeCam"));
         assert!(single_message.contains("Owner UID: 1000"));
         assert!(single_message.contains("Mode: 0640"));
         assert!(single_message.contains("Read-only metadata"));
@@ -1045,6 +1115,7 @@ mod tests {
                     unix_mode: Some(0o40750),
                     symlink: None,
                     image_dimensions: ImageDimensionFacts::NotImage,
+                    advanced_metadata: crate::advanced_metadata::AdvancedMetadataState::Unsupported,
                     folder: Some(FolderAggregate {
                         inspected_children: 3,
                         regular_files: 2,
