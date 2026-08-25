@@ -442,6 +442,28 @@ The sensitive-content scanner is local, opt-in, bounded, cancellable, and heuris
 
 False positives and false negatives are expected. The scanner is not malware detection, data-loss prevention, proof of exposure, or proof that a file is safe. Cloud submission is off unless a separately named integration receives informed consent.
 
+## Duplicate discovery
+
+Status: **PLANNED** for Phase 13G.
+
+“Check for Duplicates…” operates only on explicitly selected files or roots. It
+first groups candidates by exact byte size, then uses the reviewed streaming hash
+infrastructure from Phase 10E, and finally performs a byte-for-byte comparison
+before describing files as identical. A digest match alone is not sufficient
+proof. Source identity is revalidated so files changed during scanning become
+stale or failed results rather than confirmed duplicates.
+
+Hard links to one inode are labelled aliases and are not counted as independent
+reclaimable copies. Symbolic links are not followed by default. Mount crossings,
+hidden files, unreadable files, and remote locations require explicit visible
+scope policy. Scanning is local, bounded, cancellable, and must not upload file
+content or hashes.
+
+Candidate paths, digests, and results are memory-only by default. Any future
+persistence must obey Private Mode, Sensitive Folder, and locked-vault policies.
+The result surface supports review, reveal, and ordinary explicit file actions;
+it never automatically deletes a copy or claims that deletion is secure erase.
+
 ## Integrity, verified transfer, and recovery
 
 Status: **PLANNED**, except for the data-safety primitives listed in the current baseline.

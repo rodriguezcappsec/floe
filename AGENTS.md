@@ -763,6 +763,22 @@ Ctrl+I
 
 ---
 
+# Duplicate Finder
+
+Phase 13G should expose “Check for Duplicates…” for explicitly selected files or
+roots. Candidate discovery must be local, bounded, cancellable, and application
+owned: group by exact size, stream a reviewed Phase 10E hash, then confirm equal
+content byte-for-byte before calling files identical. Revalidate identities when
+files change during scanning.
+
+Hard-link aliases must be distinguished from independent copies and symbolic
+links must not be followed by default. Results should support review and reveal
+before reusing ordinary explicit Trash or delete actions. Never delete a copy
+automatically, count hard-link aliases as reclaimable bytes, upload hashes or
+content, or treat a digest match alone as proof.
+
+---
+
 # Command Palette
 
 Floe should eventually provide a keyboard-first command palette.
@@ -1922,7 +1938,8 @@ Deferred:
 Overwrite and apply-to-all conflict policy, Restore Elsewhere and Trash cleanup
 preferences, ownership/ACL/xattr/sparse/reflink-complete copies, persistent
 operation recovery/history UI, template management, heavyweight/RAW/vector thumbnails,
-tab detachment, visible Miller columns, previews, archives, search, richer device
+tab detachment, visible Miller columns, previews, archives, search and duplicate
+discovery, richer device
 details, Niri IPC, KDE-specific APIs, and network filesystems.
 First-class theme/font customization, full file-association/external-tool
 management, and privileged GFile browsing remain explicit later milestones.
