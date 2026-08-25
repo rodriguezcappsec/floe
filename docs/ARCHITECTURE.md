@@ -80,16 +80,38 @@ populated and thumbnail state remains `NotRequested`.
 ### `sorting.rs`
 
 `DirectorySort` is the GTK-independent ordering policy for Name, Type, Size,
-and Modified. It owns direction cycling, directories-first grouping, stable raw
-`OsStr`/`Path` tie-breaking, and unknown-metadata-last behavior in both
-directions. Directory enumeration applies the default policy; the application
-may submit another policy without implementing comparisons in GTK callbacks.
+Modified, and Extension. It owns direction cycling, first/last directory
+placement, None/Type/Extension grouping, stable raw `OsStr`/`Path` tie-breaking,
+and unknown-metadata-last behavior in both directions. Directory enumeration
+applies the default policy; the application may submit another policy without
+implementing comparisons in GTK callbacks.
 
 ### `navigation.rs`
 
 `NavigationState` owns current, back, and forward `PathBuf` values. New
 navigation clears forward history; back/forward exchange paths between stacks;
 parent navigation stops at filesystem root. It is toolkit-independent.
+
+### `view.rs` and `session.rs`
+
+Phase 7A makes `floe-core` the canonical owner of GTK-independent view policy:
+list/grid mode, bounded grid size, density, directory sort/group/placement, and
+visible/clamped list-column layout. The application `view` module only re-exports
+those types and maps existing view actions.
+
+`BrowserSession` owns a stable nonzero ID and bounded complete location states.
+Each current/back/forward location preserves its exact absolute `PathBuf`, exact
+multi-selection, optional path/index scroll anchor, and complete view policy.
+Navigation moves whole locations between stacks, clears forward history after a
+new destination, and stops parent traversal at root. Session duplication clones
+state under a caller-provided ID; no widget trees or workers are duplicated.
+
+The version-1 in-memory codec is bounded and rejects bad headers/versions,
+relative or oversized paths, invalid policy fields, duplicate selection paths,
+truncation, trailing bytes, and oversized history/selection counts. On Unix it
+encodes original path bytes through `OsStrExt`/`OsStringExt`, preserving invalid
+UTF-8 exactly. Phase 7A does not call this codec from the application and does no
+session filesystem I/O; persistence and privacy lifecycle remain Phase 7C.
 
 ### `jobs.rs`
 
@@ -143,11 +165,12 @@ defaults to `floe=info`.
 
 ### `view.rs` and `preferences.rs`
 
-Phase 6D keeps List/Grid policy independent of GTK. `ViewMode` and `GridSize`
-define strict persisted values and seven bounded zoom steps. `PreferenceWorker`
-loads startup preferences and owns a fixed-capacity channel plus atomic
-configuration-file writes. GTK actions submit current values non-blockingly;
-they never read or write the configuration file directly.
+Phase 7A moves List/Grid, density, column, and complete folder-view policy to
+`floe-core`; application `view.rs` remains a thin re-export/action mapping.
+`PreferenceWorker` continues to load startup preferences and owns a
+fixed-capacity channel plus atomic configuration-file writes. GTK actions submit
+current values non-blockingly; they never read or write the configuration file
+directly.
 
 Phase 6T extends that policy with file-view density, optional clamped list
 columns, sort/group settings, and at most 256 exact raw-path per-folder

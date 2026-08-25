@@ -9,8 +9,10 @@ mod model;
 mod move_operation;
 mod navigation;
 mod permanent_delete;
+mod session;
 mod sorting;
 mod trash_lifecycle;
+mod view;
 
 pub use copy::{
     ConflictPolicy, CopyCancellation, CopyError, CopyOutcome, CopyProgress, CopyRequest,
@@ -37,10 +39,18 @@ pub use permanent_delete::{
     PermanentDeleteError, PermanentDeleteOutcome, PermanentDeleteProgress, PermanentDeleteRequest,
     PermanentDeleteRequestError, execute_permanent_delete,
 };
+pub use session::{
+    BrowserSession, BrowserSessionId, SESSION_HISTORY_CAPACITY, SESSION_MAX_PATH_BYTES,
+    SESSION_MAX_SERIALIZED_BYTES, SESSION_SELECTION_CAPACITY, SessionCodecError, SessionLocation,
+    SessionScrollAnchor, SessionStateError,
+};
 pub use sorting::{
     DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn, SortDirection,
 };
 pub use trash_lifecycle::{
     RestoreError, RestoreOutcome, RestoreRequest, RestoreRequestError, TrashEnumerateError,
     TrashRoot, enumerate_trash_with_cancel, execute_restore,
+};
+pub use view::{
+    FileViewDensity, FolderViewState, GRID_SIZES, GridSize, ListColumn, ListColumnLayout, ViewMode,
 };

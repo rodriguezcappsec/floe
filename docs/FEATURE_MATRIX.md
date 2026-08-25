@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 6T. Phase 7A is the only
+The implementation baseline for this matrix is Phase 7A. Phase 7B is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -174,18 +174,18 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Restore selection after sorting | `COMPLETE` | 6B/6J | Every selected entry is restored by exact `PathBuf`, including colliding lossy names. |
 | Restore selection after refresh | `COMPLETE` | 6S | Manual/job/watcher refresh reconciles exact selected paths and translates bounded rename chains. |
 | Restore scroll after refresh | `COMPLETE` | 6S | A stable exact path plus index fallback restores the virtualized view only after 256-entry insertion completes. |
-| Back restores prior selection | `PLANNED` | 7A | Depends on per-navigation-session view state. |
-| Back restores prior scroll | `PLANNED` | 7A | Depends on serializable per-history-entry anchors. |
+| Back restores prior selection | `PARTIAL` | 7A/7B | Core session history preserves exact multi-selection; Phase 7B wires it to tabs and GTK. |
+| Back restores prior scroll | `PARTIAL` | 7A/7B | Core session history preserves exact path/index anchors; Phase 7B wires restoration to the browser. |
 | Keyboard-accessible breadcrumbs | `PLANNED` | 7/20 | Required when breadcrumb segments are introduced. |
 
 ## Tabs
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Reusable tab/session state model | `PLANNED` | 7A | Must own exact path, history, selection, sort, view, and scroll outside GTK. |
+| Reusable tab/session state model | `COMPLETE` | 7A | Stable-ID bounded core model owns exact path, complete history locations, multi-selection, path/index scroll anchor, sort, grouping, folder placement, view mode, grid size, density, and columns. |
 | New/close/switch tab | `PLANNED` | 7B | Pointer and keyboard interaction depend on Phase 7A. |
-| Per-tab path and history | `PLANNED` | 7A | Do not duplicate expensive workers per tab unnecessarily. |
-| Per-tab view state | `PLANNED` | 7A | Persist only settings whose scope is intentionally per tab. |
+| Per-tab path and history | `PARTIAL` | 7A/7B | Reusable session history is complete; Phase 7B creates and activates actual tabs without duplicating expensive workers. |
+| Per-tab view state | `PARTIAL` | 7A/7B | Complete view policy is stored per session location; runtime tab ownership is Phase 7B and persistence is Phase 7C. |
 | Duplicate tab | `PLANNED` | 7B | Clone serializable session state, not widget trees. |
 | Reorder tabs | `PLANNED` | 7B | Provide drag and keyboard/pointer alternatives. |
 | Reopen closed tab / Ctrl+Shift+T | `PLANNED` | 7C | Depends on bounded recently-closed state and privacy policy. |
@@ -652,7 +652,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | New Folder enters rename | `PLANNED` | 6Q/12D | Creation succeeds first; the exact new directory is then selected for naming. |
 | Selection survives refresh | `COMPLETE` | 6S | Exact-path reconciliation preserves surviving items and drops disappeared identities. |
 | Scroll survives refresh | `COMPLETE` | 6S | Stable anchor identity is preferred with a clamped prior-index fallback when the anchor disappears. |
-| Back restores item and scroll | `PLANNED` | 7A | Stored per history entry in navigation session. |
+| Back restores item and scroll | `PARTIAL` | 7A/7B | Complete exact selection and path/index anchor are stored per history entry; runtime tab/browser restoration is Phase 7B. |
 | Human-readable list size | `COMPLETE` | 6A | Decimal formatting supports values through exabytes. |
 | Exact bytes in details | `PLANNED` | 10C | Inspector/Properties show both exact and human-readable values. |
 | Relative dates plus exact timestamp | `PLANNED` | 10B/20 | Exact value remains available in Inspector. |

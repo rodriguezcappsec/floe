@@ -2,7 +2,7 @@
 
 Status: authoritative design and threat model. Most capabilities in this document are **PLANNED**, not implemented. This document does not select a cryptographic format, cryptographic library, vault backend, or sandbox mechanism.
 
-Last reviewed against the repository: `2026-08-24`, after Phase 6P.
+Last reviewed against the repository: `2026-08-25`, after Phase 7A.
 
 ## Status vocabulary and claim discipline
 
@@ -17,6 +17,12 @@ Security state must use text and accessible semantics, never color alone. A fail
 ## Current security and privacy baseline
 
 ### IMPLEMENTED
+
+- Phase 7A's versioned browser-session codec preserves exact raw path bytes and
+  therefore can represent sensitive navigation, selection, and history data. It
+  is bounded and malformed-input checked, but is currently in-memory only and is
+  not called by the application or written to storage. Session persistence,
+  retention, Private/Sensitive suppression, and cleanup remain Phase 7C.
 
 - Floe runs as the calling desktop user. It does not run its GTK process as root and does not expose `Open as Administrator...` today.
 - The Cargo workspace forbids Rust `unsafe` code. The core crate is GTK-independent, and filesystem work stays out of GTK callbacks.
