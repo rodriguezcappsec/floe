@@ -1,16 +1,15 @@
-# Plan: Floe Phase 9D — Audio and video Preview
+# Plan: Floe Phase 9E — Font specimens and archive listings
 
 ## Contract
 
-- Add a deterministic local media provider for reviewed audio/video extensions and GIO MIME identity.
-- Preflight exact sources no-follow and return only typed path/MIME/poster metadata from the worker.
-- Create GTK MediaFile, Video, and MediaControls objects only on the main thread; never shell out or install codecs.
-- Use the existing supervised freedesktop thumbnailer boundary for an optional bounded passive video poster frame; audio has a truthful icon fallback.
-- Expose native play/pause, seeking, duration/error state through GTK controls.
-- Explicitly pause and release the active stream whenever selection, directory, view, or detail state retires it.
-- Preserve cancellation, stale-generation rejection, main-loop responsiveness, and honest unsupported/decoder error feedback.
-- Exclude font/archive preview (9E) and global preview interaction polish (9F).
+- Add a reviewed installed-provider font specimen path that accepts only bounded passive PNG output and never installs a font.
+- Add GTK-independent bounded parsers for ZIP central-directory and uncompressed TAR listings; do not invoke archive commands or extract content.
+- Preserve raw archive member bytes separately from lossy display labels and visibly flag absolute/traversal-like member names.
+- Enforce exact no-follow source identity, source/output/name/entry caps, cancellation, malformed/truncated input rejection, and stale-generation handling.
+- Present font specimens as passive images and archive contents as selectable read-only text on the GTK thread.
+- Report compressed TAR, encrypted content details, ZIP64, and unsupported formats honestly without speculative parsing.
+- Exclude global Preview keyboard/fullscreen/zoom polish (9F).
 
 ## Status
 
-COMPLETE on `phase-9d-preview-media`; all eight gates verified. Phase 9E is the sole recommended next phase.
+COMPLETE on `phase-9e-preview-fonts-archives`; all eight gates verified. Phase 9F is the sole recommended next phase.

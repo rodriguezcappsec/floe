@@ -104,6 +104,19 @@ pub enum PreviewContent {
         is_video: bool,
         poster: Option<PreviewPoster>,
     },
+    Font {
+        width: u32,
+        height: u32,
+        rowstride: usize,
+        rgba: Arc<[u8]>,
+        content_type: Arc<str>,
+    },
+    Archive {
+        format: PreviewArchiveFormat,
+        entries: Arc<[PreviewArchiveEntry]>,
+        listing: Arc<str>,
+        truncated: bool,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -112,6 +125,21 @@ pub struct PreviewPoster {
     pub height: u32,
     pub rowstride: usize,
     pub rgba: Arc<[u8]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PreviewArchiveFormat {
+    Zip,
+    Tar,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreviewArchiveEntry {
+    pub raw_name: Arc<[u8]>,
+    pub display_name: Arc<str>,
+    pub size: u64,
+    pub is_directory: bool,
+    pub unsafe_path: bool,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -280,6 +308,12 @@ impl PreviewProviderRegistry {
         registry
             .register(Arc::new(MediaPreviewProvider::discover()))
             .expect("first-party media provider registration is bounded and unique");
+        registry
+            .register(Arc::new(FontPreviewProvider::discover()))
+            .expect("first-party font provider registration is bounded and unique");
+        registry
+            .register(Arc::new(ArchivePreviewProvider))
+            .expect("first-party archive provider registration is bounded and unique");
         registry
     }
 
@@ -604,6 +638,123 @@ impl PreviewProvider for MediaPreviewProvider {
     }
 }
 
+#[derive(Clone, Debug)]
+struct FontPreviewProvider {
+    providers: SystemThumbnailerRegistry,
+}
+
+impl FontPreviewProvider {
+    fn discover() -> Self {
+        Self {
+            providers: SystemThumbnailerRegistry::discover(),
+        }
+    }
+
+    #[cfg(test)]
+    fn discover_from_data_dirs(data_dirs: &[PathBuf]) -> Self {
+        Self {
+            providers: SystemThumbnailerRegistry::discover_from_data_dirs(data_dirs),
+        }
+    }
+}
+
+impl PreviewProvider for FontPreviewProvider {
+    fn id(&self) -> &'static str {
+        "floe.font"
+    }
+
+    fn supports(&self, request: &PreviewRequest) -> bool {
+        font_extension_allowed(request.source().path())
+    }
+
+    fn load(
+        &self,
+        request: &PreviewRequest,
+        cancellation: &PreviewCancellation,
+    ) -> Result<PreviewPayload, PreviewProviderError> {
+        if !font_extension_allowed(request.source().path()) {
+            return Err(PreviewProviderError::Unsupported);
+        }
+        let source = open_verified_source(request)?;
+        drop(source);
+        self.providers
+            .supports_path(request.source().path())
+            .map_err(map_thumbnailer_error)?;
+        let output = self
+            .providers
+            .generate(request.source().path(), 1_024, || {
+                cancellation.is_cancelled()
+            })
+            .map_err(map_thumbnailer_error)?;
+        if output.bytes.len() as u64 > request.limits().max_output_bytes {
+            return Err(PreviewProviderError::LimitExceeded);
+        }
+        let source = open_verified_source(request)?;
+        revalidate_source(&source, request.source())?;
+        let decoded = decode_rgba(
+            output.bytes,
+            ImageFormat::Png,
+            request.limits().max_output_bytes,
+        )?;
+        Ok(PreviewPayload {
+            provider_id: self.id(),
+            kind: PreviewKind::Font,
+            content: PreviewContent::Font {
+                width: decoded.width,
+                height: decoded.height,
+                rowstride: decoded.rowstride,
+                rgba: decoded.rgba,
+                content_type: Arc::from(output.content_type),
+            },
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ArchivePreviewProvider;
+
+impl PreviewProvider for ArchivePreviewProvider {
+    fn id(&self) -> &'static str {
+        "floe.archive"
+    }
+
+    fn supports(&self, request: &PreviewRequest) -> bool {
+        archive_format(request.source().path()).is_some()
+    }
+
+    fn load(
+        &self,
+        request: &PreviewRequest,
+        cancellation: &PreviewCancellation,
+    ) -> Result<PreviewPayload, PreviewProviderError> {
+        let format =
+            archive_format(request.source().path()).ok_or(PreviewProviderError::Unsupported)?;
+        let mut source = open_verified_source(request)?;
+        let encoded = read_bounded_source(&mut source, request, cancellation)?;
+        revalidate_source(&source, request.source())?;
+        let (entries, mut truncated) = match format {
+            PreviewArchiveFormat::Zip => {
+                parse_zip_listing(&encoded, request.limits().max_archive_entries, cancellation)?
+            }
+            PreviewArchiveFormat::Tar => {
+                parse_tar_listing(&encoded, request.limits().max_archive_entries, cancellation)?
+            }
+        };
+        let listing =
+            archive_listing_text(&entries, request.limits().max_text_bytes, &mut truncated);
+        Ok(PreviewPayload {
+            provider_id: self.id(),
+            kind: PreviewKind::Archive,
+            content: PreviewContent::Archive {
+                format,
+                entries: entries.into(),
+                listing: Arc::from(listing),
+                truncated,
+            },
+        })
+    }
+}
+
 fn raster_format(path: &Path) -> Option<ImageFormat> {
     let extension = path.extension()?.to_str()?;
     if extension.eq_ignore_ascii_case("png") {
@@ -669,6 +820,231 @@ fn media_extension_kind(path: &Path) -> Option<bool> {
     .iter()
     .any(|candidate| extension.eq_ignore_ascii_case(candidate))
     .then_some(false)
+}
+
+fn font_extension_allowed(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(OsStr::to_str) else {
+        return false;
+    };
+    ["ttf", "otf", "ttc", "otc", "woff", "woff2"]
+        .iter()
+        .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+}
+
+fn archive_format(path: &Path) -> Option<PreviewArchiveFormat> {
+    let extension = path.extension()?.to_str()?;
+    if extension.eq_ignore_ascii_case("zip") {
+        Some(PreviewArchiveFormat::Zip)
+    } else if extension.eq_ignore_ascii_case("tar") {
+        Some(PreviewArchiveFormat::Tar)
+    } else {
+        None
+    }
+}
+
+fn parse_zip_listing(
+    encoded: &[u8],
+    maximum_entries: usize,
+    cancellation: &PreviewCancellation,
+) -> Result<(Vec<PreviewArchiveEntry>, bool), PreviewProviderError> {
+    const HEADER: &[u8; 4] = b"PK\x01\x02";
+    const FIXED: usize = 46;
+    const MAX_NAME: usize = 4_096;
+    let mut entries = Vec::new();
+    let mut cursor = 0_usize;
+    let mut found_header = false;
+    let mut truncated = false;
+    while cursor.saturating_add(FIXED) <= encoded.len() {
+        if cancellation.is_cancelled() {
+            return Err(PreviewProviderError::Cancelled);
+        }
+        let Some(relative) = encoded[cursor..]
+            .windows(4)
+            .position(|window| window == HEADER)
+        else {
+            break;
+        };
+        cursor = cursor.saturating_add(relative);
+        found_header = true;
+        let fixed = encoded
+            .get(cursor..cursor + FIXED)
+            .ok_or_else(|| PreviewProviderError::Failed("truncated ZIP directory".to_owned()))?;
+        let name_len = usize::from(u16::from_le_bytes([fixed[28], fixed[29]]));
+        let extra_len = usize::from(u16::from_le_bytes([fixed[30], fixed[31]]));
+        let comment_len = usize::from(u16::from_le_bytes([fixed[32], fixed[33]]));
+        if name_len == 0 || name_len > MAX_NAME {
+            return Err(PreviewProviderError::LimitExceeded);
+        }
+        let record_len = FIXED
+            .checked_add(name_len)
+            .and_then(|length| length.checked_add(extra_len))
+            .and_then(|length| length.checked_add(comment_len))
+            .ok_or(PreviewProviderError::LimitExceeded)?;
+        let record = encoded
+            .get(cursor..cursor + record_len)
+            .ok_or_else(|| PreviewProviderError::Failed("truncated ZIP directory".to_owned()))?;
+        if entries.len() == maximum_entries {
+            truncated = true;
+            break;
+        }
+        let raw_name = &record[FIXED..FIXED + name_len];
+        let size = u64::from(u32::from_le_bytes([
+            fixed[24], fixed[25], fixed[26], fixed[27],
+        ]));
+        entries.push(archive_entry(raw_name, size, raw_name.ends_with(b"/")));
+        cursor = cursor
+            .checked_add(record_len)
+            .ok_or(PreviewProviderError::LimitExceeded)?;
+    }
+    if !found_header {
+        return Err(PreviewProviderError::Failed(
+            "ZIP central directory is missing or unsupported".to_owned(),
+        ));
+    }
+    Ok((entries, truncated))
+}
+
+fn parse_tar_listing(
+    encoded: &[u8],
+    maximum_entries: usize,
+    cancellation: &PreviewCancellation,
+) -> Result<(Vec<PreviewArchiveEntry>, bool), PreviewProviderError> {
+    const BLOCK: usize = 512;
+    let mut entries = Vec::new();
+    let mut cursor = 0_usize;
+    let mut truncated = false;
+    while let Some(header) = encoded.get(cursor..cursor.saturating_add(BLOCK)) {
+        if cancellation.is_cancelled() {
+            return Err(PreviewProviderError::Cancelled);
+        }
+        if header.iter().all(|byte| *byte == 0) {
+            return Ok((entries, truncated));
+        }
+        if &header[257..262] != b"ustar" {
+            return Err(PreviewProviderError::Failed(
+                "unsupported or malformed TAR header".to_owned(),
+            ));
+        }
+        let stored_checksum = parse_tar_octal(&header[148..156])?;
+        let actual_checksum = header
+            .iter()
+            .enumerate()
+            .map(|(index, byte)| {
+                if (148..156).contains(&index) {
+                    u64::from(b' ')
+                } else {
+                    u64::from(*byte)
+                }
+            })
+            .sum::<u64>();
+        if stored_checksum != actual_checksum {
+            return Err(PreviewProviderError::Failed(
+                "TAR header checksum is invalid".to_owned(),
+            ));
+        }
+        if entries.len() == maximum_entries {
+            truncated = true;
+            return Ok((entries, truncated));
+        }
+        let name = trim_nul(&header[0..100]);
+        let prefix = trim_nul(&header[345..500]);
+        let raw_name = if prefix.is_empty() {
+            name.to_vec()
+        } else {
+            [prefix, b"/", name].concat()
+        };
+        if raw_name.is_empty() || raw_name.len() > 4_096 {
+            return Err(PreviewProviderError::LimitExceeded);
+        }
+        let size = parse_tar_octal(&header[124..136])?;
+        let is_directory = header[156] == b'5' || raw_name.ends_with(b"/");
+        entries.push(archive_entry(&raw_name, size, is_directory));
+        let data_blocks = usize::try_from(size)
+            .map_err(|_| PreviewProviderError::LimitExceeded)?
+            .checked_add(BLOCK - 1)
+            .ok_or(PreviewProviderError::LimitExceeded)?
+            / BLOCK;
+        cursor = cursor
+            .checked_add(BLOCK)
+            .and_then(|value| value.checked_add(data_blocks.checked_mul(BLOCK)?))
+            .ok_or(PreviewProviderError::LimitExceeded)?;
+        if cursor > encoded.len() {
+            return Err(PreviewProviderError::Failed(
+                "truncated TAR entry".to_owned(),
+            ));
+        }
+    }
+    Err(PreviewProviderError::Failed(
+        "TAR end marker is missing".to_owned(),
+    ))
+}
+
+fn trim_nul(bytes: &[u8]) -> &[u8] {
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
+    &bytes[..end]
+}
+
+fn parse_tar_octal(bytes: &[u8]) -> Result<u64, PreviewProviderError> {
+    let text = std::str::from_utf8(trim_nul(bytes))
+        .map_err(|_| PreviewProviderError::Failed("invalid TAR size".to_owned()))?
+        .trim();
+    if text.is_empty() {
+        return Ok(0);
+    }
+    u64::from_str_radix(text, 8)
+        .map_err(|_| PreviewProviderError::Failed("invalid TAR size".to_owned()))
+}
+
+fn archive_entry(raw_name: &[u8], size: u64, is_directory: bool) -> PreviewArchiveEntry {
+    PreviewArchiveEntry {
+        raw_name: Arc::from(raw_name),
+        display_name: Arc::from(String::from_utf8_lossy(raw_name).into_owned()),
+        size,
+        is_directory,
+        unsafe_path: archive_path_is_unsafe(raw_name),
+    }
+}
+
+fn archive_listing_text(
+    entries: &[PreviewArchiveEntry],
+    maximum_bytes: usize,
+    truncated: &mut bool,
+) -> String {
+    let mut listing = String::new();
+    for entry in entries {
+        let warning = if entry.unsafe_path {
+            "[unsafe path] "
+        } else {
+            ""
+        };
+        let kind = if entry.is_directory {
+            "directory"
+        } else {
+            "file"
+        };
+        let line = format!(
+            "{warning}{}\t{kind}\t{} bytes\n",
+            entry.display_name, entry.size
+        );
+        if listing.len().saturating_add(line.len()) > maximum_bytes {
+            *truncated = true;
+            break;
+        }
+        listing.push_str(&line);
+    }
+    listing
+}
+
+fn archive_path_is_unsafe(raw_name: &[u8]) -> bool {
+    raw_name.starts_with(b"/")
+        || raw_name.starts_with(b"\\")
+        || raw_name.get(1) == Some(&b':')
+        || raw_name
+            .split(|byte| matches!(byte, b'/' | b'\\'))
+            .any(|component| component == b"..")
 }
 
 fn content_type_no_follow(path: &Path) -> Result<String, PreviewProviderError> {
@@ -1809,5 +2185,209 @@ mod tests {
             load_media_provider(provider, source_for(&link)),
             PreviewOutcome::Failed(_)
         ));
+    }
+
+    fn controlled_font_provider(root: &Path, specimen: &Path) -> FontPreviewProvider {
+        use std::os::unix::fs::PermissionsExt;
+
+        let data = root.join("data");
+        let definitions = data.join("thumbnailers");
+        fs::create_dir_all(&definitions).expect("font definitions");
+        let script = root.join("font-provider");
+        fs::write(
+            &script,
+            format!("#!/bin/sh\nset -eu\ncp '{}' \"$2\"\n", specimen.display()),
+        )
+        .expect("font provider script");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700))
+            .expect("font provider executable");
+        fs::write(
+            definitions.join("font.thumbnailer"),
+            format!(
+                "[Thumbnailer Entry]\nExec={} %i %o %s\nMimeType=font/ttf;application/x-font-ttf;\n",
+                script.display()
+            ),
+        )
+        .expect("font provider definition");
+        FontPreviewProvider::discover_from_data_dirs(&[data])
+    }
+
+    fn load_single_provider(
+        provider: Arc<dyn PreviewProvider>,
+        source: PreviewSourceKey,
+        limits: PreviewLimits,
+    ) -> PreviewOutcome {
+        let generation = 74;
+        let request = PreviewRequest::new(generation, source, limits, PreviewCachePolicy::Disabled)
+            .expect("single-provider request");
+        PreviewProviderRegistry {
+            providers: vec![provider],
+            ids: HashSet::new(),
+        }
+        .load(
+            &request,
+            &PreviewCancellation {
+                active_generation: Arc::new(AtomicU64::new(generation)),
+                generation,
+                started: Instant::now(),
+                deadline: Duration::from_secs(2),
+            },
+        )
+    }
+
+    #[test]
+    fn phase_9e_font_provider_returns_passive_bounded_specimen_without_installing() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().expect("font root");
+        let specimen = root.path().join("specimen.png");
+        image::RgbaImage::from_raw(3, 1, [30, 60, 90, 255].repeat(3))
+            .expect("font specimen pixels")
+            .save(&specimen)
+            .expect("font specimen PNG");
+        let provider = controlled_font_provider(root.path(), &specimen);
+        let font = root
+            .path()
+            .join(std::ffi::OsString::from_vec(b"font-\xff.ttf".to_vec()));
+        fs::write(&font, b"\0\x01\0\0 passive font fixture").expect("font fixture");
+        let payload = match load_single_provider(
+            Arc::new(provider.clone()),
+            source_for(&font),
+            PreviewLimits::default(),
+        ) {
+            PreviewOutcome::Ready(payload) => payload,
+            outcome => panic!("unexpected font outcome: {outcome:?}"),
+        };
+        assert!(matches!(
+            payload.content,
+            PreviewContent::Font {
+                width: 3,
+                height: 1,
+                rowstride: 12,
+                ..
+            }
+        ));
+        let link = root.path().join("linked.ttf");
+        symlink(&font, &link).expect("font symlink");
+        assert!(matches!(
+            load_single_provider(
+                Arc::new(provider),
+                source_for(&link),
+                PreviewLimits::default()
+            ),
+            PreviewOutcome::Failed(_)
+        ));
+        assert!(!font_extension_allowed(&root.path().join("installer.exe")));
+    }
+
+    fn zip_directory_entry(name: &[u8], size: u32) -> Vec<u8> {
+        let mut record = vec![0_u8; 46];
+        record[0..4].copy_from_slice(b"PK\x01\x02");
+        record[24..28].copy_from_slice(&size.to_le_bytes());
+        record[28..30].copy_from_slice(&(name.len() as u16).to_le_bytes());
+        record.extend_from_slice(name);
+        record
+    }
+
+    fn tar_entry(name: &[u8], data: &[u8], type_flag: u8) -> Vec<u8> {
+        let mut header = vec![0_u8; 512];
+        header[..name.len()].copy_from_slice(name);
+        header[100..108].copy_from_slice(b"0000644\0");
+        header[108..116].copy_from_slice(b"0000000\0");
+        header[116..124].copy_from_slice(b"0000000\0");
+        let size = format!("{:011o}\0", data.len());
+        header[124..136].copy_from_slice(size.as_bytes());
+        header[136..148].copy_from_slice(b"00000000000\0");
+        header[148..156].fill(b' ');
+        header[156] = type_flag;
+        header[257..263].copy_from_slice(b"ustar\0");
+        header[263..265].copy_from_slice(b"00");
+        let checksum = header.iter().map(|byte| u64::from(*byte)).sum::<u64>();
+        let checksum = format!("{:06o}\0 ", checksum);
+        header[148..156].copy_from_slice(checksum.as_bytes());
+        let mut output = header;
+        output.extend_from_slice(data);
+        output.resize(output.len().div_ceil(512) * 512, 0);
+        output
+    }
+
+    #[test]
+    fn phase_9e_archive_provider_lists_bounded_raw_zip_and_tar_without_extraction() {
+        let root = tempdir().expect("archive root");
+        let zip = root
+            .path()
+            .join(std::ffi::OsString::from_vec(b"raw-\xff.zip".to_vec()));
+        let mut zip_bytes = zip_directory_entry(b"safe/readme.txt", 12);
+        zip_bytes.extend(zip_directory_entry(b"../escape-\xff", 7));
+        fs::write(&zip, zip_bytes).expect("ZIP fixture");
+        let zip_payload = match load_single_provider(
+            Arc::new(ArchivePreviewProvider),
+            source_for(&zip),
+            PreviewLimits::default(),
+        ) {
+            PreviewOutcome::Ready(payload) => payload,
+            outcome => panic!("unexpected ZIP outcome: {outcome:?}"),
+        };
+        assert!(matches!(
+            zip_payload.content,
+            PreviewContent::Archive {
+                format: PreviewArchiveFormat::Zip,
+                ref entries,
+                ref listing,
+                truncated: false,
+            } if entries.len() == 2
+                && entries[1].unsafe_path
+                && entries[1].raw_name.ends_with(&[0xff])
+                && listing.contains("[unsafe path]")
+        ));
+
+        let tar = root.path().join("contents.tar");
+        let mut tar_bytes = tar_entry(b"folder/", &[], b'5');
+        tar_bytes.extend(tar_entry(b"folder/file.txt", b"hello", b'0'));
+        tar_bytes.extend(vec![0_u8; 1024]);
+        fs::write(&tar, tar_bytes).expect("TAR fixture");
+        assert!(matches!(
+            load_single_provider(
+                Arc::new(ArchivePreviewProvider),
+                source_for(&tar),
+                PreviewLimits::default()
+            ),
+            PreviewOutcome::Ready(PreviewPayload {
+                content: PreviewContent::Archive {
+                    format: PreviewArchiveFormat::Tar,
+                    ref entries,
+                    ..
+                },
+                ..
+            }) if entries.len() == 2 && entries[0].is_directory && entries[1].size == 5
+        ));
+
+        let limited = PreviewLimits {
+            max_archive_entries: 1,
+            ..PreviewLimits::default()
+        };
+        assert!(matches!(
+            load_single_provider(Arc::new(ArchivePreviewProvider), source_for(&zip), limited),
+            PreviewOutcome::Ready(PreviewPayload {
+                content: PreviewContent::Archive {
+                    ref entries,
+                    truncated: true,
+                    ..
+                },
+                ..
+            }) if entries.len() == 1
+        ));
+
+        let malformed = root.path().join("malformed.tar");
+        fs::write(&malformed, vec![1_u8; 512]).expect("malformed TAR");
+        assert!(matches!(
+            load_single_provider(
+                Arc::new(ArchivePreviewProvider),
+                source_for(&malformed),
+                PreviewLimits::default()
+            ),
+            PreviewOutcome::Failed(_)
+        ));
+        assert_eq!(archive_format(&root.path().join("compressed.tar.gz")), None);
     }
 }

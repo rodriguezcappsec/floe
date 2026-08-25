@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 9D. Phase 9E is the only
+The implementation baseline for this matrix is Phase 9E. Phase 9F is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -360,8 +360,8 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Text/Markdown/source/JSON/XML preview | `COMPLETE` | 9B | Bounded UTF-8/BOM UTF-16 source is selectable and inert; binary, HTML, SVG, malformed encodings, scripts and external-resource rendering are rejected. |
 | PDF/document preview | `COMPLETE` | 9C | Reviewed installed freedesktop providers return a bounded PNG first-page/document rendition through supervised argv-only execution; helpers retain normal user authority until 18L. |
 | Audio/video preview | `COMPLETE` | 9D | Exact local media identity feeds main-thread GTK native playback/seek controls, optional bounded poster, audio fallback, truthful decoder errors, and explicit retired-stream pause/clear. |
-| Font/archive preview | `NEXT` | 9E | Archive view lists safely without implicit extraction. |
-| Navigate while preview remains open | `PLANNED` | 9F | Cancel stale work and preserve keyboard focus hierarchy. |
+| Font/archive preview | `COMPLETE` | 9E | Reviewed bounded PNG font specimens never install; built-in capped ZIP/uncompressed TAR listings preserve raw names, flag unsafe paths, and never extract. |
+| Navigate while preview remains open | `NEXT` | 9F | Cancel stale work and preserve keyboard focus hierarchy. |
 | Image zoom/rotate/fullscreen | `PLANNED` | 9F | Presentation-only transforms must not silently modify source. |
 | Media seeking | `PLANNED` | 9D/9F | Must remain responsive and cancel cleanly. |
 | Preview metadata | `PLANNED` | 9F/10 | Reuse metadata providers rather duplicate parsing. |
