@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 7B. Phase 7C is the only
+The implementation baseline for this matrix is Phase 7C. Phase 7D is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -185,11 +185,12 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Reusable tab/session state model | `COMPLETE` | 7A | Stable-ID bounded core model owns exact path, complete history locations, multi-selection, path/index scroll anchor, sort, grouping, folder placement, view mode, grid size, density, and columns. |
 | New/close/switch tab | `COMPLETE` | 7B | Native labelled strip, Ctrl+T/Ctrl+W/Ctrl+Tab, pointer activation, and last-tab window close use bounded stable IDs. |
 | Per-tab path and history | `COMPLETE` | 7A/7B | Complete exact location snapshots restore through one shared superseding browser worker. |
-| Per-tab view state | `COMPLETE` | 7A/7B | Sort/group/view/grid/density/columns, exact selection, and path/index scroll anchor restore per live tab; persistence remains 7C. |
+| Per-tab view state | `COMPLETE` | 7A-7C | Sort/group/view/grid/density/columns, exact selection, and path/index scroll anchor restore per live tab and across clean restarts. |
+| Startup tab/session restore | `COMPLETE` | 7C | Clean shutdown writes versioned bounded live/closed workspace atomically; missing/corrupt/suppressed state falls back to one normal tab. |
 | Duplicate tab | `COMPLETE` | 7B | Clones bounded session state beside source, never widget trees or workers. |
 | Reorder tabs | `COMPLETE` | 7B | Pointer drag plus Ctrl+Shift+PageUp/PageDown preserve active stable ID. |
-| Reopen closed tab / Ctrl+Shift+T | `PLANNED` | 7C | Depends on bounded recently-closed state and privacy policy. |
-| Close left/right/others | `PLANNED` | 7C | Context commands must preserve active-session ownership and feed bounded recently closed state. |
+| Reopen closed tab / Ctrl+Shift+T | `COMPLETE` | 7C | Bounded 32-entry LIFO reopens with a fresh stable ID and restores complete session state. |
+| Close left/right/others | `COMPLETE` | 7C | Tab context commands preserve or deliberately transfer active ownership and feed bounded recently closed state. |
 | Foreground/background folder open | `COMPLETE` | 7B | List/grid menu and middle-click background open retain focus; foreground open restores the new tab. |
 | Optional tab names | `DEFERRED` | 7C | Add only after default path-derived naming is stable. |
 | Pinned tabs | `DEFERRED` | 7C | Requires clear session persistence and close semantics. |
@@ -691,7 +692,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | --- | --- | --- | --- |
 | Cross-filesystem move | `COMPLETE` | 6O | Synchronized staged copy, atomic no-replace publication, source identity revalidation, and conservative partial cleanup exist. Persistent interrupted-operation recovery remains Phase 18Y. |
 | Undo | `PLANNED` | 6P | Requires explicit operation-specific reversible semantics and current-state revalidation. |
-| Tabs/session restore | `PLANNED` | 7A-7C | Serializable reusable browser session; privacy-safe history policy before sensitive content persists. |
+| Tabs/session restore | `COMPLETE` | 7A-7C | Versioned bounded raw-path workspace restores live/closed state through private atomic storage; explicit Private/Sensitive policy suppresses owned traces. |
 | Split view | `PLANNED` | 7D-7F | Reusable navigation sessions and explicit active-pane ownership. |
 | Miller columns | `PLANNED` | 8A-8F | View-independent navigation, exact selection identity, bounded directory results. |
 | Quick Preview | `PLANNED` | 9A-9F | Existing thumbnails plus cancellable provider boundary designed for Phase 18L sandboxing. |

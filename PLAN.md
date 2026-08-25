@@ -1,37 +1,37 @@
-# Plan: Floe Phase 7B Tab interaction
+# Plan: Floe Phase 7C Closed tabs and session restore
 
 Mode: sequential solo phase, depth 4.
 
 ## Contract
 
-- Implement only live tab interaction over the Phase 7A `BrowserSession` model.
-  Do not add closed-tab retention, startup persistence, split view, detached
-  windows, or per-tab filesystem workers.
-- Keep one shared virtualized directory model, browser worker, thumbnail worker,
-  metadata worker, watcher, job manager, and operation surface. Switching tabs
-  swaps exact bounded session state and supersedes stale browser responses.
-- Provide accessible native tab controls for new, close, switch, duplicate,
-  reorder, foreground/background folder open, middle-click open/close, and
-  keyboard alternatives. Background opening must not steal focus.
-- Preserve exact `PathBuf` selection/history/scroll identity. Lossy path text is
-  display-only and never reconstructed into a path.
+- Extend the bounded live-tab state with recently closed tabs, reopen closed,
+  close-left/right/others, and `Ctrl+Shift+T`. Do not add split view, detached
+  tabs/windows, optional custom names, or pins.
+- Persist only the minimum versioned bounded browser workspace needed for normal
+  startup restore. Preserve raw non-UTF-8 paths; reject malformed, oversized,
+  duplicate-ID, empty, relative, and unsupported-version data.
+- Load and save outside GTK callbacks through a fixed-capacity application
+  worker. Use private directories/files and same-directory atomic replacement.
+- Centralize an explicit persistence policy. Private or Sensitive state must
+  suppress writes and remove Floe's session file; absence/corruption falls back
+  safely to one normal initial tab without overstating Private Mode.
 
 ## Depth tree
 
-1. GTK-independent live tab state
-   - Bounded stable-ID collection over `BrowserSession`.
-   - New, activate, duplicate, close, and deterministic reorder transitions.
-2. Shared-browser session wiring
-   - Capture active location/view/selection/scroll before transitions.
-   - Restore complete destination state through the existing one-worker load.
-3. Native tab interaction
-   - Compact labelled tab strip with active semantics, close controls, tooltips,
-     pointer reorder, middle click, context commands, and keyboard alternatives.
-   - Folder foreground/background tab actions in list and grid.
+1. Bounded workspace model and codec
+   - Recently closed LIFO cap, close variants, reopen with fresh stable ID.
+   - Active ordered sessions plus recently closed, version, limits, hostile input.
+2. Private atomic persistence worker
+   - Startup load, capacity-one clean-shutdown save, shutdown flush, 0700/0600,
+     no-follow reads, bounded bytes, atomic rename, explicit suppression.
+3. Runtime commands and lifecycle
+   - Ctrl+Shift+T and close-left/right/others in tab menus/actions.
+   - Restore valid workspace at activation; save final tab/session state on clean
+     shutdown without GTK filesystem I/O or background focus theft.
 4. Verification and handoff
-   - Focused core/application tests, formatting/check/strict Clippy/workspace tests,
-     native Wayland action/focus/lifecycle smoke, docs, and exactly Phase 7C next.
+   - Focused hostile-input/privacy/worker/UI tests, two-launch native Wayland
+     restore/action/lifecycle smoke, full gates/docs, and exactly Phase 7D next.
 
 ## Status
 
-COMPLETE — exactly one recommended next phase: `phase-7c-tab-session-restore`.
+COMPLETE — exactly one recommended next phase: `phase-7d-split-state`.

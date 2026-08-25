@@ -430,6 +430,13 @@ middle-click opens a folder in the background without moving focus. Tabs reuse
 one virtualized model and one bounded browser/thumbnail/metadata/watcher pipeline;
 they never clone widget trees or filesystem workers.
 
+Phase 7C adds Reopen Closed Tab (`Ctrl+Shift+T`) and tab-menu Close Left,
+Close Right, and Close Others. Recently closed state is LIFO and bounded rather
+than an unbounded history. A normal clean shutdown restores ordered live tabs,
+active tab, complete navigation/view state, and bounded closed tabs on the next
+launch. Missing or corrupt state quietly falls back to one normal tab. Optional
+custom tab names and pins remain deferred.
+
 ### Open without a default application
 
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.

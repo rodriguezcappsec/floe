@@ -43,6 +43,26 @@ fn session_restore_snapshot(session: &BrowserSession) -> ViewStateSnapshot {
 fn folder_tab_eligible(entries: &[Arc<DirectoryEntry>], trash_active: bool) -> bool {
     !trash_active && entries.len() == 1 && entries[0].is_navigable_directory()
 }
+
+fn tab_menu_item(label: &str, action: &str, id: BrowserSessionId) -> gio::MenuItem {
+    let item = gio::MenuItem::new(Some(label), None);
+    item.set_action_and_target_value(Some(action), Some(&id.get().to_variant()));
+    item
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TabCloseVariant {
+    Left,
+    Right,
+    Others,
+}
+
+const REOPEN_CLOSED_ACCELERATOR: &str = "<Control><Shift>t";
+const TAB_CLOSE_VARIANT_ACTIONS: [&str; 3] = [
+    "win.close-tabs-left",
+    "win.close-tabs-right",
+    "win.close-other-tabs",
+];
 use gtk::{gdk, gio, glib};
 
 use crate::{
@@ -69,6 +89,7 @@ use crate::{
         PreferenceSubmitError, PreferenceWorker, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
         SidebarDensity, ViewPreferences, clamp_sidebar_width,
     },
+    session_store::SessionStoreWorker,
     state::{ApplicationState, TransferIntent, validate_rename_name},
     storage::{
         StorageFacts, StorageRequest, StorageSubmitError, StorageTarget, StorageWorker,
@@ -174,6 +195,7 @@ pub struct BrowserServices {
     bookmarks: Option<BookmarkWorker>,
     devices: DeviceMonitor,
     preferences: Option<PreferenceWorker>,
+    session_store: Option<SessionStoreWorker>,
 }
 
 #[derive(Clone, Debug)]
@@ -183,6 +205,7 @@ struct PendingReconciliation {
 }
 
 impl BrowserServices {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         browser: BrowserWorker,
         thumbnails: Option<ThumbnailWorker>,
@@ -191,6 +214,7 @@ impl BrowserServices {
         bookmarks: Option<BookmarkWorker>,
         devices: DeviceMonitor,
         preferences: Option<PreferenceWorker>,
+        session_store: Option<SessionStoreWorker>,
     ) -> Self {
         Self {
             browser,
@@ -200,6 +224,7 @@ impl BrowserServices {
             bookmarks,
             devices,
             preferences,
+            session_store,
         }
     }
 }
@@ -236,6 +261,8 @@ pub struct BrowserController {
     file_density: Cell<FileViewDensity>,
     list_columns: Cell<crate::view::ListColumnLayout>,
     preference_worker: RefCell<Option<PreferenceWorker>>,
+    session_store: RefCell<Option<SessionStoreWorker>>,
+    session_saved: Cell<bool>,
     pending_preferences: Cell<Option<ViewPreferences>>,
     current_preferences: RefCell<ViewPreferences>,
     sidebar_save_source: RefCell<Option<glib::SourceId>>,
@@ -268,6 +295,7 @@ impl Drop for BrowserController {
             source.remove();
         }
         self.file_watcher.stop();
+        self.persist_session_for_shutdown();
         let Some(worker) = self.preference_worker.get_mut().as_ref() else {
             return;
         };
@@ -282,6 +310,7 @@ impl BrowserController {
     pub fn new(
         widgets: BrowserWidgets,
         initial_path: PathBuf,
+        restored_tabs: Option<BrowserTabs>,
         services: BrowserServices,
         view_preferences: ViewPreferences,
         application_state: Rc<ApplicationState>,
@@ -294,10 +323,14 @@ impl BrowserController {
             bookmarks,
             devices,
             preferences,
+            session_store,
         } = services;
-        let initial_view = view_preferences.effective_state(&initial_path);
-        let tabs = BrowserTabs::new(initial_path, initial_view)
-            .expect("the standard initial location is an absolute session path");
+        let fallback_view = view_preferences.effective_state(&initial_path);
+        let tabs = restored_tabs.unwrap_or_else(|| {
+            BrowserTabs::new(initial_path, fallback_view)
+                .expect("the standard initial location is an absolute session path")
+        });
+        let initial_view = tabs.active().current().view();
         Rc::new(Self {
             widgets,
             tabs: RefCell::new(tabs),
@@ -330,6 +363,8 @@ impl BrowserController {
             file_density: Cell::new(initial_view.density),
             list_columns: Cell::new(initial_view.columns),
             preference_worker: RefCell::new(preferences),
+            session_store: RefCell::new(session_store),
+            session_saved: Cell::new(false),
             pending_preferences: Cell::new(None),
             current_preferences: RefCell::new(view_preferences),
             sidebar_save_source: RefCell::new(None),
@@ -1134,6 +1169,22 @@ impl BrowserController {
         });
     }
 
+    pub fn persist_session_for_shutdown(&self) {
+        if self.session_saved.replace(true) {
+            return;
+        }
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        let replacement = BrowserTabs::new(PathBuf::from("/"), FolderViewState::default())
+            .expect("root is an absolute fallback session");
+        let workspace = self.tabs.replace(replacement);
+        if let Some(mut worker) = self.session_store.borrow_mut().take()
+            && let Err(error) = worker.save_before_shutdown(workspace)
+        {
+            tracing::warn!(%error, "could not submit final browser session");
+        }
+    }
+
     fn arm_sidebar_width_persistence(self: &Rc<Self>) {
         let controller = Rc::downgrade(self);
         glib::idle_add_local_once(move || {
@@ -1187,6 +1238,10 @@ impl BrowserController {
             let id = controller.tabs.borrow().active_id();
             controller.duplicate_tab(id);
         });
+        let reopen = self.add_action("reopen-closed-tab", |controller| {
+            controller.reopen_closed_tab();
+        });
+        reopen.set_enabled(self.tabs.borrow().can_reopen_closed());
         self.add_action("next-tab", |controller| controller.switch_relative_tab(1));
         self.add_action("previous-tab", |controller| {
             controller.switch_relative_tab(-1);
@@ -1197,6 +1252,15 @@ impl BrowserController {
         self.add_u64_action("close-tab", |controller, id| controller.close_tab(id));
         self.add_u64_action("duplicate-tab", |controller, id| {
             controller.duplicate_tab(id);
+        });
+        self.add_u64_action("close-tabs-left", |controller, id| {
+            controller.close_tab_variant(id, TabCloseVariant::Left);
+        });
+        self.add_u64_action("close-tabs-right", |controller, id| {
+            controller.close_tab_variant(id, TabCloseVariant::Right);
+        });
+        self.add_u64_action("close-other-tabs", |controller, id| {
+            controller.close_tab_variant(id, TabCloseVariant::Others);
         });
         let move_before = gio::SimpleAction::new(
             "move-tab-before",
@@ -1446,6 +1510,7 @@ impl BrowserController {
         application.set_accels_for_action("win.clear-selection", &["<Control><Shift>a"]);
         application.set_accels_for_action("win.new-tab", &["<Control>t"]);
         application.set_accels_for_action("win.close-tab-active", &["<Control>w"]);
+        application.set_accels_for_action("win.reopen-closed-tab", &[REOPEN_CLOSED_ACCELERATOR]);
         application.set_accels_for_action("win.next-tab", &["<Control>Tab"]);
         application.set_accels_for_action("win.previous-tab", &["<Control><Shift>Tab"]);
         application.set_accels_for_action("win.move-tab-left", &["<Control><Shift>Page_Up"]);
@@ -1635,6 +1700,57 @@ impl BrowserController {
             Ok(_) => self.render_tabs(),
             Err(error) => self.show_toast(&format!("Could not close tab: {error}"), 5),
         }
+        self.update_reopen_closed_action();
+    }
+
+    fn reopen_closed_tab(&self) {
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        let result = self.tabs.borrow_mut().reopen_closed();
+        match result {
+            Ok(_) => {
+                self.trash_active.set(false);
+                self.widgets.set_trash_mode(false);
+                self.refresh_paste_enabled();
+                self.restore_active_session();
+            }
+            Err(error) => self.show_toast(&format!("Could not reopen tab: {error}"), 5),
+        }
+        self.update_reopen_closed_action();
+    }
+
+    fn close_tab_variant(&self, id: BrowserSessionId, variant: TabCloseVariant) {
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        let previous_active = self.tabs.borrow().active_id();
+        let result = match variant {
+            TabCloseVariant::Left => self.tabs.borrow_mut().close_left_of(id),
+            TabCloseVariant::Right => self.tabs.borrow_mut().close_right_of(id),
+            TabCloseVariant::Others => self.tabs.borrow_mut().close_others(id),
+        };
+        match result {
+            Ok(0) => {}
+            Ok(_) if self.tabs.borrow().active_id() != previous_active => {
+                self.trash_active.set(false);
+                self.widgets.set_trash_mode(false);
+                self.refresh_paste_enabled();
+                self.restore_active_session();
+            }
+            Ok(_) => self.render_tabs(),
+            Err(error) => self.show_toast(&format!("Could not close tabs: {error}"), 5),
+        }
+        self.update_reopen_closed_action();
+    }
+
+    fn update_reopen_closed_action(&self) {
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("reopen-closed-tab")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(self.tabs.borrow().can_reopen_closed());
+        }
     }
 
     fn move_tab_before(&self, source: u64, target: u64) {
@@ -1732,6 +1848,43 @@ impl BrowserController {
                     .is_ok()
             });
             row.add_controller(drop);
+
+            let menu = gio::Menu::new();
+            menu.append_item(&tab_menu_item("Duplicate Tab", "win.duplicate-tab", id));
+            menu.append_item(&tab_menu_item("Close Tab", "win.close-tab", id));
+            let variants = gio::Menu::new();
+            variants.append_item(&tab_menu_item(
+                "Close Tabs to the Left",
+                TAB_CLOSE_VARIANT_ACTIONS[0],
+                id,
+            ));
+            variants.append_item(&tab_menu_item(
+                "Close Tabs to the Right",
+                TAB_CLOSE_VARIANT_ACTIONS[1],
+                id,
+            ));
+            variants.append_item(&tab_menu_item(
+                "Close Other Tabs",
+                TAB_CLOSE_VARIANT_ACTIONS[2],
+                id,
+            ));
+            menu.append_section(None, &variants);
+            let popover = gtk::PopoverMenu::from_model(Some(&menu));
+            popover.set_has_arrow(false);
+            popover.set_parent(&row);
+            let context = gtk::GestureClick::new();
+            context.set_button(gdk::BUTTON_SECONDARY);
+            context.connect_pressed(move |gesture, _, x, y| {
+                popover.set_pointing_to(Some(&gdk::Rectangle::new(
+                    x.round() as i32,
+                    y.round() as i32,
+                    1,
+                    1,
+                )));
+                popover.popup();
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+            });
+            row.add_controller(context);
 
             let close = gtk::Button::builder()
                 .icon_name("window-close-symbolic")
@@ -4244,6 +4397,21 @@ mod tests {
         assert!(!folder_tab_eligible(&[folder], true));
         assert!(!folder_tab_eligible(&[file], false));
         assert!(!folder_tab_eligible(&entries, false));
+    }
+
+    #[test]
+    fn phase_7c_tab_actions_expose_reopen_and_all_close_variants() {
+        assert_eq!(REOPEN_CLOSED_ACCELERATOR, "<Control><Shift>t");
+        assert_eq!(
+            TAB_CLOSE_VARIANT_ACTIONS,
+            [
+                "win.close-tabs-left",
+                "win.close-tabs-right",
+                "win.close-other-tabs"
+            ]
+        );
+        assert_ne!(TabCloseVariant::Left, TabCloseVariant::Right);
+        assert_ne!(TabCloseVariant::Others, TabCloseVariant::Left);
     }
 
     #[test]
