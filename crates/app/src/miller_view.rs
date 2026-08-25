@@ -21,6 +21,7 @@ use crate::{
         install_drop_target_with_hover,
     },
     miller_detail::{MillerDetailPresentation, MillerDetailState, MillerDetailSurface},
+    preview::PreviewContent,
     view::MillerColumnWidth,
 };
 
@@ -422,6 +423,73 @@ impl MillerView {
             .margin_top(12)
             .build();
         message.add_css_class("dim-label");
+
+        let provided_content = match state {
+            MillerDetailState::Provided { payload, .. } => match &payload.content {
+                PreviewContent::Image {
+                    width,
+                    height,
+                    rowstride,
+                    rgba,
+                    ..
+                } => {
+                    let Ok(width) = i32::try_from(*width) else {
+                        return self.build_unavailable_detail_column(
+                            state,
+                            "Image dimensions exceed GTK limits.",
+                        );
+                    };
+                    let Ok(height) = i32::try_from(*height) else {
+                        return self.build_unavailable_detail_column(
+                            state,
+                            "Image dimensions exceed GTK limits.",
+                        );
+                    };
+                    let bytes = glib::Bytes::from_owned(Arc::clone(rgba));
+                    let texture = gtk::gdk::MemoryTexture::new(
+                        width,
+                        height,
+                        gtk::gdk::MemoryFormat::R8g8b8a8,
+                        &bytes,
+                        *rowstride,
+                    );
+                    let picture = gtk::Picture::for_paintable(&texture);
+                    picture.set_can_shrink(true);
+                    picture.set_content_fit(gtk::ContentFit::Contain);
+                    picture.set_margin_top(12);
+                    picture.set_margin_start(10);
+                    picture.set_margin_end(10);
+                    picture.set_accessible_role(gtk::AccessibleRole::Img);
+                    picture.upcast::<gtk::Widget>()
+                }
+                PreviewContent::Text { text, .. } => {
+                    let buffer = gtk::TextBuffer::new(None);
+                    buffer.set_text(text);
+                    let text_view = gtk::TextView::with_buffer(&buffer);
+                    text_view.set_editable(false);
+                    text_view.set_cursor_visible(true);
+                    text_view.set_monospace(true);
+                    text_view.set_wrap_mode(gtk::WrapMode::None);
+                    text_view.set_left_margin(10);
+                    text_view.set_right_margin(10);
+                    text_view.update_property(&[gtk::accessible::Property::Description(
+                        "Selectable passive source preview. File content is not executed.",
+                    )]);
+                    let scroller = gtk::ScrolledWindow::builder()
+                        .hscrollbar_policy(gtk::PolicyType::Automatic)
+                        .vscrollbar_policy(gtk::PolicyType::Automatic)
+                        .min_content_height(280)
+                        .margin_top(10)
+                        .margin_start(8)
+                        .margin_end(8)
+                        .child(&text_view)
+                        .build();
+                    scroller.upcast::<gtk::Widget>()
+                }
+                PreviewContent::None => icon.clone().upcast::<gtk::Widget>(),
+            },
+            _ => icon.clone().upcast::<gtk::Widget>(),
+        };
         let close = gtk::Button::with_label("Close Details");
         close.set_halign(gtk::Align::Center);
         close.set_margin_top(18);
@@ -433,7 +501,7 @@ impl MillerView {
             .orientation(gtk::Orientation::Vertical)
             .vexpand(true)
             .build();
-        content.append(&icon);
+        content.append(&provided_content);
         content.append(&message);
         content.append(&close);
 
@@ -451,6 +519,36 @@ impl MillerView {
         shell.append(&heading);
         shell.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         shell.append(&content);
+        shell
+    }
+
+    fn build_unavailable_detail_column(&self, state: &MillerDetailState, reason: &str) -> gtk::Box {
+        let shell = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        shell.set_width_request(i32::from(self.width.get().get()));
+        shell.add_css_class("floe-panel");
+        shell.add_css_class("floe-miller-column");
+        shell.add_css_class("floe-miller-detail-column");
+        let heading = gtk::Label::builder()
+            .label(
+                state
+                    .surface()
+                    .map_or("Details", MillerDetailSurface::title),
+            )
+            .xalign(0.0)
+            .margin_start(12)
+            .margin_top(10)
+            .build();
+        heading.add_css_class("heading");
+        let message = gtk::Label::builder()
+            .label(reason)
+            .wrap(true)
+            .margin_start(18)
+            .margin_end(18)
+            .margin_top(18)
+            .build();
+        shell.append(&heading);
+        shell.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        shell.append(&message);
         shell
     }
 

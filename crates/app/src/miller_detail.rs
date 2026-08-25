@@ -55,6 +55,10 @@ pub enum MillerDetailState {
         target: MillerDetailTarget,
         request_generation: u64,
     },
+    Provided {
+        target: MillerDetailTarget,
+        payload: crate::preview::PreviewPayload,
+    },
     Unsupported {
         surface: MillerDetailSurface,
         reason: &'static str,
@@ -73,6 +77,10 @@ impl MillerDetailState {
             | Self::Unsupported { surface, .. }
             | Self::Failed { surface, .. }
             | Self::Loading {
+                target: MillerDetailTarget { surface, .. },
+                ..
+            }
+            | Self::Provided {
                 target: MillerDetailTarget { surface, .. },
                 ..
             }
@@ -132,6 +140,32 @@ impl From<&MillerDetailState> for MillerDetailPresentation {
                 message: "Loading Preview…".to_owned(),
                 accessible_description:
                     "Quick Preview is loading in a bounded background provider.".to_owned(),
+            },
+            MillerDetailState::Provided { target, payload } => Self {
+                title: target.surface().title(),
+                message: match &payload.content {
+                    crate::preview::PreviewContent::Image {
+                        width,
+                        height,
+                        first_frame_only,
+                        ..
+                    } => format!(
+                        "Image preview, {width} by {height} pixels{}.",
+                        if *first_frame_only {
+                            ", first frame"
+                        } else {
+                            ""
+                        }
+                    ),
+                    crate::preview::PreviewContent::Text { format, .. } => {
+                        format!("Passive {format:?} source preview.")
+                    }
+                    crate::preview::PreviewContent::None => "Preview is ready.".to_owned(),
+                },
+                accessible_description: format!(
+                    "Quick Preview loaded by {} without executing file content.",
+                    payload.provider_id
+                ),
             },
             MillerDetailState::Unsupported { surface, reason } => Self {
                 title: surface.title(),
@@ -193,7 +227,10 @@ impl MillerDetailHooks {
         }
         let surface = target.surface;
         self.state = match outcome {
-            crate::preview::PreviewOutcome::Ready(_) => MillerDetailState::Ready(target.clone()),
+            crate::preview::PreviewOutcome::Ready(payload) => MillerDetailState::Provided {
+                target: target.clone(),
+                payload,
+            },
             crate::preview::PreviewOutcome::Unsupported => MillerDetailState::Unsupported {
                 surface,
                 reason: "No Preview provider is available for this file type yet.",
@@ -297,9 +334,9 @@ impl MillerDetailHooks {
             .map(|entry| entry.path().to_path_buf())
             .collect::<Vec<_>>();
         let current = match &self.state {
-            MillerDetailState::Ready(target) | MillerDetailState::Loading { target, .. } => {
-                Some(target)
-            }
+            MillerDetailState::Ready(target)
+            | MillerDetailState::Loading { target, .. }
+            | MillerDetailState::Provided { target, .. } => Some(target),
             _ => None,
         };
         if current.is_some_and(|current| {
@@ -436,5 +473,51 @@ mod tests {
                 .message
                 .contains("No Preview provider")
         );
+    }
+
+    #[test]
+    fn phase_9b_presentation_retains_only_matching_passive_payload() {
+        let (root, entries, _) = fixture_entries();
+        let mut hooks = MillerDetailHooks::default();
+        hooks.toggle(
+            MillerDetailSurface::Preview,
+            Some(1),
+            root.path().to_path_buf(),
+            &entries,
+        );
+        assert!(hooks.begin_preview_loading(22));
+        let payload = crate::preview::PreviewPayload {
+            provider_id: "floe.text",
+            kind: crate::preview::PreviewKind::Text,
+            content: crate::preview::PreviewContent::Text {
+                text: Arc::from("selectable inert source"),
+                format: crate::preview::PreviewTextFormat::Plain,
+            },
+        };
+        assert!(!hooks.finish_preview(21, crate::preview::PreviewOutcome::Ready(payload.clone())));
+        assert!(matches!(hooks.state(), MillerDetailState::Loading { .. }));
+        assert!(hooks.finish_preview(22, crate::preview::PreviewOutcome::Ready(payload)));
+        assert!(matches!(
+            hooks.state(),
+            MillerDetailState::Provided {
+                payload: crate::preview::PreviewPayload {
+                    content: crate::preview::PreviewContent::Text { .. },
+                    ..
+                },
+                ..
+            }
+        ));
+        let presentation = MillerDetailPresentation::from(hooks.state());
+        assert!(presentation.message.contains("Passive Plain source"));
+        assert!(
+            presentation
+                .accessible_description
+                .contains("without executing")
+        );
+
+        hooks.refresh(Some(1), root.path().to_path_buf(), &entries);
+        assert!(matches!(hooks.state(), MillerDetailState::Provided { .. }));
+        hooks.refresh(Some(1), root.path().to_path_buf(), &[]);
+        assert!(matches!(hooks.state(), MillerDetailState::Empty { .. }));
     }
 }
