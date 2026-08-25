@@ -1160,12 +1160,23 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — Browser filesystem foundations (Phase 6R complete)
+Phase 6 — Browser filesystem foundations (Phase 6S complete)
 ```
 
 Status:
 
 ```text
+Phase 6S adds one application-owned non-recursive GIO monitor for the active
+successful local listing. One cancellable 140 ms source deduplicates bursts with
+explicit caps of 16,384 events, 4,096 paths, and 1,024 rename pairs; overflow
+causes one conservative reconciliation. Current generation/directory checks
+discard stale callbacks. Each accepted batch submits one superseding existing
+directory-worker enumeration. Exact selection and a stable path/index scroll
+anchor are reconciled in linear time, including bounded rename chains, and
+restored after 256-entry GTK model insertion. Monitor callbacks do no filesystem
+enumeration or mutation, logs contain aggregate counts rather than paths, and no
+integrity-monitoring claim is made.
+
 Phase 6R adds exact-path internal and external local-file drag-and-drop to the
 virtualized list and grid. Folder rows, directory backgrounds, Places,
 bookmarks, navigable mounted devices, and Trash resolve authoritative
@@ -1401,17 +1412,23 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6R is complete. The one recommended next branch is
-`phase-6s-file-watching`, adding bounded external-change monitoring, burst
-coalescing, efficient exact-path reconciliation, and selection/scroll
-preservation without claiming integrity monitoring.
+Phase 6S is complete. The one recommended next branch is
+`phase-6t-browser-completeness`, adding lazy metadata, richer sorting/grouping
+and columns, density/per-folder view behavior, and status/device detail without
+eager metadata storms.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-271 tests pass: sixty-three core and 208 application tests. Six focused Phase 6R
+277 tests pass: sixty-three core and 214 application tests. Six focused Phase 6S
+tests cover monitor replacement/stop, bounded storm coalescing, common and raw
+rename event mapping, stale dispatch rejection, 100k-path selection/anchor
+reconciliation, and recoverable failure wording. Native Wayland smoke observed
+one coalesced two-create batch, exact rename pair, delete reconciliation, 42
+exported actions, D-Bus `Peer.Ping`, clean quit, and application-name release.
+Six focused Phase 6R
 tests cover raw-path/self-nesting policy, local/non-local payload decoding,
 FIFO copy/move/link state routing, exact destination planning, bounded edge
 motion, and non-color-only feedback. Native Wayland smoke exported 42 window
@@ -1633,6 +1650,12 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 6S file watching on `phase-6s-file-watching`.
+* Added one active GIO monitor, bounded aggregate-only event coalescing, stale
+  generation rejection, and one existing worker enumeration per accepted batch.
+* Added linear exact selection/rename/scroll-anchor reconciliation, including a
+  focused 100k-path case and manual/job refresh preservation.
+* Verified 277 tests and a native Wayland external create/rename/delete cycle.
 * Completed Phase 6R drag-and-drop on `phase-6r-drag-drop`.
 * Added exact selected-path GDK file-list sources and local-only external drop
   decoding for list/grid, folder/background, Places/bookmarks/devices, and Trash.
@@ -1903,10 +1926,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-6s-file-watching` and add bounded external-change monitoring with
-burst coalescing, efficient exact-path reconciliation, and selection/scroll
-preservation across create, delete, and rename. Do not claim integrity monitoring
-and do not rebuild the GTK model for every low-level event.
+Create `phase-6t-browser-completeness` and add lazy metadata, richer
+sorting/grouping and columns, density/per-folder view behavior, and status/device
+detail. Do not eagerly enrich large directories or destabilize selection/order
+during asynchronous metadata arrival.
 ```
 
 ---

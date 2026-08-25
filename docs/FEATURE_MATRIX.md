@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 6R. Phase 6S is the only
+The implementation baseline for this matrix is Phase 6S. Phase 6T is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -54,10 +54,10 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Copy URI | `PARTIAL` | 6Q/11A/14 | Exact local file paths, including non-UTF-8 bytes, become percent-encoded `file://` URIs; non-local location URIs await Phase 14. |
 | Hidden-file visibility | `COMPLETE` | 1 | Ctrl+H/action filtering preserves underlying entries; persistent/per-folder policy remains settings work. |
 | Refresh current directory | `COMPLETE` | 1/6J | Background context action reloads through the browser worker. |
-| External filesystem-change detection | `PLANNED` | 6S | Needs a bounded watcher, burst coalescing, reconciliation, and deletion/rename recovery. |
+| External filesystem-change detection | `COMPLETE` | 6S | One active non-recursive GIO monitor coalesces bounded bursts and submits one superseding worker enumeration per accepted batch. |
 | Inaccessible directory feedback | `COMPLETE` | 1 | Structured directory errors leave the application usable and surface understandable feedback. |
 | Inaccessible individual-file handling | `PARTIAL` | 1-6K2 | Existing operations and thumbnail workers fail safely; richer per-entry status belongs in Inspector/status work. |
-| Disappearing-file handling | `PARTIAL` | 1-6K2 | Workers report missing/stale sources without reconstructing paths; live-view reconciliation awaits file watching. |
+| Disappearing-file handling | `COMPLETE` | 1-6S | Workers report missing/stale sources and live reconciliation removes vanished exact identities without reconstructing paths. |
 | Root browsing | `COMPLETE` | 6H | The editable absolute location entry can navigate to `/` through the browser worker. |
 | Filesystem properties | `PLANNED` | 10C | General, filesystem, mount, capacity, and read-only information remain absent. |
 | File owner/group editing | `PLANNED` | 10D | Requires explicit authorization, validation, and recursive-operation design. |
@@ -172,8 +172,8 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | CLI path opening | `PLANNED` | 14 | Requires validated command-line/GApplication routing for file and folder targets. |
 | Reveal file in folder | `PLANNED` | 7A/14 | Needs navigation plus exact post-load selection and scroll restoration. |
 | Restore selection after sorting | `COMPLETE` | 6B/6J | Every selected entry is restored by exact `PathBuf`, including colliding lossy names. |
-| Restore selection after refresh | `PLANNED` | 6S | Depends on watcher/reload reconciliation rather than a row index. |
-| Restore scroll after refresh | `PLANNED` | 6S | Must use a stable anchor identity in virtualized views. |
+| Restore selection after refresh | `COMPLETE` | 6S | Manual/job/watcher refresh reconciles exact selected paths and translates bounded rename chains. |
+| Restore scroll after refresh | `COMPLETE` | 6S | A stable exact path plus index fallback restores the virtualized view only after 256-entry insertion completes. |
 | Back restores prior selection | `PLANNED` | 7A | Depends on per-navigation-session view state. |
 | Back restores prior scroll | `PLANNED` | 7A | Depends on serializable per-history-entry anchors. |
 | Keyboard-accessible breadcrumbs | `PLANNED` | 7/20 | Required when breadcrumb segments are introduced. |
@@ -647,11 +647,11 @@ These small behaviors are acceptance requirements, not optional polish.
 | F2 starts rename | `COMPLETE` | 4D | Current dialog opens from shortcut/action. |
 | Rename selects name without extension | `PLANNED` | 12C/20 | Default selection excludes extension; an easy full-name selection remains available. |
 | Escape cancels rename / Enter confirms | `COMPLETE` | 4D | Focused validated dialog follows conventional response behavior. |
-| Selected state survives rename | `PLANNED` | 6S | Refresh must reselect the exact destination identity. |
-| Renamed item remains visible | `PLANNED` | 6S | Restore selection and the scroll anchor after completion. |
+| Selected state survives rename | `COMPLETE` | 6S | Exact watcher rename pairs translate the selected identity before refreshed model installation. |
+| Renamed item remains visible | `COMPLETE` | 6S | Exact watcher rename pairs translate selected and anchored identities before the refreshed model is installed. |
 | New Folder enters rename | `PLANNED` | 6Q/12D | Creation succeeds first; the exact new directory is then selected for naming. |
-| Selection survives refresh | `PLANNED` | 6S | Use exact-path reconciliation, including disappearance handling. |
-| Scroll survives refresh | `PLANNED` | 6S | Use a virtualized identity anchor, not a row index. |
+| Selection survives refresh | `COMPLETE` | 6S | Exact-path reconciliation preserves surviving items and drops disappeared identities. |
+| Scroll survives refresh | `COMPLETE` | 6S | Stable anchor identity is preferred with a clamped prior-index fallback when the anchor disappears. |
 | Back restores item and scroll | `PLANNED` | 7A | Stored per history entry in navigation session. |
 | Human-readable list size | `COMPLETE` | 6A | Decimal formatting supports values through exabytes. |
 | Exact bytes in details | `PLANNED` | 10C | Inspector/Properties show both exact and human-readable values. |
@@ -674,7 +674,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Hidden/filter/search mode obvious | `PARTIAL` | 1/13A/20 | Hidden toggle has state; filter/search modes are not implemented. |
 | Active pane/tab obvious | `PLANNED` | 7B/7E | Non-color-only state and predictable focus. |
 | Private/vault/sandbox status obvious | `PLANNED` | 18H/18K/18M | Text/icon/accessibility state, never color alone. |
-| Watcher storms coalesced | `PLANNED` | 6S | Mandatory for external-change detection and the later integrity-monitoring foundation. |
+| Watcher storms coalesced | `COMPLETE` | 6S | One 140 ms cancellable timer deduplicates paths and caps 16,384 events, 4,096 paths, and 1,024 rename pairs before conservative overflow reconciliation. |
 | Context menus selection-aware | `COMPLETE` | 6J | Existing multi-selection is preserved when appropriate. |
 | Upgrades preserve settings | `PARTIAL` | 6D/6K2/20 | View preference parser is backward compatible; full migration framework remains. |
 | Shortcut discoverability | `PARTIAL` | 0-6K2/11C | Tooltips/menu labels expose current shortcuts; centralized discovery is planned. |

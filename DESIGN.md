@@ -263,6 +263,14 @@ action-and-destination status text, and accessible descriptions communicate the
 drop state without color alone. Folder hover-open waits 720 ms and cancels on
 leave/drop; bounded edge autoscroll keeps virtualized views responsive.
 
+Phase 6S keeps successful local directory views live without a visible polling
+mode or disruptive per-event redraw. External changes are coalesced, then the
+existing loading pipeline reconciles once. Surviving exact selections and a
+stable scroll anchor remain in place; exact rename pairs follow the renamed item,
+while deleted identities disappear normally. Manual Refresh and operation-driven
+refresh use the same preservation policy. Monitor failure leaves browsing usable
+and gives a clear “use Refresh” recovery message.
+
 ### Trash job foundation
 
 Phase 4E adds the application-owned backend contract for moving one original

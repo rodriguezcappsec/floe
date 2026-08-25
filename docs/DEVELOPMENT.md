@@ -316,8 +316,24 @@ cargo test -p floe-app phase_6r_accessibility -- --nocapture
 
 Native Wayland smoke verifies the D-Bus owner, 42 exported window actions,
 healthy list/grid/sidebar/Trash targets, `Peer.Ping`, clean quit, and application
-name release. After verified Phase 6R, continue only on
-`phase-6s-file-watching`.
+name release.
+
+Phase 6S also adds no dependency. Focused checks are:
+
+```bash
+cargo test -p floe-app phase_6s_monitor -- --nocapture
+cargo test -p floe-app phase_6s_coalescer -- --nocapture
+cargo test -p floe-app phase_6s_events -- --nocapture
+cargo test -p floe-app phase_6s_dispatch -- --nocapture
+cargo test -p floe-app phase_6s_reconcile -- --nocapture
+cargo test -p floe-app phase_6s_failure -- --nocapture
+```
+
+The native Wayland smoke uses isolated HOME/XDG roots and performs an external
+two-file create burst, rename, and delete. Logs confirm one coalesced reload per
+burst without recording paths; D-Bus health, 42 actions, clean quit, and name
+release remain intact. After verified Phase 6S, continue only on
+`phase-6t-browser-completeness`.
 
 ## Wayland environments
 

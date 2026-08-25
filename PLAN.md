@@ -1,45 +1,44 @@
-# Plan: Floe Phase 6R Drag and drop
+# Plan: Floe Phase 6S File watching
 
 Mode: sequential solo phase, depth 4.
 
 ## Contract
 
-- `floe-core` owns GTK-independent exact-path drag payload, destination, and requested-action policy where domain validation is useful.
-- The application layer maps accepted drops onto existing bounded copy, move, symbolic-link, and Trash jobs. GTK callbacks never mutate or inspect the filesystem.
-- Internal drags preserve every selected original `PathBuf`; external drops accept standards-based local file lists without reconstructing paths from display text.
-- List/grid folder rows, directory background, eligible Places/bookmarks/devices, and Trash are explicit targets. Unsupported or unavailable targets reject the drop.
-- Copy, move, and link actions are explicit; the negotiated action is surfaced before commit and no path may be overwritten implicitly.
-- Hover-open and edge autoscroll use one bounded cancellable timer per active drag and are cancelled on leave/drop/navigation.
-- Drop eligibility and destination feedback use native accessible labels/status text plus visual styling; color is never the only signal.
-- Existing Copy/Cut/Paste, context-menu, and keyboard commands remain complete non-drag alternatives.
-- Phase 6S file watching remains out of scope until Phase 6R is verified, pushed, and merged.
+- The application layer owns one GIO directory monitor for the active local browser location; the core filesystem crate remains GTK/GIO independent.
+- Monitor callbacks only normalize exact local paths into a bounded coalescer. They never enumerate, inspect, or mutate filesystem content on the GTK thread.
+- One cancellable coalescing timer collapses duplicate/burst events into a typed batch with capped changed paths and rename pairs; overflow requests one conservative reconciliation.
+- Each accepted batch submits at most one superseding enumeration through the existing `BrowserWorker`, never one model rebuild per low-level event.
+- A browser snapshot preserves exact selected paths and a stable scroll-anchor identity/index. Rename pairs translate identities; deleted items disappear cleanly; new items do not disturb surviving state.
+- Reconciliation remains linear and bounded for 100k-entry locations, ignores stale generations/old directories, and keeps inaccessible/deleted-directory failures recoverable.
+- Trash multi-root watching, recursive integrity monitoring, persistent baselines, and Phase 6T metadata/browser-completeness work remain out of scope.
 
 ## Depth tree
 
-1. Drag domain policy
-   - Model exact internal/external sources, destination kinds, and requested action.
-   - Validate duplicate/self/descendant/Trash/link cases without lossy path reconstruction.
-2. Application operation routing
-   - Add FIFO batch submission for copy, move, link, and Trash drops.
-   - Reuse existing conflict, progress, pause/cancel, retry, and refresh semantics.
-3. GTK interaction
-   - Install drag sources on virtualized list/grid views.
-   - Install directory-row/background, sidebar, bookmark, device, and Trash targets.
-   - Add hover-open, autoscroll, action negotiation, and accessible drop feedback.
+1. Monitor and coalescer
+   - Add one active GIO monitor with explicit lifecycle and structured start failures.
+   - Normalize event kinds, exact paths, rename pairs, caps, and one-shot debounce.
+2. Reconciliation policy
+   - Snapshot selection and scroll anchor before watcher refresh.
+   - Reconcile exact identities and rename mappings against the new listing in O(n).
+3. Browser integration
+   - Stop stale monitors on navigation and restart only after successful local listings.
+   - Submit one existing worker enumeration per coalesced batch and restore view state after batched model insertion.
 4. Verification and records
-   - Add focused domain, state, and UI-policy tests.
-   - Run formatting, check, strict Clippy, workspace tests, diff hygiene, and native Wayland drag-action smoke.
-   - Update persistent docs to mark 6R complete and exactly 6S next.
+   - Cover storms, duplicate events, create/delete/rename, stale generations, and 100k paths.
+   - Run formatting, check, strict Clippy, workspace tests, diff hygiene, and native Wayland external-change smoke.
+   - Update persistent docs to mark 6S complete and exactly 6T next.
 
 ## Status log
 
-- 2026-08-24: Created `phase-6r-drag-drop` from verified Phase 6Q `main` at `1693c1a`.
-- 2026-08-24: Read project instructions and inspected the roadmap/matrix, operation state, directory worker, list/grid virtualization, sidebar/device rendering, GTK dependencies, and accessibility guidance.
-- 2026-08-24: Defined the Phase 6R contract and executable gates before implementation.
-- 2026-08-24: Implemented exact GDK file-list sources/destinations, FIFO copy/move/link/Trash routing, recycled row and sidebar targets, hover-open, edge autoscroll, and accessible drop feedback.
-- 2026-08-24: Formatting, workspace check, strict Clippy, 271 tests, diff hygiene, and native Wayland 42-action/health/clean-quit smoke passed.
-- 2026-08-24: Updated persistent records to mark Phase 6R complete and exactly Phase 6S next.
+- 2026-08-24: Fast-forwarded verified Phase 6R commit `b6cc228` into `main` and pushed both branch and main.
+- 2026-08-24: Created `phase-6s-file-watching` from clean synchronized `main`.
+- 2026-08-24: Read the Phase 6S roadmap/matrix and inspected BrowserWorker supersession, listing/model batching, exact selection state, GTK scroll APIs, and existing GIO dependency.
+- 2026-08-24: Selected GIO directory monitoring over a new crate under the project's standards-first integration priority and defined executable gates before coding.
+- 2026-08-24: Implemented one active monitor, capped one-shot coalescing, exact event/rename mapping, stale-generation rejection, and one worker reload per accepted batch.
+- 2026-08-24: Added exact selection plus stable path/index scroll-anchor reconciliation for watcher, manual, and operation refresh, including bounded rename chains and a 100k-path test.
+- 2026-08-24: Formatting, workspace check, strict Clippy, 277 tests, diff hygiene, and isolated native Wayland create/rename/delete smoke passed.
+- 2026-08-24: Updated persistent records to mark Phase 6S complete and exactly Phase 6T next.
 
 ## Status
 
-COMPLETE — next: `phase-6s-file-watching`
+COMPLETE — next: `phase-6t-browser-completeness`
