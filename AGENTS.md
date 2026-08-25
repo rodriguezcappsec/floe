@@ -1176,12 +1176,14 @@ Last updated:
 Current phase:
 
 ```text
-Phase 10 — Inspector and properties (Phase 10C complete)
+Phase 10 — Inspector, properties, and metadata (Phase 10D complete)
 ```
 
 Status:
 
 ```text
+Phase 10D adds explicit Unix permission editing from Properties for exact selected local entries. Typed requests accept separate file/directory octal modes, executable-file enable/disable, numeric UID/GID values, and validated local owner/group names. A capacity-4 application-owned executor resolves local names off GTK, performs whole-request no-follow preflight capped at 250,000 entries and depth 1,024, refuses roots and mount crossings, revalidates device/inode identity, reports pre-commit cancellation separately from committed partial failure, and refreshes affected parents through Operations feedback. Recursive and ownership changes require explicit acknowledgement. Symbolic links are never followed; ACLs, xattrs, capabilities, immutable flags, checksums, password collection, and whole-process elevation remain out of scope.
+
 Phase 10C adds native read-only Properties through Alt+Enter, file/Trash/header
 menus, and an accessible dialog. One capacity-8 generation-superseding worker
 reuses Phase 10B exact metadata, queries containing GIO filesystem/mount facts,
@@ -1646,7 +1648,7 @@ Established product decisions:
 * Miller/column navigation is intended to become a major differentiating feature.
 * Strong keyboard navigation is a major goal.
 * Quick Preview is planned.
-* Inspector foundation is complete; rich metadata and property editing are planned.
+* Inspector, read-only Properties, and Unix permission editing are complete; checksums and advanced metadata remain planned.
 * Command palette is planned.
 * A floating operations island is planned.
 * Niri IPC integration is planned for a later phase.
@@ -1655,14 +1657,16 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 10C is complete. The one recommended next branch is
-`phase-10d-permissions`, adding explicit executable/mode and owner/group editing
-with recursive preflight and partial-failure reporting, never whole-process root.
+Phase 10D is complete. The one recommended next branch is
+`phase-10e-checksums`, adding bounded SHA-256/SHA-512 and clearly legacy-labelled
+MD5 calculation plus expected-digest verification without authenticity claims.
 ```
 
 Verified:
 
 ```text
+Phase 10D passes focused typed-request, direct/recursive executor, local-name resolution, application-state lifecycle, and permission-editor validation tests; formatting, workspace check, strict all-target/all-feature Clippy, full workspace tests, native build, and diff hygiene. Native Wayland smoke selected an isolated fixture, opened Properties and Edit Permissions through exported/accessibility actions, exposed the risk controls, reported empty-input validation, applied mode 0600 only to the temporary file, exercised Cancel, answered D-Bus Ping, retained focus state, quit cleanly, and released the application name. Only the documented host RADV/Vulkan warnings appeared.
+
 Phase 10C passes focused Properties model/filesystem/UI tests, formatting,
 workspace check, strict all-target/all-feature Clippy, full workspace tests,
 native build, diff hygiene, and native Wayland Properties action/dialog health.
@@ -2337,9 +2341,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-10d-permissions` and implement explicit executable/mode and
-owner/group editing with recursive preflight and partial-failure reporting.
-Do not elevate the whole Floe process or add Phase 10E checksums.
+Create `phase-10e-checksums` and implement bounded cancellable SHA-256/SHA-512,
+clearly legacy-labelled MD5, and expected-digest verification. Do not claim
+authenticity or add Phase 10F advanced metadata.
 ```
 
 ---

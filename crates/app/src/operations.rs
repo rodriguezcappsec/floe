@@ -295,16 +295,22 @@ impl OperationController {
             .set(self.visibility_generation.get().wrapping_add(1));
         self.visible_job.set(Some(job_id));
         let request = self.request(job_id);
-        self.widgets
-            .operation_label
-            .set_label(&operation_title(request.as_ref()));
+        let permission_operation = self.state.is_permission_operation(job_id);
+        let title = if permission_operation {
+            "Changing permissions".to_owned()
+        } else {
+            operation_title(request.as_ref())
+        };
+        self.widgets.operation_label.set_label(&title);
         self.widgets.operation_detail.set_label(detail);
+        let cancel_tooltip = if permission_operation {
+            "Cancel permission change".to_owned()
+        } else {
+            format!("Cancel {}", operation_verb(request.as_ref()).to_lowercase())
+        };
         self.widgets
             .operation_cancel
-            .set_tooltip_text(Some(&format!(
-                "Cancel {}",
-                operation_verb(request.as_ref()).to_lowercase()
-            )));
+            .set_tooltip_text(Some(&cancel_tooltip));
         self.widgets.operation_cancel.set_sensitive(true);
         self.update_batch_controls(job_id);
         match fraction {
@@ -332,6 +338,8 @@ impl OperationController {
             job_id,
             outcome,
         ));
+        let permission_operation = self.state.is_permission_operation(job_id);
+        let permission_directories = self.state.permission_affected_directories(job_id);
         let request = self.state.finish_operation(job_id, outcome);
         let conflict_pending =
             outcome == TerminalOutcome::Conflict && self.state.pending_conflict(job_id).is_ok();
@@ -341,6 +349,9 @@ impl OperationController {
 
         match result {
             TerminalResult::Completed => {
+                for directory in &permission_directories {
+                    (self.on_operation_completed)(directory);
+                }
                 if let Some(request) = request.as_ref() {
                     for directory in request.affected_directories() {
                         (self.on_operation_completed)(&directory);
@@ -348,23 +359,40 @@ impl OperationController {
                 }
                 self.show_terminal(
                     request.as_ref(),
-                    completed_title(request.as_ref()),
-                    completed_detail(request.as_ref()),
+                    if permission_operation {
+                        "Permissions updated"
+                    } else {
+                        completed_title(request.as_ref())
+                    },
+                    if permission_operation {
+                        "Selected permission changes completed"
+                    } else {
+                        completed_detail(request.as_ref())
+                    },
                     true,
                 );
-                self.show_toast(&completed_toast(request.as_ref()), 4);
+                let toast = if permission_operation {
+                    "Permissions updated".to_owned()
+                } else {
+                    completed_toast(request.as_ref())
+                };
+                self.show_toast(&toast, 4);
             }
             TerminalResult::Cancelled => {
                 let permanent_delete =
                     matches!(request.as_ref(), Some(TrackedOperation::PermanentDelete(_)));
                 self.show_terminal(
                     request.as_ref(),
-                    if permanent_delete {
+                    if permission_operation {
+                        "Permission change cancelled"
+                    } else if permanent_delete {
                         "Cancelled before deletion"
                     } else {
                         "Operation cancelled"
                     },
-                    if permanent_delete {
+                    if permission_operation {
+                        "No permission change was committed"
+                    } else if permanent_delete {
                         "No selected item was deleted"
                     } else {
                         "No partial change was kept"
@@ -372,7 +400,9 @@ impl OperationController {
                     false,
                 );
                 self.show_toast(
-                    if permanent_delete {
+                    if permission_operation {
+                        "Permission change cancelled before it started"
+                    } else if permanent_delete {
                         "Permanent deletion cancelled before it started"
                     } else {
                         "Operation cancelled"
@@ -381,11 +411,14 @@ impl OperationController {
                 );
             }
             TerminalResult::Failed(failure) => {
-                if failure.kind() == JobFailureKind::Partial
-                    && let Some(request) = request.as_ref()
-                {
-                    for directory in request.affected_directories() {
-                        (self.on_operation_completed)(&directory);
+                if failure.kind() == JobFailureKind::Partial {
+                    for directory in &permission_directories {
+                        (self.on_operation_completed)(directory);
+                    }
+                    if let Some(request) = request.as_ref() {
+                        for directory in request.affected_directories() {
+                            (self.on_operation_completed)(&directory);
+                        }
                     }
                 }
                 let title = match failure.kind() {
@@ -407,6 +440,7 @@ impl OperationController {
                 self.show_toast(&failure_recovery(request.as_ref(), failure), 7);
             }
         }
+        self.state.finish_permission(job_id);
 
         if let Some(batch_id) = self.state.batch_for_job(job_id)
             && let Some(snapshot) = self.state.batch_snapshot(batch_id)

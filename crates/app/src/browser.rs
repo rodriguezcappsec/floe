@@ -203,7 +203,8 @@ use crate::{
         PreviewSourceKey, PreviewSubmitError, PreviewWorker,
     },
     properties::{
-        PROPERTIES_RESULT_CAPACITY, PropertiesRequest, PropertiesSubmitError, PropertiesWorker,
+        ExecutableEdit, PROPERTIES_RESULT_CAPACITY, PermissionEditorInput, PropertiesRequest,
+        PropertiesSubmitError, PropertiesWorker, build_permission_request,
         present as present_properties,
     },
     session_store::SessionStoreWorker,
@@ -4350,6 +4351,71 @@ impl BrowserController {
             if let Some(window) = window.upgrade() {
                 gio::prelude::ActionGroupExt::activate_action(&window, "open-with", None);
             }
+        });
+        let parent_dialog = widgets.dialog.downgrade();
+        let window = self.widgets.window.clone();
+        let toast_overlay = self.widgets.toast_overlay.clone();
+        let state = Rc::clone(&self.application_state);
+        let defaults = presentation.permissions.clone();
+        widgets.edit_permissions_button.connect_clicked(move |_| {
+            if let Some(dialog) = parent_dialog.upgrade() {
+                dialog.close();
+            }
+            let permission_widgets = ui::build_permission_dialog(&defaults);
+            let dialog = permission_widgets.dialog.downgrade();
+            permission_widgets.cancel_button.connect_clicked(move |_| {
+                if let Some(dialog) = dialog.upgrade() {
+                    dialog.close();
+                }
+            });
+            let dialog = permission_widgets.dialog.downgrade();
+            let file_mode_entry = permission_widgets.file_mode_entry.clone();
+            let directory_mode_entry = permission_widgets.directory_mode_entry.clone();
+            let executable_dropdown = permission_widgets.executable_dropdown.clone();
+            let owner_entry = permission_widgets.owner_entry.clone();
+            let group_entry = permission_widgets.group_entry.clone();
+            let recursive_check = permission_widgets.recursive_check.clone();
+            let acknowledge_check = permission_widgets.acknowledge_check.clone();
+            let error_label = permission_widgets.error_label.clone();
+            let defaults = defaults.clone();
+            let state = Rc::clone(&state);
+            let toast_overlay = toast_overlay.clone();
+            permission_widgets.apply_button.connect_clicked(move |_| {
+                let executable = match executable_dropdown.selected() {
+                    1 => ExecutableEdit::Enable,
+                    2 => ExecutableEdit::Disable,
+                    _ => ExecutableEdit::Unchanged,
+                };
+                let input = PermissionEditorInput {
+                    file_mode: file_mode_entry.text().to_string(),
+                    directory_mode: directory_mode_entry.text().to_string(),
+                    executable,
+                    owner: owner_entry.text().to_string(),
+                    group: group_entry.text().to_string(),
+                    recursive: recursive_check.is_active(),
+                    acknowledged: acknowledge_check.is_active(),
+                };
+                match build_permission_request(&defaults, &input) {
+                    Ok(request) => match state.submit_permissions(request) {
+                        Ok(_) => {
+                            if let Some(dialog) = dialog.upgrade() {
+                                dialog.close();
+                            }
+                            toast_overlay.add_toast(
+                                adw::Toast::builder()
+                                    .title("Permission change queued")
+                                    .timeout(4)
+                                    .build(),
+                            );
+                        }
+                        Err(error) => error_label
+                            .set_label(&format!("Could not queue permission change: {error}")),
+                    },
+                    Err(error) => error_label.set_label(&error.to_string()),
+                }
+            });
+            permission_widgets.dialog.present(Some(&window));
+            permission_widgets.file_mode_entry.grab_focus();
         });
         self.widgets.focus_view(self.view_mode.get());
         widgets.dialog.present(Some(&self.widgets.window));

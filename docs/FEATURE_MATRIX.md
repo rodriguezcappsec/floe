@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 10A. Phase 10B is the only `NEXT`
+The implementation baseline for this matrix is Phase 10D. Phase 10E is the only `NEXT`
 phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -59,17 +59,17 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Inaccessible individual-file handling | `PARTIAL` | 1-6K2 | Existing operations and thumbnail workers fail safely; richer per-entry status belongs in Inspector/status work. |
 | Disappearing-file handling | `COMPLETE` | 1-6S | Workers report missing/stale sources and live reconciliation removes vanished exact identities without reconstructing paths. |
 | Root browsing | `COMPLETE` | 6H | The editable absolute location entry can navigate to `/` through the browser worker. |
-| Filesystem properties | `PLANNED` | 10C | General, filesystem, mount, capacity, and read-only information remain absent. |
-| File owner/group editing | `PLANNED` | 10D | Requires explicit authorization, validation, and recursive-operation design. |
-| Permissions editing | `PLANNED` | 10D | Must distinguish direct from recursive changes and report partial failures. |
-| Executable-state editing | `PLANNED` | 10D | Current enumeration reads executable metadata for icon policy only. |
+| Filesystem properties | `COMPLETE` | 10C | On-demand Properties shows containing filesystem type, capacity/free space, read-only state, and enclosing mount facts through the bounded worker. |
+| File owner/group editing | `COMPLETE` | 10D | Properties accepts explicit numeric IDs or validated local names; worker-side bounded resolution and normal Unix authority apply without elevating Floe. |
+| Permissions editing | `COMPLETE` | 10D | Exact direct/recursive typed jobs preflight the whole bounded no-follow selection, refuse roots/mount crossings, and distinguish cancellation from committed partial failure. |
+| Executable-state editing | `COMPLETE` | 10D | Properties can add the user execute bit or remove all execute bits from regular files through the permission job; directories remain unchanged by executable-only edits. |
 
 ## File operations, jobs, and conflicts
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | GTK-independent operation/job model | `COMPLETE` | 3 | Strong operation and attempt IDs, progress, commands, events, failures, and legal transitions live outside widgets. |
-| Bounded background executors | `COMPLETE` | 4A-6Q | Copy, move/rename, Trash, restore, permanent deletion, and creation use fixed-capacity application-owned workers. |
+| Bounded background executors | `COMPLETE` | 4A-10D | Copy, move/rename, Trash, restore, permanent deletion, creation, and Unix permission changes use fixed-capacity application-owned workers. |
 | GTK-thread filesystem mutation prohibition | `COMPLETE` | 0-6Q | GTK callbacks submit application commands or asynchronous GIO metadata reads; filesystem mutation stays in core/application workers. |
 | Multiple logical operations | `COMPLETE` | 3/6J | Each request has stable logical identity; multi-selection batches serialize requests over bounded workers. |
 | Copy files and directories | `COMPLETE` | 4A/4B | Recursive copy has no-follow link policy, chunk cancellation, progress, tracked cleanup, and fail-if-exists behavior. |
@@ -378,7 +378,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Inspector foundation / Ctrl+I | `COMPLETE` | 10A | Toggleable, accessible, bounded asynchronous raw-path single/multi-selection facts in the usable final Miller column. |
 | General properties | `COMPLETE` | 10C | Native read-only Properties shows exact path display, type counts, MIME, known size, dates, Unix identity, link/dimension/folder facts from bounded Phase 10B providers. |
 | Open With properties page | `COMPLETE` | 5D/10C | Single regular-file Properties exposes a deliberate bridge to the existing chooser and explicit default-association action; multi-selection does not imply one association. |
-| Owner/group/permissions | `PARTIAL` | 10B-10D | 10B lazily inspects exact Unix UID/GID/mode; deliberate editing with partial-failure semantics remains 10D. |
+| Owner/group/permissions | `COMPLETE` | 10B-10D | 10B lazily inspects exact Unix UID/GID/mode; 10D adds deliberate direct/recursive editing with local-name resolution, explicit risk acknowledgement, no-follow preflight, cancellation, and truthful partial-failure semantics. |
 | Symlink/broken-target properties | `PARTIAL` | 10B-10C | 10B shows the exact raw stored target and bounded no-follow target-entry status; full properties treatment remains 10C. |
 | Filesystem/mount information | `COMPLETE` | 10C | Bounded worker queries containing filesystem type/capacity/read-only and enclosing GIO mount name/root; unavailable values stay explicit. |
 | Multiple-selection aggregate properties | `COMPLETE` | 10A-10C | Exact selected paths retain aggregate kinds/known bytes/common parent; shared MIME appears only when identical and differing/unknown values are not merged. |

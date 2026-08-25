@@ -2,6 +2,7 @@
 
 use std::{
     collections::VecDeque,
+    ffi::OsString,
     mem::MaybeUninit,
     path::PathBuf,
     sync::{
@@ -12,6 +13,10 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use floe_core::{
+    PermissionChange, PermissionIdentity, PermissionRequest, PermissionRequestError,
+    PermissionScope,
+};
 use gtk::{gio, gio::prelude::*};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawDir};
 use thiserror::Error;
@@ -370,6 +375,128 @@ pub struct PropertiesPresentation {
     pub filesystem: Vec<PropertyRow>,
     pub selection_count: usize,
     pub open_with_available: bool,
+    pub permissions: PermissionDefaults,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PermissionDefaults {
+    pub targets: Arc<[PathBuf]>,
+    pub common_file_mode: Option<u32>,
+    pub common_directory_mode: Option<u32>,
+    pub common_uid: Option<u32>,
+    pub common_gid: Option<u32>,
+    pub has_files: bool,
+    pub has_directories: bool,
+    pub editable: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutableEdit {
+    Unchanged,
+    Enable,
+    Disable,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PermissionEditorInput {
+    pub file_mode: String,
+    pub directory_mode: String,
+    pub executable: ExecutableEdit,
+    pub owner: String,
+    pub group: String,
+    pub recursive: bool,
+    pub acknowledged: bool,
+}
+
+#[derive(Clone, Debug, Error, Eq, PartialEq)]
+pub enum PermissionEditorError {
+    #[error("file mode must be an octal value from 0000 to 7777")]
+    InvalidFileMode,
+    #[error("directory mode must be an octal value from 0000 to 7777")]
+    InvalidDirectoryMode,
+    #[error("owner must be a numeric UID or valid local account name")]
+    InvalidOwner,
+    #[error("group must be a numeric GID or valid local group name")]
+    InvalidGroup,
+    #[error("explicit modes cannot be combined with an executable toggle")]
+    AmbiguousMode,
+    #[error("select at least one permission change")]
+    NoChange,
+    #[error("acknowledge recursive or ownership changes before applying")]
+    ConfirmationRequired,
+    #[error(transparent)]
+    Request(#[from] PermissionRequestError),
+}
+
+pub fn build_permission_request(
+    defaults: &PermissionDefaults,
+    input: &PermissionEditorInput,
+) -> Result<PermissionRequest, PermissionEditorError> {
+    let file_mode = parse_mode(&input.file_mode).ok_or(PermissionEditorError::InvalidFileMode)?;
+    let directory_mode =
+        parse_mode(&input.directory_mode).ok_or(PermissionEditorError::InvalidDirectoryMode)?;
+    let executable = match input.executable {
+        ExecutableEdit::Unchanged => None,
+        ExecutableEdit::Enable => Some(true),
+        ExecutableEdit::Disable => Some(false),
+    };
+    if executable.is_some() && (file_mode.is_some() || directory_mode.is_some()) {
+        return Err(PermissionEditorError::AmbiguousMode);
+    }
+    let owner = parse_identity(&input.owner).map_err(|_| PermissionEditorError::InvalidOwner)?;
+    let group = parse_identity(&input.group).map_err(|_| PermissionEditorError::InvalidGroup)?;
+    if file_mode.is_none()
+        && directory_mode.is_none()
+        && executable.is_none()
+        && owner.is_none()
+        && group.is_none()
+    {
+        return Err(PermissionEditorError::NoChange);
+    }
+    if (input.recursive || owner.is_some() || group.is_some()) && !input.acknowledged {
+        return Err(PermissionEditorError::ConfirmationRequired);
+    }
+    let change = PermissionChange::new(file_mode, directory_mode, executable, owner, group)?;
+    PermissionRequest::new(
+        defaults.targets.to_vec(),
+        if input.recursive {
+            PermissionScope::Recursive
+        } else {
+            PermissionScope::Direct
+        },
+        change,
+    )
+    .map_err(Into::into)
+}
+
+fn parse_mode(value: &str) -> Option<Option<u32>> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Some(None);
+    }
+    (value.len() <= 4)
+        .then(|| {
+            u32::from_str_radix(value, 8)
+                .ok()
+                .filter(|mode| *mode <= 0o7777)
+        })
+        .flatten()
+        .map(Some)
+}
+
+fn parse_identity(value: &str) -> Result<Option<PermissionIdentity>, PermissionRequestError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.as_bytes().iter().all(u8::is_ascii_digit) {
+        return value
+            .parse::<u32>()
+            .map(PermissionIdentity::Id)
+            .map(Some)
+            .map_err(|_| PermissionRequestError::InvalidIdentityName(OsString::from(value)));
+    }
+    PermissionIdentity::local_name(OsString::from(value)).map(Some)
 }
 
 pub fn present(snapshot: &PropertiesSnapshot) -> PropertiesPresentation {
@@ -547,13 +674,55 @@ pub fn present(snapshot: &PropertiesSnapshot) -> PropertiesPresentation {
         ],
         Err(error) => vec![row("Filesystem", format!("Unavailable: {error}"))],
     };
+    let mut file_modes = Vec::new();
+    let mut directory_modes = Vec::new();
+    let mut owners = Vec::new();
+    let mut groups = Vec::new();
+    let mut editable = facts.symbolic_links == 0 && facts.metadata.len() == count;
+    for result in facts.metadata.iter() {
+        match &result.result {
+            Ok(entry) if entry.symlink.is_none() => {
+                if entry.folder.is_some() {
+                    if let Some(mode) = entry.unix_mode {
+                        directory_modes.push(mode & 0o7777);
+                    }
+                } else if let Some(mode) = entry.unix_mode {
+                    file_modes.push(mode & 0o7777);
+                }
+                if let Some(uid) = entry.unix_uid {
+                    owners.push(uid);
+                }
+                if let Some(gid) = entry.unix_gid {
+                    groups.push(gid);
+                }
+                editable &= entry.unix_mode.is_some();
+            }
+            _ => editable = false,
+        }
+    }
+    let permissions = PermissionDefaults {
+        targets: Arc::clone(&facts.selection_paths),
+        common_file_mode: common_numeric(&file_modes),
+        common_directory_mode: common_numeric(&directory_modes),
+        common_uid: common_numeric(&owners),
+        common_gid: common_numeric(&groups),
+        has_files: !file_modes.is_empty(),
+        has_directories: !directory_modes.is_empty(),
+        editable,
+    };
     PropertiesPresentation {
         title,
         general,
         filesystem,
         selection_count: count,
         open_with_available: count == 1 && facts.regular_files == 1,
+        permissions,
     }
+}
+
+fn common_numeric(values: &[u32]) -> Option<u32> {
+    let first = *values.first()?;
+    values.iter().all(|value| *value == first).then_some(first)
 }
 
 fn row(label: &'static str, value: impl ToString) -> PropertyRow {
@@ -668,5 +837,56 @@ mod tests {
         assert_eq!(snapshot.recursive_folders[0].regular_files, 1);
         assert_eq!(snapshot.recursive_folders[0].directories, 1);
         assert_eq!(snapshot.recursive_folders[0].known_bytes, 5);
+    }
+
+    #[test]
+    fn phase_10d_permissions_ui_validates_exact_jobs_and_risky_confirmation() {
+        let defaults = PermissionDefaults {
+            targets: Arc::from([PathBuf::from("/tmp/exact-a"), PathBuf::from("/tmp/exact-b")]),
+            common_file_mode: Some(0o644),
+            common_directory_mode: Some(0o755),
+            common_uid: Some(1000),
+            common_gid: Some(1000),
+            has_files: true,
+            has_directories: true,
+            editable: true,
+        };
+        let mut input = PermissionEditorInput {
+            file_mode: "0640".to_owned(),
+            directory_mode: "0750".to_owned(),
+            executable: ExecutableEdit::Unchanged,
+            owner: "local-user".to_owned(),
+            group: "100".to_owned(),
+            recursive: true,
+            acknowledged: false,
+        };
+        assert_eq!(
+            build_permission_request(&defaults, &input),
+            Err(PermissionEditorError::ConfirmationRequired)
+        );
+        input.acknowledged = true;
+        let request = build_permission_request(&defaults, &input).expect("permission request");
+        assert_eq!(request.targets(), defaults.targets.as_ref());
+        assert_eq!(request.scope(), PermissionScope::Recursive);
+        assert!(matches!(
+            request.change().owner,
+            Some(PermissionIdentity::LocalName(ref name)) if name == "local-user"
+        ));
+        assert_eq!(request.change().group, Some(PermissionIdentity::Id(100)));
+
+        input.file_mode = "8888".to_owned();
+        assert_eq!(
+            build_permission_request(&defaults, &input),
+            Err(PermissionEditorError::InvalidFileMode)
+        );
+        input.file_mode.clear();
+        input.directory_mode.clear();
+        input.owner.clear();
+        input.group.clear();
+        input.recursive = false;
+        assert_eq!(
+            build_permission_request(&defaults, &input),
+            Err(PermissionEditorError::NoChange)
+        );
     }
 }
