@@ -14,14 +14,16 @@ use floe_core::{
 use gtk::{gio, glib};
 
 use crate::{
+    checksum_executor::ChecksumOutcome,
+    checksum_ui::present_checksum,
     operation_control::{BatchId, BatchSnapshot, BatchStatus, TransferEstimate, TransferTelemetry},
     state::{
         ApplicationState, ConflictDecision, ConflictResolution, TerminalOperation, TerminalOutcome,
         TrackedOperation, validate_rename_name,
     },
     ui::{
-        OperationHistoryItem, OperationWidgets, build_conflict_dialog,
-        build_operation_history_dialog,
+        OperationHistoryItem, OperationWidgets, build_checksum_results_dialog,
+        build_conflict_dialog, build_operation_history_dialog,
     },
 };
 
@@ -296,14 +298,19 @@ impl OperationController {
         self.visible_job.set(Some(job_id));
         let request = self.request(job_id);
         let permission_operation = self.state.is_permission_operation(job_id);
-        let title = if permission_operation {
+        let checksum_operation = self.state.is_checksum_operation(job_id);
+        let title = if checksum_operation {
+            "Calculating checksums".to_owned()
+        } else if permission_operation {
             "Changing permissions".to_owned()
         } else {
             operation_title(request.as_ref())
         };
         self.widgets.operation_label.set_label(&title);
         self.widgets.operation_detail.set_label(detail);
-        let cancel_tooltip = if permission_operation {
+        let cancel_tooltip = if checksum_operation {
+            "Cancel checksum calculation".to_owned()
+        } else if permission_operation {
             "Cancel permission change".to_owned()
         } else {
             format!("Cancel {}", operation_verb(request.as_ref()).to_lowercase())
@@ -339,8 +346,14 @@ impl OperationController {
             outcome,
         ));
         let permission_operation = self.state.is_permission_operation(job_id);
+        let checksum_operation = self.state.is_checksum_operation(job_id);
         let permission_directories = self.state.permission_affected_directories(job_id);
         let request = self.state.finish_operation(job_id, outcome);
+        let checksum_outcome = if checksum_operation {
+            self.state.finish_checksum(job_id)
+        } else {
+            None
+        };
         let conflict_pending =
             outcome == TerminalOutcome::Conflict && self.state.pending_conflict(job_id).is_ok();
         if conflict_pending {
@@ -359,38 +372,51 @@ impl OperationController {
                 }
                 self.show_terminal(
                     request.as_ref(),
-                    if permission_operation {
+                    if checksum_operation {
+                        "Checksums calculated"
+                    } else if permission_operation {
                         "Permissions updated"
                     } else {
                         completed_title(request.as_ref())
                     },
-                    if permission_operation {
+                    if checksum_operation {
+                        "Checksum results are ready"
+                    } else if permission_operation {
                         "Selected permission changes completed"
                     } else {
                         completed_detail(request.as_ref())
                     },
                     true,
                 );
-                let toast = if permission_operation {
+                let toast = if checksum_operation {
+                    "Checksums calculated".to_owned()
+                } else if permission_operation {
                     "Permissions updated".to_owned()
                 } else {
                     completed_toast(request.as_ref())
                 };
                 self.show_toast(&toast, 4);
+                if let Some(outcome) = checksum_outcome {
+                    self.present_checksum_results(outcome);
+                }
             }
             TerminalResult::Cancelled => {
                 let permanent_delete =
                     matches!(request.as_ref(), Some(TrackedOperation::PermanentDelete(_)));
                 self.show_terminal(
                     request.as_ref(),
-                    if permission_operation {
+                    if checksum_operation {
+                        "Checksum calculation cancelled"
+                    } else if permission_operation {
                         "Permission change cancelled"
                     } else if permanent_delete {
                         "Cancelled before deletion"
                     } else {
                         "Operation cancelled"
                     },
-                    if permission_operation {
+                    if checksum_operation {
+                        "No checksum result was kept"
+                    } else if permission_operation {
                         "No permission change was committed"
                     } else if permanent_delete {
                         "No selected item was deleted"
@@ -400,7 +426,9 @@ impl OperationController {
                     false,
                 );
                 self.show_toast(
-                    if permission_operation {
+                    if checksum_operation {
+                        "Checksum calculation cancelled"
+                    } else if permission_operation {
                         "Permission change cancelled before it started"
                     } else if permanent_delete {
                         "Permanent deletion cancelled before it started"
@@ -421,15 +449,19 @@ impl OperationController {
                         }
                     }
                 }
-                let title = match failure.kind() {
-                    JobFailureKind::Conflict => "Destination conflict",
-                    JobFailureKind::Partial
-                        if matches!(request.as_ref(), Some(TrackedOperation::Restore(_))) =>
-                    {
-                        "Restore completed with cleanup warning"
+                let title = if checksum_operation {
+                    "Checksum calculation failed"
+                } else {
+                    match failure.kind() {
+                        JobFailureKind::Conflict => "Destination conflict",
+                        JobFailureKind::Partial
+                            if matches!(request.as_ref(), Some(TrackedOperation::Restore(_))) =>
+                        {
+                            "Restore completed with cleanup warning"
+                        }
+                        JobFailureKind::Partial => "Permanent deletion partially completed",
+                        _ => "Operation failed",
                     }
-                    JobFailureKind::Partial => "Permanent deletion partially completed",
-                    _ => "Operation failed",
                 };
                 self.show_terminal(
                     request.as_ref(),
@@ -466,6 +498,31 @@ impl OperationController {
         if conflict_pending {
             self.present_conflict(job_id);
         }
+    }
+
+    fn present_checksum_results(&self, outcome: ChecksumOutcome) {
+        let presentation = present_checksum(&outcome);
+        let copy_text = presentation.copy_text.clone();
+        let widgets = build_checksum_results_dialog(&presentation);
+        let dialog = widgets.dialog.downgrade();
+        widgets.close_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+        let clipboard = self.window.clipboard();
+        let toast_overlay = self.toast_overlay.clone();
+        widgets.copy_button.connect_clicked(move |_| {
+            clipboard.set_text(&copy_text);
+            toast_overlay.add_toast(
+                adw::Toast::builder()
+                    .title("Digest text copied")
+                    .timeout(3)
+                    .build(),
+            );
+        });
+        widgets.dialog.present(Some(&self.window));
+        widgets.close_button.grab_focus();
     }
 
     fn show_terminal(

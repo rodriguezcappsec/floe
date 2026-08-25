@@ -2,6 +2,8 @@ mod appearance;
 mod application;
 mod bookmarks;
 mod browser;
+mod checksum_executor;
+mod checksum_ui;
 mod clipboard;
 pub mod copy_executor;
 pub mod create_executor;

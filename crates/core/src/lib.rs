@@ -1,5 +1,6 @@
 //! GTK-independent filesystem and navigation foundations for Floe.
 
+mod checksum;
 mod copy;
 mod create_operation;
 mod directory;
@@ -18,6 +19,10 @@ mod tabs;
 mod trash_lifecycle;
 mod view;
 
+pub use checksum::{
+    CHECKSUM_TARGET_CAPACITY, ChecksumAlgorithm, ChecksumRequest, ChecksumRequestError,
+    ExpectedDigest, encode_hex,
+};
 pub use copy::{
     ConflictPolicy, CopyCancellation, CopyError, CopyOutcome, CopyProgress, CopyRequest,
     SymlinkPolicy, execute_copy,

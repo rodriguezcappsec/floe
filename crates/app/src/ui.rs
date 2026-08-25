@@ -233,7 +233,7 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
     loaded && !save_in_flight
 }
 
-const FILE_CONTEXT_ACTIONS: [(&str, &str); 16] = [
+const FILE_CONTEXT_ACTIONS: [(&str, &str); 17] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
@@ -247,12 +247,14 @@ const FILE_CONTEXT_ACTIONS: [(&str, &str); 16] = [
     ("Copy Path", "win.copy-path"),
     ("Copy Relative Path", "win.copy-relative-path"),
     ("Copy URI", "win.copy-uri"),
+    ("Calculate Checksums…", "win.checksum"),
     ("Move to Trash", "win.trash"),
     ("Delete Permanently…", "win.permanent-delete"),
     ("Properties", "win.properties"),
 ];
-const TRASH_CONTEXT_ACTIONS: [(&str, &str); 3] = [
+const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Restore", "win.restore"),
+    ("Calculate Checksums…", "win.checksum"),
     ("Delete Permanently…", "win.permanent-delete"),
     ("Properties", "win.properties"),
 ];
@@ -682,6 +684,21 @@ pub struct PermissionDialogWidgets {
     pub error_label: gtk::Label,
     pub cancel_button: gtk::Button,
     pub apply_button: gtk::Button,
+}
+
+pub struct ChecksumDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub algorithm_dropdown: gtk::DropDown,
+    pub expected_entry: gtk::Entry,
+    pub error_label: gtk::Label,
+    pub cancel_button: gtk::Button,
+    pub calculate_button: gtk::Button,
+}
+
+pub struct ChecksumResultsDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub copy_button: gtk::Button,
+    pub close_button: gtk::Button,
 }
 
 pub struct ConflictDialogWidgets {
@@ -1182,6 +1199,7 @@ pub fn build(
     file_actions_model.append(Some("New From Template…"), Some("win.new-from-template"));
     file_actions_model.append(Some("Open With…"), Some("win.open-with"));
     file_actions_model.append(Some("Properties"), Some("win.properties"));
+    file_actions_model.append(Some("Calculate Checksums…"), Some("win.checksum"));
     file_actions_model.append(Some("Copy"), Some("win.copy"));
     file_actions_model.append(Some("Move"), Some("win.cut"));
     file_actions_model.append(Some("Duplicate"), Some("win.duplicate"));
@@ -2277,6 +2295,187 @@ pub fn build_permission_dialog(
         error_label,
         cancel_button,
         apply_button,
+    }
+}
+
+pub fn build_checksum_dialog(target_count: usize) -> ChecksumDialogWidgets {
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(20)
+        .margin_bottom(20)
+        .margin_start(20)
+        .margin_end(20)
+        .build();
+    let heading = gtk::Label::builder()
+        .label(format!(
+            "Calculate checksum{} for {target_count} file{}",
+            if target_count == 1 { "" } else { "s" },
+            if target_count == 1 { "" } else { "s" }
+        ))
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    heading.add_css_class("title-2");
+    content.append(&heading);
+    let algorithm_label = gtk::Label::builder()
+        .label("Algorithm")
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .build();
+    content.append(&algorithm_label);
+    let algorithm_dropdown =
+        gtk::DropDown::from_strings(&["SHA-256", "SHA-512", "MD5 (legacy compatibility only)"]);
+    algorithm_dropdown.update_property(&[gtk::accessible::Property::Label("Checksum algorithm")]);
+    content.append(&algorithm_dropdown);
+    let expected_entry = gtk::Entry::builder()
+        .placeholder_text(if target_count == 1 {
+            "Optional expected hexadecimal digest"
+        } else {
+            "Expected digest is available for one file"
+        })
+        .sensitive(target_count == 1)
+        .build();
+    expected_entry.update_property(&[gtk::accessible::Property::Label("Expected checksum")]);
+    content.append(&expected_entry);
+    let warning = gtk::Label::builder()
+        .label("MD5 is offered only for legacy compatibility. A matching checksum compares bytes; it does not prove authenticity, authorship, freshness, or safety.")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    warning.add_css_class("floe-status");
+    content.append(&warning);
+    let error_label = gtk::Label::builder()
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    error_label.add_css_class("error");
+    error_label.update_property(&[gtk::accessible::Property::Label(
+        "Checksum validation message",
+    )]);
+    content.append(&error_label);
+    let actions = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::End)
+        .build();
+    let cancel_button = gtk::Button::with_label("Cancel");
+    let calculate_button = gtk::Button::with_label("Calculate");
+    calculate_button.add_css_class("suggested-action");
+    actions.append(&cancel_button);
+    actions.append(&calculate_button);
+    content.append(&actions);
+    let dialog = adw::Dialog::builder()
+        .title("Calculate Checksums")
+        .content_width(560)
+        .content_height(430)
+        .child(&content)
+        .build();
+    dialog.update_property(&[gtk::accessible::Property::Label("Calculate Checksums")]);
+    ChecksumDialogWidgets {
+        dialog,
+        algorithm_dropdown,
+        expected_entry,
+        error_label,
+        cancel_button,
+        calculate_button,
+    }
+}
+
+pub fn build_checksum_results_dialog(
+    presentation: &crate::checksum_ui::ChecksumPresentation,
+) -> ChecksumResultsDialogWidgets {
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(20)
+        .margin_bottom(20)
+        .margin_start(20)
+        .margin_end(20)
+        .build();
+    let heading = gtk::Label::builder()
+        .label(&presentation.title)
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .build();
+    heading.add_css_class("title-2");
+    content.append(&heading);
+    let algorithm = gtk::Label::builder()
+        .label(presentation.algorithm_label)
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .build();
+    algorithm.add_css_class("heading");
+    content.append(&algorithm);
+    for row in &presentation.rows {
+        let card = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(4)
+            .build();
+        let name = gtk::Label::builder()
+            .label(&row.display_name)
+            .halign(gtk::Align::Start)
+            .ellipsize(gtk::pango::EllipsizeMode::Middle)
+            .xalign(0.0)
+            .build();
+        let digest = gtk::Label::builder()
+            .label(&row.digest)
+            .halign(gtk::Align::Start)
+            .selectable(true)
+            .wrap(true)
+            .xalign(0.0)
+            .build();
+        digest.add_css_class("monospace");
+        let verification = gtk::Label::builder()
+            .label(&row.verification)
+            .halign(gtk::Align::Start)
+            .wrap(true)
+            .xalign(0.0)
+            .build();
+        verification.add_css_class("floe-status");
+        card.append(&name);
+        card.append(&digest);
+        card.append(&verification);
+        content.append(&card);
+    }
+    let notice = gtk::Label::builder()
+        .label(presentation.notice)
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    notice.add_css_class("floe-status");
+    content.append(&notice);
+    let actions = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::End)
+        .build();
+    let copy_button = gtk::Button::with_label("Copy Digest Text");
+    let close_button = gtk::Button::with_label("Close");
+    close_button.add_css_class("suggested-action");
+    actions.append(&copy_button);
+    actions.append(&close_button);
+    content.append(&actions);
+    let scroller = gtk::ScrolledWindow::builder()
+        .child(&content)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .min_content_height(360)
+        .build();
+    let dialog = adw::Dialog::builder()
+        .title("Checksum Results")
+        .content_width(680)
+        .content_height(520)
+        .child(&scroller)
+        .build();
+    dialog.update_property(&[gtk::accessible::Property::Label("Checksum Results")]);
+    ChecksumResultsDialogWidgets {
+        dialog,
+        copy_button,
+        close_button,
     }
 }
 
@@ -3819,6 +4018,7 @@ mod tests {
             TRASH_CONTEXT_ACTIONS,
             [
                 ("Restore", "win.restore"),
+                ("Calculate Checksums…", "win.checksum"),
                 ("Delete Permanently…", "win.permanent-delete"),
                 ("Properties", "win.properties"),
             ]
@@ -4070,6 +4270,7 @@ mod tests {
                 ("Copy Path", "win.copy-path"),
                 ("Copy Relative Path", "win.copy-relative-path"),
                 ("Copy URI", "win.copy-uri"),
+                ("Calculate Checksums…", "win.checksum"),
                 ("Move to Trash", "win.trash"),
                 ("Delete Permanently…", "win.permanent-delete"),
                 ("Properties", "win.properties"),

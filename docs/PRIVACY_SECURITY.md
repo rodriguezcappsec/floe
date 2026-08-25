@@ -444,6 +444,24 @@ read-only; its Open With control delegates to the existing explicit chooser and
 default-association flow. No permission/ownership edit, elevation, checksum,
 content execution, or security conclusion is implied.
 
+Phase 10D permission changes are explicit exact-path application jobs. The
+capacity-4 executor performs bounded no-follow preflight, rejects roots and
+mount crossings, revalidates device/inode identities, and distinguishes
+pre-commit cancellation from committed partial failure. Recursive ownership
+changes require explicit acknowledgement. Floe does not collect a password,
+follow symbolic links, edit ACLs/xattrs/capabilities/immutable flags, or elevate
+the whole process.
+
+Phase 10E checksums are explicit, memory-only calculations over selected local
+regular files. SHA-256, SHA-512, and legacy-labelled MD5 stream in bounded
+chunks on a capacity-4 application executor using no-follow opens, cancellation,
+byte progress, and device/inode/size/mtime/ctime revalidation. An optional
+strict expected digest is accepted only for one file. Results and expected
+values are not persisted or logged; Copy Digest Text exports only digest lines
+to the desktop clipboard, whose external lifetime Floe cannot control. A match
+compares bytes at calculation time. It does not prove authenticity, authorship,
+freshness, safety, signature validity, or future integrity.
+
 ## Suspicious files and metadata privacy
 
 Status: **PLANNED**.
