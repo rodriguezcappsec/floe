@@ -1160,12 +1160,21 @@ Last updated:
 Current phase:
 
 ```text
-Phase 8 — Miller and spatial navigation (Phase 8E complete)
+Phase 8 — Miller and spatial navigation (Phase 8F complete)
 ```
 
 Status:
 
 ```text
+Phase 8F completes the bounded Miller sequence with optional Preview and
+Inspector final-column hooks. An application-owned GTK-independent lifecycle
+preserves exact generation, logical depth, directory, and at most 4,096 raw
+selected paths. Hidden, empty, ready-for-provider, and unsupported states are
+explicit. Accessible active-column controls open a focusable truthful surface;
+closing returns focus and leaving Miller hides it. No decoding, metadata,
+provider worker, cache, persistence, active-content execution, or sandbox claim
+was added; Phases 9 and 10 consume the handoff contract.
+
 Phase 8E makes active and retained Miller columns standard local-file drag
 sources and exact folder/background destinations. It reuses existing
 copy/move/link negotiation, request validation, bounded FIFO jobs, and
@@ -2193,9 +2202,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-8f-miller-detail-hooks` and add optional final-column Preview and
-Inspector lifecycle contracts with unsupported/loading/failure/focus states.
-Do not implement Phase 9 preview content or Phase 10 metadata providers.
+Create `phase-9a-preview-providers` and add a typed, bounded, cancellable
+Preview provider lifecycle with explicit limits, stale-result rejection, cache
+policy, and fallback states. Do not add Phase 9B content renderers.
 ```
 
 ---

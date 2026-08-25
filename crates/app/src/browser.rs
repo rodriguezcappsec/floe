@@ -49,6 +49,7 @@ fn folder_tab_eligible(entries: &[Arc<DirectoryEntry>], trash_active: bool) -> b
 const SPLIT_SNAPSHOT_CAPACITY: usize = 512;
 #[cfg(test)]
 const MILLER_NAVIGATION_ACTIONS: [&str; 2] = ["win.miller-parent", "win.miller-child"];
+const MILLER_DETAIL_ACTIONS: [&str; 2] = ["miller-preview-hook", "miller-inspector-hook"];
 #[cfg(test)]
 const SPLIT_ACTION_NAMES: [&str; 10] = [
     "win.toggle-split",
@@ -185,6 +186,7 @@ use crate::{
     },
     locations::Location,
     metadata::{MetadataSubmitError, MetadataWorker},
+    miller_detail::{MillerDetailHooks, MillerDetailSurface},
     miller_view::{
         MillerActionContext, MillerActivation, MillerNavigation, MillerNavigationCommand,
         MillerPresentationState, resolve_action_context_entries,
@@ -365,6 +367,7 @@ pub struct BrowserController {
     miller_model: RefCell<Option<MillerColumnModel>>,
     miller_state: RefCell<MillerPresentationState>,
     miller_action_context: RefCell<Option<MillerActionContext>>,
+    miller_detail: RefCell<MillerDetailHooks>,
     grid_size: Cell<GridSize>,
     file_density: Cell<FileViewDensity>,
     list_columns: Cell<crate::view::ListColumnLayout>,
@@ -472,6 +475,7 @@ impl BrowserController {
             miller_model: RefCell::new(None),
             miller_state: RefCell::new(MillerPresentationState::default()),
             miller_action_context: RefCell::new(None),
+            miller_detail: RefCell::new(MillerDetailHooks::default()),
             grid_size: Cell::new(initial_view.grid_size),
             file_density: Cell::new(initial_view.density),
             list_columns: Cell::new(initial_view.columns),
@@ -1549,6 +1553,14 @@ impl BrowserController {
         self.add_action("miller-child", |controller| {
             controller.navigate_active_miller_command(MillerNavigationCommand::Child);
         });
+        let preview_hook = self.add_action(MILLER_DETAIL_ACTIONS[0], |controller| {
+            controller.toggle_miller_detail(MillerDetailSurface::Preview);
+        });
+        preview_hook.set_enabled(self.view_mode.get() == ViewMode::Miller);
+        let inspector_hook = self.add_action(MILLER_DETAIL_ACTIONS[1], |controller| {
+            controller.toggle_miller_detail(MillerDetailSurface::Inspector);
+        });
+        inspector_hook.set_enabled(self.view_mode.get() == ViewMode::Miller);
         self.add_action("narrow-miller-columns", |controller| {
             let width = controller.widgets.miller_view.width().narrower();
             controller.set_miller_column_width(width);
@@ -2588,6 +2600,18 @@ impl BrowserController {
         if mode == ViewMode::Miller {
             self.prepare_miller_for_current();
             self.render_miller();
+        } else {
+            self.miller_detail.borrow_mut().hide();
+        }
+        for name in MILLER_DETAIL_ACTIONS {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(mode == ViewMode::Miller);
+            }
         }
         self.widgets.focus_view(mode);
         if changed {
@@ -2653,15 +2677,50 @@ impl BrowserController {
         let current = self.tabs.borrow().active().current().path().to_path_buf();
         let model = self.miller_model.borrow();
         let Some(model) = model.as_ref() else {
+            self.miller_detail
+                .borrow_mut()
+                .refresh(None, current, &self.selected_entries.borrow());
+            let detail = self.miller_detail.borrow().state().clone();
             self.widgets
                 .miller_view
-                .render(&[], &self.widgets.selection);
+                .render(&[], &self.widgets.selection, &detail);
             return;
         };
+        let active_depth = model.active_depth().map(|depth| depth.get());
+        self.miller_detail.borrow_mut().refresh(
+            active_depth,
+            current.clone(),
+            &self.selected_entries.borrow(),
+        );
+        let detail = self.miller_detail.borrow().state().clone();
         let columns = self.miller_state.borrow().columns(model, &current);
         self.widgets
             .miller_view
-            .render(&columns, &self.widgets.selection);
+            .render(&columns, &self.widgets.selection, &detail);
+    }
+
+    fn toggle_miller_detail(&self, surface: MillerDetailSurface) {
+        if self.view_mode.get() != ViewMode::Miller || self.trash_active.get() {
+            return;
+        }
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
+        let active_depth = self
+            .miller_model
+            .borrow()
+            .as_ref()
+            .and_then(MillerColumnModel::active_depth)
+            .map(|depth| depth.get());
+        let selected = self.selected_entries.borrow().clone();
+        self.miller_detail
+            .borrow_mut()
+            .toggle(surface, active_depth, current, &selected);
+        let visible = self.miller_detail.borrow().state().is_visible();
+        self.render_miller();
+        if visible {
+            let _ = self.widgets.miller_view.focus_detail();
+        } else {
+            self.widgets.miller_view.focus_active();
+        }
     }
 
     fn own_miller_action_context(&self, context: MillerActionContext) {
@@ -3793,6 +3852,11 @@ impl BrowserController {
         self.miller_action_context.borrow_mut().take();
         self.set_miller_context_navigation_actions_enabled(true);
         self.apply_action_selection(selected_entries);
+        if self.view_mode.get() == ViewMode::Miller
+            && self.miller_detail.borrow().state().is_visible()
+        {
+            self.render_miller();
+        }
     }
 
     fn apply_action_selection(&self, selected_entries: Vec<Arc<DirectoryEntry>>) {
@@ -5894,6 +5958,19 @@ mod tests {
         );
         assert_eq!(DropHoverTarget::Tab(tab_id.get()), DropHoverTarget::Tab(1));
         assert_eq!(DropHoverTarget::OppositePane, DropHoverTarget::OppositePane);
+    }
+
+    #[test]
+    fn phase_8f_integration_keeps_existing_views_and_exports_only_hook_actions() {
+        assert_eq!(
+            MILLER_DETAIL_ACTIONS,
+            ["miller-preview-hook", "miller-inspector-hook"]
+        );
+        assert_eq!(MillerDetailSurface::Preview.title(), "Quick Preview");
+        assert_eq!(MillerDetailSurface::Inspector.title(), "Inspector");
+        assert!(VIEW_ACTIONS.contains(&("view-list", ViewCommand::List)));
+        assert!(VIEW_ACTIONS.contains(&("view-grid", ViewCommand::Grid)));
+        assert!(VIEW_ACTIONS.contains(&("view-miller", ViewCommand::Miller)));
     }
 
     #[test]
