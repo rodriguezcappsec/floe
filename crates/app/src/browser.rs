@@ -11,10 +11,38 @@ use std::{
 
 use adw::prelude::*;
 use floe_core::{
-    CreateRequest, DirectoryEntry, DirectoryError, DirectoryGrouping, DirectoryPlacement,
-    DirectorySort, EntryKind, NavigationState, RestoreRequest, SortColumn, TrashEnumerateError,
-    TrashRoot,
+    BrowserSession, BrowserSessionId, BrowserTabs, CreateRequest, DirectoryEntry, DirectoryError,
+    DirectoryGrouping, DirectoryPlacement, DirectorySort, EntryKind, RestoreRequest,
+    SessionScrollAnchor, SortColumn, TabActivation, TrashEnumerateError, TrashRoot,
 };
+
+fn tab_title(path: &Path) -> String {
+    if path == Path::new("/") {
+        return "/".to_owned();
+    }
+    path.file_name()
+        .unwrap_or(path.as_os_str())
+        .to_string_lossy()
+        .into_owned()
+}
+
+fn session_restore_snapshot(session: &BrowserSession) -> ViewStateSnapshot {
+    let location = session.current();
+    ViewStateSnapshot {
+        selected_paths: location.selection().to_vec(),
+        anchor_path: location
+            .scroll_anchor()
+            .and_then(SessionScrollAnchor::path)
+            .map(Path::to_path_buf),
+        anchor_index: location
+            .scroll_anchor()
+            .map_or(0, SessionScrollAnchor::index),
+    }
+}
+
+fn folder_tab_eligible(entries: &[Arc<DirectoryEntry>], trash_active: bool) -> bool {
+    !trash_active && entries.len() == 1 && entries[0].is_navigable_directory()
+}
 use gtk::{gdk, gio, glib};
 
 use crate::{
@@ -178,7 +206,7 @@ impl BrowserServices {
 
 pub struct BrowserController {
     widgets: BrowserWidgets,
-    navigation: RefCell<NavigationState>,
+    tabs: RefCell<BrowserTabs>,
     worker: RefCell<BrowserWorker>,
     thumbnail_worker: RefCell<Option<ThumbnailWorker>>,
     metadata_worker: RefCell<Option<MetadataWorker>>,
@@ -268,9 +296,11 @@ impl BrowserController {
             preferences,
         } = services;
         let initial_view = view_preferences.effective_state(&initial_path);
+        let tabs = BrowserTabs::new(initial_path, initial_view)
+            .expect("the standard initial location is an absolute session path");
         Rc::new(Self {
             widgets,
-            navigation: RefCell::new(NavigationState::new(initial_path)),
+            tabs: RefCell::new(tabs),
             worker: RefCell::new(browser),
             thumbnail_worker: RefCell::new(thumbnails),
             metadata_worker: RefCell::new(metadata),
@@ -332,12 +362,13 @@ impl BrowserController {
         });
         self.refresh_paste_enabled();
         self.update_sort_headers();
+        self.render_tabs();
         self.widgets
             .apply_sidebar_density(self.current_preferences.borrow().sidebar_density);
         let initial_view = self
             .current_preferences
             .borrow()
-            .effective_state(self.navigation.borrow().current());
+            .effective_state(self.tabs.borrow().active().current().path());
         self.widgets.set_view_mode(initial_view.mode);
         self.widgets.set_grid_size(initial_view.grid_size);
         self.widgets.apply_file_view_policy(
@@ -480,7 +511,13 @@ impl BrowserController {
                 let controller = controller.upgrade()?;
                 (!controller.trash_active.get()).then(|| {
                     DropDestination::Directory(
-                        controller.navigation.borrow().current().to_path_buf(),
+                        controller
+                            .tabs
+                            .borrow()
+                            .active()
+                            .current()
+                            .path()
+                            .to_path_buf(),
                     )
                 })
             }),
@@ -528,7 +565,7 @@ impl BrowserController {
             };
             controller.drop_hover_source.borrow_mut().take();
             if !controller.trash_active.get()
-                && controller.navigation.borrow().current() != path.as_path()
+                && controller.tabs.borrow().active().current().path() != path.as_path()
             {
                 controller.navigate_to(path);
             }
@@ -546,7 +583,7 @@ impl BrowserController {
         if self.trash_active.get() {
             return;
         }
-        let current = self.navigation.borrow().current().to_path_buf();
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
         if !batch_is_current(&batch, self.watch_generation.get(), &current) {
             return;
         }
@@ -610,7 +647,7 @@ impl BrowserController {
             self.watch_generation.set(self.file_watcher.generation());
             return;
         }
-        let current = self.navigation.borrow().current().to_path_buf();
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
         match self.file_watcher.watch_directory(current) {
             Ok(generation) => self.watch_generation.set(generation),
             Err(error) => {
@@ -646,7 +683,7 @@ impl BrowserController {
             self.show_toast("Bookmarks are still loading", 4);
             return;
         }
-        let current = self.navigation.borrow().current().to_path_buf();
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
         if self.bookmarks.borrow().contains(&current) {
             self.show_toast("This folder is already bookmarked", 4);
             return;
@@ -1141,6 +1178,49 @@ impl BrowserController {
         self.add_action("open-trash", |controller| controller.open_trash());
         self.add_action("select-all", |controller| controller.select_all());
         self.add_action("clear-selection", |controller| controller.clear_selection());
+        self.add_action("new-tab", |controller| controller.new_tab());
+        self.add_action("close-tab-active", |controller| {
+            let id = controller.tabs.borrow().active_id();
+            controller.close_tab(id);
+        });
+        self.add_action("duplicate-tab-active", |controller| {
+            let id = controller.tabs.borrow().active_id();
+            controller.duplicate_tab(id);
+        });
+        self.add_action("next-tab", |controller| controller.switch_relative_tab(1));
+        self.add_action("previous-tab", |controller| {
+            controller.switch_relative_tab(-1);
+        });
+        self.add_action("move-tab-left", |controller| controller.move_active_tab(-1));
+        self.add_action("move-tab-right", |controller| controller.move_active_tab(1));
+        self.add_u64_action("activate-tab", |controller, id| controller.activate_tab(id));
+        self.add_u64_action("close-tab", |controller, id| controller.close_tab(id));
+        self.add_u64_action("duplicate-tab", |controller, id| {
+            controller.duplicate_tab(id);
+        });
+        let move_before = gio::SimpleAction::new(
+            "move-tab-before",
+            Some(&<(u64, u64)>::static_variant_type()),
+        );
+        let controller = Rc::downgrade(self);
+        move_before.connect_activate(move |_, parameter| {
+            let Some((source, target)) = parameter.and_then(glib::Variant::get::<(u64, u64)>)
+            else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                controller.move_tab_before(source, target);
+            }
+        });
+        self.widgets.window.add_action(&move_before);
+        let open_tab = self.add_action("open-new-tab", |controller| {
+            controller.open_selected_folder_in_tab(TabActivation::Foreground);
+        });
+        open_tab.set_enabled(false);
+        let open_background = self.add_action("open-background-tab", |controller| {
+            controller.open_selected_folder_in_tab(TabActivation::Background);
+        });
+        open_background.set_enabled(false);
         for (name, command) in VIEW_ACTIONS {
             self.add_action(name, move |controller| {
                 controller.apply_view_command(command);
@@ -1364,6 +1444,12 @@ impl BrowserController {
         application.set_accels_for_action("win.refresh", &["F5", "<Control>r"]);
         application.set_accels_for_action("win.select-all", &["<Control>a"]);
         application.set_accels_for_action("win.clear-selection", &["<Control><Shift>a"]);
+        application.set_accels_for_action("win.new-tab", &["<Control>t"]);
+        application.set_accels_for_action("win.close-tab-active", &["<Control>w"]);
+        application.set_accels_for_action("win.next-tab", &["<Control>Tab"]);
+        application.set_accels_for_action("win.previous-tab", &["<Control><Shift>Tab"]);
+        application.set_accels_for_action("win.move-tab-left", &["<Control><Shift>Page_Up"]);
+        application.set_accels_for_action("win.move-tab-right", &["<Control><Shift>Page_Down"]);
         application.set_accels_for_action("win.cancel-location", &["Escape"]);
         application.set_accels_for_action("win.copy", &["<Control>c"]);
         application.set_accels_for_action("win.cut", &["<Control>x"]);
@@ -1394,15 +1480,295 @@ impl BrowserController {
         action
     }
 
+    fn add_u64_action<F>(self: &Rc<Self>, name: &str, callback: F) -> gio::SimpleAction
+    where
+        F: Fn(&Rc<Self>, BrowserSessionId) + 'static,
+    {
+        let action = gio::SimpleAction::new(name, Some(&u64::static_variant_type()));
+        let controller = Rc::downgrade(self);
+        action.connect_activate(move |_, parameter| {
+            let Some(raw_id) = parameter.and_then(glib::Variant::get::<u64>) else {
+                return;
+            };
+            let Ok(id) = BrowserSessionId::new(raw_id) else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                callback(&controller, id);
+            }
+        });
+        self.widgets.window.add_action(&action);
+        action
+    }
+
+    fn save_active_session_state(&self) {
+        if self.trash_active.get() {
+            return;
+        }
+        let snapshot = self.capture_view_state();
+        let anchor =
+            SessionScrollAnchor::new(snapshot.anchor_path.clone(), snapshot.anchor_index).ok();
+        let mut tabs = self.tabs.borrow_mut();
+        let session = tabs.active_mut();
+        if let Err(error) = session.set_selection(snapshot.selected_paths) {
+            tracing::warn!(%error, "could not retain active tab selection");
+        }
+        if let Err(error) = session.set_scroll_anchor(anchor) {
+            tracing::warn!(%error, "could not retain active tab scroll anchor");
+        }
+        session.set_view(self.active_view_state());
+    }
+
+    fn restore_active_session(&self) {
+        let location = self.tabs.borrow().active().current().clone();
+        let view = location.view();
+        self.view_mode.set(view.mode);
+        self.grid_size.set(view.grid_size);
+        self.sort_order.set(view.sort);
+        self.file_density.set(view.density);
+        self.list_columns.set(view.columns);
+        self.widgets.set_view_mode(view.mode);
+        self.widgets.set_grid_size(view.grid_size);
+        self.widgets
+            .apply_file_view_policy(view.density, view.columns, view.sort.grouping);
+        self.update_sort_headers();
+        self.pending_reconciliation
+            .replace(Some(PendingReconciliation {
+                snapshot: session_restore_snapshot(self.tabs.borrow().active()),
+                renames: Vec::new(),
+            }));
+        self.load_current_inner();
+        self.render_tabs();
+    }
+
+    fn new_tab(&self) {
+        let path = self.tabs.borrow().active().current().path().to_path_buf();
+        self.open_path_in_tab(path, TabActivation::Foreground);
+    }
+
+    fn open_selected_folder_in_tab(&self, activation: TabActivation) {
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        if self.trash_active.get() || !entry.is_navigable_directory() {
+            return;
+        }
+        self.open_path_in_tab(entry.path().to_path_buf(), activation);
+    }
+
+    fn open_path_in_tab(&self, path: PathBuf, activation: TabActivation) {
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        let view = self.current_preferences.borrow().effective_state(&path);
+        let result = self.tabs.borrow_mut().open(path, view, activation);
+        match result {
+            Ok(_) if activation == TabActivation::Foreground => {
+                self.trash_active.set(false);
+                self.widgets.set_trash_mode(false);
+                self.refresh_paste_enabled();
+                self.restore_active_session();
+            }
+            Ok(_) => self.render_tabs(),
+            Err(error) => self.show_toast(&format!("Could not open tab: {error}"), 5),
+        }
+    }
+
+    fn activate_tab(&self, id: BrowserSessionId) {
+        if self.tabs.borrow().active_id() == id {
+            return;
+        }
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        if self.tabs.borrow_mut().activate(id).unwrap_or(false) {
+            self.trash_active.set(false);
+            self.widgets.set_trash_mode(false);
+            self.refresh_paste_enabled();
+            self.restore_active_session();
+        }
+    }
+
+    fn switch_relative_tab(&self, delta: isize) {
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        if self.tabs.borrow_mut().activate_relative(delta) {
+            self.trash_active.set(false);
+            self.widgets.set_trash_mode(false);
+            self.refresh_paste_enabled();
+            self.restore_active_session();
+        }
+    }
+
+    fn duplicate_tab(&self, id: BrowserSessionId) {
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        let result = self
+            .tabs
+            .borrow_mut()
+            .duplicate(id, TabActivation::Foreground);
+        match result {
+            Ok(_) => {
+                self.trash_active.set(false);
+                self.widgets.set_trash_mode(false);
+                self.restore_active_session();
+            }
+            Err(error) => self.show_toast(&format!("Could not duplicate tab: {error}"), 5),
+        }
+    }
+
+    fn close_tab(&self, id: BrowserSessionId) {
+        if self.tabs.borrow().len() == 1 {
+            self.widgets.window.close();
+            return;
+        }
+        self.restore_pending_navigation();
+        if self.tabs.borrow().active_id() == id {
+            self.save_active_session_state();
+        }
+        let result = self.tabs.borrow_mut().close(id);
+        match result {
+            Ok(closed) if closed.active_changed => {
+                self.trash_active.set(false);
+                self.widgets.set_trash_mode(false);
+                self.refresh_paste_enabled();
+                self.restore_active_session();
+            }
+            Ok(_) => self.render_tabs(),
+            Err(error) => self.show_toast(&format!("Could not close tab: {error}"), 5),
+        }
+    }
+
+    fn move_tab_before(&self, source: u64, target: u64) {
+        let (Ok(source), Ok(target)) =
+            (BrowserSessionId::new(source), BrowserSessionId::new(target))
+        else {
+            return;
+        };
+        if self
+            .tabs
+            .borrow_mut()
+            .move_before(source, target)
+            .unwrap_or(false)
+        {
+            self.render_tabs();
+        }
+    }
+
+    fn move_active_tab(&self, delta: isize) {
+        if self.tabs.borrow_mut().move_active(delta) {
+            self.render_tabs();
+        }
+    }
+
+    fn render_tabs(&self) {
+        while let Some(child) = self.widgets.tab_bar.first_child() {
+            self.widgets.tab_bar.remove(&child);
+        }
+        let active = self.tabs.borrow().active_id();
+        let tabs = self
+            .tabs
+            .borrow()
+            .sessions()
+            .iter()
+            .map(|session| {
+                (
+                    session.id(),
+                    session.current().path().to_path_buf(),
+                    session.id() == active,
+                )
+            })
+            .collect::<Vec<_>>();
+        for (id, path, is_active) in tabs {
+            let row = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(2)
+                .build();
+            row.add_css_class("floe-tab");
+            if is_active {
+                row.add_css_class("active");
+            }
+            let title = tab_title(&path);
+            let button = gtk::ToggleButton::builder()
+                .label(&title)
+                .active(is_active)
+                .hexpand(true)
+                .build();
+            button.set_action_name(Some("win.activate-tab"));
+            button.set_action_target_value(Some(&id.get().to_variant()));
+            button.set_tooltip_text(Some(&path.to_string_lossy()));
+            button.update_property(&[gtk::accessible::Property::Label(&format!("Tab: {title}"))]);
+            let middle_click = gtk::GestureClick::new();
+            middle_click.set_button(2);
+            let middle_target = id.get();
+            middle_click.connect_released(move |gesture, _, _, _| {
+                if let Some(widget) = gesture.widget() {
+                    let _ =
+                        widget.activate_action("win.close-tab", Some(&middle_target.to_variant()));
+                }
+            });
+            button.add_controller(middle_click);
+
+            let drag = gtk::DragSource::builder()
+                .actions(gdk::DragAction::MOVE)
+                .build();
+            let dragged_id = id.get();
+            drag.connect_prepare(move |_, _, _| {
+                Some(gdk::ContentProvider::for_value(&dragged_id.to_value()))
+            });
+            row.add_controller(drag);
+            let drop = gtk::DropTarget::new(u64::static_type(), gdk::DragAction::MOVE);
+            let target_id = id.get();
+            drop.connect_drop(move |target, value, _, _| {
+                let Ok(source_id) = value.get::<u64>() else {
+                    return false;
+                };
+                let Some(widget) = target.widget() else {
+                    return false;
+                };
+                widget
+                    .activate_action(
+                        "win.move-tab-before",
+                        Some(&(source_id, target_id).to_variant()),
+                    )
+                    .is_ok()
+            });
+            row.add_controller(drop);
+
+            let close = gtk::Button::builder()
+                .icon_name("window-close-symbolic")
+                .tooltip_text(format!("Close {title}"))
+                .build();
+            close.add_css_class("flat");
+            close.add_css_class("floe-tab-close");
+            close.set_action_name(Some("win.close-tab"));
+            close.set_action_target_value(Some(&id.get().to_variant()));
+            close.update_property(&[gtk::accessible::Property::Label(&format!(
+                "Close tab {title}"
+            ))]);
+            row.append(&button);
+            row.append(&close);
+            self.widgets.tab_bar.append(&row);
+        }
+    }
+
     fn navigate_to(&self, destination: PathBuf) {
         self.reveal_selection_path.borrow_mut().take();
         self.restore_pending_navigation();
         let was_trash = self.trash_active.replace(false);
         self.widgets.set_trash_mode(false);
         self.refresh_paste_enabled();
-        if self.navigation.borrow_mut().navigate_to(destination) || was_trash {
-            self.apply_folder_view_for_current();
-            self.load_current();
+        self.save_active_session_state();
+        let view = self
+            .current_preferences
+            .borrow()
+            .effective_state(&destination);
+        let navigated = self
+            .tabs
+            .borrow_mut()
+            .active_mut()
+            .navigate_to(destination, view)
+            .unwrap_or(false);
+        if navigated || was_trash {
+            self.restore_active_session();
         }
     }
 
@@ -1411,8 +1777,8 @@ impl BrowserController {
             .parent()
             .map(Path::to_path_buf)
             .unwrap_or_else(|| target.clone());
-        let already_current =
-            !self.trash_active.get() && self.navigation.borrow().current() == directory.as_path();
+        let already_current = !self.trash_active.get()
+            && self.tabs.borrow().active().current().path() == directory.as_path();
         self.navigate_to(directory);
         self.reveal_selection_path.replace(Some(target));
         if already_current {
@@ -1458,25 +1824,43 @@ impl BrowserController {
             self.load_current();
             return;
         }
-        if self.navigation.borrow_mut().go_back() {
-            self.apply_folder_view_for_current();
-            self.load_current();
+        self.save_active_session_state();
+        if self.tabs.borrow_mut().active_mut().go_back() {
+            self.restore_active_session();
         }
     }
 
     fn go_forward(&self) {
         self.restore_pending_navigation();
-        if self.navigation.borrow_mut().go_forward() {
-            self.apply_folder_view_for_current();
-            self.load_current();
+        self.save_active_session_state();
+        if self.tabs.borrow_mut().active_mut().go_forward() {
+            self.restore_active_session();
         }
     }
 
     fn go_parent(&self) {
         self.restore_pending_navigation();
-        if self.navigation.borrow_mut().go_parent() {
-            self.apply_folder_view_for_current();
-            self.load_current();
+        self.save_active_session_state();
+        let parent = self
+            .tabs
+            .borrow()
+            .active()
+            .current()
+            .path()
+            .parent()
+            .map(Path::to_path_buf);
+        let Some(parent) = parent else {
+            return;
+        };
+        let view = self.current_preferences.borrow().effective_state(&parent);
+        if self
+            .tabs
+            .borrow_mut()
+            .active_mut()
+            .go_parent(view)
+            .unwrap_or(false)
+        {
+            self.restore_active_session();
         }
     }
 
@@ -1528,27 +1912,14 @@ impl BrowserController {
         }
     }
 
-    fn apply_folder_view_for_current(&self) {
-        let state = self
-            .current_preferences
-            .borrow()
-            .effective_state(self.navigation.borrow().current());
-        self.view_mode.set(state.mode);
-        self.grid_size.set(state.grid_size);
-        self.sort_order.set(state.sort);
-        self.file_density.set(state.density);
-        self.list_columns.set(state.columns);
-        self.widgets.set_view_mode(state.mode);
-        self.widgets.set_grid_size(state.grid_size);
-        self.widgets
-            .apply_file_view_policy(state.density, state.columns, state.sort.grouping);
-        self.update_sort_headers();
-    }
-
     fn queue_preferences(&self) {
         let mut preferences = self.current_preferences.borrow().clone();
         let state = self.active_view_state();
-        let current = self.navigation.borrow().current().to_path_buf();
+        let current = {
+            let mut tabs = self.tabs.borrow_mut();
+            tabs.active_mut().set_view(state);
+            tabs.active().current().path().to_path_buf()
+        };
         preferences.remember_folder_state(current, state);
         *self.current_preferences.borrow_mut() = preferences.clone();
         self.pending_preferences.set(Some(preferences));
@@ -1660,7 +2031,7 @@ impl BrowserController {
             sort.direction.label()
         ));
 
-        let path = self.navigation.borrow().current().to_path_buf();
+        let path = self.tabs.borrow().active().current().path().to_path_buf();
         let generation = self.worker.borrow_mut().request_sort(path, entries, sort);
         self.active_generation.set(generation);
     }
@@ -1726,7 +2097,7 @@ impl BrowserController {
 
     fn set_remember_per_folder(&self, enabled: bool) {
         let state = self.active_view_state();
-        let current = self.navigation.borrow().current().to_path_buf();
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
         {
             let mut preferences = self.current_preferences.borrow_mut();
             preferences.remember_per_folder = enabled;
@@ -1808,7 +2179,7 @@ impl BrowserController {
             self.restore_pending_navigation();
             self.load_current();
         }
-        let current = self.navigation.borrow().current().to_path_buf();
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
         self.clear_location_error();
         self.widgets
             .location_entry
@@ -1883,7 +2254,7 @@ impl BrowserController {
         let request = StorageRequest {
             generation,
             target: StorageTarget::CurrentLocation,
-            path: self.navigation.borrow().current().to_path_buf(),
+            path: self.tabs.borrow().active().current().path().to_path_buf(),
         };
         self.submit_storage_request(request);
     }
@@ -1943,7 +2314,7 @@ impl BrowserController {
                     if current_storage_request_is_current(
                         &response.request,
                         self.current_storage_generation.get(),
-                        self.navigation.borrow().current(),
+                        self.tabs.borrow().active().current().path(),
                         self.trash_active.get(),
                     ) {
                         self.current_storage_facts.set(Some(facts));
@@ -1976,12 +2347,12 @@ impl BrowserController {
 
     fn restore_pending_navigation(&self) {
         if let Some(pending) = self.pending_location.borrow_mut().take() {
-            self.navigation.replace(pending.previous_navigation);
+            *self.tabs.borrow_mut().active_mut() = pending.previous_session;
         }
     }
 
     fn submit_location_entry(&self, input: &str) {
-        let current = self.navigation.borrow().current().to_path_buf();
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
         let destination = match resolve_location_input(input, &current) {
             Ok(path) => path,
             Err(error) => {
@@ -1990,23 +2361,35 @@ impl BrowserController {
             }
         };
 
-        if destination == self.navigation.borrow().current() {
+        if destination == self.tabs.borrow().active().current().path() {
             self.hide_location_entry();
             return;
         }
 
-        let previous_navigation = self.navigation.borrow().clone();
-        if !self.navigation.borrow_mut().navigate_to(destination) {
+        self.save_active_session_state();
+        let previous_session = self.tabs.borrow().active().clone();
+        let view = self
+            .current_preferences
+            .borrow()
+            .effective_state(&destination);
+        if !self
+            .tabs
+            .borrow_mut()
+            .active_mut()
+            .navigate_to(destination, view)
+            .unwrap_or(false)
+        {
             self.hide_location_entry();
             return;
         }
 
         self.clear_location_error();
         self.widgets.location_entry.set_sensitive(false);
+        self.render_tabs();
         let generation = self.load_current();
         self.pending_location.replace(Some(PendingLocation {
             generation,
-            previous_navigation,
+            previous_session,
             submitted_text: input.trim().to_owned(),
         }));
     }
@@ -2079,7 +2462,7 @@ impl BrowserController {
         let path = if self.trash_active.get() {
             self.trash_root.files().to_path_buf()
         } else {
-            self.navigation.borrow().current().to_path_buf()
+            self.tabs.borrow().active().current().path().to_path_buf()
         };
         let generation = if self.trash_active.get() {
             self.worker
@@ -2124,7 +2507,8 @@ impl BrowserController {
     }
 
     fn update_navigation_controls(&self) {
-        let navigation = self.navigation.borrow();
+        let tabs = self.tabs.borrow();
+        let navigation = tabs.active();
         self.widgets
             .back_button
             .set_sensitive(self.trash_active.get() || navigation.can_go_back());
@@ -2212,7 +2596,8 @@ impl BrowserController {
         let Some(pending) = self.pending_location.borrow_mut().take() else {
             return false;
         };
-        let submitted_text = pending.restore(&mut self.navigation.borrow_mut());
+        let submitted_text = pending.restore(self.tabs.borrow_mut().active_mut());
+        self.render_tabs();
         self.load_current();
         self.widgets.location_entry.set_text(&submitted_text);
         self.show_location_error(&location_failure_message(error));
@@ -2395,10 +2780,21 @@ impl BrowserController {
     fn selection_changed(&self) {
         let selected_entries = self.selected_model_entries();
         let state = selection_action_state(&selected_entries);
+        let folder_tab = folder_tab_eligible(&selected_entries, self.trash_active.get());
         self.selected_entries.replace(selected_entries);
         self.set_open_enabled(state.single);
         self.set_open_with_enabled(state.open_with);
         self.set_selection_actions_enabled(state.transfer, state.rename, state.trash);
+        for name in ["open-new-tab", "open-background-tab"] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(folder_tab);
+            }
+        }
         self.refresh_status();
     }
 
@@ -2689,7 +3085,7 @@ impl BrowserController {
     }
 
     fn paste_transfer(&self) {
-        let destination = self.navigation.borrow().current().to_path_buf();
+        let destination = self.tabs.borrow().active().current().path().to_path_buf();
         let clipboard = self.widgets.window.clipboard();
         if clipboard::contains_transfer(&clipboard) {
             let application_state = Rc::clone(&self.application_state);
@@ -3057,7 +3453,7 @@ impl BrowserController {
             self.show_toast("Creation is unavailable while browsing Trash", 4);
             return;
         }
-        let destination_directory = self.navigation.borrow().current().to_path_buf();
+        let destination_directory = self.tabs.borrow().active().current().path().to_path_buf();
         let dialog = ui::build_name_dialog(
             kind.title(),
             "New item name",
@@ -3129,7 +3525,7 @@ impl BrowserController {
 
     fn copy_selection_text(&self, mode: ClipboardTextMode) {
         let paths = self.selected_paths();
-        let base = self.navigation.borrow().current().to_path_buf();
+        let base = self.tabs.borrow().active().current().path().to_path_buf();
         match selection_clipboard_text(&paths, &base, mode) {
             Ok(text) => {
                 self.widgets.window.clipboard().set_text(&text);
@@ -3264,7 +3660,7 @@ impl BrowserController {
                         .and_then(Path::parent)
                         == Some(directory)
             });
-        if trash_directory || self.navigation.borrow().current() == directory {
+        if trash_directory || self.tabs.borrow().active().current().path() == directory {
             self.reload_preserving_view(Vec::new());
         }
     }
@@ -3771,6 +4167,84 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn phase_7b_session_snapshot_preserves_exact_selection_scroll_and_view() {
+        let mut session = BrowserSession::new(
+            BrowserSessionId::new(9).expect("phase 7B fixture"),
+            PathBuf::from("/work"),
+            FolderViewState {
+                mode: ViewMode::Grid,
+                ..FolderViewState::default()
+            },
+        )
+        .expect("phase 7B fixture");
+        let raw = PathBuf::from(OsString::from_vec(b"/work/raw-\xff".to_vec()));
+        session
+            .set_selection(vec![raw.clone()])
+            .expect("phase 7B fixture");
+        session
+            .set_scroll_anchor(Some(
+                SessionScrollAnchor::new(Some(raw.clone()), 37).expect("phase 7B fixture"),
+            ))
+            .expect("phase 7B fixture");
+
+        let snapshot = session_restore_snapshot(&session);
+        assert_eq!(snapshot.selected_paths, vec![raw.clone()]);
+        assert_eq!(snapshot.anchor_path, Some(raw));
+        assert_eq!(snapshot.anchor_index, 37);
+        assert_eq!(session.current().view().mode, ViewMode::Grid);
+    }
+
+    #[test]
+    fn phase_7b_tab_ui_uses_stable_display_only_titles_and_action_contract() {
+        assert_eq!(tab_title(Path::new("/")), "/");
+        assert_eq!(tab_title(Path::new("/home/user/Documents")), "Documents");
+        let raw = PathBuf::from(OsString::from_vec(b"/tmp/raw-\xff".to_vec()));
+        assert!(tab_title(&raw).contains('\u{fffd}'));
+        assert_eq!(raw.as_os_str().as_encoded_bytes(), b"/tmp/raw-\xff");
+        let actions = [
+            "new-tab",
+            "close-tab-active",
+            "next-tab",
+            "previous-tab",
+            "move-tab-left",
+            "move-tab-right",
+            "open-new-tab",
+            "open-background-tab",
+        ];
+        assert_eq!(actions.len(), 8);
+        assert!(actions.contains(&"open-background-tab"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn phase_7b_folder_tabs_accept_only_one_navigable_non_trash_entry() {
+        let fixture = tempdir().expect("phase 7B fixture");
+        fs::create_dir(fixture.path().join("folder")).expect("phase 7B fixture");
+        fs::write(fixture.path().join("file.txt"), b"floe").expect("phase 7B fixture");
+        let listing = floe_core::enumerate_directory(fixture.path()).expect("phase 7B fixture");
+        let entries = listing
+            .entries()
+            .iter()
+            .cloned()
+            .map(Arc::new)
+            .collect::<Vec<_>>();
+        let folder = entries
+            .iter()
+            .find(|entry| entry.is_navigable_directory())
+            .expect("phase 7B fixture")
+            .clone();
+        let file = entries
+            .iter()
+            .find(|entry| entry.kind() == EntryKind::RegularFile)
+            .expect("phase 7B fixture")
+            .clone();
+        assert!(folder_tab_eligible(std::slice::from_ref(&folder), false));
+        assert!(!folder_tab_eligible(&[folder], true));
+        assert!(!folder_tab_eligible(&[file], false));
+        assert!(!folder_tab_eligible(&entries, false));
+    }
 
     #[test]
     fn phase_6n_browser_trash_actions_are_mode_and_metadata_scoped() {

@@ -722,6 +722,7 @@ pub struct BrowserWidgets {
     pub path_stack: gtk::Stack,
     pub location_entry: gtk::Entry,
     pub location_error: gtk::Label,
+    pub tab_bar: gtk::Box,
     pub selection: gtk::MultiSelection,
     pub list_view: gtk::ListView,
     pub grid_view: gtk::GridView,
@@ -1270,7 +1271,30 @@ pub fn build(
     let root = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .build();
+    let tab_bar = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(4)
+        .hexpand(true)
+        .build();
+    tab_bar.add_css_class("floe-tab-bar");
+    let tab_scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .hexpand(true)
+        .child(&tab_bar)
+        .build();
+    tab_scroller.add_css_class("floe-tab-scroller");
+    let new_tab_button = icon_button("list-add-symbolic", "New Tab (Ctrl+T)", "win.new-tab");
+    set_accessible_label(&new_tab_button, "New tab");
+    let tab_strip = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(6)
+        .build();
+    tab_strip.add_css_class("floe-tab-strip");
+    tab_strip.append(&tab_scroller);
+    tab_strip.append(&new_tab_button);
     root.append(&header);
+    root.append(&tab_strip);
     root.append(&workspace);
 
     let operations = build_operations_island();
@@ -1293,6 +1317,7 @@ pub fn build(
         path_stack,
         location_entry,
         location_error,
+        tab_bar,
         selection,
         list_view,
         grid_view,
@@ -2201,6 +2226,25 @@ fn build_directory_panel(
             gesture.set_state(gtk::EventSequenceState::Claimed);
         });
         row.add_controller(secondary_click);
+        let middle_click = gtk::GestureClick::new();
+        middle_click.set_button(2);
+        let middle_item = list_item.downgrade();
+        let middle_selection = row_selection.clone();
+        middle_click.connect_released(move |gesture, _, _, _| {
+            let Some(item) = middle_item.upgrade() else {
+                return;
+            };
+            let position = item.position();
+            if !is_bound_list_position(position) {
+                return;
+            }
+            middle_selection.select_item(position, true);
+            if let Some(widget) = gesture.widget() {
+                let _ = widget.activate_action("win.open-background-tab", None);
+            }
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        row.add_controller(middle_click);
         let destination_item = list_item.downgrade();
         let destination = Rc::new(move || {
             let item = destination_item.upgrade()?;
@@ -2609,6 +2653,25 @@ fn build_grid_factory(
             gesture.set_state(gtk::EventSequenceState::Claimed);
         });
         cell.add_controller(secondary_click);
+        let middle_click = gtk::GestureClick::new();
+        middle_click.set_button(2);
+        let middle_item = list_item.downgrade();
+        let middle_selection = row_selection.clone();
+        middle_click.connect_released(move |gesture, _, _, _| {
+            let Some(item) = middle_item.upgrade() else {
+                return;
+            };
+            let position = item.position();
+            if !is_bound_list_position(position) {
+                return;
+            }
+            middle_selection.select_item(position, true);
+            if let Some(widget) = gesture.widget() {
+                let _ = widget.activate_action("win.open-background-tab", None);
+            }
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        cell.add_controller(middle_click);
         let destination_item = list_item.downgrade();
         let destination = Rc::new(move || {
             let item = destination_item.upgrade()?;
@@ -2714,6 +2777,11 @@ fn build_file_context_menu_model() -> gio::Menu {
     primary.append(
         Some(FILE_CONTEXT_ACTIONS[1].0),
         Some(FILE_CONTEXT_ACTIONS[1].1),
+    );
+    primary.append(Some("Open in New Tab"), Some("win.open-new-tab"));
+    primary.append(
+        Some("Open in New Background Tab"),
+        Some("win.open-background-tab"),
     );
     menu.append_section(None, &primary);
 

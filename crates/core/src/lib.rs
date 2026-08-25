@@ -11,6 +11,7 @@ mod navigation;
 mod permanent_delete;
 mod session;
 mod sorting;
+mod tabs;
 mod trash_lifecycle;
 mod view;
 
@@ -47,6 +48,7 @@ pub use session::{
 pub use sorting::{
     DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn, SortDirection,
 };
+pub use tabs::{BrowserTabs, ClosedTab, TAB_CAPACITY, TabActivation, TabError};
 pub use trash_lifecycle::{
     RestoreError, RestoreOutcome, RestoreRequest, RestoreRequestError, TrashEnumerateError,
     TrashRoot, enumerate_trash_with_cancel, execute_restore,

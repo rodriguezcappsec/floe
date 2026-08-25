@@ -343,9 +343,36 @@ impl Appearance {
                 font-feature-settings: "tnum";
             }}
 
-            .floe-path {{
-                font-weight: 600;
-            }}
+.floe-path {{
+  font-weight: 600;
+}}
+
+.floe-tab-strip {{
+  padding: 4px 10px 6px 10px;
+}}
+
+.floe-tab-bar {{
+  padding: 1px;
+}}
+
+.floe-tab {{
+  min-width: 128px;
+  min-height: 34px;
+  padding: 0 4px 0 10px;
+  border-radius: 9px;
+}}
+
+.floe-tab.active {{
+  background-color: alpha(@accent_bg_color, 0.16);
+  box-shadow: inset 0 -2px @accent_bg_color;
+  font-weight: 600;
+}}
+
+.floe-tab-close {{
+  min-width: 28px;
+  min-height: 28px;
+  padding: 2px;
+}}
 
             .floe-location-hit-target {{
                 min-height: 36px;

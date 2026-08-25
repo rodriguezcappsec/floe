@@ -149,6 +149,19 @@ context.
 
 ## `floe-app`
 
+### Live tab ownership
+
+Phase 7B layers bounded `BrowserTabs` state over the Phase 7A `BrowserSession`
+primitive. The core collection owns stable IDs, active index, and deterministic
+new/duplicate/close/reorder transitions with a 64-tab cap. The GTK controller
+captures exact selection, path/index scroll anchor, and complete folder view
+policy before changing the active session, then submits the destination through
+the existing superseding browser worker. All tabs share the same GTK model,
+thumbnail/metadata workers, file watcher, application jobs, and Operations
+Island. Dormant tabs retain data state only; they do not own hidden widgets or
+background directory enumerations.
+
+
 ### `application.rs` and `main.rs`
 
 `main.rs` declares modules and starts `application::run`. `application.rs`

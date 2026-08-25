@@ -1,42 +1,37 @@
-# Plan: Floe Phase 7A Tab/session model
+# Plan: Floe Phase 7B Tab interaction
 
 Mode: sequential solo phase, depth 4.
 
 ## Contract
 
-- Implement only a GTK-independent browser-session foundation. No tab widgets,
-  tab bar, shortcuts, close/reorder behavior, startup restore, persistence,
-  split view, duplicated browser workers, or changes to visible runtime UX.
-- Reuse one canonical view-policy type family. Move the existing GTK-independent
-  mode/grid/density/column/folder-view policy into `floe-core` rather than create
-  duplicate session-only enums.
-- A session owns stable ID and bounded complete location states: exact current
-  path, back/forward history, exact multi-selection, stable path/index scroll
-  anchor, sort/group/folder placement, view mode/grid size/density/columns.
-- Navigation transitions move complete location state so Back/Forward can later
-  restore selection, scroll, sort, and view without reading widget state.
-- Provide a versioned, bounded, in-memory codec that preserves non-UTF-8 Linux
-  paths and rejects relative paths, malformed/truncated/oversized data, invalid
-  enum values, invalid/zero session IDs, and trailing bytes. Phase 7C owns file
-  persistence and privacy policy; Phase 7A performs no I/O.
+- Implement only live tab interaction over the Phase 7A `BrowserSession` model.
+  Do not add closed-tab retention, startup persistence, split view, detached
+  windows, or per-tab filesystem workers.
+- Keep one shared virtualized directory model, browser worker, thumbnail worker,
+  metadata worker, watcher, job manager, and operation surface. Switching tabs
+  swaps exact bounded session state and supersedes stale browser responses.
+- Provide accessible native tab controls for new, close, switch, duplicate,
+  reorder, foreground/background folder open, middle-click open/close, and
+  keyboard alternatives. Background opening must not steal focus.
+- Preserve exact `PathBuf` selection/history/scroll identity. Lossy path text is
+  display-only and never reconstructed into a path.
 
 ## Depth tree
 
-1. Canonical view policy
-   - Relocate existing GTK-independent view types and focused tests to core.
-   - Keep application action mapping as a thin app-owned layer.
-2. Session state machine
-   - Stable nonzero session ID.
-   - Complete current/back/forward location state with explicit bounds.
-   - Exact selection and scroll-anchor updates; navigation preserves full state.
-3. Versioned serialization boundary
-   - Raw Unix path-byte encoding, deterministic view encoding, explicit limits.
-   - Round-trip and hostile-input tests without filesystem/config writes.
+1. GTK-independent live tab state
+   - Bounded stable-ID collection over `BrowserSession`.
+   - New, activate, duplicate, close, and deterministic reorder transitions.
+2. Shared-browser session wiring
+   - Capture active location/view/selection/scroll before transitions.
+   - Restore complete destination state through the existing one-worker load.
+3. Native tab interaction
+   - Compact labelled tab strip with active semantics, close controls, tooltips,
+     pointer reorder, middle click, context commands, and keyboard alternatives.
+   - Folder foreground/background tab actions in list and grid.
 4. Verification and handoff
-   - Focused session/view tests plus full formatting/check/Clippy/tests/diff gates.
-   - No native Wayland smoke unless runtime code changes; update persistent docs,
-     mark Phase 7A complete, set exactly Phase 7B next, and stop.
+   - Focused core/application tests, formatting/check/strict Clippy/workspace tests,
+     native Wayland action/focus/lifecycle smoke, docs, and exactly Phase 7C next.
 
 ## Status
 
-COMPLETE — exactly one recommended next phase: `phase-7b-tabs-interaction`.
+COMPLETE — exactly one recommended next phase: `phase-7c-tab-session-restore`.

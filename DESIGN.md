@@ -415,6 +415,21 @@ The header location is both orientation and navigation. Its resting state is a p
 
 Phase 6H implements this surface.
 
+### Tabs
+
+Phase 7B adds a compact horizontally scrollable native tab strip between the
+header and browser workspace. Each tab has a path-derived display-only title,
+full-path tooltip, explicit active toggle state, and separately labelled close
+control. A bottom accent and weight change reinforce active state without color
+alone. Raw `PathBuf` identity remains solely in application/core state.
+
+Ctrl+T/Ctrl+W create and close, Ctrl+Tab/Ctrl+Shift+Tab switch, and
+Ctrl+Shift+PageUp/PageDown reorder. Pointer drag has those keyboard alternatives;
+middle-click closes a tab. Folder menus open foreground or background tabs and
+middle-click opens a folder in the background without moving focus. Tabs reuse
+one virtualized model and one bounded browser/thumbnail/metadata/watcher pipeline;
+they never clone widget trees or filesystem workers.
+
 ### Open without a default application
 
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.

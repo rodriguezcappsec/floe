@@ -4,11 +4,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use floe_core::{DirectoryError, NavigationState};
+use floe_core::{BrowserSession, DirectoryError};
 
 pub struct PendingLocation {
     pub generation: u64,
-    pub previous_navigation: NavigationState,
+    pub previous_session: BrowserSession,
     pub submitted_text: String,
 }
 
@@ -17,8 +17,8 @@ impl PendingLocation {
         self.generation == generation
     }
 
-    pub fn restore(self, navigation: &mut NavigationState) -> String {
-        *navigation = self.previous_navigation;
+    pub fn restore(self, session: &mut BrowserSession) -> String {
+        *session = self.previous_session;
         self.submitted_text
     }
 }
@@ -146,20 +146,32 @@ mod tests {
 
     #[test]
     fn phase_6h_failed_generation_restores_exact_navigation_snapshot() {
-        let mut navigation = floe_core::NavigationState::new(PathBuf::from("/home/floe"));
-        let previous_navigation = navigation.clone();
-        assert!(navigation.navigate_to(PathBuf::from("/tmp/not-a-folder")));
+        let mut session = floe_core::BrowserSession::new(
+            floe_core::BrowserSessionId::new(1).expect("phase 7B fixture"),
+            PathBuf::from("/home/floe"),
+            floe_core::FolderViewState::default(),
+        )
+        .expect("phase 7B fixture");
+        let previous_session = session.clone();
+        assert!(
+            session
+                .navigate_to(
+                    PathBuf::from("/tmp/not-a-folder"),
+                    floe_core::FolderViewState::default(),
+                )
+                .expect("phase 7B fixture")
+        );
         let pending = PendingLocation {
             generation: 17,
-            previous_navigation,
+            previous_session,
             submitted_text: "/tmp/not-a-folder".into(),
         };
 
         assert!(pending.matches(17));
-        let submitted = pending.restore(&mut navigation);
-        assert_eq!(navigation.current(), PathBuf::from("/home/floe"));
-        assert!(!navigation.can_go_back());
-        assert!(!navigation.can_go_forward());
+        let submitted = pending.restore(&mut session);
+        assert_eq!(session.current().path(), PathBuf::from("/home/floe"));
+        assert!(!session.can_go_back());
+        assert!(!session.can_go_forward());
         assert_eq!(submitted, "/tmp/not-a-folder");
     }
 }

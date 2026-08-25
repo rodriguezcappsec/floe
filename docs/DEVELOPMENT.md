@@ -383,6 +383,20 @@ state and D-Bus health, quit cleanly, and released the application name.
 Spectacle produced no file and the screenshot portal timed out, so no visual
 capture is claimed.
 
+Phase 7B adds no dependency. Focused checks are:
+
+```bash
+cargo test -p floe-core phase_7b_tabs -- --nocapture
+cargo test -p floe-app phase_7b_ -- --nocapture
+```
+
+The full gate passes 304 tests: 226 application and 78 core, plus formatting,
+workspace check, strict all-target/all-feature Clippy, and diff hygiene. A native
+Niri/Wayland smoke exported and activated new/switch/reorder/duplicate/close tab
+actions, answered `org.freedesktop.DBus.Peer.Ping`, quit cleanly, and released
+`io.github.floe.FileManager`. Only the documented RADV/Vulkan swapchain warning
+appeared. Spectacle again produced no file, so no visual capture is claimed.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

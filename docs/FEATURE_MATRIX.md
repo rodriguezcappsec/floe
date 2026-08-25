@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 7A. Phase 7B is the only
+The implementation baseline for this matrix is Phase 7B. Phase 7C is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -183,14 +183,14 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | Reusable tab/session state model | `COMPLETE` | 7A | Stable-ID bounded core model owns exact path, complete history locations, multi-selection, path/index scroll anchor, sort, grouping, folder placement, view mode, grid size, density, and columns. |
-| New/close/switch tab | `PLANNED` | 7B | Pointer and keyboard interaction depend on Phase 7A. |
-| Per-tab path and history | `PARTIAL` | 7A/7B | Reusable session history is complete; Phase 7B creates and activates actual tabs without duplicating expensive workers. |
-| Per-tab view state | `PARTIAL` | 7A/7B | Complete view policy is stored per session location; runtime tab ownership is Phase 7B and persistence is Phase 7C. |
-| Duplicate tab | `PLANNED` | 7B | Clone serializable session state, not widget trees. |
-| Reorder tabs | `PLANNED` | 7B | Provide drag and keyboard/pointer alternatives. |
+| New/close/switch tab | `COMPLETE` | 7B | Native labelled strip, Ctrl+T/Ctrl+W/Ctrl+Tab, pointer activation, and last-tab window close use bounded stable IDs. |
+| Per-tab path and history | `COMPLETE` | 7A/7B | Complete exact location snapshots restore through one shared superseding browser worker. |
+| Per-tab view state | `COMPLETE` | 7A/7B | Sort/group/view/grid/density/columns, exact selection, and path/index scroll anchor restore per live tab; persistence remains 7C. |
+| Duplicate tab | `COMPLETE` | 7B | Clones bounded session state beside source, never widget trees or workers. |
+| Reorder tabs | `COMPLETE` | 7B | Pointer drag plus Ctrl+Shift+PageUp/PageDown preserve active stable ID. |
 | Reopen closed tab / Ctrl+Shift+T | `PLANNED` | 7C | Depends on bounded recently-closed state and privacy policy. |
-| Close left/right/others | `PLANNED` | 7B | Context commands must preserve active-session ownership. |
-| Foreground/background folder open | `PLANNED` | 7B | Opening in background must not steal focus. |
+| Close left/right/others | `PLANNED` | 7C | Context commands must preserve active-session ownership and feed bounded recently closed state. |
+| Foreground/background folder open | `COMPLETE` | 7B | List/grid menu and middle-click background open retain focus; foreground open restores the new tab. |
 | Optional tab names | `DEFERRED` | 7C | Add only after default path-derived naming is stable. |
 | Pinned tabs | `DEFERRED` | 7C | Requires clear session persistence and close semantics. |
 | Session restore | `PLANNED` | 7C | Must be versioned and suppressed in Private/Sensitive modes. |
