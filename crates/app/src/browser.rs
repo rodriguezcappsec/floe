@@ -371,6 +371,7 @@ impl BrowserServices {
 
 pub struct BrowserController {
     widgets: BrowserWidgets,
+    command_palette: crate::command_palette::CommandPalette,
     tabs: Rc<RefCell<BrowserTabs>>,
     worker: RefCell<BrowserWorker>,
     thumbnail_worker: RefCell<Option<ThumbnailWorker>>,
@@ -486,8 +487,10 @@ impl BrowserController {
                 .expect("the standard initial location is an absolute session path")
         });
         let initial_view = tabs.active().current().view();
+        let command_palette = crate::command_palette::CommandPalette::new(&widgets.window);
         Rc::new(Self {
             widgets,
+            command_palette,
             tabs: Rc::new(RefCell::new(tabs)),
             worker: RefCell::new(browser),
             thumbnail_worker: RefCell::new(thumbnails),
@@ -1493,6 +1496,9 @@ impl BrowserController {
     }
 
     fn install_actions(self: &Rc<Self>, application: &adw::Application) {
+        self.add_action("command-palette", |controller| {
+            controller.command_palette.present();
+        });
         self.add_action("back", |controller| controller.go_back());
         self.add_action("forward", |controller| controller.go_forward());
         self.add_action("parent", |controller| controller.go_parent());

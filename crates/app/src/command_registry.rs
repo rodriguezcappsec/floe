@@ -112,6 +112,17 @@ macro_rules! command {
 }
 
 pub static COMMANDS: &[CommandDefinition] = &[
+    CommandDefinition {
+        action: "win.command-palette",
+        name: "Command Palette",
+        description: "Search and run Floe commands",
+        category: CommandCategory::Operations,
+        search_terms: &["commands", "actions"],
+        default_shortcuts: &["<Control><Shift>p"],
+        placements: &[CommandPlacement::ShortcutOnly],
+        risk: CommandRisk::Normal,
+        searchable: false,
+    },
     command!(
         "open",
         "Open",
