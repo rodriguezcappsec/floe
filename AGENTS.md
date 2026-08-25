@@ -1160,12 +1160,22 @@ Last updated:
 Current phase:
 
 ```text
-Phase 8 — Miller and spatial navigation (Phase 8D complete)
+Phase 8 — Miller and spatial navigation (Phase 8E complete)
 ```
 
 Status:
 
 ```text
+Phase 8E makes active and retained Miller columns standard local-file drag
+sources and exact folder/background destinations. It reuses existing
+copy/move/link negotiation, request validation, bounded FIFO jobs, and
+no-overwrite behavior. Live tab sessions, the opposite split pane, Places,
+bookmarks, and mounted devices share typed destination/hover ownership. One
+cancellable 720 ms timer revalidates directory, tab, pane, or Miller-child
+targets; edge motion clamps vertical and horizontal ancestor scrollers. GTK
+performs no filesystem mutation, no drag history/path persistence was added,
+and Phase 8F detail content remains absent.
+
 Phase 8D adds native file/background context menus to every active and retained
 Miller column. Pointer and Shift+F10/Menu paths emit bounded exact depth,
 directory, and shared-entry identities; controller revalidation rejects stale,
@@ -2183,9 +2193,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-8e-miller-drag-drop` and add exact cross-column drag/drop with
-modifier parity, bounded hover navigation/autoscroll, and existing no-overwrite
-job routing. Do not add Phase 8F detail hooks.
+Create `phase-8f-miller-detail-hooks` and add optional final-column Preview and
+Inspector lifecycle contracts with unsupported/loading/failure/focus states.
+Do not implement Phase 9 preview content or Phase 10 metadata providers.
 ```
 
 ---

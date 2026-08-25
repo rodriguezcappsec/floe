@@ -123,6 +123,18 @@ fn split_drop_destination(tabs: &BrowserTabs, trash_active: bool) -> Option<Drop
         .flatten()
 }
 
+fn tab_drop_destination(
+    tabs: &BrowserTabs,
+    id: BrowserSessionId,
+    trash_active: bool,
+) -> Option<DropDestination> {
+    if trash_active {
+        return None;
+    }
+    tabs.session(id)
+        .map(|session| DropDestination::Directory(session.active().current().path().to_path_buf()))
+}
+
 fn tab_menu_item(label: &str, action: &str, id: BrowserSessionId) -> gio::MenuItem {
     let item = gio::MenuItem::new(Some(label), None);
     item.set_action_and_target_value(Some(action), Some(&id.get().to_variant()));
@@ -160,8 +172,8 @@ use crate::{
         DeviceSubscriptionId,
     },
     drag_drop::{
-        DropAction, DropDestination, DropEvent, DropRequest, install_drag_source,
-        install_drop_target,
+        DropAction, DropDestination, DropEvent, DropHoverTarget, DropRequest, install_drag_source,
+        install_drop_target, install_drop_target_with_hover,
     },
     file_watcher::{
         FileWatcher, RenamePair, ViewStateSnapshot, WatchBatch, batch_is_current,
@@ -324,7 +336,7 @@ impl BrowserServices {
 
 pub struct BrowserController {
     widgets: BrowserWidgets,
-    tabs: RefCell<BrowserTabs>,
+    tabs: Rc<RefCell<BrowserTabs>>,
     worker: RefCell<BrowserWorker>,
     thumbnail_worker: RefCell<Option<ThumbnailWorker>>,
     metadata_worker: RefCell<Option<MetadataWorker>>,
@@ -431,7 +443,7 @@ impl BrowserController {
         let initial_view = tabs.active().current().view();
         Rc::new(Self {
             widgets,
-            tabs: RefCell::new(tabs),
+            tabs: Rc::new(RefCell::new(tabs)),
             worker: RefCell::new(browser),
             thumbnail_worker: RefCell::new(thumbnails),
             metadata_worker: RefCell::new(metadata),
@@ -534,14 +546,14 @@ impl BrowserController {
         self.install_file_view_drag_drop(&self.widgets.list_view);
         self.install_file_view_drag_drop(&self.widgets.grid_view);
         let controller = Rc::downgrade(self);
-        install_drop_target(
+        install_drop_target_with_hover(
             &self.widgets.inactive_pane,
             Rc::new(move || {
                 let controller = controller.upgrade()?;
                 split_drop_destination(&controller.tabs.borrow(), controller.trash_active.get())
             }),
+            Rc::new(|_| Some(DropHoverTarget::OppositePane)),
             self.widgets.drop_dispatcher.clone(),
-            false,
             false,
         );
 
@@ -553,7 +565,7 @@ impl BrowserController {
                 button,
                 Rc::new(move || Some(DropDestination::Directory(drop_path.clone()))),
                 self.widgets.drop_dispatcher.clone(),
-                false,
+                true,
                 false,
             );
             button.connect_clicked(move |_| {
@@ -705,7 +717,7 @@ impl BrowserController {
                 self.widgets.status_label.set_label(&message);
             }
             DropEvent::Feedback(None) => self.refresh_status(),
-            DropEvent::HoverEnter(path) => self.schedule_hover_open(path),
+            DropEvent::HoverEnter(target) => self.schedule_hover_open(target),
             DropEvent::HoverLeave => self.cancel_hover_open(),
         }
     }
@@ -727,7 +739,7 @@ impl BrowserController {
         }
     }
 
-    fn schedule_hover_open(self: &Rc<Self>, path: PathBuf) {
+    fn schedule_hover_open(self: &Rc<Self>, target: DropHoverTarget) {
         self.cancel_hover_open();
         let controller = Rc::downgrade(self);
         let source = glib::timeout_add_local_once(Duration::from_millis(720), move || {
@@ -735,10 +747,31 @@ impl BrowserController {
                 return;
             };
             controller.drop_hover_source.borrow_mut().take();
-            if !controller.trash_active.get()
-                && controller.tabs.borrow().active().current().path() != path.as_path()
-            {
-                controller.navigate_to(path);
+            if controller.trash_active.get() {
+                return;
+            }
+            match target {
+                DropHoverTarget::Directory(path) => {
+                    if controller.tabs.borrow().active().current().path() != path.as_path() {
+                        controller.navigate_to(path);
+                    }
+                }
+                DropHoverTarget::Tab(raw_id) => {
+                    if let Ok(id) = BrowserSessionId::new(raw_id)
+                        && controller.tabs.borrow().session(id).is_some()
+                        && controller.tabs.borrow().active_id() != id
+                    {
+                        controller.activate_tab(id);
+                    }
+                }
+                DropHoverTarget::OppositePane => {
+                    if controller.tabs.borrow().active_split().is_split() {
+                        controller.switch_split_side();
+                    }
+                }
+                DropHoverTarget::MillerChild { depth, path } => {
+                    controller.activate_miller_hover(depth, &path);
+                }
             }
         });
         self.drop_hover_source.replace(Some(source));
@@ -1007,7 +1040,7 @@ impl BrowserController {
                 &open,
                 Rc::new(move || Some(DropDestination::Directory(drop_path.clone()))),
                 self.widgets.drop_dispatcher.clone(),
-                false,
+                true,
                 false,
             );
             let controller = Rc::downgrade(self);
@@ -1111,7 +1144,7 @@ impl BrowserController {
                     &activate,
                     Rc::new(move || Some(DropDestination::Directory(drop_path.clone()))),
                     self.widgets.drop_dispatcher.clone(),
-                    false,
+                    true,
                     false,
                 );
             }
@@ -2358,6 +2391,20 @@ impl BrowserController {
             });
             row.add_controller(drop);
 
+            let drop_tabs = Rc::clone(&self.tabs);
+            let drop_id = id;
+            let hover_id = id.get();
+            install_drop_target_with_hover(
+                &row,
+                Rc::new(move || {
+                    let tabs = drop_tabs.borrow();
+                    tab_drop_destination(&tabs, drop_id, false)
+                }),
+                Rc::new(move |_| Some(DropHoverTarget::Tab(hover_id))),
+                self.widgets.drop_dispatcher.clone(),
+                false,
+            );
+
             let menu = gio::Menu::new();
             menu.append_item(&tab_menu_item("Duplicate Tab", "win.duplicate-tab", id));
             menu.append_item(&tab_menu_item("Close Tab", "win.close-tab", id));
@@ -2683,6 +2730,37 @@ impl BrowserController {
             .filter(|_| self.view_mode.get() == ViewMode::Miller)
             .map(|context| context.directory.clone())
             .unwrap_or_else(|| self.tabs.borrow().active().current().path().to_path_buf())
+    }
+
+    fn activate_miller_hover(&self, depth: usize, path: &Path) {
+        if self.view_mode.get() != ViewMode::Miller || self.trash_active.get() {
+            return;
+        }
+        let entry = {
+            let current = self.tabs.borrow().active().current().path().to_path_buf();
+            let model = self.miller_model.borrow();
+            let Some(model) = model.as_ref() else {
+                return;
+            };
+            let columns = self.miller_state.borrow().columns(model, &current);
+            let Some(column) = columns.iter().find(|column| column.depth == depth) else {
+                return;
+            };
+            if path.parent() != Some(column.directory.as_path()) {
+                return;
+            }
+            let available = if column.is_active {
+                self.visible_entries.borrow().clone()
+            } else {
+                column.entries.clone()
+            };
+            available
+                .into_iter()
+                .find(|entry| entry.path() == path && entry.is_navigable_directory())
+        };
+        if let Some(entry) = entry {
+            self.activate_miller_entry(MillerActivation { depth, entry });
+        }
     }
 
     fn activate_miller_entry(&self, activation: MillerActivation) {
@@ -5795,6 +5873,27 @@ mod tests {
             MILLER_NAVIGATION_ACTIONS,
             ["win.miller-parent", "win.miller-child"]
         );
+    }
+
+    #[test]
+    fn phase_8e_surfaces_resolve_live_tab_split_and_typed_hover_ownership() {
+        let raw = PathBuf::from(OsString::from_vec(b"/tmp/tab-drop-\xff".to_vec()));
+        let mut tabs =
+            BrowserTabs::new(raw.clone(), FolderViewState::default()).expect("initial tab");
+        let tab_id = tabs.active_id();
+        assert_eq!(
+            tab_drop_destination(&tabs, tab_id, false),
+            Some(DropDestination::Directory(raw.clone()))
+        );
+        assert_eq!(tab_drop_destination(&tabs, tab_id, true), None);
+        tabs.split_active(PathBuf::from("/opposite"), FolderViewState::default())
+            .expect("split");
+        assert_eq!(
+            split_drop_destination(&tabs, false),
+            Some(DropDestination::Directory(PathBuf::from("/opposite")))
+        );
+        assert_eq!(DropHoverTarget::Tab(tab_id.get()), DropHoverTarget::Tab(1));
+        assert_eq!(DropHoverTarget::OppositePane, DropHoverTarget::OppositePane);
     }
 
     #[test]

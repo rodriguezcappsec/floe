@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 8D. Phase 8E is the only
+The implementation baseline for this matrix is Phase 8E. Phase 8F is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -150,7 +150,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Tab reordering by drag | `COMPLETE` | 7B | Stable-ID pointer drag plus Ctrl+Shift+PageUp/PageDown alternatives. |
 | Tab detachment | `DEFERRED` | 7F | Optional after tabs, session transfer, and window ownership are stable. |
 | Pane-to-pane drag | `COMPLETE` | 7F | Inactive pane resolves the live exact opposite path and reuses copy/move/link job commands. |
-| Miller column-to-column drag | `PLANNED` | 8E | Depends on exact column destination state and recycling-safe identity. |
+| Miller column-to-column drag | `COMPLETE` | 8E | Active/retained exact selections publish standard local file lists; folder and column-background targets resolve exact paths and reuse copy/move/link no-overwrite jobs. Typed hover targets revalidate Miller depth/child identity. |
 | Batch rename | `PLANNED` | 12C | Preview, find/replace, regex, numbering, collision validation, and undo are one bounded operation family. |
 | Archive compress/extract | `PLANNED` | 12A-12B | Must reuse job progress, cancellation, and conflict handling. |
 
@@ -232,7 +232,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Bounded retained columns | `COMPLETE` | 8A | Core retains at most 16 locations while stable logical depths identify evicted/stale requests. |
 | Column context menus/actions | `COMPLETE` | 8D | Active and retained columns emit bounded exact-owner contexts; stale, overflowed, and wrong-parent selections are rejected before existing action/job routing. Pointer and Shift+F10/Menu access share file/background models. |
 | Selection preservation | `COMPLETE` | 8A-8C | Exact selected-child state binds retained columns and recycled active lists restore focus-visible bounded keyboard selection. |
-| Cross-column drag/drop | `PLANNED` | 8E | Depends on Phase 8A exact destinations and general drag infrastructure. |
+| Cross-column drag/drop | `COMPLETE` | 8E | Miller rows/backgrounds, live tab sessions, split panes, Places, bookmarks, and mounted devices share exact destination and bounded hover ownership; two-axis edge scrolling is clamped. |
 | Quick Preview final column | `PLANNED` | 8F/9 | Hook only; providers remain Phase 9. |
 | Inspector final column | `PLANNED` | 8F/10 | Hook only; metadata providers remain Phase 10. |
 | Niri-friendly behavior | `PLANNED` | 8/15 | Core mode stays generic; Niri can add optional spatial enhancements later. |
@@ -694,7 +694,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Undo | `PLANNED` | 6P | Requires explicit operation-specific reversible semantics and current-state revalidation. |
 | Tabs/session restore | `COMPLETE` | 7A-7C | Versioned bounded raw-path workspace restores live/closed state through private atomic storage; explicit Private/Sensitive policy suppresses owned traces. |
 | Split view | `PLANNED` | 7D-7F | Reusable navigation sessions and explicit active-pane ownership. |
-| Miller columns | `PARTIAL` | 8A-8F | Exact bounded model, native virtualized columns, keyboard/trackpad navigation, and standard column actions are complete; cross-column drag and detail hooks remain in 8E–8F. |
+| Miller columns | `PARTIAL` | 8A-8F | Exact model, virtualized columns, keyboard/trackpad, actions, and cross-surface drag/drop are complete; final-column detail hooks remain in 8F. |
 | Quick Preview | `PLANNED` | 9A-9F | Existing thumbnails plus cancellable provider boundary designed for Phase 18L sandboxing. |
 | Inspector | `PLANNED` | 10A-10F | Shared lazy metadata providers; no eager whole-directory enrichment. |
 | Command palette | `PLANNED` | 11A-11B | Central command registry; no business logic in palette callbacks. |

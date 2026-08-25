@@ -494,6 +494,18 @@ action object, and exits cleanly. Focused tests cover raw non-UTF-8 identity,
 stale/overflow/wrong-parent rejection, pointer/keyboard menu policy, and
 list/grid/Miller action parity.
 
+Phase 8E focused verification is:
+
+```bash
+cargo test -p floe-app phase_8e -- --nocapture
+```
+
+The native Wayland smoke activates Miller mode, describes the explicit
+copy/move/link-to-other-pane alternatives, pings the window action object, and
+quits cleanly. Synthetic drag serials are not used for native automation;
+focused tests cover exact raw sources, live destinations, typed stale hover
+rejection, modifier-preserving requests, and two-axis clamping.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and
