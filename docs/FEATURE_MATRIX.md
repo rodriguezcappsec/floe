@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 9B. Phase 9C is the only
+The implementation baseline for this matrix is Phase 9C. Phase 9D is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -358,8 +358,8 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Space toggles Quick Preview | `PLANNED` | 9A | Must not interfere with text entry or selection commands. |
 | Raster/animated image preview | `COMPLETE` | 9B | Exact no-follow identity and decoder allocation limits produce owned RGBA; animated GIF/WebP is explicitly presented as first-frame-only. |
 | Text/Markdown/source/JSON/XML preview | `COMPLETE` | 9B | Bounded UTF-8/BOM UTF-16 source is selectable and inert; binary, HTML, SVG, malformed encodings, scripts and external-resource rendering are rejected. |
-| PDF/document preview | `NEXT` | 9C | Reuse Phase 6L providers where appropriate; sandbox path is Phase 18L. |
-| Audio/video preview | `PLANNED` | 9D | Bounded media pipeline with seek/playback and clear unsupported state. |
+| PDF/document preview | `COMPLETE` | 9C | Reviewed installed freedesktop providers return a bounded PNG first-page/document rendition through supervised argv-only execution; helpers retain normal user authority until 18L. |
+| Audio/video preview | `NEXT` | 9D | Bounded media pipeline with seek/playback and clear unsupported state. |
 | Font/archive preview | `PLANNED` | 9E | Archive view lists safely without implicit extraction. |
 | Navigate while preview remains open | `PLANNED` | 9F | Cancel stale work and preserve keyboard focus hierarchy. |
 | Image zoom/rotate/fullscreen | `PLANNED` | 9F | Presentation-only transforms must not silently modify source. |

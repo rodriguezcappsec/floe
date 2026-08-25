@@ -1160,12 +1160,21 @@ Last updated:
 Current phase:
 
 ```text
-Phase 9 — Quick Preview (Phase 9B complete)
+Phase 9 — Quick Preview (Phase 9C complete)
 ```
 
 Status:
 
 ```text
+Phase 9C adds passive PDF and reviewed office/document previews by reusing the
+Phase 6L freedesktop thumbnailer registry and supervised argv-only process
+boundary. Exact sources are opened no-follow before dispatch and reopened after
+provider completion. Only bounded PNG output becomes owned RGBA for a labelled
+first-page/document rendition. Unsupported providers, cancellation, malformed
+output, source changes, and symlinks fail explicitly. Macro-enabled formats are
+not selected. Helpers retain normal user authority and are not sandboxed;
+Phase 18L owns isolation.
+
 Phase 9B adds deterministic built-in raster and passive-text Preview providers.
 Exact source path/size/modified identity is opened no-follow and revalidated;
 explicit source/output/text limits bound first-frame RGBA and UTF-8/BOM UTF-16
@@ -2222,10 +2231,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-9c-preview-documents` and implement bounded passive PDF and
-reviewed document Preview providers on the Phase 9A lifecycle. Do not execute
-macros or active document content, and do not add media, font, or archive
-providers.
+Create `phase-9d-preview-media` and implement bounded audio/video Preview
+playback, seeking, metadata, poster fallback, and resource retirement. Do not
+install codecs or add font/archive providers.
 ```
 
 ---

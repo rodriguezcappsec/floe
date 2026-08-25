@@ -32,6 +32,13 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 9C PDF and office/document previews reuse reviewed installed
+  freedesktop thumbnailer definitions through the Phase 6L argv-only supervised
+  process boundary. Floe preflights and reopens the exact source no-follow,
+  accepts only bounded PNG output into memory, and labels the result as a
+  first-page/document rendition. Macro-enabled extensions and active content
+  are not selected. Helpers retain the user's normal authority and are not
+  sandboxed; Phase 18L remains the isolation phase.
 - Phase 9B registers built-in raster and passive-text providers on the Phase 9A
   fixed-capacity local worker. Sources are opened no-follow and revalidated by
   exact path/size/modified identity. Owned RGBA and UTF-8/BOM UTF-16 payloads
