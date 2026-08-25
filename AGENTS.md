@@ -1176,10 +1176,14 @@ Last updated:
 Current phase:
 
 ```text
-Phase 10 — Inspector, properties, and metadata (Phase 10F complete)
+Phase 11 — Commands, keyboard, and terminal (Phase 11A complete)
 ```
 
 Status:
+
+```text
+Phase 11A adds one bounded application-layer command registry for 59 normal user-invokable commands. Each definition has a unique existing `win.*` GAction, human name, description, deterministic category, at most eight search terms, default accelerators, menu placements, risk level, and palette eligibility. The registry owns no callbacks or filesystem logic: live GAction presence/enabled state remains the sole execution and context-eligibility authority. Existing window accelerators now install from registry metadata without changing bindings; background context labels resolve through the registry while preserving established order. File, Trash, and background context actions have parity tests. Parameterized tab IDs, stateful view/column controls, and widget plumbing are explicitly excluded from the normal command surface. Startup audits registry/action parity without logging command names or paths. Phase 11B command-palette UI is not included.
+```
 
 ```text
 Phase 10F adds lazy bounded advanced metadata to Inspector, Properties, and five opt-in list columns: Dimensions, Duration, Artist, Album, and Track. The existing capacity-64 metadata worker performs exact no-follow local regular-file parsing only on explicit Inspector demand or for bound visible rows when an advanced column is enabled. It revalidates device/inode/size/mtime/ctime, caps cumulative reads at 16 MiB and text at 1,024 characters, limits EXIF to ten reviewed presentation fields, uses strict media parsing with cover art disabled, and keeps results in a 512-entry memory-only cache. Unsupported, absent, malformed, changed, inaccessible, and limit states remain explicit. Asynchronous enrichment is non-sortable, so it cannot reorder rows; legacy nine-column preferences migrate through stable textual names. GPS/privacy findings remain Phase 18O, and no safety, authenticity, or sanitization claim is made.
@@ -2354,9 +2358,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-11a-command-registry` and centralize human-readable command
-metadata, eligibility, shortcuts, and menu placement over existing application
-actions without duplicating business logic. Do not add the Phase 11B palette.
+Create `phase-11b-command-palette` and implement Ctrl+Shift+P bounded command
+search, live GAction eligibility, accessible keyboard navigation, and bounded
+memory-only recent commands. Do not add Phase 11C shortcut customization.
 ```
 
 ---

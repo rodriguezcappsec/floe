@@ -1,16 +1,16 @@
-# Plan: Floe Phase 10F — Advanced Metadata
+# Plan: Floe Phase 11A — Command Registry
 
 ## Contract
 
-- Extend the existing Phase 10B Inspector provider with bounded, lazy, read-only advanced image and media/audio metadata for exact selected local regular files.
-- Parse reviewed EXIF fields without executing content, following links, using network access, or turning metadata into Phase 18O privacy/security findings.
-- Parse reviewed audio/media duration and common descriptive tags with explicit unavailable, unsupported, malformed, changed, and limit states.
-- Add optional Dimensions, Duration, Artist, Album, and Track list columns that request enrichment only for bound visible rows; initial directory enumeration remains cheap.
-- Preserve exact `PathBuf` identity and revalidate device/inode/size/mtime/ctime after parsing. Lossy strings are presentation-only.
-- Keep requests, source reads, strings, tag counts, queues, results, and caches bounded; malformed metadata must fail recoverably and never freeze GTK.
-- Persist the expanded optional-column layout through the existing versioned preferences path with migration and stable sorting/grouping behavior during asynchronous enrichment.
-- Use maintained parser crates only after dependency/MSRV review; no shell helpers, network providers, persistent metadata cache, metadata editing, privacy verdicts, or Phase 11 command work.
+- Add one application-layer registry for human-readable command identity, descriptions, categories, search terms, default shortcuts, menu placement, and risk level.
+- Reuse existing `app.*` and `win.*` actions as the sole execution path; registry entries contain no filesystem or business logic.
+- Resolve current eligibility from the authoritative GAction enabled state rather than duplicating selection, Trash, split, view, or job conditions.
+- Centralize existing default window accelerators in registry metadata without changing established shortcuts.
+- Cover normal user-invokable commands; explicitly classify parameterized/internal widget plumbing outside the searchable command surface.
+- Keep registry order deterministic, labels unique, metadata static and bounded, and action lookup recoverable.
+- Add GTK-independent registry validation and native GAction parity/accessibility smoke.
+- Exclude the Phase 11B command palette, shortcut customization, Vim mode, terminal launching, and unrelated menu redesign.
 
 ## Status
 
-COMPLETE on `phase-10f-advanced-metadata`; verified gates are recorded in `GATES.md`.
+COMPLETE on `phase-11a-command-registry`; verified gates are recorded in `GATES.md`.

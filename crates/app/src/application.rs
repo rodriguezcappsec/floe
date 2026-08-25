@@ -200,6 +200,7 @@ fn build_window(
     };
     let operation_widgets = widgets.operations.clone();
     let operation_window = widgets.window.clone();
+    let command_window = widgets.window.clone();
     let operation_toasts = widgets.toast_overlay.clone();
     let controller = BrowserController::new(
         widgets,
@@ -241,6 +242,27 @@ fn build_window(
     );
     operation_controller.wire();
     controller.wire(application, &places);
+    if let Err(error) = crate::command_registry::validate_contract() {
+        tracing::error!(error, "command registry contract is invalid");
+    }
+    let resolved = crate::command_registry::resolve_all(&command_window);
+    let missing = crate::command_registry::missing_registered_actions(&command_window);
+    let disabled = resolved
+        .iter()
+        .filter(|command| !command.can_activate())
+        .count();
+    if missing.is_empty() {
+        tracing::debug!(
+            commands = resolved.len(),
+            disabled,
+            "command registry action parity verified"
+        );
+    } else {
+        tracing::warn!(
+            missing = missing.len(),
+            "command registry references unavailable actions"
+        );
+    }
     controller.present_and_start();
     tracing::info!("Floe application started");
 }

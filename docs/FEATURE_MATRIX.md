@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 10F. Phase 11A is the only `NEXT`
+The implementation baseline for this matrix is Phase 11A. Phase 11B is the only `NEXT`
 phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -433,7 +433,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Directory-background context menu | `COMPLETE` | 6J | Paste, Select All, Refresh, and Edit Location are separate from file actions. |
 | Expanded context actions | `PLANNED` | 10-19 | Preview, Properties, paths, links, archives, checksum, privacy, safe-open, and custom actions arrive with owning features. |
 | Avoid giant context-menu wall | `PLANNED` | 11A/20 | Central command metadata should prioritize common actions and coherent submenus. |
-| Central command registry | `PLANNED` | 11A | One action source for menus, palette, shortcuts, and context sensitivity. |
+| Central command registry | `COMPLETE` | 11A | 59 bounded human-readable commands map to existing GActions; live enabled state remains authoritative, default accelerators and background-menu metadata are centralized, and internal parameterized plumbing is excluded. |
 | Command palette / Ctrl+Shift+P | `PLANNED` | 11B | Search human-readable commands; callbacks reuse commands rather business logic. |
 | Customizable shortcuts | `PLANNED` | 11C | Conflict detection, reset individual/all, discoverability, and multiple bindings where useful. |
 | Optional Vim mode | `DEFERRED` | 11D | Layer on the keymap architecture; never force on normal users. |

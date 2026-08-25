@@ -1,44 +1,39 @@
-# Gates: Floe Phase 10F — Advanced Metadata
+# Gates: Floe Phase 11A — Command Registry
 
-- [x] G1: Correct phase branch; reviewed parser dependencies remain compatible with Rust 1.85.
-  CHECK: git branch --show-current && cargo tree -p floe-app --depth 1
-  EXPECT: `phase-10f-advanced-metadata`; `kamadak-exif 0.6.1` and `lofty 0.22.4` are direct dependencies.
-  EVIDENCE: Branch confirmed; dependency tree reports exact reviewed pinned versions and dependency MSRVs were reviewed as Rust 1.60 and 1.85 respectively.
+- [x] G1: Correct phase branch and bounded Phase 11A-only scope.
+  CHECK: git branch --show-current
+  EXPECT: phase-11a-command-registry
+  EVIDENCE: Branch confirmed; no palette, shortcut customization, Vim mode, terminal launching, or unrelated menu redesign was added.
 
-- [x] G2: Advanced metadata requests/results preserve exact paths and explicit bounded, unsupported, malformed, and changed states.
-  CHECK: cargo test -p floe-app phase_10f_advanced_metadata_contract -- --nocapture
+- [x] G2: Registry metadata has unique stable IDs/actions, non-empty human names/descriptions, deterministic categories/order, and bounded search terms.
+  CHECK: cargo test -p floe-app phase_11a_registry_contract -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Passed; exact PathBuf keys, 16 MiB reads, 1,024-character strings, ten EXIF fields, and explicit state contract are covered.
+  EVIDENCE: Passed for 59 unique `win.*` commands, unique names, non-empty descriptions/categories, deterministic static order, and at most eight non-empty search terms.
 
-- [x] G3: EXIF parsing is bounded, no-follow, source-revalidated, passive, and exposes only reviewed presentation fields.
-  CHECK: cargo test -p floe-app phase_10f_exif_metadata -- --nocapture
+- [x] G3: Registry invokes no business logic; it resolves eligibility solely from authoritative GAction presence/enabled state and reports unavailable actions explicitly.
+  CHECK: cargo test -p floe-app phase_11a_registry_eligibility -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Passed TIFF fixture, symlink refusal, identity validation, reviewed-field policy, and sparse safety-limit coverage.
+  EVIDENCE: Passed enabled, disabled, and missing live-action transitions through SimpleActionGroup; registry definitions contain metadata only.
 
-- [x] G4: Audio/media metadata parsing handles duration and reviewed tags while bounding oversized input and rejecting malformed, symlink, and changed inputs safely.
-  CHECK: cargo test -p floe-app phase_10f_media_metadata -- --nocapture
+- [x] G4: Existing default window shortcuts are sourced from registry metadata without changing bindings or making irreversible actions easier to trigger.
+  CHECK: cargo test -p floe-app phase_11a_registry_shortcuts -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Passed tagged WAV duration/artist/album/track, malformed MP3, stale size, symlink, and sparse oversized input coverage.
+  EVIDENCE: Passed existing navigation, refresh, preview, split, file, tab, and view bindings; permanent delete retains Shift+Delete plus confirmation and Empty Trash gains no accelerator.
 
-- [x] G5: Optional Dimensions, Duration, Artist, Album, and Track columns are lazy, virtualized, bounded, persisted, migration-safe, and stable during enrichment.
-  CHECK: cargo test -p floe-app phase_10f_advanced_columns -- --nocapture && cargo test -p floe-core phase_10f_advanced_columns -- --nocapture
+- [x] G5: Menu/context actions have registry placement metadata and public registered-action parity; parameterized/internal plumbing is explicitly excluded.
+  CHECK: cargo test -p floe-app phase_11a_registry_parity -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Passed bound-row presentation, truthful states, textual persistence, legacy nine-column migration, default widths, and non-sortable stability coverage.
+  EVIDENCE: Passed every file, Trash, and background context action against its registry placement; parameterized tab IDs, stateful column/density controls, and widget plumbing remain excluded.
 
-- [x] G6: Inspector and Properties presentation is accessible and truthful for present, limited, and malformed metadata without privacy, safety, or authenticity verdicts.
-  CHECK: cargo test -p floe-app phase_10f_advanced_metadata_ui -- --nocapture
-  EXPECT: test result: ok
-  EVIDENCE: Six Phase 10F app tests pass, including Inspector EXIF text, Properties EXIF/media rows, limited/malformed labels, and non-verdict assertions.
+- [x] G6: Native Wayland smoke verifies registry/action parity, enabled-state changes, shortcut metadata, accessibility, D-Bus responsiveness, clean quit, and name release.
+  EVIDENCE: Niri/Wayland startup logged `commands=59 disabled=31` with zero missing actions; D-Bus exposed the existing window action set with Open disabled and Refresh enabled in no-selection context, Ping returned, AT-SPI exposed accessible ID `io.github.floe.FileManager`, Quit exited cleanly, and the bus name was released.
 
-- [x] G7: Native Wayland smoke verifies optional columns, Inspector metadata, asynchronous responsiveness, accessibility, D-Bus health/focus, clean quit, and name release.
-  EVIDENCE: Niri/Wayland launch loaded enabled Dimensions and Duration column actions from isolated version-4 preferences; D-Bus Ping returned, AT-SPI exposed accessible ID `io.github.floe.FileManager` and window name `rocappsec — Floe`, standard Quit exited cleanly, and the application bus name was released.
-
-- [x] G8: Formatting, workspace check, strict Clippy, full tests, native build, and diff hygiene pass.
+- [x] G7: Formatting, workspace check, strict Clippy, full tests, native build, and diff hygiene pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check
   EXPECT: all commands exit 0
-  EVIDENCE: Passed; 399 tests total (305 app, 94 core), zero failures, native app build succeeded, and diff hygiene is clean.
+  EVIDENCE: Passed; 403 tests total (309 app, 94 core), zero failures, native app build succeeded, and diff hygiene is clean.
 
-- [x] G9: Documentation marks 10F complete, sets exactly 11A next, and retains lazy, no-persistence, and no-privacy-finding boundaries.
-  CHECK: test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "10F.*COMPLETE|11A.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
-  EXPECT: 11A is the sole next phase.
-  EVIDENCE: Roadmap has exactly one NEXT row at 11A; AGENTS, matrix, roadmap, privacy/security, plan, and gates describe the verified 10F boundary.
+- [x] G8: Documentation marks 11A complete, sets exactly 11B next, and excludes palette/custom-keybinding/terminal work.
+  CHECK: test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "11A.*COMPLETE|11B.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
+  EXPECT: 11B is the sole next phase.
+  EVIDENCE: Roadmap has exactly one NEXT row at 11B; AGENTS, feature matrix, plan, and gates document the bounded 11A implementation and exclusions.

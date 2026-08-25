@@ -233,7 +233,7 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
     loaded && !save_in_flight
 }
 
-const FILE_CONTEXT_ACTIONS: [(&str, &str); 17] = [
+pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 17] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
@@ -252,13 +252,13 @@ const FILE_CONTEXT_ACTIONS: [(&str, &str); 17] = [
     ("Delete Permanently…", "win.permanent-delete"),
     ("Properties", "win.properties"),
 ];
-const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
+pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Restore", "win.restore"),
     ("Calculate Checksums…", "win.checksum"),
     ("Delete Permanently…", "win.permanent-delete"),
     ("Properties", "win.properties"),
 ];
-const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 7] = [
+pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 7] = [
     ("New Folder…", "win.new-folder"),
     ("New Empty File…", "win.new-empty-file"),
     ("New From Template…", "win.new-from-template"),
@@ -3776,8 +3776,15 @@ fn build_trash_background_context_menu_model() -> gio::Menu {
 
 fn build_background_context_menu_model() -> gio::Menu {
     let menu = gio::Menu::new();
-    for (label, action) in BACKGROUND_CONTEXT_ACTIONS {
-        menu.append(Some(label), Some(action));
+    for (_, action) in BACKGROUND_CONTEXT_ACTIONS {
+        let command = crate::command_registry::command(action)
+            .expect("background menu commands must be registered");
+        debug_assert!(
+            command
+                .placements
+                .contains(&crate::command_registry::CommandPlacement::BackgroundContext)
+        );
+        menu.append(Some(command.name), Some(command.action));
     }
     let split = gio::Menu::new();
     split.append(Some("Toggle Split View"), Some("win.toggle-split"));
