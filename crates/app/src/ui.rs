@@ -1,7 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet, VecDeque},
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -9,6 +9,7 @@ use std::{
 use adw::prelude::*;
 use floe_core::{
     DirectoryEntry, DirectoryGrouping, DirectorySort, EntryKind, SortColumn, SortDirection,
+    SplitRatio, SplitSide,
 };
 use gtk::{gio, glib};
 
@@ -751,6 +752,13 @@ pub struct BrowserWidgets {
     pub trash_button: gtk::Button,
     pub drop_dispatcher: DropDispatcher,
     pub workspace: gtk::Paned,
+    pub split_pane: gtk::Paned,
+    pub active_pane_shell: gtk::Box,
+    pub active_pane_label: gtk::Label,
+    pub inactive_pane: gtk::Box,
+    pub inactive_pane_label: gtk::Label,
+    pub inactive_pane_status: gtk::Label,
+    pub inactive_pane_items: gtk::StringList,
     pub sidebar: gtk::Box,
     pub sidebar_default_width: i32,
     pub operations: OperationWidgets,
@@ -796,6 +804,67 @@ struct DirectoryPanelWidgets {
 }
 
 impl BrowserWidgets {
+    pub fn set_split_presentation(
+        &self,
+        is_split: bool,
+        active_side: SplitSide,
+        ratio: SplitRatio,
+        opposite_path: Option<&Path>,
+        opposite_items: &[String],
+        opposite_total: usize,
+    ) {
+        self.split_pane.set_start_child(None::<&gtk::Widget>);
+        self.split_pane.set_end_child(None::<&gtk::Widget>);
+
+        if !is_split {
+            self.active_pane_label.set_visible(false);
+            self.split_pane
+                .set_start_child(Some(&self.active_pane_shell));
+            return;
+        }
+
+        self.active_pane_label.set_visible(true);
+        self.active_pane_label.set_label(match active_side {
+            SplitSide::Primary => "Active pane — left",
+            SplitSide::Secondary => "Active pane — right",
+        });
+        self.active_pane_shell
+            .update_property(&[gtk::accessible::Property::Description("Active file pane")]);
+        self.inactive_pane
+            .update_property(&[gtk::accessible::Property::Description(
+                "Inactive file pane; activate it to browse and refresh",
+            )]);
+
+        let item_refs = opposite_items
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        self.inactive_pane_items
+            .splice(0, self.inactive_pane_items.n_items(), &item_refs);
+        let path = opposite_path
+            .map(|path| path.to_string_lossy())
+            .unwrap_or_else(|| "Unavailable".into());
+        self.inactive_pane_label
+            .set_label(&format!("Other pane — {path}"));
+        self.inactive_pane_status
+            .set_label(&split_snapshot_status(opposite_items.len(), opposite_total));
+
+        match active_side {
+            SplitSide::Primary => {
+                self.split_pane
+                    .set_start_child(Some(&self.active_pane_shell));
+                self.split_pane.set_end_child(Some(&self.inactive_pane));
+            }
+            SplitSide::Secondary => {
+                self.split_pane.set_start_child(Some(&self.inactive_pane));
+                self.split_pane.set_end_child(Some(&self.active_pane_shell));
+            }
+        }
+        let width = self.split_pane.width().max(1);
+        self.split_pane
+            .set_position(split_primary_position(width, ratio));
+    }
+
     pub fn apply_sidebar_density(&self, density: SidebarDensity) {
         for class_name in ["sidebar-compact", "sidebar-balanced", "sidebar-comfortable"] {
             self.sidebar.remove_css_class(class_name);
@@ -953,6 +1022,22 @@ impl BrowserWidgets {
             ViewMode::List => &self.list_background_menu,
             ViewMode::Grid => &self.grid_background_menu,
         }
+    }
+}
+
+pub fn split_primary_position(width: i32, ratio: SplitRatio) -> i32 {
+    let width = width.max(1);
+    ((i64::from(width) * i64::from(ratio.basis_points())) / 10_000) as i32
+}
+
+pub fn split_snapshot_status(cached_count: usize, total_count: usize) -> String {
+    if total_count > cached_count {
+        return format!("First {cached_count} of {total_count} items cached — activate to refresh");
+    }
+    match cached_count {
+        0 => "Activate pane to load or refresh".to_owned(),
+        1 => "1 cached item — activate to refresh".to_owned(),
+        count => format!("{count} cached items — activate to refresh"),
     }
 }
 
@@ -1145,6 +1230,26 @@ pub fn build(
         Some("win.remember-folder-view"),
     );
     file_actions_model.append_section(Some("Browser View"), &browser_view_model);
+    let split_view_model = gio::Menu::new();
+    split_view_model.append(Some("Toggle Split View"), Some("win.toggle-split"));
+    split_view_model.append(Some("Switch Active Pane"), Some("win.switch-split-side"));
+    split_view_model.append(Some("Swap Panes"), Some("win.swap-split-sides"));
+    split_view_model.append(Some("Close Split"), Some("win.close-split"));
+    split_view_model.append(Some("Narrow Primary Pane"), Some("win.narrow-primary-pane"));
+    split_view_model.append(Some("Widen Primary Pane"), Some("win.widen-primary-pane"));
+    split_view_model.append(
+        Some("Open Folder in Other Pane"),
+        Some("win.open-opposite-pane"),
+    );
+    split_view_model.append(
+        Some("Copy to Other Pane"),
+        Some("win.copy-to-opposite-pane"),
+    );
+    split_view_model.append(
+        Some("Move to Other Pane"),
+        Some("win.move-to-opposite-pane"),
+    );
+    file_actions_model.append_section(Some("Split View"), &split_view_model);
     file_actions_model.append(
         Some(OPERATION_HISTORY_MENU_ITEM.0),
         Some(OPERATION_HISTORY_MENU_ITEM.1),
@@ -1246,6 +1351,121 @@ pub fn build(
     } = build_directory_panel(preferences.clone(), &drop_dispatcher);
 
     content.set_width_request(420);
+    let active_pane_label = gtk::Label::builder()
+        .label("Active pane")
+        .xalign(0.0)
+        .margin_start(10)
+        .margin_end(10)
+        .margin_top(6)
+        .margin_bottom(2)
+        .build();
+    active_pane_label.add_css_class("heading");
+    active_pane_label.set_visible(false);
+    let active_pane_shell = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
+    active_pane_shell.add_css_class("floe-active-pane");
+    active_pane_shell.append(&active_pane_label);
+    active_pane_shell.append(&content);
+
+    let inactive_pane_label = gtk::Label::builder()
+        .label("Other pane")
+        .xalign(0.0)
+        .ellipsize(gtk::pango::EllipsizeMode::Middle)
+        .hexpand(true)
+        .build();
+    inactive_pane_label.add_css_class("heading");
+    let activate_inactive = gtk::Button::builder()
+        .label("Activate Pane")
+        .action_name("win.switch-split-side")
+        .tooltip_text("Activate other pane (F6)")
+        .build();
+    set_accessible_label(&activate_inactive, "Activate other file pane");
+    let inactive_header = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .margin_start(10)
+        .margin_end(10)
+        .margin_top(8)
+        .margin_bottom(4)
+        .build();
+    inactive_header.append(&inactive_pane_label);
+    inactive_header.append(&activate_inactive);
+    let inactive_pane_items = gtk::StringList::new(&[]);
+    let inactive_selection = gtk::NoSelection::new(Some(inactive_pane_items.clone()));
+    let inactive_factory = gtk::SignalListItemFactory::new();
+    inactive_factory.connect_setup(|_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let label = gtk::Label::builder()
+            .xalign(0.0)
+            .ellipsize(gtk::pango::EllipsizeMode::Middle)
+            .margin_start(12)
+            .margin_end(12)
+            .margin_top(3)
+            .margin_bottom(3)
+            .build();
+        item.set_child(Some(&label));
+    });
+    inactive_factory.connect_bind(|_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let Some(label) = item.child().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(value) = item.item().and_downcast::<gtk::StringObject>() else {
+            return;
+        };
+        label.set_label(value.string().as_str());
+    });
+    let inactive_list = gtk::ListView::new(Some(inactive_selection), Some(inactive_factory));
+    inactive_list.set_can_focus(false);
+    inactive_list.add_css_class("floe-split-snapshot");
+    let inactive_scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .hexpand(true)
+        .vexpand(true)
+        .child(&inactive_list)
+        .build();
+    let inactive_pane_status = gtk::Label::builder()
+        .label("Activate pane to load or refresh")
+        .xalign(0.0)
+        .margin_start(10)
+        .margin_end(10)
+        .margin_top(4)
+        .margin_bottom(8)
+        .build();
+    inactive_pane_status.add_css_class("caption");
+    inactive_pane_status.add_css_class("dim-label");
+    let inactive_pane = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .width_request(240)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
+    inactive_pane.add_css_class("floe-panel");
+    inactive_pane.append(&inactive_header);
+    inactive_pane.append(&inactive_scroller);
+    inactive_pane.append(&inactive_pane_status);
+
+    let split_pane = gtk::Paned::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .wide_handle(true)
+        .resize_start_child(true)
+        .resize_end_child(true)
+        .shrink_start_child(false)
+        .shrink_end_child(false)
+        .hexpand(true)
+        .vexpand(true)
+        .build();
+    split_pane.add_css_class("floe-split-pane");
+    split_pane.set_start_child(Some(&active_pane_shell));
+
     let restored_sidebar_width = initial_sidebar_width(preferences, appearance.sidebar_width());
     let (resize_sidebar, resize_content) = sidebar_pane_resize_policy();
     let workspace = gtk::Paned::builder()
@@ -1261,11 +1481,12 @@ pub fn build(
         .build();
     workspace.add_css_class("floe-workspace");
     workspace.set_start_child(Some(&sidebar.content));
-    workspace.set_end_child(Some(&content));
+    workspace.set_end_child(Some(&split_pane));
 
     if !appearance.floating_panels() {
         sidebar.content.remove_css_class("floe-panel");
         content.remove_css_class("floe-panel");
+        inactive_pane.remove_css_class("floe-panel");
     }
 
     let root = gtk::Box::builder()
@@ -1346,6 +1567,13 @@ pub fn build(
         trash_button: sidebar.trash_button,
         drop_dispatcher,
         workspace,
+        split_pane,
+        active_pane_shell,
+        active_pane_label,
+        inactive_pane,
+        inactive_pane_label,
+        inactive_pane_status,
+        inactive_pane_items,
         sidebar: sidebar.sidebar,
         sidebar_default_width: appearance.sidebar_width(),
         operations,
@@ -2784,6 +3012,20 @@ fn build_file_context_menu_model() -> gio::Menu {
         Some("win.open-background-tab"),
     );
     menu.append_section(None, &primary);
+    let opposite = gio::Menu::new();
+    opposite.append(
+        Some("Open Folder in Other Pane"),
+        Some("win.open-opposite-pane"),
+    );
+    opposite.append(
+        Some("Copy to Other Pane"),
+        Some("win.copy-to-opposite-pane"),
+    );
+    opposite.append(
+        Some("Move to Other Pane"),
+        Some("win.move-to-opposite-pane"),
+    );
+    menu.append_section(Some("Other Pane"), &opposite);
 
     let editing = gio::Menu::new();
     for (label, action) in &FILE_CONTEXT_ACTIONS[2..6] {
@@ -2846,6 +3088,14 @@ fn build_background_context_menu_model() -> gio::Menu {
     for (label, action) in BACKGROUND_CONTEXT_ACTIONS {
         menu.append(Some(label), Some(action));
     }
+    let split = gio::Menu::new();
+    split.append(Some("Toggle Split View"), Some("win.toggle-split"));
+    split.append(Some("Switch Active Pane"), Some("win.switch-split-side"));
+    split.append(Some("Swap Panes"), Some("win.swap-split-sides"));
+    split.append(Some("Close Split"), Some("win.close-split"));
+    split.append(Some("Narrow Primary Pane"), Some("win.narrow-primary-pane"));
+    split.append(Some("Widen Primary Pane"), Some("win.widen-primary-pane"));
+    menu.append_section(Some("Split View"), &split);
     menu
 }
 

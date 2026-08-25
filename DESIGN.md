@@ -444,6 +444,15 @@ and view policy while the tab's primary identity remains stable through
 close/swap transitions. Workspace version 2 persists this state and migrates
 version-1 unsplit sessions. No split widget or shortcut is exposed until 7E.
 
+Phase 7E presents that state as one horizontal native split. The active pane is
+identified in text as left or right; color is only reinforcing feedback. The
+inactive side is a bounded, explicitly stale snapshot with its exact display
+path and an Activate Pane control. F3 toggles the split, F6 switches sides, and
+Ctrl+Alt+Left/Right adjusts the primary ratio in 5% steps. Pointer resizing,
+swap, close, Open Folder in Other Pane, and direct no-overwrite Copy/Move actions
+all preserve one shared browser pipeline. Dragging files between panes remains
+Phase 7F.
+
 ### Open without a default application
 
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.

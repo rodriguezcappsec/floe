@@ -429,6 +429,18 @@ The version-2 workspace codec retains the existing file location and migrates
 version-1 unsplit records. It adds bounded primary/secondary pane sessions,
 active side, and ratio; Phase 7D intentionally exposes no GTK split control.
 
+Phase 7E also adds no dependency. Its focused application checks are:
+
+```bash
+cargo test -p floe-app phase_7e -- --nocapture
+```
+
+Native verification should exercise the window-scoped toggle, side switch,
+swap, close, narrow/widen, and opposite-pane action states over D-Bus, then
+cleanly relaunch the same isolated configuration to confirm split restoration.
+The inactive pane is a bounded snapshot; only the active pane owns the live
+browser and watcher pipeline.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

@@ -1,54 +1,66 @@
-# Gates: Floe Phase 7D Split state
+# Gates: Floe Phase 7E — Split interaction
 
-Status: COMPLETE
+Scope: Native two-pane interaction over one shared bounded browser pipeline.
 
-- [x] G1: Work is isolated on `phase-7d-split-state`; no GTK split widgets,
-  shortcuts, drag-and-drop, second browser worker, or Miller model is added.
+- [x] G1: Work is isolated on the Phase 7E branch; no 7F or Miller scope landed.
   CHECK: git branch --show-current
-  EXPECT: phase-7d-split-state
-  EVIDENCE: Branch command returned `phase-7d-split-state`; code review found no
-  GTK split widget/action, worker, drag, or Miller implementation.
+  EXPECT: phase-7e-split-interaction
+  EVIDENCE: `phase-7e-split-interaction`; diff contains no Miller model or inter-pane drop target.
 
-- [x] G2: A GTK-independent split model owns primary/secondary sessions, active
-  side, bounded ratio, stable tab identity, and deterministic split/close/swap.
-  CHECK: cargo test -p floe-core phase_7d_split_state -- --nocapture
+- [x] G2: The two-pane presentation reports bounded snapshot and ratio state truthfully.
+  CHECK: cargo test -p floe-app phase_7e_split_presentation -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused state test passed ratio bounds, missing-side rejection,
-  stable identity, active-side transfer, swap, and close behavior.
+  EVIDENCE: 1 focused presentation test passed.
 
-- [x] G3: Pane paths, histories, selections, scroll anchors, and view policies
-  remain independent and preserve exact raw non-UTF-8 path identity.
-  CHECK: cargo test -p floe-core phase_7d_independent_panes -- --nocapture
+- [x] G3: Toggle/switch/close/swap action policy is deterministic.
+  CHECK: cargo test -p floe-app phase_7e_split_actions -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused independent-pane test passed raw non-UTF-8 history,
-  selection, path, and per-pane grid/list view separation.
+  EVIDENCE: 1 focused action-policy test passed.
 
-- [x] G4: Browser tabs, duplicate, close/reopen, and fresh-ID allocation retain
-  complete split state while existing unsplit application behavior remains valid.
-  CHECK: cargo test -p floe-core phase_7d_split_tabs -- --nocapture
+- [x] G4: Opposite-pane open/copy/move resolves exact authoritative destinations and uses existing no-overwrite jobs.
+  CHECK: cargo test -p floe-app phase_7e_opposite_pane -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused tab test passed split duplicate, close/reopen, complete state,
-  and fresh primary/secondary IDs; all 230 existing app tests passed unchanged.
+  EVIDENCE: 2 focused tests passed, including real direct copy and move completion without changing staged transfer state.
 
-- [x] G5: Workspace version 2 round-trips split focus/ratio/raw state, migrates
-  version 1, and rejects malformed sides, ratios, duplicate IDs, and truncation.
-  CHECK: cargo test -p floe-core phase_7d_split_codec -- --nocapture
+- [x] G5: Split controls have explicit keyboard alternatives and stable action names.
+  CHECK: cargo test -p floe-app phase_7e_split_accessibility -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Two focused codec tests passed version-2 round-trip, version-1
-  migration, raw paths, focus/ratio, invalid flags/sides/ratios/IDs/truncation.
+  EVIDENCE: F3, F6, Ctrl+Alt+Left/Right, open/copy/move action contracts passed.
 
-- [x] G6: Formatting, workspace check, strict all-target/all-feature Clippy,
-  workspace tests, diff hygiene, and existing application behavior pass.
+- [x] G6: GTK callbacks submit state or job commands; only the active pane owns the browser/watcher pipeline.
+  EVIDENCE: `BrowserController` retains one model/worker set; inactive snapshots are capped at 512 names and activating a side calls the existing generation-safe restore path.
+
+- [x] G7: Rust formatting is clean.
   CHECK: cargo fmt --all -- --check
   EXPECT: /^$/
-  EVIDENCE: Formatting, workspace check, strict Clippy, 317 tests (230 app and
-  87 core), and diff hygiene passed.
+  EVIDENCE: command exited 0 with no output.
 
-- [x] G7: Persistent docs mark verified Phase 7D complete and exactly Phase 7E
-  as `NEXT`, without claiming visible split interaction or inter-pane drag.
-  CHECK: rg -n '7D — Split state.*COMPLETE|7E — Split interaction.*NEXT' docs/ROADMAP.md
-  EXPECT: 7E — Split interaction
-  EVIDENCE: Roadmap, matrix, design, architecture, development, privacy/security,
-  plan, gates, and AGENTS mark 7D complete and exactly 7E next.
+- [x] G8: The full workspace type-checks.
+  CHECK: cargo check --workspace
+  EXPECT: Finished `dev` profile
+  EVIDENCE: workspace check completed successfully.
 
-Recommended next phase: `phase-7e-split-interaction`.
+- [x] G9: Strict all-target/all-feature Clippy is warning-free.
+  CHECK: cargo clippy --workspace --all-targets --all-features -- -D warnings
+  EXPECT: Finished `dev` profile
+  EVIDENCE: strict Clippy completed successfully after removing one useless conversion.
+
+- [x] G10: The full workspace test suite passes.
+  CHECK: cargo test --workspace
+  EXPECT: test result: ok
+  EVIDENCE: 322 tests passed: 235 application and 87 core; doc tests also passed.
+
+- [x] G11: Patch whitespace hygiene is clean.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: command exited 0 with no output.
+
+- [x] G12: Native Wayland split lifecycle and persistence are healthy.
+  EVIDENCE: Isolated two-launch smoke activated toggle, narrow, widen, switch, swap, close; verified close-disabled and restored-enabled action states, D-Bus Peer.Ping, clean quits, and split restore. Only documented host RADV/Vulkan and transient one-pixel GtkPaned warnings appeared.
+
+- [x] G13: Persistent roadmap marks exactly Phase 7E complete and Phase 7F next.
+  CHECK: rg -n '7E — Split interaction.*COMPLETE|7F — Tab/split drag.*NEXT' docs/ROADMAP.md
+  EXPECT: 7F — Tab/split drag
+  EVIDENCE: roadmap contains both required status rows and no other NEXT phase.
+
+Recommended next phase: `phase-7f-tab-split-drag`.

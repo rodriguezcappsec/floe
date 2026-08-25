@@ -13,7 +13,8 @@ use adw::prelude::*;
 use floe_core::{
     BrowserSession, BrowserSessionId, BrowserTabs, CreateRequest, DirectoryEntry, DirectoryError,
     DirectoryGrouping, DirectoryPlacement, DirectorySort, EntryKind, RestoreRequest,
-    SessionScrollAnchor, SortColumn, TabActivation, TrashEnumerateError, TrashRoot,
+    SPLIT_RATIO_MAX, SPLIT_RATIO_MIN, SessionScrollAnchor, SortColumn, SplitRatio, SplitSide,
+    TabActivation, TabError, TrashEnumerateError, TrashRoot,
 };
 
 fn tab_title(path: &Path) -> String {
@@ -44,6 +45,74 @@ fn folder_tab_eligible(entries: &[Arc<DirectoryEntry>], trash_active: bool) -> b
     !trash_active && entries.len() == 1 && entries[0].is_navigable_directory()
 }
 
+const SPLIT_SNAPSHOT_CAPACITY: usize = 512;
+#[cfg(test)]
+const SPLIT_ACTION_NAMES: [&str; 9] = [
+    "win.toggle-split",
+    "win.switch-split-side",
+    "win.swap-split-sides",
+    "win.close-split",
+    "win.narrow-primary-pane",
+    "win.widen-primary-pane",
+    "win.open-opposite-pane",
+    "win.copy-to-opposite-pane",
+    "win.move-to-opposite-pane",
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SplitActionState {
+    switch: bool,
+    close: bool,
+    swap: bool,
+    open_opposite: bool,
+    transfer_opposite: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct SplitPaneSnapshot {
+    names: Vec<String>,
+    total: usize,
+}
+
+const fn split_action_state(
+    is_split: bool,
+    selected_folder: bool,
+    has_transfer_selection: bool,
+    trash_active: bool,
+) -> SplitActionState {
+    SplitActionState {
+        switch: is_split,
+        close: is_split,
+        swap: is_split,
+        open_opposite: selected_folder && !trash_active,
+        transfer_opposite: is_split && has_transfer_selection && !trash_active,
+    }
+}
+
+const fn split_side_index(side: SplitSide) -> usize {
+    match side {
+        SplitSide::Primary => 0,
+        SplitSide::Secondary => 1,
+    }
+}
+
+fn split_snapshot(entries: &[Arc<DirectoryEntry>]) -> SplitPaneSnapshot {
+    SplitPaneSnapshot {
+        names: entries
+            .iter()
+            .take(SPLIT_SNAPSHOT_CAPACITY)
+            .map(|entry| entry.display_name_lossy())
+            .collect(),
+        total: entries.len(),
+    }
+}
+
+fn opposite_pane_destination(tabs: &BrowserTabs) -> Option<PathBuf> {
+    tabs.active_split()
+        .opposite()
+        .map(|session| session.current().path().to_path_buf())
+}
+
 fn tab_menu_item(label: &str, action: &str, id: BrowserSessionId) -> gio::MenuItem {
     let item = gio::MenuItem::new(Some(label), None);
     item.set_action_and_target_value(Some(action), Some(&id.get().to_variant()));
@@ -58,6 +127,13 @@ enum TabCloseVariant {
 }
 
 const REOPEN_CLOSED_ACCELERATOR: &str = "<Control><Shift>t";
+const TOGGLE_SPLIT_ACCELERATOR: &str = "F3";
+const SWITCH_SPLIT_ACCELERATOR: &str = "F6";
+const NARROW_PRIMARY_PANE_ACCELERATOR: &str = "<Control><Alt>Left";
+const WIDEN_PRIMARY_PANE_ACCELERATOR: &str = "<Control><Alt>Right";
+const OPEN_OPPOSITE_ACCELERATOR: &str = "<Control><Shift>Return";
+const COPY_OPPOSITE_ACCELERATOR: &str = "<Control><Alt>c";
+const MOVE_OPPOSITE_ACCELERATOR: &str = "<Control><Alt>m";
 const TAB_CLOSE_VARIANT_ACTIONS: [&str; 3] = [
     "win.close-tabs-left",
     "win.close-tabs-right",
@@ -267,6 +343,8 @@ pub struct BrowserController {
     current_preferences: RefCell<ViewPreferences>,
     sidebar_save_source: RefCell<Option<glib::SourceId>>,
     ignore_sidebar_position_signal: Cell<bool>,
+    split_snapshots: RefCell<HashMap<BrowserSessionId, [SplitPaneSnapshot; 2]>>,
+    ignore_split_position_signal: Cell<bool>,
     pending_location: RefCell<Option<PendingLocation>>,
     application_state: Rc<ApplicationState>,
     bookmark_worker: RefCell<Option<BookmarkWorker>>,
@@ -369,6 +447,8 @@ impl BrowserController {
             current_preferences: RefCell::new(view_preferences),
             sidebar_save_source: RefCell::new(None),
             ignore_sidebar_position_signal: Cell::new(false),
+            split_snapshots: RefCell::new(HashMap::new()),
+            ignore_split_position_signal: Cell::new(false),
             pending_location: RefCell::new(None),
             application_state,
             bookmark_worker: RefCell::new(bookmarks),
@@ -398,6 +478,8 @@ impl BrowserController {
         self.refresh_paste_enabled();
         self.update_sort_headers();
         self.render_tabs();
+        self.render_split_presentation();
+        self.arm_split_ratio_tracking();
         self.widgets
             .apply_sidebar_density(self.current_preferences.borrow().sidebar_density);
         let initial_view = self
@@ -1214,6 +1296,58 @@ impl BrowserController {
         });
     }
 
+    fn arm_split_ratio_tracking(self: &Rc<Self>) {
+        let controller = Rc::downgrade(self);
+        self.widgets
+            .split_pane
+            .connect_position_notify(move |paned| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                if controller.ignore_split_position_signal.get()
+                    || !controller.tabs.borrow().active_split().is_split()
+                {
+                    return;
+                }
+                let width = paned.width();
+                if width <= 0 {
+                    return;
+                }
+                let basis_points = ((i64::from(paned.position()) * 10_000) / i64::from(width))
+                    .clamp(i64::from(SPLIT_RATIO_MIN), i64::from(SPLIT_RATIO_MAX))
+                    as u16;
+                if let Ok(ratio) = SplitRatio::new(basis_points) {
+                    controller.tabs.borrow_mut().set_split_ratio(ratio);
+                }
+            });
+    }
+
+    fn resize_primary_pane(&self, delta_basis_points: i32) {
+        let current = {
+            let tabs = self.tabs.borrow();
+            let split = tabs.active_split();
+            if !split.is_split() {
+                return;
+            }
+            i32::from(split.ratio().basis_points())
+        };
+        let next = (current + delta_basis_points)
+            .clamp(i32::from(SPLIT_RATIO_MIN), i32::from(SPLIT_RATIO_MAX))
+            as u16;
+        let Ok(ratio) = SplitRatio::new(next) else {
+            return;
+        };
+
+        self.tabs.borrow_mut().set_split_ratio(ratio);
+        let width = self.widgets.split_pane.width();
+        if width > 0 {
+            let position = ((i64::from(width) * i64::from(next) + 5_000) / 10_000) as i32;
+            self.ignore_split_position_signal.set(true);
+            self.widgets.split_pane.set_position(position);
+            self.ignore_split_position_signal.set(false);
+        }
+    }
+
     fn install_actions(self: &Rc<Self>, application: &adw::Application) {
         self.add_action("back", |controller| controller.go_back());
         self.add_action("forward", |controller| controller.go_forward());
@@ -1242,6 +1376,32 @@ impl BrowserController {
             controller.reopen_closed_tab();
         });
         reopen.set_enabled(self.tabs.borrow().can_reopen_closed());
+        self.add_action("toggle-split", |controller| controller.toggle_split());
+        self.add_action("switch-split-side", |controller| {
+            controller.switch_split_side()
+        });
+        self.add_action("swap-split-sides", |controller| {
+            controller.swap_split_sides()
+        });
+        self.add_action("close-split", |controller| controller.close_split());
+        self.add_action("narrow-primary-pane", |controller| {
+            controller.resize_primary_pane(-500);
+        });
+        self.add_action("widen-primary-pane", |controller| {
+            controller.resize_primary_pane(500);
+        });
+        let open_opposite = self.add_action("open-opposite-pane", |controller| {
+            controller.open_selected_in_opposite_pane()
+        });
+        open_opposite.set_enabled(false);
+        let copy_opposite = self.add_action("copy-to-opposite-pane", |controller| {
+            controller.transfer_selected_to_opposite(TransferIntent::Copy)
+        });
+        copy_opposite.set_enabled(false);
+        let move_opposite = self.add_action("move-to-opposite-pane", |controller| {
+            controller.transfer_selected_to_opposite(TransferIntent::Move)
+        });
+        move_opposite.set_enabled(false);
         self.add_action("next-tab", |controller| controller.switch_relative_tab(1));
         self.add_action("previous-tab", |controller| {
             controller.switch_relative_tab(-1);
@@ -1511,6 +1671,19 @@ impl BrowserController {
         application.set_accels_for_action("win.new-tab", &["<Control>t"]);
         application.set_accels_for_action("win.close-tab-active", &["<Control>w"]);
         application.set_accels_for_action("win.reopen-closed-tab", &[REOPEN_CLOSED_ACCELERATOR]);
+        application.set_accels_for_action("win.toggle-split", &[TOGGLE_SPLIT_ACCELERATOR]);
+        application.set_accels_for_action("win.switch-split-side", &[SWITCH_SPLIT_ACCELERATOR]);
+        application.set_accels_for_action(
+            "win.narrow-primary-pane",
+            &[NARROW_PRIMARY_PANE_ACCELERATOR],
+        );
+        application
+            .set_accels_for_action("win.widen-primary-pane", &[WIDEN_PRIMARY_PANE_ACCELERATOR]);
+        application.set_accels_for_action("win.open-opposite-pane", &[OPEN_OPPOSITE_ACCELERATOR]);
+        application
+            .set_accels_for_action("win.copy-to-opposite-pane", &[COPY_OPPOSITE_ACCELERATOR]);
+        application
+            .set_accels_for_action("win.move-to-opposite-pane", &[MOVE_OPPOSITE_ACCELERATOR]);
         application.set_accels_for_action("win.next-tab", &["<Control>Tab"]);
         application.set_accels_for_action("win.previous-tab", &["<Control><Shift>Tab"]);
         application.set_accels_for_action("win.move-tab-left", &["<Control><Shift>Page_Up"]);
@@ -1582,6 +1755,8 @@ impl BrowserController {
             tracing::warn!(%error, "could not retain active tab scroll anchor");
         }
         session.set_view(self.active_view_state());
+        drop(tabs);
+        self.capture_split_snapshot();
     }
 
     fn restore_active_session(&self) {
@@ -1604,6 +1779,225 @@ impl BrowserController {
             }));
         self.load_current_inner();
         self.render_tabs();
+        self.render_split_presentation();
+    }
+
+    fn capture_split_snapshot(&self) {
+        let (tab_id, side) = {
+            let tabs = self.tabs.borrow();
+            (tabs.active_id(), tabs.active_split().active_side())
+        };
+        self.split_snapshots.borrow_mut().entry(tab_id).or_default()[split_side_index(side)] =
+            split_snapshot(&self.visible_entries.borrow());
+    }
+
+    fn render_split_presentation(&self) {
+        let tabs = self.tabs.borrow();
+        let tab_id = tabs.active_id();
+        let split = tabs.active_split();
+        let is_split = split.is_split();
+        let active_side = split.active_side();
+        let ratio = split.ratio();
+        let opposite_path = split
+            .opposite()
+            .map(|session| session.current().path().to_path_buf());
+        drop(tabs);
+        let opposite_snapshot = self
+            .split_snapshots
+            .borrow()
+            .get(&tab_id)
+            .map(|snapshots| snapshots[split_side_index(active_side.opposite())].clone())
+            .unwrap_or_default();
+        self.ignore_split_position_signal.set(true);
+        self.widgets.set_split_presentation(
+            is_split,
+            active_side,
+            ratio,
+            opposite_path.as_deref(),
+            &opposite_snapshot.names,
+            opposite_snapshot.total,
+        );
+        self.ignore_split_position_signal.set(false);
+        self.update_split_action_states();
+    }
+
+    fn toggle_split(&self) {
+        if self.trash_active.get() {
+            self.show_toast("Restore a normal folder before opening split view", 5);
+            return;
+        }
+        if self.tabs.borrow().active_split().is_split() {
+            self.close_split();
+            return;
+        }
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        self.capture_split_snapshot();
+        let (path, view) = {
+            let tabs = self.tabs.borrow();
+            (
+                tabs.active().current().path().to_path_buf(),
+                tabs.active().current().view(),
+            )
+        };
+        let result = self.tabs.borrow_mut().split_active(path, view);
+        match result {
+            Ok(_) => {
+                let tab_id = self.tabs.borrow().active_id();
+                let mut snapshot_map = self.split_snapshots.borrow_mut();
+                let snapshots = snapshot_map.entry(tab_id).or_default();
+                snapshots[split_side_index(SplitSide::Secondary)] =
+                    snapshots[split_side_index(SplitSide::Primary)].clone();
+                drop(snapshot_map);
+                self.render_split_presentation();
+                self.show_toast("Split view opened. Press F6 to switch panes.", 4);
+            }
+            Err(error) => self.show_toast(&format!("Could not open split view: {error}"), 6),
+        }
+    }
+
+    fn switch_split_side(&self) {
+        let target = {
+            let tabs = self.tabs.borrow();
+            let split = tabs.active_split();
+            if !split.is_split() {
+                self.show_toast("Split view is not open", 4);
+                return;
+            }
+            split.active_side().opposite()
+        };
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        self.capture_split_snapshot();
+        let result = self.tabs.borrow_mut().activate_split_side(target);
+        match result {
+            Ok(_) => {
+                self.trash_active.set(false);
+                self.widgets.set_trash_mode(false);
+                self.restore_active_session();
+                self.render_split_presentation();
+            }
+            Err(error) => self.show_toast(&format!("Could not switch pane: {error}"), 5),
+        }
+    }
+
+    fn close_split(&self) {
+        let side_to_close = {
+            let tabs = self.tabs.borrow();
+            let split = tabs.active_split();
+            if !split.is_split() {
+                return;
+            }
+            split.active_side().opposite()
+        };
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        self.capture_split_snapshot();
+        let result = self.tabs.borrow_mut().close_split_side(side_to_close);
+        match result {
+            Ok(_) => {
+                let tab_id = self.tabs.borrow().active_id();
+                self.split_snapshots.borrow_mut().remove(&tab_id);
+                self.render_split_presentation();
+                self.render_tabs();
+                self.show_toast("Split view closed", 3);
+            }
+            Err(error) => self.show_toast(&format!("Could not close split view: {error}"), 5),
+        }
+    }
+
+    fn swap_split_sides(&self) {
+        if !self.tabs.borrow().active_split().is_split() {
+            self.show_toast("Split view is not open", 4);
+            return;
+        }
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        self.capture_split_snapshot();
+        let result = self.tabs.borrow_mut().swap_split_sides();
+        match result {
+            Ok(()) => {
+                let tab_id = self.tabs.borrow().active_id();
+                if let Some(snapshots) = self.split_snapshots.borrow_mut().get_mut(&tab_id) {
+                    snapshots.swap(0, 1);
+                }
+                self.render_split_presentation();
+                self.render_tabs();
+            }
+            Err(error) => self.show_toast(&format!("Could not swap panes: {error}"), 5),
+        }
+    }
+
+    fn open_selected_in_opposite_pane(&self) {
+        let Some(entry) = self.selected_entry() else {
+            self.show_toast("Select one folder to open in the other pane", 4);
+            return;
+        };
+        if self.trash_active.get() || !entry.is_navigable_directory() {
+            self.show_toast("Only normal folders can open in the other pane", 4);
+            return;
+        }
+        let path = entry.path().to_path_buf();
+        let view = self.current_preferences.borrow().effective_state(&path);
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        self.capture_split_snapshot();
+        let result = {
+            let mut tabs = self.tabs.borrow_mut();
+            if tabs.active_split().is_split() {
+                let opposite = tabs.active_split().active_side().opposite();
+                tabs.active_split_mut()
+                    .pane_mut(opposite)
+                    .expect("split invariant keeps opposite pane present")
+                    .navigate_to(path, view)
+                    .map(|_| opposite)
+                    .map_err(TabError::from)
+            } else {
+                tabs.split_active(path, view).map(|_| SplitSide::Secondary)
+            }
+        };
+        match result {
+            Ok(side) => {
+                let tab_id = self.tabs.borrow().active_id();
+                self.split_snapshots.borrow_mut().entry(tab_id).or_default()
+                    [split_side_index(side)] = SplitPaneSnapshot::default();
+                self.render_split_presentation();
+                self.show_toast("Folder opened in the other pane", 3);
+            }
+            Err(error) => self.show_toast(&format!("Could not open other pane: {error}"), 6),
+        }
+    }
+
+    fn transfer_selected_to_opposite(&self, intent: TransferIntent) {
+        let destination = {
+            let tabs = self.tabs.borrow();
+            let Some(destination) = opposite_pane_destination(&tabs) else {
+                self.show_toast("Open split view before transferring between panes", 4);
+                return;
+            };
+            destination
+        };
+        let paths = self.selected_paths();
+        if paths.is_empty() {
+            self.show_toast("Select one or more items first", 4);
+            return;
+        }
+        match self
+            .application_state
+            .submit_transfer_batch(intent, paths, &destination)
+        {
+            Ok(batch) => {
+                self.widgets.status_label.set_label(&format!(
+                    "{} to other pane queued: {}",
+                    match intent {
+                        TransferIntent::Copy => "Copy",
+                        TransferIntent::Move => "Move",
+                    },
+                    item_count_text(batch.queued())
+                ));
+            }
+            Err(error) => self.show_toast(&format!("Could not start pane transfer: {error}"), 6),
+        }
     }
 
     fn new_tab(&self) {
@@ -1690,6 +2084,9 @@ impl BrowserController {
             self.save_active_session_state();
         }
         let result = self.tabs.borrow_mut().close(id);
+        if result.is_ok() {
+            self.split_snapshots.borrow_mut().remove(&id);
+        }
         match result {
             Ok(closed) if closed.active_changed => {
                 self.trash_active.set(false);
@@ -1728,6 +2125,9 @@ impl BrowserController {
             TabCloseVariant::Right => self.tabs.borrow_mut().close_right_of(id),
             TabCloseVariant::Others => self.tabs.borrow_mut().close_others(id),
         };
+        if result.is_ok() {
+            self.prune_split_snapshots();
+        }
         match result {
             Ok(0) => {}
             Ok(_) if self.tabs.borrow().active_id() != previous_active => {
@@ -1751,6 +2151,19 @@ impl BrowserController {
         {
             action.set_enabled(self.tabs.borrow().can_reopen_closed());
         }
+    }
+
+    fn prune_split_snapshots(&self) {
+        let live = self
+            .tabs
+            .borrow()
+            .sessions()
+            .iter()
+            .map(|tab| tab.id())
+            .collect::<HashSet<_>>();
+        self.split_snapshots
+            .borrow_mut()
+            .retain(|id, _| live.contains(id));
     }
 
     fn move_tab_before(&self, source: u64, target: u64) {
@@ -2948,7 +3361,41 @@ impl BrowserController {
                 action.set_enabled(folder_tab);
             }
         }
+        self.update_split_action_states();
         self.refresh_status();
+    }
+
+    fn update_split_action_states(&self) {
+        let selected = self.selected_entries.borrow();
+        let selection = selection_action_state(&selected);
+        let selected_folder = folder_tab_eligible(&selected, self.trash_active.get());
+        let is_split = self.tabs.borrow().active_split().is_split();
+        let state = split_action_state(
+            is_split,
+            selected_folder,
+            selection.transfer,
+            self.trash_active.get(),
+        );
+        for (name, enabled) in [
+            ("toggle-split", !self.trash_active.get()),
+            ("switch-split-side", state.switch),
+            ("close-split", state.close),
+            ("swap-split-sides", state.swap),
+            ("narrow-primary-pane", state.close),
+            ("widen-primary-pane", state.close),
+            ("open-opposite-pane", state.open_opposite),
+            ("copy-to-opposite-pane", state.transfer_opposite),
+            ("move-to-opposite-pane", state.transfer_opposite),
+        ] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(enabled);
+            }
+        }
     }
 
     fn selected_entry(&self) -> Option<Arc<DirectoryEntry>> {
@@ -4892,5 +5339,95 @@ mod tests {
         assert!(link_state.symbolic_link);
         assert!(!link_state.hard_link);
         assert!(link_state.reveal_link);
+    }
+
+    #[test]
+    fn phase_7e_split_presentation_reports_ratio_and_bounded_snapshot_truthfully() {
+        let ratio = floe_core::SplitRatio::new(6_000).expect("bounded ratio");
+        assert_eq!(crate::ui::split_primary_position(1_000, ratio), 600);
+        assert_eq!(
+            crate::ui::split_snapshot_status(0, 0),
+            "Activate pane to load or refresh"
+        );
+        assert_eq!(
+            crate::ui::split_snapshot_status(1, 1),
+            "1 cached item — activate to refresh"
+        );
+        assert_eq!(
+            crate::ui::split_snapshot_status(SPLIT_SNAPSHOT_CAPACITY, 2_000),
+            "First 512 of 2000 items cached — activate to refresh"
+        );
+    }
+
+    #[test]
+    fn phase_7e_split_actions_have_deterministic_sensitivity() {
+        assert_eq!(
+            split_action_state(false, false, false, false),
+            SplitActionState {
+                switch: false,
+                close: false,
+                swap: false,
+                open_opposite: false,
+                transfer_opposite: false,
+            }
+        );
+        assert_eq!(
+            split_action_state(false, true, true, false),
+            SplitActionState {
+                switch: false,
+                close: false,
+                swap: false,
+                open_opposite: true,
+                transfer_opposite: false,
+            }
+        );
+        assert_eq!(
+            split_action_state(true, true, true, false),
+            SplitActionState {
+                switch: true,
+                close: true,
+                swap: true,
+                open_opposite: true,
+                transfer_opposite: true,
+            }
+        );
+        assert!(!split_action_state(true, true, true, true).open_opposite);
+        assert!(!split_action_state(true, true, true, true).transfer_opposite);
+    }
+
+    #[test]
+    fn phase_7e_opposite_pane_resolves_exact_authoritative_destination() {
+        let raw = PathBuf::from(OsString::from_vec(b"/tmp/opposite-\xff".to_vec()));
+        let mut tabs = floe_core::BrowserTabs::new(
+            PathBuf::from("/primary"),
+            floe_core::FolderViewState::default(),
+        )
+        .expect("initial tab");
+        assert_eq!(opposite_pane_destination(&tabs), None);
+        tabs.split_active(raw.clone(), floe_core::FolderViewState::default())
+            .expect("secondary pane");
+        assert_eq!(opposite_pane_destination(&tabs), Some(raw.clone()));
+        tabs.activate_split_side(floe_core::SplitSide::Secondary)
+            .expect("secondary active");
+        assert_eq!(
+            opposite_pane_destination(&tabs),
+            Some(PathBuf::from("/primary"))
+        );
+    }
+
+    #[test]
+    fn phase_7e_split_accessibility_has_actions_and_keyboard_alternatives() {
+        assert_eq!(SPLIT_ACTION_NAMES.len(), 9);
+        assert!(SPLIT_ACTION_NAMES.contains(&"win.toggle-split"));
+        assert!(SPLIT_ACTION_NAMES.contains(&"win.switch-split-side"));
+        assert!(SPLIT_ACTION_NAMES.contains(&"win.narrow-primary-pane"));
+        assert!(SPLIT_ACTION_NAMES.contains(&"win.widen-primary-pane"));
+        assert!(SPLIT_ACTION_NAMES.contains(&"win.open-opposite-pane"));
+        assert_eq!(TOGGLE_SPLIT_ACCELERATOR, "F3");
+        assert_eq!(SWITCH_SPLIT_ACCELERATOR, "F6");
+        assert_eq!(NARROW_PRIMARY_PANE_ACCELERATOR, "<Control><Alt>Left");
+        assert_eq!(WIDEN_PRIMARY_PANE_ACCELERATOR, "<Control><Alt>Right");
+        assert_eq!(OPEN_OPPOSITE_ACCELERATOR, "<Control><Shift>Return");
+        assert_ne!(COPY_OPPOSITE_ACCELERATOR, MOVE_OPPOSITE_ACCELERATOR);
     }
 }

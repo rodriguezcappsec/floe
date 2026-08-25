@@ -374,7 +374,16 @@ impl Appearance {
   padding: 2px;
 }}
 
-            .floe-location-hit-target {{
+.floe-active-pane {{
+  border: 2px solid alpha(@accent_bg_color, 0.72);
+  border-radius: 10px;
+}}
+
+.floe-split-snapshot {{
+  background: alpha(@view_bg_color, 0.38);
+}}
+
+.floe-location-hit-target {{
                 min-height: 36px;
                 padding: 2px 10px;
                 border-radius: 10px;

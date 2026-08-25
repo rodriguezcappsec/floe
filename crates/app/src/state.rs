@@ -636,6 +636,40 @@ impl ApplicationState {
         Ok(batch)
     }
 
+    pub fn submit_transfer_batch(
+        &self,
+        intent: TransferIntent,
+        sources: Vec<PathBuf>,
+        destination_directory: &Path,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        if sources.is_empty() {
+            return Err(CopyInteractionError::EmptySelection);
+        }
+        let mut unique = HashSet::with_capacity(sources.len());
+        let mut operations = Vec::with_capacity(sources.len());
+        for source in sources {
+            if !unique.insert(source.clone()) {
+                continue;
+            }
+            let destination = transfer_destination(&source, destination_directory)?;
+            let operation = match intent {
+                TransferIntent::Copy => TrackedOperation::Copy(CopyRequest::new(
+                    source,
+                    destination,
+                    ConflictPolicy::FailIfExists,
+                    SymlinkPolicy::Preserve,
+                )),
+                TransferIntent::Move => TrackedOperation::Move(MoveRequest::new(
+                    source,
+                    destination,
+                    ConflictPolicy::FailIfExists,
+                )),
+            };
+            operations.push(operation);
+        }
+        self.enqueue_batch(operations)
+    }
+
     pub fn submit_trash_batch(
         &self,
         sources: Vec<PathBuf>,
@@ -3344,5 +3378,55 @@ mod tests {
             fs::read_link(linked).expect("symbolic link target"),
             link_source
         );
+    }
+
+    #[test]
+    fn phase_7e_opposite_pane_transfer_queues_direct_copy_and_move_without_staging() {
+        let fixture = tempdir().expect("temporary fixture");
+        let source_directory = fixture.path().join("source");
+        let destination = fixture.path().join("opposite");
+        fs::create_dir(&source_directory).expect("source directory");
+        fs::create_dir(&destination).expect("opposite directory");
+        let copy_source = source_directory.join("copy.txt");
+        let move_source = source_directory.join("move.txt");
+        fs::write(&copy_source, b"copy").expect("copy source");
+        fs::write(&move_source, b"move").expect("move source");
+        let state = ApplicationState::new().expect("application state");
+
+        let copy = state
+            .submit_transfer_batch(
+                TransferIntent::Copy,
+                vec![copy_source.clone(), copy_source.clone()],
+                &destination,
+            )
+            .expect("direct copy batch");
+        assert_eq!(copy.queued(), 1);
+        assert_eq!(state.staged_transfers(), None);
+        let copy_job = state.batch_active.get().expect("copy job");
+        assert_eq!(wait_for_terminal(&state, copy_job), JobState::Completed);
+        state.finish_operation(copy_job, TerminalOutcome::Completed);
+        assert_eq!(
+            fs::read(destination.join("copy.txt")).expect("copied output"),
+            b"copy"
+        );
+        assert!(copy_source.exists());
+
+        let moved = state
+            .submit_transfer_batch(
+                TransferIntent::Move,
+                vec![move_source.clone()],
+                &destination,
+            )
+            .expect("direct move batch");
+        assert_eq!(moved.queued(), 1);
+        assert_eq!(state.staged_transfers(), None);
+        let move_job = state.batch_active.get().expect("move job");
+        assert_eq!(wait_for_terminal(&state, move_job), JobState::Completed);
+        state.finish_operation(move_job, TerminalOutcome::Completed);
+        assert_eq!(
+            fs::read(destination.join("move.txt")).expect("moved output"),
+            b"move"
+        );
+        assert!(!move_source.exists());
     }
 }
