@@ -1,16 +1,16 @@
-# Plan: Floe Phase 9C — PDF and document Preview
+# Plan: Floe Phase 9D — Audio and video Preview
 
 ## Contract
 
-- Register one deterministic document provider after built-in raster/text providers.
-- Reuse the reviewed freedesktop thumbnailer registry and supervised argv-only process boundary from Phase 6L.
-- Limit eligibility to PDF and common office/document formats; never execute macros or active document content.
-- Open the exact source no-follow before provider dispatch and revalidate it afterward.
-- Accept only bounded passive PNG output, decode it to owned RGBA, and label it as a first-page/document rendition.
-- Preserve cancellation, timeout, output limits, stale-generation rejection, honest unsupported fallback, and main-thread GTK object creation.
-- State truthfully that installed external providers run with normal user authority and are not sandboxed until Phase 18L.
-- Exclude audio/video (9D), font/archive (9E), and interaction polish (9F).
+- Add a deterministic local media provider for reviewed audio/video extensions and GIO MIME identity.
+- Preflight exact sources no-follow and return only typed path/MIME/poster metadata from the worker.
+- Create GTK MediaFile, Video, and MediaControls objects only on the main thread; never shell out or install codecs.
+- Use the existing supervised freedesktop thumbnailer boundary for an optional bounded passive video poster frame; audio has a truthful icon fallback.
+- Expose native play/pause, seeking, duration/error state through GTK controls.
+- Explicitly pause and release the active stream whenever selection, directory, view, or detail state retires it.
+- Preserve cancellation, stale-generation rejection, main-loop responsiveness, and honest unsupported/decoder error feedback.
+- Exclude font/archive preview (9E) and global preview interaction polish (9F).
 
 ## Status
 
-COMPLETE on `phase-9c-preview-documents`; all eight gates verified. Phase 9D is the sole recommended next phase.
+COMPLETE on `phase-9d-preview-media`; all eight gates verified. Phase 9E is the sole recommended next phase.

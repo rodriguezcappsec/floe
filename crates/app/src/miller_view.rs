@@ -247,6 +247,7 @@ pub struct MillerView {
     action_dispatcher: MillerActionDispatcher,
     active_list: RefCell<Option<gtk::ListView>>,
     detail_widget: RefCell<Option<gtk::Box>>,
+    detail_media: RefCell<Option<gtk::MediaFile>>,
     file_context_model: gio::MenuModel,
     background_context_model: gio::MenuModel,
     drop_dispatcher: DropDispatcher,
@@ -317,6 +318,7 @@ impl MillerView {
             action_dispatcher: MillerActionDispatcher::default(),
             active_list: RefCell::new(None),
             detail_widget: RefCell::new(None),
+            detail_media: RefCell::new(None),
             file_context_model: file_context_model.clone(),
             background_context_model: background_context_model.clone(),
             drop_dispatcher: drop_dispatcher.clone(),
@@ -376,6 +378,10 @@ impl MillerView {
         active_selection: &gtk::MultiSelection,
         detail_state: &MillerDetailState,
     ) {
+        if let Some(media) = self.detail_media.borrow_mut().take() {
+            media.pause();
+            media.clear();
+        }
         while let Some(child) = self.columns.first_child() {
             self.columns.remove(&child);
         }
@@ -524,6 +530,80 @@ impl MillerView {
                         "Passive first-page document rendition.",
                     )]);
                     picture.upcast::<gtk::Widget>()
+                }
+                PreviewContent::Media {
+                    path,
+                    is_video,
+                    poster,
+                    ..
+                } => {
+                    let media = gtk::MediaFile::for_file(&gio::File::for_path(path));
+                    let controls = gtk::MediaControls::new(Some(&media));
+                    controls.update_property(&[gtk::accessible::Property::Description(
+                        "Native media controls with play, pause, and seek.",
+                    )]);
+                    let media_box = gtk::Box::new(gtk::Orientation::Vertical, 10);
+                    media_box.set_margin_top(10);
+                    media_box.set_margin_start(8);
+                    media_box.set_margin_end(8);
+                    if *is_video {
+                        let video = gtk::Video::for_media_stream(Some(&media));
+                        video.set_autoplay(false);
+                        video.set_loop(false);
+                        video.set_hexpand(true);
+                        video.set_vexpand(true);
+                        video.set_accessible_role(gtk::AccessibleRole::Img);
+                        if let Some(poster) = poster {
+                            let Ok(width) = i32::try_from(poster.width) else {
+                                return self.build_unavailable_detail_column(
+                                    state,
+                                    "Media poster dimensions exceed GTK limits.",
+                                );
+                            };
+                            let Ok(height) = i32::try_from(poster.height) else {
+                                return self.build_unavailable_detail_column(
+                                    state,
+                                    "Media poster dimensions exceed GTK limits.",
+                                );
+                            };
+                            let bytes = glib::Bytes::from_owned(Arc::clone(&poster.rgba));
+                            let texture = gtk::gdk::MemoryTexture::new(
+                                width,
+                                height,
+                                gtk::gdk::MemoryFormat::R8g8b8a8,
+                                &bytes,
+                                poster.rowstride,
+                            );
+                            let picture = gtk::Picture::for_paintable(&texture);
+                            picture.set_can_shrink(true);
+                            picture.set_content_fit(gtk::ContentFit::Contain);
+                            let stack = gtk::Stack::new();
+                            stack.add_named(&picture, Some("poster"));
+                            stack.add_named(&video, Some("video"));
+                            stack.set_visible_child_name("poster");
+                            let stack_for_prepared = stack.clone();
+                            media.connect_prepared_notify(move |stream| {
+                                if stream.is_prepared() {
+                                    stack_for_prepared.set_visible_child_name("video");
+                                }
+                            });
+                            media_box.append(&stack);
+                        } else {
+                            media_box.append(&video);
+                        }
+                    } else {
+                        let audio_icon = gtk::Image::builder()
+                            .icon_name("audio-x-generic-symbolic")
+                            .pixel_size(72)
+                            .margin_top(24)
+                            .margin_bottom(16)
+                            .build();
+                        audio_icon.set_accessible_role(gtk::AccessibleRole::Presentation);
+                        media_box.append(&audio_icon);
+                    }
+                    media_box.append(&controls);
+                    self.detail_media.replace(Some(media));
+                    media_box.upcast::<gtk::Widget>()
                 }
                 PreviewContent::None => icon.clone().upcast::<gtk::Widget>(),
             },

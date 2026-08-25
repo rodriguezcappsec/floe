@@ -174,6 +174,20 @@ impl From<&MillerDetailState> for MillerDetailPresentation {
                             ""
                         }
                     ),
+                    crate::preview::PreviewContent::Media {
+                        content_type,
+                        is_video,
+                        poster,
+                        ..
+                    } => format!(
+                        "{} preview, {content_type}; native playback controls{}.",
+                        if *is_video { "Video" } else { "Audio" },
+                        if poster.is_some() {
+                            ", poster available"
+                        } else {
+                            ""
+                        }
+                    ),
                     crate::preview::PreviewContent::None => "Preview is ready.".to_owned(),
                 },
                 accessible_description: format!(
@@ -568,5 +582,38 @@ mod tests {
                 .accessible_description
                 .contains("without executing")
         );
+    }
+
+    #[test]
+    fn phase_9d_media_presentation_labels_controls_and_retires_payload_state() {
+        let (root, entries, _) = fixture_entries();
+        let mut hooks = MillerDetailHooks::default();
+        hooks.toggle(
+            MillerDetailSurface::Preview,
+            Some(1),
+            root.path().to_path_buf(),
+            &entries,
+        );
+        assert!(hooks.begin_preview_loading(44));
+        assert!(hooks.finish_preview(
+            44,
+            crate::preview::PreviewOutcome::Ready(crate::preview::PreviewPayload {
+                provider_id: "floe.media",
+                kind: crate::preview::PreviewKind::Media,
+                content: crate::preview::PreviewContent::Media {
+                    path: entries[0].path().to_path_buf(),
+                    content_type: Arc::from("video/mp4"),
+                    is_video: true,
+                    poster: None,
+                },
+            })
+        ));
+        let presentation = MillerDetailPresentation::from(hooks.state());
+        assert!(presentation.message.contains("native playback controls"));
+        assert!(presentation.message.contains("video/mp4"));
+        hooks.refresh(Some(1), root.path().to_path_buf(), &[]);
+        assert!(matches!(hooks.state(), MillerDetailState::Empty { .. }));
+        hooks.hide();
+        assert_eq!(hooks.state(), &MillerDetailState::Hidden);
     }
 }

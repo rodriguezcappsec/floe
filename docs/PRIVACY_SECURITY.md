@@ -32,6 +32,12 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 9D media Preview validates exact local audio/video sources no-follow and
+  passes only typed path/MIME/poster data to the GTK thread. Native GTK media
+  controls open the selected path with the user's normal codec stack; Floe does
+  not install codecs or invoke a shell. Optional video posters reuse the
+  supervised Phase 6L provider boundary. Retiring detail state explicitly
+  pauses and clears the stream, and preview payloads remain memory-only.
 - Phase 9C PDF and office/document previews reuse reviewed installed
   freedesktop thumbnailer definitions through the Phase 6L argv-only supervised
   process boundary. Floe preflights and reopens the exact source no-follow,
