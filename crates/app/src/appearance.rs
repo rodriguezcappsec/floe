@@ -137,9 +137,15 @@ impl Appearance {
                 background-color: alpha(@accent_bg_color, 0.08);
             }}
 
-            .floe-sidebar button {{
-                border-radius: 10px;
-            }}
+.floe-sidebar button {{
+  border-radius: 10px;
+}}
+
+.floe-drop-target {{
+  outline: 2px dashed alpha(@accent_bg_color, 0.92);
+  outline-offset: -3px;
+  background-color: alpha(@accent_bg_color, 0.14);
+}}
 
             .floe-sidebar.sidebar-compact button {{
                 min-height: 32px;

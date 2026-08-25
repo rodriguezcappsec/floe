@@ -16,6 +16,7 @@ use crate::{
         DeviceAction, DeviceActionStatus, DeviceActions, DeviceMountState, DeviceRootKind,
         DeviceSnapshot,
     },
+    drag_drop::{DropDestination, DropDispatcher, install_drop_target},
     iconography::{EntryIcon, LIST_ICON_EDGE, grid_icon_edge, icon_for_entry},
     launcher::OpenWithOptions,
     locations::Location,
@@ -557,6 +558,8 @@ pub struct BrowserWidgets {
     pub bookmarks_box: gtk::Box,
     pub add_bookmark_button: gtk::Button,
     pub devices_box: gtk::Box,
+    pub trash_button: gtk::Button,
+    pub drop_dispatcher: DropDispatcher,
     pub workspace: gtk::Paned,
     pub sidebar: gtk::Box,
     pub sidebar_default_width: i32,
@@ -570,6 +573,7 @@ struct SidebarWidgets {
     bookmarks_box: gtk::Box,
     add_bookmark_button: gtk::Button,
     devices_box: gtk::Box,
+    trash_button: gtk::Button,
 }
 
 struct DirectoryPanelWidgets {
@@ -623,6 +627,7 @@ impl BrowserWidgets {
             &self.grid_context_menu,
             &self.thumbnails,
             size,
+            &self.drop_dispatcher,
         );
         self.grid_view.set_factory(Some(&factory));
     }
@@ -912,6 +917,7 @@ pub fn build(
         i32::from(SIDEBAR_WIDTH_MIN),
         preferences.sidebar_density,
     );
+    let drop_dispatcher = DropDispatcher::default();
     let DirectoryPanelWidgets {
         content,
         selection,
@@ -928,7 +934,7 @@ pub fn build(
         status_label,
         sort_headers,
         thumbnails,
-    } = build_directory_panel(preferences);
+    } = build_directory_panel(preferences, &drop_dispatcher);
 
     content.set_width_request(420);
     let restored_sidebar_width = initial_sidebar_width(preferences, appearance.sidebar_width());
@@ -1001,6 +1007,8 @@ pub fn build(
         bookmarks_box: sidebar.bookmarks_box,
         add_bookmark_button: sidebar.add_bookmark_button,
         devices_box: sidebar.devices_box,
+        trash_button: sidebar.trash_button,
+        drop_dispatcher,
         workspace,
         sidebar: sidebar.sidebar,
         sidebar_default_width: appearance.sidebar_width(),
@@ -1728,6 +1736,7 @@ fn build_sidebar(
         bookmarks_box,
         add_bookmark_button,
         devices_box,
+        trash_button,
     }
 }
 
@@ -1744,7 +1753,10 @@ fn sidebar_heading(label: &str) -> gtk::Label {
     heading
 }
 
-fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets {
+fn build_directory_panel(
+    preferences: ViewPreferences,
+    drop_dispatcher: &DropDispatcher,
+) -> DirectoryPanelWidgets {
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
     let selection = gtk::MultiSelection::new(Some(store));
 
@@ -1763,6 +1775,7 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
     let factory = gtk::SignalListItemFactory::new();
     let row_selection = selection.clone();
     let row_context_menu = list_context_menu.clone();
+    let row_drop_dispatcher = drop_dispatcher.clone();
     factory.connect_setup(move |_, object| {
         let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
             return;
@@ -1850,6 +1863,16 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
             gesture.set_state(gtk::EventSequenceState::Claimed);
         });
         row.add_controller(secondary_click);
+        let destination_item = list_item.downgrade();
+        let destination = Rc::new(move || {
+            let item = destination_item.upgrade()?;
+            let object = item.item()?.downcast::<glib::BoxedAnyObject>().ok()?;
+            let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
+            entry
+                .is_navigable_directory()
+                .then(|| DropDestination::Directory(entry.path().to_path_buf()))
+        });
+        install_drop_target(&row, destination, row_drop_dispatcher.clone(), true, false);
         list_item.set_child(Some(&row));
     });
     let thumbnails_for_bind = thumbnails.clone();
@@ -1958,6 +1981,7 @@ fn build_directory_panel(preferences: ViewPreferences) -> DirectoryPanelWidgets 
         &grid_context_menu,
         &thumbnails,
         preferences.grid_size,
+        drop_dispatcher,
     );
     let grid_view = gtk::GridView::new(Some(selection.clone()), Some(grid_factory));
     grid_view.add_css_class("floe-directory-grid");
@@ -2067,12 +2091,14 @@ fn build_grid_factory(
     context_menu: &gtk::PopoverMenu,
     thumbnails: &ThumbnailPresentation,
     grid_size: GridSize,
+    drop_dispatcher: &DropDispatcher,
 ) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
     let row_selection = selection.clone();
     let row_context_menu = context_menu.clone();
     let edge = grid_size.edge();
     let tile_width = grid_size.tile_width();
+    let cell_drop_dispatcher = drop_dispatcher.clone();
     factory.connect_setup(move |_, object| {
         let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
             return;
@@ -2150,6 +2176,22 @@ fn build_grid_factory(
             gesture.set_state(gtk::EventSequenceState::Claimed);
         });
         cell.add_controller(secondary_click);
+        let destination_item = list_item.downgrade();
+        let destination = Rc::new(move || {
+            let item = destination_item.upgrade()?;
+            let object = item.item()?.downcast::<glib::BoxedAnyObject>().ok()?;
+            let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
+            entry
+                .is_navigable_directory()
+                .then(|| DropDestination::Directory(entry.path().to_path_buf()))
+        });
+        install_drop_target(
+            &cell,
+            destination,
+            cell_drop_dispatcher.clone(),
+            true,
+            false,
+        );
         list_item.set_child(Some(&cell));
     });
 

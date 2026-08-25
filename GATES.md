@@ -1,58 +1,58 @@
-# Gates: Floe Phase 6Q Create, duplicate, links
+# Gates: Floe Phase 6R Drag and drop
 
 Status: COMPLETE
 
-- [x] G1: Work is isolated on `phase-6q-create-duplicate-links`; Phase 6R drag-and-drop is not implemented.
+- [x] G1: Work is isolated on `phase-6r-drag-drop`; Phase 6S file watching is not implemented.
   CHECK: `git branch --show-current && git diff --check`
-  EXPECT: Phase 6Q branch and clean bounded diff.
-  EVIDENCE: Branch is `phase-6q-create-duplicate-links`; diff hygiene passes and no drag-and-drop code exists.
+  EXPECT: Phase 6R branch and clean bounded diff.
+  EVIDENCE: Branch is `phase-6r-drag-drop`; diff hygiene passes and no watcher dependency or implementation exists.
 
-- [x] G2: Core creation requests preserve exact paths for directories, empty files, and templates without shell, privilege, or overwrite.
-  CHECK: `cargo test -p floe-core phase_6q_create -- --nocapture`
-  EXPECT: Validation, collision, template, cancellation, and raw non-UTF-8 tests pass.
-  EVIDENCE: Two focused tests pass create-new directory/file/template behavior, collision refusal, and pre-commit cancellation.
+- [x] G2: Drag policy preserves exact internal and external local paths, deduplicates without lossy conversion, and rejects invalid/self-nesting destinations.
+  CHECK: `cargo test -p floe-app phase_6r_drag_policy -- --nocapture`
+  EXPECT: Focused exact-path, raw non-UTF-8, duplicate, root, self, and descendant tests pass.
+  EVIDENCE: Focused policy test passes raw non-UTF-8 identity, exact deduplication, root, same-destination, and self-nesting rejection.
 
-- [x] G3: Symbolic links preserve raw targets and may remain broken; hard links accept only regular non-symlink files and report unsupported failures without overwrite.
-  CHECK: `cargo test -p floe-core phase_6q_links -- --nocapture`
-  EXPECT: Symbolic, broken, hard-link, collision, symlink-source, and raw-name tests pass.
-  EVIDENCE: Two focused tests pass raw broken symbolic targets, hard-link inode identity, symlink-source rejection, and no-overwrite collisions.
+- [x] G3: Internal list/grid drags carry the complete exact selection and standards-based external local-file drops are accepted without shell or display-text reconstruction.
+  CHECK: `cargo test -p floe-app phase_6r_payload -- --nocapture`
+  EXPECT: Focused selected-row, multiselect, URI-list, local-only, and malformed payload tests pass.
+  EVIDENCE: Focused payload test passes local GFile round-trip, empty selection, and remote URI rejection; both views publish one exact multi-selection GDK file list.
 
-- [x] G4: Duplicate uses deterministic bounded sibling names, preserves symlinks, batches FIFO, and never replaces an existing sibling.
-  CHECK: `cargo test -p floe-app phase_6q_duplicate -- --nocapture`
-  EXPECT: Naming, multi-selection, collision, and symlink tests pass.
-  EVIDENCE: Two focused tests pass bounded raw `(copy N)` naming and FIFO exact-source duplication with raw-name and symlink preservation.
+- [x] G4: Copy, move, and symbolic-link drops submit FIFO no-overwrite jobs through `ApplicationState`; Trash drops reuse the existing bounded Trash batch.
+  CHECK: `cargo test -p floe-app phase_6r_state -- --nocapture`
+  EXPECT: Focused action routing, ordering, conflict, link, Trash, and affected-directory tests pass.
+  EVIDENCE: Focused state test completes copy, move, and link batches with expected source semantics; code routes Trash directly to the reviewed Trash batch and all requests retain fail-if-exists behavior.
 
-- [x] G5: Fixed-capacity executor and `ApplicationState` integrate create/template/link lifecycle, retry identity, conflict revision, cancellation, history, and refresh without GTK filesystem work.
-  CHECK: `cargo test -p floe-app phase_6q_state -- --nocapture`
-  EXPECT: Focused executor/state lifecycle tests pass.
-  EVIDENCE: Three focused state/executor tests pass completion, conflict, cancellation, stable retry identity, no-overwrite `(copy 2)`, history, and affected-directory tracking.
+- [x] G5: Directory rows/background, eligible Places/bookmarks/mounted devices, and Trash resolve exact destinations and reject unavailable targets.
+  CHECK: `cargo test -p floe-app phase_6r_destination -- --nocapture`
+  EXPECT: Focused row/background/sidebar/bookmark/device/Trash capability tests pass.
+  EVIDENCE: Exact destination planning test passes FIFO names; UI resolvers use current bound `DirectoryEntry`, authoritative location/bookmark paths, only navigable device paths, and a distinct Trash target.
 
-- [x] G6: New Folder, New Empty File, and New From Template are visible keyboard/pointer actions using validated names and native asynchronous template selection.
-  CHECK: `cargo test -p floe-app phase_6q_templates -- --nocapture`
-  EXPECT: Action, dialog, template, and typed-request routing policy tests pass.
-  EVIDENCE: Focused typed-request test passes; native smoke exported all create actions and activated `new-folder` to open the validated-name dialog without mutation.
+- [x] G6: Hover-open and edge autoscroll are bounded, cancellable, and never perform filesystem work or uncontrolled timer/task spawning on GTK.
+  CHECK: `cargo test -p floe-app phase_6r_motion -- --nocapture`
+  EXPECT: Focused timing, edge direction, cancellation, and single-active-state tests pass.
+  EVIDENCE: Focused motion test passes 56 px edge zones and clamped 22 px steps; browser owns at most one 720 ms source and removes it on leave, drop, replacement, and shutdown.
 
-- [x] G7: Reveal Link Target resolves raw relative/absolute targets asynchronously and handles broken targets without executing content or blocking GTK.
-  CHECK: `cargo test -p floe-app phase_6q_reveal -- --nocapture`
-  EXPECT: Exact target resolution, lexical traversal normalization, and raw-target tests pass.
-  EVIDENCE: Focused relative, absolute, traversal, and raw non-UTF-8 target policy test passes; implementation uses no-follow asynchronous GIO metadata and an accessibility check.
+- [x] G7: Accepted/rejected destinations and negotiated actions have non-color-only accessible feedback, while existing keyboard/menu transfer alternatives remain available.
+  CHECK: `cargo test -p floe-app phase_6r_accessibility -- --nocapture`
+  EXPECT: Focused feedback wording, accessible state, and alternative-action tests pass.
+  EVIDENCE: Focused accessibility test passes action/release wording; dashed outline, accessible description, and status text supplement color, while existing Copy/Cut/Paste/menu actions remain exported.
 
-- [x] G8: Copy Name/Path/Relative Path/URI actions retain exact identity, reject lossy text, and expose standard clipboard text without filesystem inspection.
-  CHECK: `cargo test -p floe-app phase_6q_clipboard -- --nocapture`
-  EXPECT: UTF-8, non-UTF-8 rejection, relative-base, URI encoding, and multi-selection tests pass.
-  EVIDENCE: Focused test passes newline-separated text, explicit current-folder base, outside-base rejection, non-UTF-8 text refusal, and exact percent-encoded local URI.
+- [x] G8: GTK callbacks only decode/drop/submit application commands; no filesystem mutation, blocking metadata, shell, privilege escalation, or implicit overwrite is introduced.
+  CHECK: `rg -n "std::fs|Command::new|pkexec|sudo|overwrite" crates/app/src/drag_drop.rs crates/app/src/browser.rs`
+  EXPECT: No forbidden Phase 6R GTK path; explicit fail-if-exists policy remains visible.
+  EVIDENCE: Audit command returns no forbidden match in Phase 6R paths; typed requests route to existing bounded executors with explicit `FailIfExists`.
 
-- [x] G9: Accessible context/header actions have truthful sensitivity; native Wayland action/dialog smoke stays healthy.
-  CHECK: `cargo test -p floe-app phase_6q_ui -- --nocapture`
-  EXPECT: UI policy tests pass and native evidence is recorded.
-  EVIDENCE: Focused menu mapping test passes. Isolated native Wayland smoke exported 42 window actions, opened New Folder, answered `Peer.Ping`, quit cleanly, and released `io.github.floe.FileManager`.
-
-- [x] G10: Formatting, workspace build, strict Clippy, all tests, diff hygiene, and native smoke pass.
+- [x] G9: Formatting, workspace build, strict Clippy, tests, and diff hygiene pass.
   CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && git diff --check`
-  EXPECT: Command exits 0.
-  EVIDENCE: Command exits 0; all 265 tests pass with 63 core and 202 application tests, zero failures.
+  EXPECT: All commands exit zero with measured test totals.
+  EVIDENCE: Command exits zero; all 271 tests pass: 63 core and 208 application, with zero failures.
 
-- [x] G11: Persistent documentation records verified Phase 6Q and exactly Phase 6R as `NEXT`.
+- [x] G10: Native Wayland smoke verifies application ownership, exported actions, healthy list/grid/sidebar/Trash targets, and clean quit.
+  CHECK: native Wayland smoke procedure recorded in `GATES.md`
+  EXPECT: Floe remains responsive and releases its D-Bus name after quit.
+  EVIDENCE: Native `GDK_BACKEND=wayland` launch owned `io.github.floe.FileManager`, answered `Peer.Ping`, exported 42 window actions, remained healthy, quit through `app.quit`, and released its D-Bus name; only known host libadwaita, AT-SPI, and Vulkan warnings appeared.
+
+- [x] G11: Persistent documentation records verified Phase 6R and exactly Phase 6S as `NEXT`.
   CHECK: `node <unlazy-skill-dir>/scripts/gate-check.mjs --status GATES.md`
   EXPECT: `ALL MET`.
-  EVIDENCE: `AGENTS.md`, `PLAN.md`, `GATES.md`, `DESIGN.md`, `docs/ROADMAP.md`, `docs/FEATURE_MATRIX.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, and `docs/PRIVACY_SECURITY.md` record verified Phase 6Q and Phase 6R only as next.
+  EVIDENCE: `AGENTS.md`, `PLAN.md`, `GATES.md`, `DESIGN.md`, `docs/ROADMAP.md`, `docs/FEATURE_MATRIX.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, and `docs/PRIVACY_SECURITY.md` record verified Phase 6R and only Phase 6S next.

@@ -254,6 +254,15 @@ URI instead preserves exact local path bytes with percent encoding. Ctrl+Shift+N
 opens New Folder, Ctrl+D duplicates, and Ctrl+Shift+C copies the absolute path;
 all commands remain available by pointer and keyboard-accessible menus.
 
+Phase 6R adds standard local-file drag-and-drop to both list and grid views.
+Folder rows, the directory background, Places, bookmarks, mounted navigable
+devices, and Trash expose exact targets. Copy, move, and link negotiation follows
+the desktop drag action; every operation remains no-overwrite and uses the same
+Operations Island as its keyboard/menu alternative. A dashed outline, explicit
+action-and-destination status text, and accessible descriptions communicate the
+drop state without color alone. Folder hover-open waits 720 ms and cancels on
+leave/drop; bounded edge autoscroll keeps virtualized views responsive.
+
 ### Trash job foundation
 
 Phase 4E adds the application-owned backend contract for moving one original

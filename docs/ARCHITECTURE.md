@@ -417,6 +417,18 @@ selection and reveal-target metadata use asynchronous GIO. Clipboard name/path
 text is derived only from exact UTF-8 values, while local file URI encoding
 preserves raw path bytes.
 
+### `drag_drop.rs`
+
+Phase 6R centralizes GDK drag payload conversion, exact-path destination policy,
+action negotiation, accessible drop feedback, hover-open, and bounded edge
+autoscroll. `gdk::FileList` is the external boundary: every `gio::File` must
+resolve to a local `PathBuf`, and raw paths never pass through display text.
+Recycled list/grid rows resolve their currently bound `DirectoryEntry` only at
+interaction time. A shared application dispatcher sends typed `DropRequest`
+values to `BrowserController`; `ApplicationState` converts them into existing
+FIFO copy, move, symbolic-link, or Trash jobs with fail-if-exists semantics.
+GTK owns only gesture presentation and submission, never filesystem mutation.
+
 ### `trash_executor.rs`
 
 `TrashExecutor` owns one named worker and fixed-capacity queue for application-

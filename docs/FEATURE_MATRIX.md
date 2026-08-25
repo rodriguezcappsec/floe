@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 6Q. Phase 6R is the only
+The implementation baseline for this matrix is Phase 6R. Phase 6S is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -137,16 +137,16 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Intra-folder drag | `PLANNED` | 6R | Needs exact source identity and copy/move/link modifier policy. |
-| Drag folders | `PLANNED` | 6R | Must reject self-nesting and preserve navigation responsiveness. |
-| List to grid and grid to list drag | `PLANNED` | 6R | Shared selection/model is a useful Phase 6D foundation. |
-| Drag to sidebar destination | `PLANNED` | 6R | Requires destination highlighting, hover policy, and bookmark/device capability checks. |
-| Drag to Trash | `PLANNED` | 6R | Must reuse the existing Trash job rather than implement deletion in GTK. |
-| External application to Floe | `PLANNED` | 6R | Validate imported GDK/GIO formats and action negotiation. |
-| Floe to external application | `PLANNED` | 6R | Depends on interoperable URI/file clipboard and drag formats. |
-| Hover-open folder | `PLANNED` | 6R | Needs restrained delay, cancellation, and no accidental navigation storm. |
-| Drag autoscroll | `PLANNED` | 6R | Must remain smooth in virtualized list/grid. |
-| Drop destination highlighting | `PLANNED` | 6R | Must be keyboard-independent feedback and not color-only. |
+| Intra-folder drag | `COMPLETE` | 6R | Exact selected source identity routes copy/move/link drops into subfolders; same-destination drops fail safely. |
+| Drag folders | `COMPLETE` | 6R | Exact lexical destination policy rejects self-nesting before job submission. |
+| List to grid and grid to list drag | `COMPLETE` | 6R | Both virtualized views share one exact multi-selection GDK file-list source. |
+| Drag to sidebar destination | `COMPLETE` | 6R | Places, bookmarks, and currently navigable mounted devices expose exact directory targets; unavailable devices reject drops. |
+| Drag to Trash | `COMPLETE` | 6R | Trash accepts a move action and reuses the bounded application Trash batch. |
+| External application to Floe | `COMPLETE` | 6R | GDK/GIO local file lists decode to exact paths; malformed, empty, and non-local payloads are rejected. |
+| Floe to external application | `COMPLETE` | 6R | Floe publishes the exact selection as a standard GDK file-list provider with copy/move/link actions. |
+| Hover-open folder | `COMPLETE` | 6R | One cancellable 720 ms main-loop timer navigates exact folder targets and clears on leave/drop/shutdown. |
+| Drag autoscroll | `COMPLETE` | 6R | Bounded 56 px edge zones adjust the active virtualized view by a clamped 22 px motion step. |
+| Drop destination highlighting | `COMPLETE` | 6R | Dashed outline plus action/destination accessible description and status text avoid color-only feedback. |
 | Tab reordering by drag | `PLANNED` | 7B | Non-drag keyboard/pointer alternatives are also required. |
 | Tab detachment | `DEFERRED` | 7F | Optional after tabs, session transfer, and window ownership are stable. |
 | Pane-to-pane drag | `PLANNED` | 7F | Depends on split ownership and existing job commands. |

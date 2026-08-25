@@ -301,8 +301,23 @@ identity, asynchronous reveal policy, and lossless text/URI clipboard behavior.
 Native Wayland smoke used isolated HOME/XDG roots, exported 42 window actions,
 activated `new-folder` to open the validated-name dialog without creating a
 file, answered `Peer.Ping`, quit cleanly, and released
-`io.github.floe.FileManager`. After verified Phase 6Q, continue only on
-`phase-6r-drag-drop`.
+`io.github.floe.FileManager`.
+
+Phase 6R adds no dependency. Focused checks are:
+
+```bash
+cargo test -p floe-app phase_6r_drag_policy -- --nocapture
+cargo test -p floe-app phase_6r_payload -- --nocapture
+cargo test -p floe-app phase_6r_state -- --nocapture
+cargo test -p floe-app phase_6r_destination -- --nocapture
+cargo test -p floe-app phase_6r_motion -- --nocapture
+cargo test -p floe-app phase_6r_accessibility -- --nocapture
+```
+
+Native Wayland smoke verifies the D-Bus owner, 42 exported window actions,
+healthy list/grid/sidebar/Trash targets, `Peer.Ping`, clean quit, and application
+name release. After verified Phase 6R, continue only on
+`phase-6s-file-watching`.
 
 ## Wayland environments
 

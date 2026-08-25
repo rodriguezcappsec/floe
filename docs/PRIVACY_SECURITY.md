@@ -44,6 +44,7 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 - Phase 6Q creation uses a bounded application-owned executor and never shells out, elevates Floe, or silently overwrites. Directory and empty-file requests use create-new semantics; template duplication reuses the no-follow copy engine; symbolic links preserve the exact stored target and may intentionally remain broken; hard links accept only regular non-symlink sources and report same-filesystem limitations. User-entered destination names are validated as one component before worker submission.
 - Phase 6Q Copy Name, Path, Relative Path, and URI are explicit user actions. Text forms reject any selected value that cannot be represented losslessly as UTF-8; local file URIs retain raw path bytes through percent encoding. These clipboard values reveal filenames and locations and may outlive Floe in desktop clipboard history.
+- Phase 6R drag sources disclose the explicitly selected local paths to the chosen desktop drop recipient using the standard GDK file-list format. Incoming drops accept local `gio::File` paths only and reject empty, malformed, unavailable, or non-local identities. Exact paths route through existing no-overwrite copy/move/link/Trash jobs; drag callbacks never shell out, elevate Floe, or mutate the filesystem directly. Drag-and-drop is interoperability, not a privacy boundary or audit trail.
 
 ### PARTIAL or absent protections
 
