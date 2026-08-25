@@ -1,32 +1,32 @@
-# Gates: Floe Phase 9E — Font specimens and archive listings
+# Gates: Floe Phase 9F — Preview interaction and lifecycle polish
 
 - [x] G1: Correct phase branch.
   CHECK: git branch --show-current
-  EXPECT: phase-9e-preview-fonts-archives
-  EVIDENCE: phase-9e-preview-fonts-archives.
-- [x] G2: Font provider returns bounded passive PNG/RGBA and never installs or executes font content in-process.
-  CHECK: cargo test -p floe-app phase_9e_font_provider -- --nocapture
+  EXPECT: phase-9f-preview-polish
+  EVIDENCE: phase-9f-preview-polish.
+- [x] G2: Space toggles Preview without consuming editable text input; live selection follows exact generations and focus restores.
+  CHECK: cargo test -p floe-app phase_9f_interaction -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: 1/1 passed; reviewed provider, raw name, bounded specimen, no-follow symlink rejection, and excluded installer verified.
-- [x] G3: ZIP/TAR parsers enforce identity, entry/name/byte caps and preserve raw hostile member names without extraction.
-  CHECK: cargo test -p floe-app phase_9e_archive_provider -- --nocapture
+  EVIDENCE: 1/1 passed; stable Space accelerator and text-focus policy verified. Existing exact-target lifecycle plus native open/close action/focus behavior passed.
+- [x] G3: Image/document/font zoom/reset/fullscreen controls are presentation-only, bounded, accessible, and HiDPI-safe.
+  CHECK: cargo test -p floe-app phase_9f_presentation -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: 1/1 passed; raw ZIP names, unsafe-path flag, TAR checksum/type/size, entry truncation, malformed input, compressed-format rejection, and zero extraction verified.
-- [x] G4: Main-thread presentation is passive/selectable and stale payloads retire safely.
-  CHECK: cargo test -p floe-app phase_9e_presentation -- --nocapture
+  EVIDENCE: 1/1 passed; 50–400% clamping and reset policy verified. GTK paintable controls label zoom/monitor scaling and native fullscreen toggle passed.
+- [x] G4: Memory-cache purge cancels current work, clears cached payloads, and never touches persistent thumbnail state.
+  CHECK: cargo test -p floe-app phase_9f_cache_privacy -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: 1/1 passed; read-only archive label, no-execution accessibility, and stale depth retirement verified.
-- [x] G5: Native Wayland font/archive Preview action/health/lifecycle smoke passes.
-  EVIDENCE: Wayland app accepted Miller/Preview actions, answered Peer.Ping, and exited 0 via app quit; known non-fatal VK_SUBOPTIMAL_KHR warning only.
+  EVIDENCE: 1/1 passed; cached provider reused once, purge advanced cancellation/cache epoch, next request reloaded. UI closes detail; persistent thumbnail worker is untouched.
+- [x] G5: Native Wayland Space/action/fullscreen/close lifecycle smoke passes.
+  EVIDENCE: Wayland app accepted Miller, quick-preview, zoom, fullscreen on/off, cache-purge and quit actions, answered Peer.Ping, and exited 0.
 - [x] G6: Formatting, check, strict Clippy, and all workspace tests pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace
   EXPECT: test result: ok
-  EVIDENCE: fmt/check/strict Clippy passed; 368 tests passed (277 app, 91 core), no failures.
+  EVIDENCE: fmt/check/strict Clippy passed; 371 tests passed (280 app, 91 core), no failures.
 - [x] G7: Patch hygiene is clean.
   CHECK: git diff --check
   EXPECT: /^$/
   EVIDENCE: git diff --check exited 0 with no output.
-- [x] G8: Docs mark 9E complete and exactly 9F next with no-install/no-extract boundaries.
-  CHECK: rg -n "9E.*COMPLETE|9F.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
-  EXPECT: 9F
-  EVIDENCE: Roadmap, matrix, privacy/security, and AGENTS record 9E COMPLETE, sole 9F NEXT, no install, and no extraction/command execution.
+- [x] G8: Docs mark Phase 9 complete, 9F complete, and exactly 10A next without sandbox claims.
+  CHECK: rg -n "9F.*COMPLETE|10A.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
+  EXPECT: 10A
+  EVIDENCE: Roadmap, matrix, privacy/security, and AGENTS record Phase 9/9F COMPLETE, sole 10A NEXT, and retain Phase 18L sandbox boundary.

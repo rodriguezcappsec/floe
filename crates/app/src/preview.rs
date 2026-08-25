@@ -1249,6 +1249,7 @@ pub struct PreviewWorker {
     sender: Option<SyncSender<PreviewRequest>>,
     receiver: Receiver<PreviewResponse>,
     active_generation: Arc<AtomicU64>,
+    cache_epoch: Arc<AtomicU64>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -1266,6 +1267,8 @@ impl PreviewWorker {
         let (responses, receiver) = mpsc::channel();
         let active_generation = Arc::new(AtomicU64::new(0));
         let worker_generation = Arc::clone(&active_generation);
+        let cache_epoch = Arc::new(AtomicU64::new(0));
+        let worker_cache_epoch = Arc::clone(&cache_epoch);
         let worker = thread::Builder::new()
             .name("floe-preview".to_owned())
             .spawn(move || {
@@ -1275,7 +1278,13 @@ impl PreviewWorker {
                     return;
                 }
                 let mut cache = PreviewMemoryCache::default();
+                let mut observed_cache_epoch = 0;
                 while let Ok(request) = requests.recv() {
+                    let current_cache_epoch = worker_cache_epoch.load(Ordering::Acquire);
+                    if current_cache_epoch != observed_cache_epoch {
+                        cache = PreviewMemoryCache::default();
+                        observed_cache_epoch = current_cache_epoch;
+                    }
                     let cancellation = PreviewCancellation {
                         active_generation: Arc::clone(&worker_generation),
                         generation: request.generation,
@@ -1314,6 +1323,7 @@ impl PreviewWorker {
             sender: Some(sender),
             receiver,
             active_generation,
+            cache_epoch,
             worker: Some(worker),
         })
     }
@@ -1336,6 +1346,11 @@ impl PreviewWorker {
 
     pub fn cancel(&self) {
         let _ = self.begin_generation();
+    }
+
+    pub fn clear_memory_cache(&self) {
+        self.cancel();
+        self.cache_epoch.fetch_add(1, Ordering::AcqRel);
     }
 
     pub fn submit(&self, request: PreviewRequest) -> Result<(), PreviewSubmitError> {
@@ -2389,5 +2404,42 @@ mod tests {
             PreviewOutcome::Failed(_)
         ));
         assert_eq!(archive_format(&root.path().join("compressed.tar.gz")), None);
+    }
+
+    #[test]
+    fn phase_9f_cache_privacy_purge_cancels_generation_and_evicts_memory_only_payloads() {
+        let (_root, source) = source_fixture();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut registry = PreviewProviderRegistry::default();
+        registry
+            .register(Arc::new(TestProvider {
+                id: "cache-purge",
+                calls: Arc::clone(&calls),
+                wait_for_cancel: false,
+                fail: false,
+            }))
+            .expect("cache provider");
+        let worker = PreviewWorker::spawn(registry).expect("preview worker");
+
+        for _ in 0..2 {
+            let generation = worker.begin_generation();
+            worker
+                .submit(request(generation, source.clone()))
+                .expect("cached request");
+            while worker.try_response().is_none() {
+                thread::yield_now();
+            }
+        }
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+
+        worker.clear_memory_cache();
+        let generation = worker.begin_generation();
+        worker
+            .submit(request(generation, source))
+            .expect("post-purge request");
+        while worker.try_response().is_none() {
+            thread::yield_now();
+        }
+        assert_eq!(calls.load(Ordering::Acquire), 2);
     }
 }

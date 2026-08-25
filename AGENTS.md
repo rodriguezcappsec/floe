@@ -1160,12 +1160,21 @@ Last updated:
 Current phase:
 
 ```text
-Phase 9 — Quick Preview (Phase 9E complete)
+Phase 9 — Quick Preview (Phase 9F complete)
 ```
 
 Status:
 
 ```text
+Phase 9F completes Preview interaction polish. A stable Space action yields to
+Entry/SearchEntry/SpinButton/TextView focus; open Preview follows exact
+selection/navigation generations and restores active-column focus on close.
+Image/document/font surfaces expose bounded 50–400% zoom/reset and fullscreen
+without modifying sources, while GTK paintables remain monitor-scale aware.
+An explicit control cancels active work, advances the cache epoch, clears the
+bounded memory-only Preview cache, closes detail, and leaves persistent
+thumbnail storage untouched. Media streams still pause/clear on retirement.
+
 Phase 9E adds reviewed-provider passive font specimens and built-in archive
 listings. Font sources are exact/no-follow and only bounded PNG becomes owned
 RGBA; Floe never installs the font. ZIP central-directory and uncompressed TAR
@@ -2247,9 +2256,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-9f-preview-polish` and implement Space toggling, live navigation,
-focus restoration, presentation zoom/fullscreen/HiDPI behavior, and explicit
-memory-cache/privacy hooks. Do not add Inspector metadata work.
+Create `phase-10a-inspector-foundation` and implement a toggleable read-only
+Inspector final column with bounded asynchronous aggregate selection facts,
+Ctrl+I, and persisted width. Do not add metadata-provider detail phases or edits.
 ```
 
 ---
