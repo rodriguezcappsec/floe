@@ -281,7 +281,7 @@ impl Drop for InspectorWorker {
     }
 }
 
-fn collect_inspector_facts(
+pub(crate) fn collect_inspector_facts(
     request: InspectorRequest,
     latest_generation: &AtomicU64,
     shutdown: &AtomicBool,

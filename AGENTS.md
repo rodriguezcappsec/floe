@@ -1176,12 +1176,22 @@ Last updated:
 Current phase:
 
 ```text
-Phase 10 — Inspector and properties (Phase 10B complete)
+Phase 10 — Inspector and properties (Phase 10C complete)
 ```
 
 Status:
 
 ```text
+Phase 10C adds native read-only Properties through Alt+Enter, file/Trash/header
+menus, and an accessible dialog. One capacity-8 generation-superseding worker
+reuses Phase 10B exact metadata, queries containing GIO filesystem/mount facts,
+and calculates explicitly requested recursive selected-folder totals through
+descriptor-relative no-follow traversal capped at 250,000 entries and depth
+1,024. Multi-selection shows shared MIME only when identical and never merges
+differing/unknown values. Open With delegates to the existing explicit chooser
+and default-association boundary. No permission/owner edit, root-process
+elevation, persistent property history, checksum, or advanced metadata is added.
+
 Phase 10B extends the read-only Inspector with a fixed-capacity, generation-
 superseding metadata provider. Exact selected local identities receive no-follow
 MIME, created/modified/accessed timestamps, Unix UID/GID/mode, raw symlink target
@@ -1645,14 +1655,18 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 10B is complete. The one recommended next branch is
-`phase-10c-properties`, adding native General, Open With, filesystem/mount, and
-truthful multi-selection properties over shared read-only Inspector facts.
+Phase 10C is complete. The one recommended next branch is
+`phase-10d-permissions`, adding explicit executable/mode and owner/group editing
+with recursive preflight and partial-failure reporting, never whole-process root.
 ```
 
 Verified:
 
 ```text
+Phase 10C passes focused Properties model/filesystem/UI tests, formatting,
+workspace check, strict all-target/all-feature Clippy, full workspace tests,
+native build, diff hygiene, and native Wayland Properties action/dialog health.
+
 Phase 10B passes focused metadata-provider and Inspector-presentation tests,
 formatting, workspace check, strict all-target/all-feature Clippy, full workspace
 tests, native build, diff hygiene, and native Wayland Inspector lifecycle smoke.
@@ -1963,6 +1977,10 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 10C read-only Properties on `phase-10c-properties`.
+* Added exact single/multi General, Open With, filesystem/mount, and bounded
+  recursive folder facts through one stale-safe application worker and native
+  accessible dialog, without edits or elevation.
 * Completed Phase 10B metadata providers on `phase-10b-metadata-providers`.
 * Added bounded exact-path read-only MIME/time/Unix/link/image/folder facts with
   generation supersession, no-follow identity checks, and non-recursive wording.
@@ -2319,9 +2337,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-10c-properties` and implement native General, Open With,
-filesystem/mount, and truthful multi-selection properties over Phase 10B facts.
-Do not add Phase 10D permission or ownership editing.
+Create `phase-10d-permissions` and implement explicit executable/mode and
+owner/group editing with recursive preflight and partial-failure reporting.
+Do not elevate the whole Floe process or add Phase 10E checksums.
 ```
 
 ---

@@ -434,6 +434,15 @@ persisted. Normal logs do not gain paths or metadata values. Properties and
 permission edits, checksums, EXIF/media tags, privacy findings, and persistent
 metadata caching remain later phases.
 
+Phase 10C Properties reuses those memory-only facts and adds only explicit-demand
+containing-filesystem/mount queries plus recursive folder totals. Recursive work
+uses descriptor-relative `O_NOFOLLOW` traversal, never follows symbolic links,
+and stops at 250,000 entries or depth 1,024 with visible limited/unreadable and
+overflow state. Property state is not persisted or logged. The dialog is
+read-only; its Open With control delegates to the existing explicit chooser and
+default-association flow. No permission/ownership edit, elevation, checksum,
+content execution, or security conclusion is implied.
+
 ## Suspicious files and metadata privacy
 
 Status: **PLANNED**.

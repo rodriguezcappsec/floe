@@ -233,7 +233,7 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
     loaded && !save_in_flight
 }
 
-const FILE_CONTEXT_ACTIONS: [(&str, &str); 15] = [
+const FILE_CONTEXT_ACTIONS: [(&str, &str); 16] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
@@ -249,10 +249,12 @@ const FILE_CONTEXT_ACTIONS: [(&str, &str); 15] = [
     ("Copy URI", "win.copy-uri"),
     ("Move to Trash", "win.trash"),
     ("Delete Permanently…", "win.permanent-delete"),
+    ("Properties", "win.properties"),
 ];
-const TRASH_CONTEXT_ACTIONS: [(&str, &str); 2] = [
+const TRASH_CONTEXT_ACTIONS: [(&str, &str); 3] = [
     ("Restore", "win.restore"),
     ("Delete Permanently…", "win.permanent-delete"),
+    ("Properties", "win.properties"),
 ];
 const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 7] = [
     ("New Folder…", "win.new-folder"),
@@ -659,6 +661,12 @@ pub struct OpenWithDialogWidgets {
     pub cancel_button: gtk::Button,
     pub set_default_button: gtk::Button,
     pub open_button: gtk::Button,
+}
+
+pub struct PropertiesDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub open_with_button: gtk::Button,
+    pub close_button: gtk::Button,
 }
 
 pub struct ConflictDialogWidgets {
@@ -1158,6 +1166,7 @@ pub fn build(
     file_actions_model.append(Some("New Empty File…"), Some("win.new-empty-file"));
     file_actions_model.append(Some("New From Template…"), Some("win.new-from-template"));
     file_actions_model.append(Some("Open With…"), Some("win.open-with"));
+    file_actions_model.append(Some("Properties"), Some("win.properties"));
     file_actions_model.append(Some("Copy"), Some("win.copy"));
     file_actions_model.append(Some("Move"), Some("win.cut"));
     file_actions_model.append(Some("Duplicate"), Some("win.duplicate"));
@@ -1985,6 +1994,109 @@ pub fn build_operation_history_dialog(
         dialog,
         clear_completed_button,
         undo_buttons,
+    }
+}
+
+pub fn build_properties_dialog(
+    presentation: &crate::properties::PropertiesPresentation,
+) -> PropertiesDialogWidgets {
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(14)
+        .margin_top(20)
+        .margin_bottom(20)
+        .margin_start(20)
+        .margin_end(20)
+        .build();
+    let heading = gtk::Label::builder()
+        .label(&presentation.title)
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    heading.add_css_class("title-2");
+    content.append(&heading);
+    for (title, rows) in [
+        ("General", &presentation.general),
+        ("Filesystem and mount", &presentation.filesystem),
+    ] {
+        let section = gtk::Label::builder()
+            .label(title)
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .build();
+        section.add_css_class("heading");
+        content.append(&section);
+        for row in rows {
+            let line = gtk::Box::builder()
+                .orientation(gtk::Orientation::Horizontal)
+                .spacing(12)
+                .build();
+            let label = gtk::Label::builder()
+                .label(row.label)
+                .halign(gtk::Align::Start)
+                .xalign(0.0)
+                .width_chars(17)
+                .build();
+            label.add_css_class("dim-label");
+            let value = gtk::Label::builder()
+                .label(&row.value)
+                .halign(gtk::Align::Start)
+                .hexpand(true)
+                .selectable(true)
+                .wrap(true)
+                .xalign(0.0)
+                .build();
+            line.append(&label);
+            line.append(&value);
+            content.append(&line);
+        }
+    }
+    let association = gtk::Label::builder()
+        .label("Open With")
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .build();
+    association.add_css_class("heading");
+    content.append(&association);
+    let open_with_button = gtk::Button::with_label(if presentation.open_with_available {
+        "Choose Application…"
+    } else {
+        "Available for one regular file"
+    });
+    open_with_button.set_sensitive(presentation.open_with_available);
+    open_with_button.set_halign(gtk::Align::Start);
+    content.append(&open_with_button);
+    let note = gtk::Label::builder()
+        .label(
+            "Read-only properties. No permissions, ownership, names, or file contents are changed.",
+        )
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    note.add_css_class("floe-status");
+    content.append(&note);
+    let close_button = gtk::Button::with_label("Close");
+    close_button.add_css_class("suggested-action");
+    close_button.set_halign(gtk::Align::End);
+    content.append(&close_button);
+    let scroller = gtk::ScrolledWindow::builder()
+        .child(&content)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .min_content_height(420)
+        .build();
+    let dialog = adw::Dialog::builder()
+        .title("Properties")
+        .content_width(620)
+        .content_height(560)
+        .child(&scroller)
+        .build();
+    dialog.update_property(&[gtk::accessible::Property::Label("Read-only Properties")]);
+    PropertiesDialogWidgets {
+        dialog,
+        open_with_button,
+        close_button,
     }
 }
 
@@ -3528,6 +3640,7 @@ mod tests {
             [
                 ("Restore", "win.restore"),
                 ("Delete Permanently…", "win.permanent-delete"),
+                ("Properties", "win.properties"),
             ]
         );
         assert!(FILE_CONTEXT_ACTIONS.contains(&("Delete Permanently…", "win.permanent-delete")));
@@ -3779,6 +3892,7 @@ mod tests {
                 ("Copy URI", "win.copy-uri"),
                 ("Move to Trash", "win.trash"),
                 ("Delete Permanently…", "win.permanent-delete"),
+                ("Properties", "win.properties"),
             ]
         );
     }
@@ -4013,5 +4127,27 @@ mod tests {
                 .iter()
                 .all(|(_, action)| action.starts_with("win."))
         );
+    }
+
+    #[test]
+    fn phase_10c_properties_ui_is_discoverable_read_only_and_selection_aware() {
+        assert!(FILE_CONTEXT_ACTIONS.contains(&("Properties", "win.properties")));
+        assert!(TRASH_CONTEXT_ACTIONS.contains(&("Properties", "win.properties")));
+        let presentation = crate::properties::PropertiesPresentation {
+            title: "2 Items".to_owned(),
+            general: vec![crate::properties::PropertyRow {
+                label: "Metadata",
+                value: "Differing values are not merged".to_owned(),
+            }],
+            filesystem: vec![crate::properties::PropertyRow {
+                label: "Read-only",
+                value: "Unknown".to_owned(),
+            }],
+            selection_count: 2,
+            open_with_available: false,
+        };
+        assert_eq!(presentation.selection_count, 2);
+        assert!(!presentation.open_with_available);
+        assert!(presentation.general[0].value.contains("not merged"));
     }
 }
