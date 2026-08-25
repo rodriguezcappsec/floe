@@ -107,8 +107,7 @@ pub fn encode_transfer(
 ) -> Result<EncodedClipboardTransfer, ClipboardTransferError> {
     let mut uri_list = Vec::new();
     for path in transfer.paths() {
-        let uri = glib::filename_to_uri(path, None)
-            .map_err(|error| ClipboardTransferError::EncodeUri(error.to_string()))?;
+        let uri = local_file_uri(path)?;
         if !uri_list.is_empty() {
             uri_list.extend_from_slice(b"\r\n");
         }
@@ -138,6 +137,12 @@ pub fn encode_transfer(
             TransferIntent::Move => b"1".to_vec(),
         },
     })
+}
+
+pub fn local_file_uri(path: &std::path::Path) -> Result<String, ClipboardTransferError> {
+    glib::filename_to_uri(path, None)
+        .map(String::from)
+        .map_err(|error| ClipboardTransferError::EncodeUri(error.to_string()))
 }
 
 pub fn publish_transfer(

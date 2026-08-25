@@ -1160,12 +1160,27 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — Browser filesystem foundations (Phase 6P complete)
+Phase 6 — Browser filesystem foundations (Phase 6Q complete)
 ```
 
 Status:
 
 ```text
+Phase 6Q adds a bounded application-owned creation executor for no-overwrite
+folders, empty files, template copies, symbolic links, and hard links. Native
+validated-name dialogs submit typed requests; native asynchronous template
+selection starts at XDG Templates when available. Multi-selection Duplicate is
+FIFO, preserves raw names and symlinks, and advances deterministic `(copy N)`
+conflict retries without replacing existing siblings. Hard links accept only one
+regular non-symlink file and report cross-filesystem limitations.
+
+File and header menus expose create, duplicate, link, reveal-target, and copy
+name/path/relative-path/URI commands. Reveal Link Target reads no-follow GIO
+metadata asynchronously, resolves stored relative targets lexically, verifies
+accessibility, and navigates without executing content. Text clipboard commands
+reject non-UTF-8 identity; local file URI encoding preserves raw path bytes.
+GTK callbacks perform no filesystem mutation and Phase 6R is not implemented.
+
 Phase 6P adds bounded operation control. Progress carries explicit unknown,
 byte, or item units; Operations Island derives smoothed speed/ETA only from
 meaningful determinate byte samples. Stable serial batches expose item counts,
@@ -1375,17 +1390,26 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6P is complete. The one recommended next branch is
-`phase-6q-create-duplicate-links`, adding safe new folder/file and template
-creation, duplicate, symbolic/hard links, reveal target, and copy
-name/path/relative-path/URI commands without shell or privileged creation.
+Phase 6Q is complete. The one recommended next branch is
+`phase-6r-drag-drop`, adding internal/external file dragging, exact destination
+resolution, modifier semantics, sidebar and Trash targets, hover-open,
+autoscroll, and accessible highlighting without implicit overwrite.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-251 tests pass: fifty-nine core and 192 application tests. Sixteen focused
+265 tests pass: sixty-three core and 202 application tests. Fourteen focused
+Phase 6Q tests cover no-overwrite directory/file/template creation, cancellation,
+raw and broken symbolic targets, regular-file-only hard links, duplicate naming,
+FIFO symlink-preserving batches, stable conflict retry identity, create history,
+typed template actions, lexical target resolution, exact text/URI clipboard
+policy, and action/menu sensitivity. Native Wayland smoke used isolated HOME/XDG
+roots, exported 42 window actions, activated `new-folder`, answered D-Bus
+`Peer.Ping`, quit cleanly, and released its application name.
+
+Sixteen focused
 Phase 6P tests cover explicit units, frequent-sample telemetry, regression and
 indeterminate suppression, raw Keep Both naming, stable batch counts, FIFO
 pause/resume, queued cancellation, committed-current cancellation, scoped Skip
@@ -1529,7 +1553,14 @@ eviction. Formatting, strict Clippy, and native smoke status are in `GATES.md`.
 Known issues:
 
 ```text
-No application correctness failures are known. Phase 6P operation history is
+No application correctness failures are known. Phase 6Q template creation
+selects one local template file at a time; template discovery, categories, and
+management remain deferred. Hard links remain local-filesystem/kernel dependent.
+Reveal Link Target reports missing or inaccessible targets but does not yet offer
+repair. Copy Name/Path/Relative Path deliberately refuses non-UTF-8 text while
+Copy URI remains local-file-only.
+
+Phase 6P operation history is
 memory-only and intentionally disappears at exit; it is not persistent recovery.
 Pause applies only between serial batch items. Undo is limited to completed
 move/rename work and can still fail safely when destination identity changed or
@@ -1576,7 +1607,7 @@ Deferred:
 ```text
 Overwrite and apply-to-all conflict policy, Restore Elsewhere and Trash cleanup
 preferences, ownership/ACL/xattr/sparse/reflink-complete copies, persistent
-operation recovery/history UI, drag and drop, heavyweight/RAW/vector thumbnails,
+operation recovery/history UI, template management, heavyweight/RAW/vector thumbnails,
 tabs, split view, Miller columns, previews, archives, search, richer device
 details, Niri IPC, KDE-specific APIs, and network filesystems.
 First-class theme/font customization, full file-association/external-tool
@@ -1586,6 +1617,17 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 6Q create, duplicate, and links on
+  `phase-6q-create-duplicate-links`.
+* Added exact-path no-overwrite directory, empty-file, template, symbolic-link,
+  and hard-link requests plus a fixed-capacity creation executor integrated with
+  shared jobs, retries, conflicts, cancellation, history, and refresh.
+* Added FIFO multi-selection Duplicate with raw-name/symlink preservation and
+  deterministic `(copy N)` conflict retries.
+* Added native validated-name and asynchronous template-selection flows, exact
+  link action sensitivity, asynchronous non-executing Reveal Link Target, and
+  lossless Copy Name/Path/Relative Path/local URI commands.
+* Verified 265 tests and a native Wayland 42-action/dialog/health smoke.
 * Completed Phase 6P operation control on `phase-6p-operation-control`.
 * Added explicit progress units, stable byte telemetry, bounded serial batch
   pause/resume/cancel, item and terminal summaries.
@@ -1839,10 +1881,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-6q-create-duplicate-links` and add safe new folder/file and template
-creation, duplicate, symbolic/hard links, reveal target, and copy
-name/path/relative-path/URI commands. Use no shell or privileged creation, never
-overwrite silently, and verify collisions, broken links, and raw non-UTF-8 names.
+Create `phase-6r-drag-drop` and add internal/external file dragging with exact
+destination resolution, copy/move modifier semantics, sidebar and Trash targets,
+hover-open, autoscroll, and accessible drop highlighting. Reuse application jobs,
+never overwrite implicitly, preserve raw paths, and keep keyboard alternatives.
 ```
 
 ---

@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 6P. Phase 6Q is the only
+The implementation baseline for this matrix is Phase 6Q. Phase 6R is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -31,27 +31,27 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Local directory browsing | `COMPLETE` | 1 | Cancellable background enumeration returns exact `PathBuf` entries to a virtualized UI. |
 | Large-directory presentation foundation | `COMPLETE` | 1/6A | Virtualized list/grid and 256-entry main-loop insertion batches avoid eager widget creation. Formal 10k/100k profiling remains Phase 21. |
 | Binary-safe Linux paths | `COMPLETE` | 0-6K2 | Core identity uses `Path`, `PathBuf`, `OsStr`, and `OsString`; lossy text is display-only. |
-| Non-UTF-8 enumeration, selection, sorting, operations, and bookmarks | `COMPLETE` | 1-6K | Focused tests preserve exact raw identity throughout these implemented paths. |
+| Non-UTF-8 enumeration, selection, sorting, operations, bookmarks, duplication, and local file URIs | `COMPLETE` | 1-6Q | Focused tests preserve exact raw identity throughout these implemented paths; text-only clipboard commands explicitly reject lossy conversion. |
 | Open with registered default application | `COMPLETE` | 2/6I | GIO discovery and launch are asynchronous and use the original path URI. |
 | Open when no default is registered | `COMPLETE` | 6I | Normal Open reuses the existing chooser rather than failing at a dead end. |
 | One-time Open With | `COMPLETE` | 5D | Compatible GIO applications are shown default-first without changing associations. |
 | Explicit Set as Default | `COMPLETE` | 5D | Association changes are separate from one-time Open and report failures. |
 | Full association management | `PLANNED` | 19/20 | Needs inspect, set, clear, and user-added external-tool management without shell interpolation. |
-| Create folder | `PLANNED` | 6Q | Must use the job/application boundary; New Folder should immediately enter rename. |
-| Create empty file | `PLANNED` | 6Q | Depends on Create New request validation and conflict policy. |
-| Create New templates | `PLANNED` | 6Q/12D | Phase 6Q establishes safe creation; Phase 12D adds template discovery and management polish. |
-| Duplicate | `PLANNED` | 6Q/12E | Reuse copy jobs and safe sibling-name conflict handling; Phase 12E adds naming polish. |
+| Create folder | `COMPLETE` | 6Q | Validated explicit naming submits a no-overwrite directory request through the bounded create executor. |
+| Create empty file | `COMPLETE` | 6Q | Validated explicit naming uses atomic create-new semantics through the bounded create executor. |
+| Create New templates | `PARTIAL` | 6Q/12D | Native asynchronous selection starts at XDG Templates when available and copies through the create executor; discovery, categories, and template management remain Phase 12D. |
+| Duplicate | `COMPLETE` | 6Q | Multi-selection duplicates run FIFO through bounded batches, preserve symlinks/raw names, and use deterministic no-overwrite `(copy N)` conflict retries. |
 | Inline rename | `PARTIAL` | 4D/12C | A validated modal rename dialog exists; in-place row/grid rename and its QoL contract do not. |
 | Rename | `COMPLETE` | 4C/4D | Same-parent exact-name rename uses atomic no-replace semantics and a bounded executor. |
 | Symbolic-link preservation during copy/move | `COMPLETE` | 4A/4C | Links are preserved without following their targets. |
-| Create symbolic link | `PLANNED` | 6Q/12E | Phase 6Q establishes explicit source/destination semantics; Phase 12E adds relative/absolute-link polish. |
-| Create hard link | `DEFERRED` | 6Q/12E | This is appropriate only on supporting local filesystems; Floe must explain same-filesystem and inode semantics. |
+| Create symbolic link | `COMPLETE` | 6Q/12E | Explicit validated destination names preserve the exact stored relative target without following it; advanced relative/absolute-link choices remain Phase 12E polish. |
+| Create hard link | `COMPLETE` | 6Q/12E | Enabled only for one regular non-symlink file; the kernel enforces same-filesystem semantics and Floe reports unsupported/cross-filesystem failures. |
 | Broken-symlink presentation | `PARTIAL` | 1/10C | Entries preserve link identity, but dedicated broken-link status, recovery, and properties are missing. |
-| Reveal symlink target | `PLANNED` | 6Q/10C/12E | Phase 6Q adds the action; metadata and advanced link behavior are refined later. |
-| Copy absolute path | `PLANNED` | 6Q/11A | Command must copy exact path text without making display text authoritative. |
-| Copy relative path | `PLANNED` | 6Q/11A/19 | Needs an explicit base such as current folder or repository root. |
-| Copy filename | `PLANNED` | 6Q/11A | Preserve exact name semantics and document clipboard encoding. |
-| Copy URI | `PLANNED` | 6Q/11A/14 | Depends on the generic location/GFile boundary for non-local locations. |
+| Reveal symlink target | `COMPLETE` | 6Q/10C/12E | Asynchronous no-follow GIO metadata reads the stored target, resolves relative paths lexically, verifies accessibility, and reveals without executing content. |
+| Copy absolute path | `COMPLETE` | 6Q/11A | Copies exact UTF-8 path text and rejects non-UTF-8 paths rather than publishing lossy identity. |
+| Copy relative path | `COMPLETE` | 6Q/11A/19 | Uses the current directory as the explicit base and rejects outside-base or non-UTF-8 selections. Repository-relative policy remains later work. |
+| Copy filename | `COMPLETE` | 6Q/11A | Copies one or many exact UTF-8 names separated by newlines and rejects lossy conversion. |
+| Copy URI | `PARTIAL` | 6Q/11A/14 | Exact local file paths, including non-UTF-8 bytes, become percent-encoded `file://` URIs; non-local location URIs await Phase 14. |
 | Hidden-file visibility | `COMPLETE` | 1 | Ctrl+H/action filtering preserves underlying entries; persistent/per-folder policy remains settings work. |
 | Refresh current directory | `COMPLETE` | 1/6J | Background context action reloads through the browser worker. |
 | External filesystem-change detection | `PLANNED` | 6S | Needs a bounded watcher, burst coalescing, reconciliation, and deletion/rename recovery. |
@@ -69,8 +69,8 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | GTK-independent operation/job model | `COMPLETE` | 3 | Strong operation and attempt IDs, progress, commands, events, failures, and legal transitions live outside widgets. |
-| Bounded background executors | `COMPLETE` | 4A-6O | Copy, move/rename, Trash, restore, and permanent deletion use fixed-capacity application-owned workers. |
-| GTK-thread filesystem mutation prohibition | `COMPLETE` | 0-6O | GTK callbacks submit application commands; filesystem work stays in core/application workers. |
+| Bounded background executors | `COMPLETE` | 4A-6Q | Copy, move/rename, Trash, restore, permanent deletion, and creation use fixed-capacity application-owned workers. |
+| GTK-thread filesystem mutation prohibition | `COMPLETE` | 0-6Q | GTK callbacks submit application commands or asynchronous GIO metadata reads; filesystem mutation stays in core/application workers. |
 | Multiple logical operations | `COMPLETE` | 3/6J | Each request has stable logical identity; multi-selection batches serialize requests over bounded workers. |
 | Copy files and directories | `COMPLETE` | 4A/4B | Recursive copy has no-follow link policy, chunk cancellation, progress, tracked cleanup, and fail-if-exists behavior. |
 | Internal Cut/Copy/Paste | `COMPLETE` | 4B/4D/6J | Application-owned exact-path transfer buffer supports multi-selection batches. |
@@ -614,7 +614,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Custom context actions | `PLANNED` | 19 | Capability-aware, failure-contained actions with safe executable/argument representation. |
 | Custom commands/scripts | `DEFERRED` | 19 | Never shell-interpolate filenames; security permissions are required before general scripting. |
 | File-type actions and external tools | `PLANNED` | 19 | User-added actions are separate from MIME default application choices. |
-| Templates | `PLANNED` | 6Q/12D/19 | Safe Phase 6Q creation precedes template polish and broader extensibility. |
+| Templates | `PARTIAL` | 6Q/12D/19 | Safe native template selection and bounded no-overwrite creation are implemented; discovery, management, and broader extensibility remain planned. |
 | Share actions | `PLANNED` | 14/19 | Prefer standards/portals and integrate privacy warnings later. |
 | Plugin runtime | `DEFERRED` | 19 | Only after demonstrated demand and capability/isolation design; no automatic vault access. |
 | Git repository/status badges | `DEFERRED` | 19 | Must remain cheap when unused and respect ignored/private content. |

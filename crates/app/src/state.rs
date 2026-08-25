@@ -8,8 +8,9 @@ use std::{
 };
 
 use floe_core::{
-    ConflictPolicy, CopyRequest, JobEvent, JobId, MoveRequest, OperationId, PermanentDeleteRequest,
-    PermanentDeleteRequestError, RenameRequest, RestoreRequest, RestoreRequestError, SymlinkPolicy,
+    ConflictPolicy, CopyRequest, CreateKind, CreateRequest, CreateRequestError, JobEvent, JobId,
+    MoveRequest, OperationId, PermanentDeleteRequest, PermanentDeleteRequestError, RenameRequest,
+    RestoreRequest, RestoreRequestError, SymlinkPolicy,
 };
 use thiserror::Error;
 
@@ -17,11 +18,15 @@ use crate::{
     copy_executor::{
         CopyCancelError, CopyExecutor, CopyExecutorSpawnError, CopySubmission, CopySubmitError,
     },
+    create_executor::{
+        CreateCancelError, CreateExecutor, CreateExecutorSpawnError, CreateSubmission,
+        CreateSubmitError,
+    },
     job_manager::{ApplicationJobManager, SharedJobManager},
     move_executor::{
         MoveCancelError, MoveExecutor, MoveExecutorSpawnError, MoveSubmission, MoveSubmitError,
     },
-    operation_control::{BatchId, BatchSnapshot, BatchStatus, keep_both_name},
+    operation_control::{BatchId, BatchSnapshot, BatchStatus, duplicate_name, keep_both_name},
     permanent_delete_executor::{
         PermanentDeleteCancelError, PermanentDeleteExecutor, PermanentDeleteExecutorSpawnError,
         PermanentDeleteSubmission, PermanentDeleteSubmitError,
@@ -122,6 +127,7 @@ pub enum TrackedOperation {
     Trash(TrashRequest),
     PermanentDelete(PermanentDeleteRequest),
     Restore(RestoreRequest),
+    Create(CreateRequest),
     UndoMove {
         request: MoveRequest,
         original_job_id: JobId,
@@ -319,6 +325,7 @@ impl TrackedOperation {
             Self::Trash(request) => request.source(),
             Self::PermanentDelete(request) => request.targets()[0].as_path(),
             Self::Restore(request) => request.backing_path(),
+            Self::Create(request) => request.source().unwrap_or_else(|| request.destination()),
             Self::UndoMove { request, .. } => request.source(),
         }
     }
@@ -350,6 +357,9 @@ impl TrackedOperation {
                 add_parent(request.backing_path());
                 add_parent(request.destination());
             }
+            Self::Create(request) => {
+                add_parent(request.destination());
+            }
             Self::UndoMove { request, .. } => {
                 add_parent(request.source());
                 add_parent(request.destination());
@@ -368,6 +378,7 @@ pub enum TransferSubmission {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RetrySubmission {
     Copy(CopySubmission),
+    Create(CreateSubmission),
     Move(MoveSubmission),
     Trash(TrashSubmission),
     PermanentDelete(PermanentDeleteSubmission),
@@ -384,6 +395,7 @@ impl RetrySubmission {
     pub const fn operation_id(self) -> OperationId {
         match self {
             Self::Copy(submission) => submission.operation_id(),
+            Self::Create(submission) => submission.operation_id(),
             Self::Move(submission) => submission.operation_id(),
             Self::Trash(submission) => submission.operation_id(),
             Self::PermanentDelete(submission) => submission.operation_id(),
@@ -394,6 +406,7 @@ impl RetrySubmission {
     pub const fn job_id(self) -> JobId {
         match self {
             Self::Copy(submission) => submission.job_id(),
+            Self::Create(submission) => submission.job_id(),
             Self::Move(submission) => submission.job_id(),
             Self::Trash(submission) => submission.job_id(),
             Self::PermanentDelete(submission) => submission.job_id(),
@@ -433,9 +446,15 @@ pub enum CopyInteractionError {
     #[error(transparent)]
     CopySubmit(#[from] CopySubmitError),
     #[error(transparent)]
+    CreateRequest(#[from] CreateRequestError),
+    #[error(transparent)]
+    CreateSubmit(#[from] CreateSubmitError),
+    #[error(transparent)]
     MoveSubmit(#[from] MoveSubmitError),
     #[error(transparent)]
     CopyCancel(#[from] CopyCancelError),
+    #[error(transparent)]
+    CreateCancel(#[from] CreateCancelError),
     #[error(transparent)]
     MoveCancel(#[from] MoveCancelError),
     #[error(transparent)]
@@ -489,6 +508,8 @@ pub enum ApplicationStateSpawnError {
     #[error(transparent)]
     Copy(#[from] CopyExecutorSpawnError),
     #[error(transparent)]
+    Create(#[from] CreateExecutorSpawnError),
+    #[error(transparent)]
     Move(#[from] MoveExecutorSpawnError),
     #[error(transparent)]
     Trash(#[from] TrashExecutorSpawnError),
@@ -503,6 +524,7 @@ pub enum ApplicationStateSpawnError {
 pub struct ApplicationState {
     pub jobs: SharedJobManager,
     copy_executor: CopyExecutor,
+    create_executor: CreateExecutor,
     move_executor: MoveExecutor,
     trash_executor: TrashExecutor,
     permanent_delete_executor: PermanentDeleteExecutor,
@@ -523,6 +545,7 @@ impl ApplicationState {
     pub fn new() -> Result<Self, ApplicationStateSpawnError> {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
         let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
+        let create_executor = CreateExecutor::spawn(Arc::clone(&jobs))?;
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
         let trash_executor = TrashExecutor::spawn(Arc::clone(&jobs))?;
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
@@ -530,6 +553,7 @@ impl ApplicationState {
         Ok(Self {
             jobs,
             copy_executor,
+            create_executor,
             move_executor,
             trash_executor,
             permanent_delete_executor,
@@ -642,6 +666,35 @@ impl ApplicationState {
         self.enqueue_batch(operations)
     }
 
+    pub fn submit_duplicate_batch(
+        &self,
+        sources: Vec<PathBuf>,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        if sources.is_empty() {
+            return Err(CopyInteractionError::EmptySelection);
+        }
+
+        let mut unique = HashSet::with_capacity(sources.len());
+        let mut operations = Vec::with_capacity(sources.len());
+        for source in sources {
+            if !unique.insert(source.clone()) {
+                continue;
+            }
+            let original_name = source
+                .file_name()
+                .ok_or_else(|| CopyInteractionError::InvalidSource(source.clone()))?;
+            let duplicate = duplicate_name(original_name, 1)
+                .ok_or_else(|| CopyInteractionError::InvalidSource(source.clone()))?;
+            let parent = source
+                .parent()
+                .ok_or_else(|| CopyInteractionError::InvalidSource(source.clone()))?;
+            let request = CreateRequest::template(&source, parent.join(duplicate))?;
+            operations.push(TrackedOperation::Create(request));
+        }
+
+        self.enqueue_batch(operations)
+    }
+
     pub fn submit_paste(
         &self,
         destination_directory: &Path,
@@ -704,6 +757,24 @@ impl ApplicationState {
             Err(error) => {
                 if let Some(job_id) = error.job_id() {
                     self.track(job_id, TrackedOperation::Rename(request));
+                }
+                Err(error.into())
+            }
+        }
+    }
+
+    pub fn submit_create(
+        &self,
+        request: CreateRequest,
+    ) -> Result<CreateSubmission, CopyInteractionError> {
+        match self.create_executor.submit(request.clone()) {
+            Ok(submission) => {
+                self.track(submission.job_id(), TrackedOperation::Create(request));
+                Ok(submission)
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.track(job_id, TrackedOperation::Create(request));
                 }
                 Err(error.into())
             }
@@ -1022,6 +1093,22 @@ impl ApplicationState {
                     }
                 }
             }
+            TrackedOperation::Create(request) => {
+                match self.create_executor.submit(request.clone()) {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), operation.clone());
+                        Ok(submission.job_id())
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, operation.clone());
+                            Ok(job_id)
+                        } else {
+                            Err(error.into())
+                        }
+                    }
+                }
+            }
             TrackedOperation::Rename(_)
             | TrackedOperation::PermanentDelete(_)
             | TrackedOperation::UndoMove { .. } => {
@@ -1046,6 +1133,9 @@ impl ApplicationState {
             self.transfer_buffer
                 .borrow_mut()
                 .clear_completed_move(request.source());
+        }
+        if matches!(operation, Some(TrackedOperation::Create(_))) {
+            let _ = self.create_executor.take_outcome(job_id);
         }
         let undo = if outcome == TerminalOutcome::Completed {
             self.move_executor
@@ -1236,6 +1326,23 @@ impl ApplicationState {
                     }
                 }
             }
+            TrackedOperation::Create(request) => {
+                match self
+                    .create_executor
+                    .submit_retry(failed_job_id, request.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Create(request));
+                        Ok(RetrySubmission::Create(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Create(request));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
             TrackedOperation::Move(request) => {
                 match self
                     .move_executor
@@ -1363,6 +1470,7 @@ impl ApplicationState {
         let terminal = self.pending_conflict_operation(job_id)?;
         let destination = match terminal.operation() {
             TrackedOperation::Copy(request) => request.destination().to_path_buf(),
+            TrackedOperation::Create(request) => request.destination().to_path_buf(),
             TrackedOperation::Move(request) => request.destination().to_path_buf(),
             TrackedOperation::Rename(request) => request
                 .source()
@@ -1433,8 +1541,19 @@ impl ApplicationState {
                     .and_then(|entry| conflict_destination(entry.operation()))
                     .and_then(|path| path.file_name().map(OsStr::to_os_string))
                     .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?;
-                let new_name = keep_both_name(&base_name, attempt)
-                    .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?;
+                let new_name = match terminal.operation() {
+                    TrackedOperation::Create(request)
+                        if matches!(request.kind(), CreateKind::Template { .. }) =>
+                    {
+                        let source_name = request
+                            .source()
+                            .and_then(Path::file_name)
+                            .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?;
+                        duplicate_name(source_name, attempt.saturating_add(1))
+                    }
+                    _ => keep_both_name(&base_name, attempt),
+                }
+                .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?;
                 let submission =
                     self.submit_conflict_retry(job_id, terminal.operation(), new_name)?;
                 self.resolved_conflicts.borrow_mut().insert(job_id);
@@ -1536,6 +1655,26 @@ impl ApplicationState {
                     }
                 }
             }
+            TrackedOperation::Create(request) => {
+                let destination =
+                    retry_destination(request.destination(), &new_name, failed_job_id)?;
+                let revised = request.with_destination(destination)?;
+                match self
+                    .create_executor
+                    .submit_retry(failed_job_id, revised.clone())
+                {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), TrackedOperation::Create(revised));
+                        Ok(RetrySubmission::Create(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, TrackedOperation::Create(revised));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
             TrackedOperation::Move(request) => {
                 let destination =
                     retry_destination(request.destination(), &new_name, failed_job_id)?;
@@ -1611,6 +1750,7 @@ impl ApplicationState {
     pub fn cancel_operation(&self, job_id: JobId) -> Result<(), CopyInteractionError> {
         match self.operation_request(job_id) {
             Some(TrackedOperation::Copy(_)) => self.copy_executor.cancel(job_id)?,
+            Some(TrackedOperation::Create(_)) => self.create_executor.cancel(job_id)?,
             Some(
                 TrackedOperation::Move(_)
                 | TrackedOperation::Rename(_)
@@ -1644,6 +1784,7 @@ impl ApplicationState {
     ) -> Result<Self, ApplicationStateSpawnError> {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
         let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
+        let create_executor = CreateExecutor::spawn(Arc::clone(&jobs))?;
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
         let trash_executor = TrashExecutor::spawn_with_backend(Arc::clone(&jobs), 8, backend)?;
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
@@ -1651,6 +1792,7 @@ impl ApplicationState {
         Ok(Self {
             jobs,
             copy_executor,
+            create_executor,
             move_executor,
             trash_executor,
             permanent_delete_executor,
@@ -1708,6 +1850,7 @@ fn retry_destination(
 fn conflict_destination(operation: &TrackedOperation) -> Option<PathBuf> {
     match operation {
         TrackedOperation::Copy(request) => Some(request.destination().to_path_buf()),
+        TrackedOperation::Create(request) => Some(request.destination().to_path_buf()),
         TrackedOperation::Move(request) => Some(request.destination().to_path_buf()),
         TrackedOperation::Rename(request) => {
             Some(request.source().parent()?.join(request.new_name()))
@@ -2983,5 +3126,129 @@ mod tests {
         );
         assert_eq!(fs::read(destination).expect("existing item"), b"existing");
         assert!(!info.exists());
+    }
+
+    #[test]
+    fn phase_6q_duplicate_batch_is_fifo_raw_path_safe_and_preserves_symlinks() {
+        let fixture = tempdir().expect("temporary fixture");
+        let first = fixture
+            .path()
+            .join(OsString::from_vec(b"first-\xff.txt".to_vec()));
+        let link = fixture.path().join("shortcut");
+        let raw_target = OsString::from_vec(b"missing-\xfe".to_vec());
+        fs::write(&first, b"first payload").expect("first source");
+        std::os::unix::fs::symlink(&raw_target, &link).expect("symbolic-link source");
+
+        let sources = vec![first.clone(), link.clone()];
+        let state = ApplicationState::new().expect("application state");
+        let batch = state
+            .submit_duplicate_batch(sources.clone())
+            .expect("duplicate batch");
+        assert_eq!(batch.queued(), 2);
+
+        for _ in 0..sources.len() {
+            let job_id = state.batch_active.get().expect("active duplicate job");
+            assert_eq!(wait_for_terminal(&state, job_id), JobState::Completed);
+            state.finish_operation(job_id, TerminalOutcome::Completed);
+        }
+
+        let first_copy = fixture.path().join(
+            duplicate_name(first.file_name().expect("raw source name"), 1).expect("duplicate name"),
+        );
+        assert_eq!(
+            fs::read(first_copy).expect("duplicate payload"),
+            b"first payload"
+        );
+        let link_copy = fixture.path().join("shortcut (copy)");
+        assert_eq!(
+            fs::read_link(link_copy)
+                .expect("duplicate should remain a symbolic link")
+                .as_os_str()
+                .as_bytes(),
+            raw_target.as_bytes()
+        );
+
+        let snapshot = state.batch_snapshot(batch.id()).expect("batch snapshot");
+        assert_eq!(snapshot.status(), BatchStatus::Completed);
+        let completed_sources = state
+            .terminal_history()
+            .into_iter()
+            .filter(|entry| entry.batch_id() == Some(batch.id()))
+            .map(|entry| entry.operation().source().to_path_buf())
+            .collect::<Vec<_>>();
+        assert_eq!(completed_sources, sources);
+    }
+
+    #[test]
+    fn phase_6q_state_create_conflict_retry_keeps_identity_and_never_overwrites() {
+        let fixture = tempdir().expect("temporary fixture");
+        let source = fixture.path().join("report.txt");
+        let occupied = fixture.path().join("report (copy).txt");
+        fs::write(&source, b"incoming").expect("source payload");
+        fs::write(&occupied, b"existing").expect("occupied sibling");
+
+        let state = ApplicationState::new().expect("application state");
+        let batch = state
+            .submit_duplicate_batch(vec![source.clone()])
+            .expect("duplicate batch");
+        let failed_job = state.batch_active.get().expect("active duplicate");
+        assert_eq!(wait_for_terminal(&state, failed_job), JobState::Failed);
+        state.finish_operation(failed_job, TerminalOutcome::Conflict);
+        let pending = state
+            .pending_conflict(failed_job)
+            .expect("creation conflict should remain actionable");
+        assert_eq!(pending.destination(), occupied.as_path());
+
+        let ConflictResolution::Retried(retry) = state
+            .resolve_conflict(failed_job, ConflictDecision::KeepBoth)
+            .expect("Keep Both should choose the next duplicate name")
+        else {
+            panic!("Keep Both should submit a retry");
+        };
+        assert_eq!(retry.operation_id(), pending.operation_id());
+        assert_ne!(retry.job_id(), failed_job);
+        assert_eq!(
+            wait_for_terminal(&state, retry.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(retry.job_id(), TerminalOutcome::Completed);
+
+        assert_eq!(fs::read(&occupied).expect("occupied sibling"), b"existing");
+        assert_eq!(
+            fs::read(fixture.path().join("report (copy 2).txt")).expect("revised duplicate"),
+            b"incoming"
+        );
+        let snapshot = state.batch_snapshot(batch.id()).expect("batch snapshot");
+        assert_eq!(snapshot.status(), BatchStatus::Completed);
+        assert_eq!(snapshot.completed(), 1);
+    }
+
+    #[test]
+    fn phase_6q_state_tracks_create_history_and_affected_directory() {
+        let fixture = tempdir().expect("temporary fixture");
+        let destination = fixture.path().join("created-folder");
+        let state = ApplicationState::new().expect("application state");
+        let submission = state
+            .submit_create(CreateRequest::directory(&destination).expect("create request"))
+            .expect("creation submission");
+        assert_eq!(
+            wait_for_terminal(&state, submission.job_id()),
+            JobState::Completed
+        );
+        let tracked = state
+            .finish_operation(submission.job_id(), TerminalOutcome::Completed)
+            .expect("tracked creation");
+        assert_eq!(
+            tracked.affected_directories(),
+            vec![fixture.path().to_path_buf()]
+        );
+        assert!(destination.is_dir());
+        let terminal = state.terminal_history();
+        assert_eq!(terminal.len(), 1);
+        assert_eq!(terminal[0].operation_id(), submission.operation_id());
+        assert!(matches!(
+            terminal[0].operation(),
+            TrackedOperation::Create(_)
+        ));
     }
 }

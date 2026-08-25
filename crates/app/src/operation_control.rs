@@ -243,6 +243,26 @@ pub fn keep_both_name(original: &OsStr, attempt: u32) -> Option<OsString> {
     Some(OsString::from_vec(bytes))
 }
 
+pub fn duplicate_name(original: &OsStr, attempt: u32) -> Option<OsString> {
+    if attempt == 0 || attempt > MAX_KEEP_BOTH_ATTEMPTS {
+        return None;
+    }
+    let path = Path::new(original);
+    let stem = path.file_stem()?;
+    let extension = path.extension();
+    let mut bytes = stem.as_bytes().to_vec();
+    if attempt == 1 {
+        bytes.extend_from_slice(b" (copy)");
+    } else {
+        bytes.extend_from_slice(format!(" (copy {attempt})").as_bytes());
+    }
+    if let Some(extension) = extension {
+        bytes.push(b'.');
+        bytes.extend_from_slice(extension.as_bytes());
+    }
+    Some(OsString::from_vec(bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt};
@@ -346,6 +366,25 @@ mod tests {
             keep_both_name(OsStr::new("item"), MAX_KEEP_BOTH_ATTEMPTS + 1),
             None
         );
+    }
+
+    #[test]
+    fn phase_6q_duplicate_names_are_bounded_and_preserve_raw_identity() {
+        let original = OsString::from_vec(b"report-\xff.txt".to_vec());
+        assert_eq!(
+            duplicate_name(&original, 1)
+                .expect("first duplicate")
+                .as_bytes(),
+            b"report-\xff (copy).txt"
+        );
+        assert_eq!(
+            duplicate_name(&original, 2)
+                .expect("second duplicate")
+                .as_bytes(),
+            b"report-\xff (copy 2).txt"
+        );
+        assert_eq!(duplicate_name(&original, 0), None);
+        assert_eq!(duplicate_name(&original, MAX_KEEP_BOTH_ATTEMPTS + 1), None);
     }
 
     #[test]

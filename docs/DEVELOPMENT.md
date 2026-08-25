@@ -281,6 +281,29 @@ name. It must not touch real user files merely to exercise Operations Island UI.
 
 After verified Phase 6P, continue only on `phase-6q-create-duplicate-links`.
 
+Phase 6Q adds no dependency. Focused checks are:
+
+```bash
+cargo test -p floe-core phase_6q_create -- --nocapture
+cargo test -p floe-core phase_6q_links -- --nocapture
+cargo test -p floe-app phase_6q_duplicate -- --nocapture
+cargo test -p floe-app phase_6q_state -- --nocapture
+cargo test -p floe-app phase_6q_templates -- --nocapture
+cargo test -p floe-app phase_6q_reveal -- --nocapture
+cargo test -p floe-app phase_6q_clipboard -- --nocapture
+cargo test -p floe-app phase_6q_ui -- --nocapture
+```
+
+Tests use only `tempfile` roots and cover no-overwrite folder/file/template
+creation, broken and raw symbolic-link targets, regular-file-only hard links,
+FIFO duplicate batches, deterministic `(copy N)` conflict retries, stable job
+identity, asynchronous reveal policy, and lossless text/URI clipboard behavior.
+Native Wayland smoke used isolated HOME/XDG roots, exported 42 window actions,
+activated `new-folder` to open the validated-name dialog without creating a
+file, answered `Peer.Ping`, quit cleanly, and released
+`io.github.floe.FileManager`. After verified Phase 6Q, continue only on
+`phase-6r-drag-drop`.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

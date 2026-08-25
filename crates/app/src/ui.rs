@@ -227,12 +227,20 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
     loaded && !save_in_flight
 }
 
-const FILE_CONTEXT_ACTIONS: [(&str, &str); 7] = [
+const FILE_CONTEXT_ACTIONS: [(&str, &str); 15] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
     ("Cut", "win.cut"),
+    ("Duplicate", "win.duplicate"),
     ("Rename…", "win.rename"),
+    ("Create Symbolic Link…", "win.create-symbolic-link"),
+    ("Create Hard Link…", "win.create-hard-link"),
+    ("Reveal Link Target", "win.reveal-link-target"),
+    ("Copy Name", "win.copy-name"),
+    ("Copy Path", "win.copy-path"),
+    ("Copy Relative Path", "win.copy-relative-path"),
+    ("Copy URI", "win.copy-uri"),
     ("Move to Trash", "win.trash"),
     ("Delete Permanently…", "win.permanent-delete"),
 ];
@@ -240,7 +248,10 @@ const TRASH_CONTEXT_ACTIONS: [(&str, &str); 2] = [
     ("Restore", "win.restore"),
     ("Delete Permanently…", "win.permanent-delete"),
 ];
-const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 4] = [
+const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 7] = [
+    ("New Folder…", "win.new-folder"),
+    ("New Empty File…", "win.new-empty-file"),
+    ("New From Template…", "win.new-from-template"),
     ("Paste", "win.paste"),
     ("Select All", "win.select-all"),
     ("Refresh", "win.refresh"),
@@ -793,10 +804,24 @@ pub fn build(
     header.pack_start(&parent_button);
     header.set_title_widget(Some(&path_stack));
     let file_actions_model = gio::Menu::new();
+    file_actions_model.append(Some("New Folder…"), Some("win.new-folder"));
+    file_actions_model.append(Some("New Empty File…"), Some("win.new-empty-file"));
+    file_actions_model.append(Some("New From Template…"), Some("win.new-from-template"));
     file_actions_model.append(Some("Open With…"), Some("win.open-with"));
     file_actions_model.append(Some("Copy"), Some("win.copy"));
     file_actions_model.append(Some("Move"), Some("win.cut"));
+    file_actions_model.append(Some("Duplicate"), Some("win.duplicate"));
     file_actions_model.append(Some("Rename…"), Some("win.rename"));
+    file_actions_model.append(
+        Some("Create Symbolic Link…"),
+        Some("win.create-symbolic-link"),
+    );
+    file_actions_model.append(Some("Create Hard Link…"), Some("win.create-hard-link"));
+    file_actions_model.append(Some("Reveal Link Target"), Some("win.reveal-link-target"));
+    file_actions_model.append(Some("Copy Name"), Some("win.copy-name"));
+    file_actions_model.append(Some("Copy Path"), Some("win.copy-path"));
+    file_actions_model.append(Some("Copy Relative Path"), Some("win.copy-relative-path"));
+    file_actions_model.append(Some("Copy URI"), Some("win.copy-uri"));
     file_actions_model.append(Some("Move to Trash"), Some("win.trash"));
     file_actions_model.append(Some("Delete Permanently…"), Some("win.permanent-delete"));
     file_actions_model.append(Some("Restore"), Some("win.restore"));
@@ -984,12 +1009,28 @@ pub fn build(
 }
 
 pub fn build_rename_dialog(current_name: &str) -> RenameDialogWidgets {
+    build_name_dialog(
+        "Rename item",
+        "New filename",
+        current_name,
+        "Rename",
+        "Rename error",
+    )
+}
+
+pub fn build_name_dialog(
+    title: &str,
+    entry_accessible_label: &str,
+    current_name: &str,
+    action_label: &str,
+    error_accessible_label: &str,
+) -> RenameDialogWidgets {
     let rename_entry = gtk::Entry::builder()
         .text(current_name)
         .activates_default(true)
         .hexpand(true)
         .build();
-    set_accessible_label(&rename_entry, "New filename");
+    set_accessible_label(&rename_entry, entry_accessible_label);
 
     let rename_error = gtk::Label::builder()
         .label("Invalid name")
@@ -998,10 +1039,10 @@ pub fn build_rename_dialog(current_name: &str) -> RenameDialogWidgets {
         .visible(false)
         .build();
     rename_error.add_css_class("error");
-    set_accessible_label(&rename_error, "Rename error");
+    set_accessible_label(&rename_error, error_accessible_label);
 
     let cancel_button = gtk::Button::with_label("Cancel");
-    let rename_button = gtk::Button::with_label("Rename");
+    let rename_button = gtk::Button::with_label(action_label);
     rename_button.add_css_class("suggested-action");
 
     let actions = gtk::Box::builder()
@@ -1013,7 +1054,7 @@ pub fn build_rename_dialog(current_name: &str) -> RenameDialogWidgets {
     actions.append(&rename_button);
 
     let heading = gtk::Label::builder()
-        .label("Rename item")
+        .label(title)
         .halign(gtk::Align::Start)
         .build();
     heading.add_css_class("title-2");
@@ -1032,7 +1073,7 @@ pub fn build_rename_dialog(current_name: &str) -> RenameDialogWidgets {
     content.append(&actions);
 
     let dialog = adw::Dialog::builder()
-        .title("Rename item")
+        .title(title)
         .content_width(420)
         .child(&content)
         .default_widget(&rename_button)
@@ -2174,19 +2215,31 @@ fn build_file_context_menu_model() -> gio::Menu {
     menu.append_section(None, &primary);
 
     let editing = gio::Menu::new();
-    for (label, action) in &FILE_CONTEXT_ACTIONS[2..5] {
+    for (label, action) in &FILE_CONTEXT_ACTIONS[2..6] {
         editing.append(Some(label), Some(action));
     }
     menu.append_section(None, &editing);
 
+    let links = gio::Menu::new();
+    for (label, action) in &FILE_CONTEXT_ACTIONS[6..9] {
+        links.append(Some(label), Some(action));
+    }
+    menu.append_section(None, &links);
+
+    let copy_identity = gio::Menu::new();
+    for (label, action) in &FILE_CONTEXT_ACTIONS[9..13] {
+        copy_identity.append(Some(label), Some(action));
+    }
+    menu.append_section(None, &copy_identity);
+
     let destructive = gio::Menu::new();
     destructive.append(
-        Some(FILE_CONTEXT_ACTIONS[5].0),
-        Some(FILE_CONTEXT_ACTIONS[5].1),
+        Some(FILE_CONTEXT_ACTIONS[13].0),
+        Some(FILE_CONTEXT_ACTIONS[13].1),
     );
     destructive.append(
-        Some(FILE_CONTEXT_ACTIONS[6].0),
-        Some(FILE_CONTEXT_ACTIONS[6].1),
+        Some(FILE_CONTEXT_ACTIONS[14].0),
+        Some(FILE_CONTEXT_ACTIONS[14].1),
     );
     menu.append_section(None, &destructive);
 
@@ -2703,6 +2756,9 @@ mod tests {
         assert_eq!(
             BACKGROUND_CONTEXT_ACTIONS,
             [
+                ("New Folder…", "win.new-folder"),
+                ("New Empty File…", "win.new-empty-file"),
+                ("New From Template…", "win.new-from-template"),
                 ("Paste", "win.paste"),
                 ("Select All", "win.select-all"),
                 ("Refresh", "win.refresh"),
@@ -2726,7 +2782,15 @@ mod tests {
                 ("Open With…", "win.open-with"),
                 ("Copy", "win.copy"),
                 ("Cut", "win.cut"),
+                ("Duplicate", "win.duplicate"),
                 ("Rename…", "win.rename"),
+                ("Create Symbolic Link…", "win.create-symbolic-link"),
+                ("Create Hard Link…", "win.create-hard-link"),
+                ("Reveal Link Target", "win.reveal-link-target"),
+                ("Copy Name", "win.copy-name"),
+                ("Copy Path", "win.copy-path"),
+                ("Copy Relative Path", "win.copy-relative-path"),
+                ("Copy URI", "win.copy-uri"),
                 ("Move to Trash", "win.trash"),
                 ("Delete Permanently…", "win.permanent-delete"),
             ]
@@ -2861,5 +2925,38 @@ mod tests {
             None,
         );
         assert_eq!(unavailable.status, "Unavailable");
+    }
+
+    #[test]
+    fn phase_6q_ui_menus_expose_complete_create_link_and_copy_action_mapping() {
+        for required in [
+            ("Duplicate", "win.duplicate"),
+            ("Create Symbolic Link…", "win.create-symbolic-link"),
+            ("Create Hard Link…", "win.create-hard-link"),
+            ("Reveal Link Target", "win.reveal-link-target"),
+            ("Copy Name", "win.copy-name"),
+            ("Copy Path", "win.copy-path"),
+            ("Copy Relative Path", "win.copy-relative-path"),
+            ("Copy URI", "win.copy-uri"),
+        ] {
+            assert!(FILE_CONTEXT_ACTIONS.contains(&required));
+        }
+        for required in [
+            ("New Folder…", "win.new-folder"),
+            ("New Empty File…", "win.new-empty-file"),
+            ("New From Template…", "win.new-from-template"),
+        ] {
+            assert!(BACKGROUND_CONTEXT_ACTIONS.contains(&required));
+        }
+        assert!(
+            FILE_CONTEXT_ACTIONS
+                .iter()
+                .all(|(_, action)| action.starts_with("win."))
+        );
+        assert!(
+            BACKGROUND_CONTEXT_ACTIONS
+                .iter()
+                .all(|(_, action)| action.starts_with("win."))
+        );
     }
 }
