@@ -3,7 +3,7 @@ use std::{
     collections::{HashSet, VecDeque},
     ffi::{OsStr, OsString},
     os::unix::ffi::OsStrExt,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     rc::Rc,
     sync::Arc,
     time::Duration,
@@ -11,8 +11,8 @@ use std::{
 
 use adw::prelude::*;
 use floe_core::{
-    DirectoryEntry, DirectoryError, DirectorySort, EntryKind, NavigationState, RestoreRequest,
-    SortColumn, TrashEnumerateError, TrashRoot,
+    CreateRequest, DirectoryEntry, DirectoryError, DirectorySort, EntryKind, NavigationState,
+    RestoreRequest, SortColumn, TrashEnumerateError, TrashRoot,
 };
 use gtk::{gdk, gio, glib};
 
@@ -51,6 +51,48 @@ const fn mount_authentication_policy() -> MountAuthenticationPolicy {
         window_parented: true,
         credential_opaque: true,
         feedback: "Mounting… If authentication is required, your desktop will ask for the password.",
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ClipboardTextMode {
+    Name,
+    AbsolutePath,
+    RelativePath,
+    Uri,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum CreateDialogKind {
+    Directory,
+    EmptyFile,
+    Template(PathBuf),
+    SymbolicLink(PathBuf),
+    HardLink(PathBuf),
+}
+
+impl CreateDialogKind {
+    fn title(&self) -> &'static str {
+        match self {
+            Self::Directory => "Create Folder",
+            Self::EmptyFile => "Create Empty File",
+            Self::Template(_) => "Create From Template",
+            Self::SymbolicLink(_) => "Create Symbolic Link",
+            Self::HardLink(_) => "Create Hard Link",
+        }
+    }
+
+    fn request(
+        &self,
+        destination: PathBuf,
+    ) -> Result<CreateRequest, floe_core::CreateRequestError> {
+        match self {
+            Self::Directory => CreateRequest::directory(destination),
+            Self::EmptyFile => CreateRequest::empty_file(destination),
+            Self::Template(source) => CreateRequest::template(source, destination),
+            Self::SymbolicLink(target) => CreateRequest::symbolic_link(target, destination),
+            Self::HardLink(source) => CreateRequest::hard_link(source, destination),
+        }
     }
 }
 
@@ -125,6 +167,7 @@ pub struct BrowserController {
     sort_order: Cell<DirectorySort>,
     sort_in_flight: Cell<bool>,
     sort_selection_paths: RefCell<Vec<PathBuf>>,
+    reveal_selection_path: RefCell<Option<PathBuf>>,
     view_mode: Cell<ViewMode>,
     grid_size: Cell<GridSize>,
     preference_worker: RefCell<Option<PreferenceWorker>>,
@@ -194,6 +237,7 @@ impl BrowserController {
             sort_order: Cell::new(DirectorySort::default()),
             sort_in_flight: Cell::new(false),
             sort_selection_paths: RefCell::new(Vec::new()),
+            reveal_selection_path: RefCell::new(None),
             view_mode: Cell::new(view_preferences.mode),
             grid_size: Cell::new(view_preferences.grid_size),
             preference_worker: RefCell::new(preferences),
@@ -830,6 +874,39 @@ impl BrowserController {
         empty_trash_action.set_enabled(false);
         let paste_action = self.add_action("paste", |controller| controller.paste_transfer());
         paste_action.set_enabled(false);
+        self.add_action("new-folder", |controller| controller.show_new_folder());
+        self.add_action("new-empty-file", |controller| {
+            controller.show_new_empty_file()
+        });
+        self.add_action("new-from-template", |controller| {
+            controller.choose_template();
+        });
+        let duplicate_action =
+            self.add_action("duplicate", |controller| controller.duplicate_selected());
+        duplicate_action.set_enabled(false);
+        let symbolic_link_action = self.add_action("create-symbolic-link", |controller| {
+            controller.show_create_symbolic_link();
+        });
+        symbolic_link_action.set_enabled(false);
+        let hard_link_action = self.add_action("create-hard-link", |controller| {
+            controller.show_create_hard_link();
+        });
+        hard_link_action.set_enabled(false);
+        let reveal_link_action = self.add_action("reveal-link-target", |controller| {
+            controller.reveal_link_target();
+        });
+        reveal_link_action.set_enabled(false);
+        for (name, mode) in [
+            ("copy-name", ClipboardTextMode::Name),
+            ("copy-path", ClipboardTextMode::AbsolutePath),
+            ("copy-relative-path", ClipboardTextMode::RelativePath),
+            ("copy-uri", ClipboardTextMode::Uri),
+        ] {
+            let action = self.add_action(name, move |controller| {
+                controller.copy_selection_text(mode);
+            });
+            action.set_enabled(false);
+        }
         for (name, column) in ui::SORT_ACTIONS {
             self.add_action(name, move |controller| controller.change_sort(column));
         }
@@ -847,6 +924,9 @@ impl BrowserController {
         application.set_accels_for_action("win.cut", &["<Control>x"]);
         application.set_accels_for_action("win.paste", &["<Control>v"]);
         application.set_accels_for_action("win.rename", &["F2"]);
+        application.set_accels_for_action("win.new-folder", &["<Control><Shift>n"]);
+        application.set_accels_for_action("win.duplicate", &["<Control>d"]);
+        application.set_accels_for_action("win.copy-path", &["<Control><Shift>c"]);
         application.set_accels_for_action("win.permanent-delete", &["<Shift>Delete"]);
         application.set_accels_for_action("win.view-list", &["<Control>1"]);
         application.set_accels_for_action("win.view-grid", &["<Control>2"]);
@@ -856,7 +936,7 @@ impl BrowserController {
 
     fn add_action<F>(self: &Rc<Self>, name: &str, callback: F) -> gio::SimpleAction
     where
-        F: Fn(&Self) + 'static,
+        F: Fn(&Rc<Self>) + 'static,
     {
         let action = gio::SimpleAction::new(name, None);
         let controller = Rc::downgrade(self);
@@ -870,11 +950,26 @@ impl BrowserController {
     }
 
     fn navigate_to(&self, destination: PathBuf) {
+        self.reveal_selection_path.borrow_mut().take();
         self.restore_pending_navigation();
         let was_trash = self.trash_active.replace(false);
         self.widgets.set_trash_mode(false);
         self.refresh_paste_enabled();
         if self.navigation.borrow_mut().navigate_to(destination) || was_trash {
+            self.load_current();
+        }
+    }
+
+    fn navigate_to_revealing(&self, target: PathBuf) {
+        let directory = target
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| target.clone());
+        let already_current =
+            !self.trash_active.get() && self.navigation.borrow().current() == directory.as_path();
+        self.navigate_to(directory);
+        self.reveal_selection_path.replace(Some(target));
+        if already_current {
             self.load_current();
         }
     }
@@ -1418,7 +1513,17 @@ impl BrowserController {
             .filter(|entry| self.trash_active.get() || show_hidden || !entry.is_hidden())
             .map(Arc::new)
             .collect();
-        self.install_entries(entries, &[], true);
+        let reveal_path = self.reveal_selection_path.borrow_mut().take();
+        let selected_paths = reveal_path.iter().cloned().collect::<Vec<_>>();
+        if let Some(target) = reveal_path
+            && !entries.iter().any(|entry| entry.path() == target)
+        {
+            self.show_toast(
+                "The symbolic link target changed or is no longer visible",
+                6,
+            );
+        }
+        self.install_entries(entries, &selected_paths, true);
     }
 
     fn install_entries(
@@ -1700,10 +1805,31 @@ impl BrowserController {
             all_restorable,
             self.visible_entries.borrow().len(),
         );
+        let selection_state = selection_action_state(&self.selected_entries.borrow());
         for (action_name, enabled) in [
             ("copy", transfer && !trash_mode),
             ("cut", transfer && !trash_mode),
+            ("duplicate", selection_state.duplicate && !trash_mode),
             ("rename", rename && !trash_mode),
+            (
+                "create-symbolic-link",
+                selection_state.symbolic_link && !trash_mode,
+            ),
+            ("create-hard-link", selection_state.hard_link && !trash_mode),
+            (
+                "reveal-link-target",
+                selection_state.reveal_link && !trash_mode,
+            ),
+            ("copy-name", selection_state.copy_identity && !trash_mode),
+            ("copy-path", selection_state.copy_identity && !trash_mode),
+            (
+                "copy-relative-path",
+                selection_state.copy_identity && !trash_mode,
+            ),
+            ("copy-uri", selection_state.copy_identity && !trash_mode),
+            ("new-folder", !trash_mode),
+            ("new-empty-file", !trash_mode),
+            ("new-from-template", !trash_mode),
             ("trash", trash && !trash_mode),
             (
                 "permanent-delete",
@@ -2076,6 +2202,256 @@ impl BrowserController {
         confirmation.cancel_button.grab_focus();
     }
 
+    fn show_new_folder(&self) {
+        self.show_create_name_dialog(CreateDialogKind::Directory, "New Folder");
+    }
+
+    fn show_new_empty_file(&self) {
+        self.show_create_name_dialog(CreateDialogKind::EmptyFile, "New File");
+    }
+
+    fn choose_template(self: &Rc<Self>) {
+        if self.trash_active.get() {
+            self.show_toast("Templates are unavailable while browsing Trash", 4);
+            return;
+        }
+
+        let chooser = gtk::FileDialog::builder()
+            .title("Choose a Template")
+            .modal(true)
+            .build();
+        if let Some(templates) = glib::user_special_dir(glib::UserDirectory::Templates) {
+            chooser.set_initial_folder(Some(&gio::File::for_path(templates)));
+        }
+
+        let window = self.widgets.window.clone();
+        let controller = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            match chooser.open_future(Some(&window)).await {
+                Ok(file) => {
+                    let Some(source) = file.path() else {
+                        if let Some(controller) = controller.upgrade() {
+                            controller.show_toast("Only local template files are supported", 5);
+                        }
+                        return;
+                    };
+                    let initial_name = source
+                        .file_name()
+                        .and_then(OsStr::to_str)
+                        .unwrap_or("Untitled")
+                        .to_owned();
+                    if let Some(controller) = controller.upgrade() {
+                        controller.show_create_name_dialog(
+                            CreateDialogKind::Template(source),
+                            &initial_name,
+                        );
+                    }
+                }
+                Err(error) if error.matches(gio::IOErrorEnum::Cancelled) => {}
+                Err(error) => {
+                    if let Some(controller) = controller.upgrade() {
+                        controller.show_toast(&format!("Could not choose a template: {error}"), 6);
+                    }
+                }
+            }
+        });
+    }
+
+    fn duplicate_selected(&self) {
+        let paths = self.selected_paths();
+        if paths.is_empty() {
+            self.show_toast("Select one or more items to duplicate", 4);
+            return;
+        }
+        match self.application_state.submit_duplicate_batch(paths) {
+            Ok(batch) => self.widgets.status_label.set_label(&format!(
+                "Queued {} item{} for duplication…",
+                batch.queued(),
+                if batch.queued() == 1 { "" } else { "s" }
+            )),
+            Err(error) => self.show_toast(&format!("Could not duplicate selection: {error}"), 7),
+        }
+    }
+
+    fn show_create_symbolic_link(&self) {
+        let Some(entry) = self.selected_entry() else {
+            self.show_toast("Select one item to link", 4);
+            return;
+        };
+        let Some(target_name) = entry.path().file_name() else {
+            self.show_toast("This item cannot be linked", 4);
+            return;
+        };
+        let initial_name = suggested_link_name(target_name, "Link");
+        self.show_create_name_dialog(
+            CreateDialogKind::SymbolicLink(PathBuf::from(target_name)),
+            &initial_name,
+        );
+    }
+
+    fn show_create_hard_link(&self) {
+        let Some(entry) = self.selected_entry() else {
+            self.show_toast("Select one regular file to hard link", 4);
+            return;
+        };
+        if !matches!(entry.kind(), EntryKind::RegularFile) {
+            self.show_toast("Hard links require one regular non-symbolic file", 5);
+            return;
+        }
+        let Some(source_name) = entry.path().file_name() else {
+            self.show_toast("This file cannot be hard linked", 4);
+            return;
+        };
+        let initial_name = suggested_link_name(source_name, "Hard Link");
+        self.show_create_name_dialog(
+            CreateDialogKind::HardLink(entry.path().to_path_buf()),
+            &initial_name,
+        );
+    }
+
+    fn show_create_name_dialog(&self, kind: CreateDialogKind, initial_name: &str) {
+        if self.trash_active.get() {
+            self.show_toast("Creation is unavailable while browsing Trash", 4);
+            return;
+        }
+        let destination_directory = self.navigation.borrow().current().to_path_buf();
+        let dialog = ui::build_name_dialog(
+            kind.title(),
+            "New item name",
+            initial_name,
+            "Create",
+            "Creation error",
+        );
+        dialog.rename_entry.select_region(0, -1);
+
+        let weak_dialog = dialog.dialog.downgrade();
+        dialog.cancel_button.connect_clicked(move |_| {
+            if let Some(dialog) = weak_dialog.upgrade() {
+                dialog.close();
+            }
+        });
+
+        let application_state = Rc::clone(&self.application_state);
+        let status_label = self.widgets.status_label.clone();
+        let toast_overlay = self.widgets.toast_overlay.clone();
+        let name_entry = dialog.rename_entry.clone();
+        let name_error = dialog.rename_error.clone();
+        let weak_dialog = dialog.dialog.downgrade();
+        dialog.rename_button.connect_clicked(move |_| {
+            let new_name = name_entry.text();
+            let new_name_os = OsString::from(new_name.as_str());
+            if validate_rename_name(OsStr::new(new_name.as_str())).is_err() {
+                name_error.set_label(if new_name.is_empty() {
+                    "Enter a name"
+                } else {
+                    "Use one filename without '/'"
+                });
+                name_error.set_visible(true);
+                name_entry.grab_focus();
+                name_entry.select_region(0, -1);
+                return;
+            }
+
+            let request = match kind.request(destination_directory.join(new_name_os)) {
+                Ok(request) => request,
+                Err(error) => {
+                    name_error.set_label(&format!("Invalid creation request: {error}"));
+                    name_error.set_visible(true);
+                    name_entry.grab_focus();
+                    return;
+                }
+            };
+            match application_state.submit_create(request) {
+                Ok(_) => {
+                    status_label.set_label("Creation queued…");
+                    if let Some(dialog) = weak_dialog.upgrade() {
+                        dialog.close();
+                    }
+                }
+                Err(error) => {
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not start creation: {error}"))
+                            .timeout(7)
+                            .build(),
+                    );
+                    name_entry.grab_focus();
+                }
+            }
+        });
+
+        dialog.dialog.present(Some(&self.widgets.window));
+        dialog.rename_entry.grab_focus();
+    }
+
+    fn copy_selection_text(&self, mode: ClipboardTextMode) {
+        let paths = self.selected_paths();
+        let base = self.navigation.borrow().current().to_path_buf();
+        match selection_clipboard_text(&paths, &base, mode) {
+            Ok(text) => {
+                self.widgets.window.clipboard().set_text(&text);
+                self.widgets.status_label.set_label(match mode {
+                    ClipboardTextMode::Name => "Copied name to clipboard",
+                    ClipboardTextMode::AbsolutePath => "Copied path to clipboard",
+                    ClipboardTextMode::RelativePath => "Copied relative path to clipboard",
+                    ClipboardTextMode::Uri => "Copied URI to clipboard",
+                });
+            }
+            Err(message) => self.show_toast(message, 6),
+        }
+    }
+
+    fn reveal_link_target(self: &Rc<Self>) {
+        let Some(entry) = self.selected_entry() else {
+            self.show_toast("Select one symbolic link", 4);
+            return;
+        };
+        if !matches!(entry.kind(), EntryKind::SymbolicLink { .. }) {
+            self.show_toast("Reveal Link Target is available for symbolic links", 4);
+            return;
+        }
+
+        let link_path = entry.path().to_path_buf();
+        let controller = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            let result = async {
+                let info = gio::File::for_path(&link_path)
+                    .query_info_future(
+                        "standard::symlink-target",
+                        gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
+                        glib::Priority::DEFAULT,
+                    )
+                    .await
+                    .map_err(|error| format!("Could not read link target: {error}"))?;
+                let stored_target = info
+                    .symlink_target()
+                    .ok_or_else(|| "The selected item has no stored link target".to_owned())?;
+                let resolved = resolve_link_target(&link_path, &stored_target)
+                    .ok_or_else(|| "The link target cannot be resolved".to_owned())?;
+                gio::File::for_path(&resolved)
+                    .query_info_future(
+                        "standard::type",
+                        gio::FileQueryInfoFlags::NONE,
+                        glib::Priority::DEFAULT,
+                    )
+                    .await
+                    .map_err(|_| {
+                        "The symbolic link target is missing or inaccessible".to_owned()
+                    })?;
+                Ok::<PathBuf, String>(resolved)
+            }
+            .await;
+
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            match result {
+                Ok(target) => controller.navigate_to_revealing(target),
+                Err(message) => controller.show_toast(&message, 6),
+            }
+        });
+    }
+
     fn show_rename(&self) {
         let Some(entry) = self.selected_entry() else {
             self.show_toast("Select an item to rename", 4);
@@ -2197,6 +2573,11 @@ struct SelectionActionState {
     single: bool,
     open_with: bool,
     transfer: bool,
+    duplicate: bool,
+    symbolic_link: bool,
+    hard_link: bool,
+    reveal_link: bool,
+    copy_identity: bool,
     rename: bool,
     trash: bool,
 }
@@ -2223,16 +2604,95 @@ fn trash_mode_action_state(
 
 fn selection_action_state(entries: &[Arc<DirectoryEntry>]) -> SelectionActionState {
     let single = entries.len() == 1;
+    let transferable = !entries.is_empty()
+        && entries
+            .iter()
+            .all(|entry| !matches!(entry.kind(), EntryKind::Other));
     SelectionActionState {
         single,
         open_with: single && open_with_eligible(&entries[0]),
-        transfer: !entries.is_empty()
-            && entries
-                .iter()
-                .all(|entry| !matches!(entry.kind(), EntryKind::Other)),
+        transfer: transferable,
+        duplicate: transferable,
+        symbolic_link: single && !matches!(entries[0].kind(), EntryKind::Other),
+        hard_link: single && matches!(entries[0].kind(), EntryKind::RegularFile),
+        reveal_link: single && matches!(entries[0].kind(), EntryKind::SymbolicLink { .. }),
+        copy_identity: !entries.is_empty(),
         rename: single,
         trash: !entries.is_empty(),
     }
+}
+
+fn suggested_link_name(source_name: &OsStr, fallback: &str) -> String {
+    source_name
+        .to_str()
+        .map(|name| format!("{name} link"))
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
+fn selection_clipboard_text(
+    paths: &[PathBuf],
+    base: &Path,
+    mode: ClipboardTextMode,
+) -> Result<String, &'static str> {
+    if paths.is_empty() {
+        return Err("Select one or more items first");
+    }
+
+    let mut lines = Vec::with_capacity(paths.len());
+    for path in paths {
+        let line = match mode {
+            ClipboardTextMode::Name => path
+                .file_name()
+                .and_then(OsStr::to_str)
+                .ok_or("A selected filename cannot be represented losslessly as text")?
+                .to_owned(),
+            ClipboardTextMode::AbsolutePath => path
+                .to_str()
+                .ok_or("A selected path cannot be represented losslessly as text")?
+                .to_owned(),
+            ClipboardTextMode::RelativePath => path
+                .strip_prefix(base)
+                .map_err(|_| "A selected item is outside the current folder")?
+                .to_str()
+                .ok_or("A relative path cannot be represented losslessly as text")?
+                .to_owned(),
+            ClipboardTextMode::Uri => clipboard::local_file_uri(path)
+                .map_err(|_| "A selected path could not be encoded as a local file URI")?,
+        };
+        lines.push(line);
+    }
+    Ok(lines.join("\n"))
+}
+
+fn resolve_link_target(link_path: &Path, stored_target: &Path) -> Option<PathBuf> {
+    let target = if stored_target.is_absolute() {
+        stored_target.to_path_buf()
+    } else {
+        link_path.parent()?.join(stored_target)
+    };
+    Some(lexically_normalize_path(&target))
+}
+
+fn lexically_normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => match normalized.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    normalized.pop();
+                }
+                Some(Component::ParentDir) | None if !path.has_root() => {
+                    normalized.push(component.as_os_str());
+                }
+                _ => {}
+            },
+            Component::Normal(name) => normalized.push(name),
+        }
+    }
+    normalized
 }
 
 fn selection_status(total: usize, selected: &[Arc<DirectoryEntry>]) -> String {
@@ -2649,6 +3109,11 @@ mod tests {
                 single: false,
                 open_with: false,
                 transfer: false,
+                duplicate: false,
+                symbolic_link: false,
+                hard_link: false,
+                reveal_link: false,
+                copy_identity: false,
                 rename: false,
                 trash: false,
             }
@@ -2659,6 +3124,11 @@ mod tests {
                 single: true,
                 open_with: true,
                 transfer: true,
+                duplicate: true,
+                symbolic_link: true,
+                hard_link: true,
+                reveal_link: false,
+                copy_identity: true,
                 rename: true,
                 trash: true,
             }
@@ -2669,6 +3139,11 @@ mod tests {
                 single: false,
                 open_with: false,
                 transfer: true,
+                duplicate: true,
+                symbolic_link: false,
+                hard_link: false,
+                reveal_link: false,
+                copy_identity: true,
                 rename: false,
                 trash: true,
             }
@@ -2749,5 +3224,135 @@ mod tests {
             target.into_os_string().into_vec(),
             path.into_os_string().into_vec()
         );
+    }
+
+    #[test]
+    fn phase_6q_templates_and_creation_actions_build_exact_typed_requests() {
+        let raw_source =
+            PathBuf::from("/templates").join(OsString::from_vec(b"source-\xff.txt".to_vec()));
+        let destination = PathBuf::from("/work/new.txt");
+        let template = CreateDialogKind::Template(raw_source.clone())
+            .request(destination.clone())
+            .expect("template request");
+        assert_eq!(template.source(), Some(raw_source.as_path()));
+        assert_eq!(template.destination(), destination);
+        assert!(matches!(
+            template.kind(),
+            floe_core::CreateKind::Template { .. }
+        ));
+
+        let folder = CreateDialogKind::Directory
+            .request(PathBuf::from("/work/folder"))
+            .expect("directory request");
+        let file = CreateDialogKind::EmptyFile
+            .request(PathBuf::from("/work/file"))
+            .expect("empty-file request");
+        assert!(matches!(folder.kind(), floe_core::CreateKind::Directory));
+        assert!(matches!(file.kind(), floe_core::CreateKind::EmptyFile));
+        assert_eq!(CreateDialogKind::Directory.title(), "Create Folder");
+    }
+
+    #[test]
+    fn phase_6q_reveal_resolves_relative_absolute_and_raw_targets_lexically() {
+        let link = PathBuf::from("/work/links/item-link");
+        assert_eq!(
+            resolve_link_target(&link, Path::new("../target/./item")),
+            Some(PathBuf::from("/work/target/item"))
+        );
+        assert_eq!(
+            resolve_link_target(&link, Path::new("/absolute/../target")),
+            Some(PathBuf::from("/target"))
+        );
+
+        let raw = PathBuf::from(OsString::from_vec(b"../raw-\xff".to_vec()));
+        let resolved = resolve_link_target(&link, &raw).expect("raw relative target");
+        assert_eq!(
+            resolved.into_os_string().into_vec(),
+            b"/work/raw-\xff".to_vec()
+        );
+        assert_eq!(
+            resolve_link_target(Path::new("item-link"), Path::new("target")),
+            Some(PathBuf::from("target"))
+        );
+    }
+
+    #[test]
+    fn phase_6q_clipboard_text_is_exact_multiline_and_rejects_lossy_paths() {
+        let base = PathBuf::from("/work");
+        let paths = vec![base.join("one.txt"), base.join("two words.txt")];
+        assert_eq!(
+            selection_clipboard_text(&paths, &base, ClipboardTextMode::Name)
+                .expect("names should copy"),
+            "one.txt\ntwo words.txt"
+        );
+        assert_eq!(
+            selection_clipboard_text(&paths, &base, ClipboardTextMode::RelativePath)
+                .expect("relative paths should copy"),
+            "one.txt\ntwo words.txt"
+        );
+        assert_eq!(
+            selection_clipboard_text(&paths[..1], &base, ClipboardTextMode::AbsolutePath)
+                .expect("absolute path should copy"),
+            "/work/one.txt"
+        );
+        assert_eq!(
+            selection_clipboard_text(&paths[..1], &base, ClipboardTextMode::Uri)
+                .expect("URI should copy"),
+            "file:///work/one.txt"
+        );
+
+        let raw = base.join(OsString::from_vec(b"raw-\xff".to_vec()));
+        assert!(
+            selection_clipboard_text(std::slice::from_ref(&raw), &base, ClipboardTextMode::Name)
+                .is_err()
+        );
+        let raw_uri =
+            selection_clipboard_text(std::slice::from_ref(&raw), &base, ClipboardTextMode::Uri)
+                .expect("raw path should retain exact URI identity");
+        assert!(raw_uri.ends_with("raw-%FF"), "unexpected URI: {raw_uri}");
+        assert!(
+            selection_clipboard_text(
+                &[PathBuf::from("/outside/item")],
+                &base,
+                ClipboardTextMode::RelativePath
+            )
+            .is_err()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn phase_6q_actions_distinguish_regular_files_and_symbolic_links() {
+        let fixture = tempdir().expect("temporary fixture");
+        let file = fixture.path().join("file.txt");
+        let link = fixture.path().join("link");
+        fs::write(&file, b"payload").expect("regular file");
+        std::os::unix::fs::symlink("file.txt", &link).expect("symbolic link");
+        let entries = floe_core::enumerate_directory(fixture.path())
+            .expect("enumeration")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>();
+        let file_entry = entries
+            .iter()
+            .find(|entry| entry.path() == file)
+            .expect("file entry");
+        let link_entry = entries
+            .iter()
+            .find(|entry| entry.path() == link)
+            .expect("link entry");
+
+        let file_state = selection_action_state(std::slice::from_ref(file_entry));
+        assert!(file_state.duplicate);
+        assert!(file_state.symbolic_link);
+        assert!(file_state.hard_link);
+        assert!(!file_state.reveal_link);
+
+        let link_state = selection_action_state(std::slice::from_ref(link_entry));
+        assert!(link_state.duplicate);
+        assert!(link_state.symbolic_link);
+        assert!(!link_state.hard_link);
+        assert!(link_state.reveal_link);
     }
 }

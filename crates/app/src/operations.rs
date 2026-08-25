@@ -1093,6 +1093,7 @@ fn operation_name(request: Option<&TrackedOperation>) -> String {
 fn operation_verb(request: Option<&TrackedOperation>) -> &'static str {
     match request {
         Some(TrackedOperation::Copy(_)) => "Copy",
+        Some(TrackedOperation::Create(_)) => "Create",
         Some(TrackedOperation::Move(_)) => "Move",
         Some(TrackedOperation::Rename(_)) => "Rename",
         Some(TrackedOperation::Trash(_)) => "Move to Trash",
@@ -1106,6 +1107,7 @@ fn operation_verb(request: Option<&TrackedOperation>) -> &'static str {
 fn operation_verb_ing(request: Option<&TrackedOperation>) -> &'static str {
     match request {
         Some(TrackedOperation::Copy(_)) => "Copying",
+        Some(TrackedOperation::Create(_)) => "Creating",
         Some(TrackedOperation::Move(_)) => "Moving",
         Some(TrackedOperation::Rename(_)) => "Renaming",
         Some(TrackedOperation::Trash(_)) => "Moving to Trash",
@@ -1119,6 +1121,7 @@ fn operation_verb_ing(request: Option<&TrackedOperation>) -> &'static str {
 fn waiting_detail(request: Option<TrackedOperation>) -> &'static str {
     match request {
         Some(TrackedOperation::Copy(_)) => "Waiting to copy…",
+        Some(TrackedOperation::Create(_)) => "Waiting to create…",
         Some(TrackedOperation::Move(_)) => "Waiting to move…",
         Some(TrackedOperation::Rename(_)) => "Waiting to rename…",
         Some(TrackedOperation::Trash(_)) => "Waiting to move to Trash…",
@@ -1132,6 +1135,7 @@ fn waiting_detail(request: Option<TrackedOperation>) -> &'static str {
 fn running_detail(request: Option<TrackedOperation>) -> &'static str {
     match request {
         Some(TrackedOperation::Copy(_)) => "Preparing copy…",
+        Some(TrackedOperation::Create(_)) => "Creating item…",
         Some(TrackedOperation::Move(_)) => "Moving on this filesystem…",
         Some(TrackedOperation::Rename(_)) => "Renaming…",
         Some(TrackedOperation::Trash(_)) => "Moving to Trash through GIO…",
@@ -1145,6 +1149,7 @@ fn running_detail(request: Option<TrackedOperation>) -> &'static str {
 fn completed_title(request: Option<&TrackedOperation>) -> &'static str {
     match request {
         Some(TrackedOperation::Copy(_)) => "Copy complete",
+        Some(TrackedOperation::Create(_)) => "Creation complete",
         Some(TrackedOperation::Move(_)) => "Move complete",
         Some(TrackedOperation::Rename(_)) => "Rename complete",
         Some(TrackedOperation::Trash(_)) => "Moved to Trash",
@@ -1158,6 +1163,7 @@ fn completed_title(request: Option<&TrackedOperation>) -> &'static str {
 fn completed_detail(request: Option<&TrackedOperation>) -> &'static str {
     match request {
         Some(TrackedOperation::Copy(_)) => "Copied successfully",
+        Some(TrackedOperation::Create(_)) => "Created successfully",
         Some(TrackedOperation::Move(_)) => "Moved successfully",
         Some(TrackedOperation::Rename(_)) => "Renamed successfully",
         Some(TrackedOperation::Trash(_)) => "Item is available in Trash",
@@ -1174,6 +1180,7 @@ fn completed_toast(request: Option<&TrackedOperation>) -> String {
             format!("Moved {} to Trash", operation_name(request))
         }
         Some(TrackedOperation::Copy(_)) => format!("Copied {}", operation_name(request)),
+        Some(TrackedOperation::Create(_)) => format!("Created {}", operation_name(request)),
         Some(TrackedOperation::Move(_)) => format!("Moved {}", operation_name(request)),
         Some(TrackedOperation::Rename(_)) => format!("Renamed {}", operation_name(request)),
         Some(TrackedOperation::PermanentDelete(_)) => {

@@ -42,6 +42,9 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 - Phase 6P operation history remains bounded and memory-only. It captures typed outcomes and exact operation identities; Clear Completed preserves failures, conflicts, cancellations, and partial evidence. Safe Undo exists only for completed move/rename records after no-follow destination identity revalidation and no-overwrite original-path checks. It is not rollback, crash recovery, persistent audit history, or a claim that irreversible work is reversible.
 
+- Phase 6Q creation uses a bounded application-owned executor and never shells out, elevates Floe, or silently overwrites. Directory and empty-file requests use create-new semantics; template duplication reuses the no-follow copy engine; symbolic links preserve the exact stored target and may intentionally remain broken; hard links accept only regular non-symlink sources and report same-filesystem limitations. User-entered destination names are validated as one component before worker submission.
+- Phase 6Q Copy Name, Path, Relative Path, and URI are explicit user actions. Text forms reject any selected value that cannot be represented losslessly as UTF-8; local file URIs retain raw path bytes through percent encoding. These clipboard values reveal filenames and locations and may outlive Floe in desktop clipboard history.
+
 ### PARTIAL or absent protections
 
 - Phase 6O preserves regular-file/directory mode and access/modification times,

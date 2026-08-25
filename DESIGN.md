@@ -231,6 +231,29 @@ button opens bounded memory-only history. Clear Completed preserves actionable
 failures and conflicts; Undo appears only for completed move/rename records and
 submits an exact-identity, no-overwrite reverse move.
 
+### Create, duplicate, links, and path identity
+
+Phase 6Q adds New Folder, New Empty File, and New From Template to the header
+and background context menu. Folder and file creation use a focused validated
+name dialog. Template choice uses the native asynchronous file dialog, starts at
+the XDG Templates location when available, then asks for the destination name;
+selection never performs the copy itself.
+
+Selection menus add Duplicate, Create Symbolic Link, Create Hard Link, Reveal
+Link Target, and Copy Name/Path/Relative Path/URI. Duplicate supports stable
+multi-selection FIFO batches and uses familiar `(copy)` / `(copy N)` siblings
+without overwrite. Symbolic-link creation is available for one normal entry and
+preserves a relative sibling target; hard-link creation is visibly enabled only
+for one regular non-symbolic file. Reveal Link Target reads metadata
+asynchronously, reports broken/inaccessible targets, and navigates to the exact
+target without opening or executing it.
+
+Copy Name/Path/Relative Path publishes newline-separated plain text only when
+every selected identity is lossless UTF-8; it refuses lossy display text. Copy
+URI instead preserves exact local path bytes with percent encoding. Ctrl+Shift+N
+opens New Folder, Ctrl+D duplicates, and Ctrl+Shift+C copies the absolute path;
+all commands remain available by pointer and keyboard-accessible menus.
+
 ### Trash job foundation
 
 Phase 4E adds the application-owned backend contract for moving one original

@@ -1,40 +1,47 @@
-# Plan: Floe Phase 6P Operation control
+# Plan: Floe Phase 6Q Create, duplicate, and links
 
 Mode: sequential solo phase, depth 4.
 
 ## Contract
 
-- `floe-core` owns explicit progress units and identity validation needed by reversible move/rename attempts. Existing legal job transitions remain authoritative.
-- The application layer owns batch boundaries, queue state, rate/ETA sampling, in-session history, scoped conflict decisions, and Undo dispatch.
-- Pause is truthful: Floe pauses serial multi-item batches only between items. It never labels an actively executing syscall or GIO operation paused.
-- Undo is offered only for completed move/rename attempts whose exact resulting object identity was captured by the worker. Reverse moves revalidate identity and use no-overwrite semantics.
-- Keep Both uses bounded deterministic raw sibling naming and atomic no-replace attempts. Skip All is scoped to one stable batch. Replace and Replace All remain unavailable until backup/rollback semantics exist.
-- History is bounded and memory-only. Clear Completed never removes failures, conflicts, cancellations, or partial outcomes.
-- GTK callbacks submit application commands only; no filesystem mutation or metadata inspection runs on the GTK main loop.
-- Phase 6Q create/duplicate/link functionality remains out of Phase 6P scope.
+- `floe-core` owns exact-path, no-overwrite creation requests and execution for directories, empty files, template copies, symbolic links, and hard links.
+- The application layer owns bounded execution, retries, duplicate batching/naming, native dialogs, clipboard presentation, and asynchronous link-target resolution.
+- GTK callbacks submit typed application commands or asynchronous GIO requests only. No filesystem mutation or blocking metadata work runs on the GTK main loop.
+- Names remain `OsString`; original targets and sources remain `PathBuf`. UI text is authoritative only when the user explicitly enters a new UTF-8 filename.
+- Creation never uses a shell, never elevates Floe, never overwrites, and never follows a source symlink for hard-link eligibility.
+- Template selection uses the native asynchronous file dialog, initially rooted at the XDG Templates directory when available; actual creation runs through the bounded executor.
+- Duplicate uses deterministic bounded sibling naming and preserves symlinks rather than following them.
+- Symbolic links may deliberately be broken. Hard links are limited to regular non-symlink files and kernel-enforced same-filesystem semantics.
+- Reveal Link Target reads the stored target asynchronously, preserves raw target identity, resolves relative targets lexically, and navigates without executing the target.
+- Copy Name/Path/Relative Path rejects values that cannot be represented losslessly as UTF-8 text. Copy URI uses exact percent-encoded local-file identity.
+- Phase 6R drag-and-drop remains out of scope until Phase 6Q is verified and merged.
 
-## Implemented depth tree
+## Depth tree
 
-1. Core operation semantics
-   - Added `ProgressUnit::{Unknown, Bytes, Items}` and unit-aware constructors.
-   - Captured no-follow destination identity after successful move/rename.
-   - Revalidated expected source identity before a reverse move can commit.
-2. Batch and telemetry policy
-   - Added bounded stable batch IDs, FIFO pending items, counts, pause/resume/cancel, and terminal snapshots.
-   - Added deterministic smoothed byte telemetry with suppression for invalid samples.
-3. Conflict, history, and Undo state
-   - Added Keep Both, batch-scoped Skip All, bounded terminal history presentation, evidence-preserving clearing, and one-shot safe Undo.
-4. GTK integration and verification
-   - Added pause/history controls, unit-aware detail, batch summaries, conflict actions, and Undo controls through `ApplicationState` commands.
-   - Added focused core/application tests, full workspace gates, native Wayland health smoke, and persistent documentation updates.
+1. Core creation semantics
+   - Add validated request/kind/outcome/error models.
+   - Implement no-overwrite directory/file/template/symbolic/hard-link execution.
+   - Cover collision, broken link, same-filesystem, symlink, and raw non-UTF-8 behavior.
+2. Application execution and state
+   - Add fixed-capacity creation executor and shared job lifecycle integration.
+   - Add batch duplicate submission, retry/conflict destination revision, and bounded outcome tracking.
+3. Desktop actions and presentation
+   - Add New Folder/File/From Template dialogs and selection/background menu actions.
+   - Add Duplicate, symbolic/hard link, Reveal Link Target, and copy name/path/relative/URI actions with truthful sensitivity.
+4. Verification and documentation
+   - Add focused core/application/UI tests and native Wayland action smoke.
+   - Run full formatting, build, strict Clippy, tests, and diff gates.
+   - Update persistent documentation and mark exactly Phase 6R `NEXT`.
 
 ## Status log
 
-- 2026-08-24: Created `phase-6p-operation-control` from verified Phase 6O main at `45f1fba` and defined gates before coding.
-- 2026-08-24: Completed implementation and focused defect-hunt pass.
-- 2026-08-24: Verified formatting, workspace check, strict Clippy, all 251 tests, diff hygiene, and isolated native Wayland/D-Bus startup, history action, and shutdown.
-- 2026-08-24: Marked exactly Phase 6Q `NEXT`; Phase 6P does not implement Phase 6Q features.
+- 2026-08-24: Created `phase-6q-create-duplicate-links` from verified Phase 6P main at `de3cdc9`.
+- 2026-08-24: Read project instructions and inspected current core copy/move models, bounded executors, application state, browser actions, menus, clipboard, navigation, and GTK dependencies.
+- 2026-08-24: Defined Phase 6Q contract and executable gates before coding.
+- 2026-08-24: Implemented and focused-tested core creation, bounded executor/state integration, duplicate batching/conflicts, native actions/dialogs, asynchronous reveal, and exact clipboard text/URI policy.
+- 2026-08-24: Full formatting, workspace check, strict Clippy, 265 tests, diff hygiene, and isolated native Wayland 42-action/dialog/health smoke passed.
+- 2026-08-24: Updated persistent documentation and set exactly Phase 6R drag and drop as `NEXT`; Phase 6R code was not started.
 
 ## Status
 
-COMPLETE
+COMPLETE — next: `phase-6r-drag-drop`

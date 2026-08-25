@@ -1,53 +1,58 @@
-# Gates: Floe Phase 6P Operation control
+# Gates: Floe Phase 6Q Create, duplicate, links
 
 Status: COMPLETE
 
-- [x] G1: Work is isolated on `phase-6p-operation-control`; Phase 6Q creation features are not implemented.
+- [x] G1: Work is isolated on `phase-6q-create-duplicate-links`; Phase 6R drag-and-drop is not implemented.
   CHECK: `git branch --show-current && git diff --check`
-  EXPECT: Phase 6P branch and clean diff hygiene.
-  EVIDENCE: Branch is `phase-6p-operation-control`; `git diff --check` exits 0 and the diff contains operation-control work only.
+  EXPECT: Phase 6Q branch and clean bounded diff.
+  EVIDENCE: Branch is `phase-6q-create-duplicate-links`; diff hygiene passes and no drag-and-drop code exists.
 
-- [x] G2: Progress distinguishes bytes, items, and unknown units; telemetry reports speed/ETA only for meaningful determinate byte samples.
-  CHECK: `cargo test -p floe-core phase_6p_progress -- --nocapture && cargo test -p floe-app phase_6p_telemetry -- --nocapture`
-  EXPECT: Explicit-unit and deterministic telemetry tests pass.
-  EVIDENCE: One focused core progress test and three application telemetry tests pass, including frequent samples, regression, item-unit, zero-rate, and completion suppression.
+- [x] G2: Core creation requests preserve exact paths for directories, empty files, and templates without shell, privilege, or overwrite.
+  CHECK: `cargo test -p floe-core phase_6q_create -- --nocapture`
+  EXPECT: Validation, collision, template, cancellation, and raw non-UTF-8 tests pass.
+  EVIDENCE: Two focused tests pass create-new directory/file/template behavior, collision refusal, and pre-commit cancellation.
 
-- [x] G3: Multi-item submissions have stable bounded batch state, FIFO counts, pause-after-current/resume, queued cancellation, and terminal summaries.
-  CHECK: `cargo test -p floe-app phase_6p_batch -- --nocapture`
-  EXPECT: Focused batch policy tests pass.
-  EVIDENCE: Three focused tests pass for bounded snapshots, committed-current cancellation, blocked-conflict/queued cancellation; the state integration test verifies FIFO pause/resume and exact counts.
+- [x] G3: Symbolic links preserve raw targets and may remain broken; hard links accept only regular non-symlink files and report unsupported failures without overwrite.
+  CHECK: `cargo test -p floe-core phase_6q_links -- --nocapture`
+  EXPECT: Symbolic, broken, hard-link, collision, symlink-source, and raw-name tests pass.
+  EVIDENCE: Two focused tests pass raw broken symbolic targets, hard-link inode identity, symlink-source rejection, and no-overwrite collisions.
 
-- [x] G4: Keep Both preserves raw names with bounded deterministic siblings; Skip All is batch-scoped; Replace is unavailable.
-  CHECK: `cargo test -p floe-app phase_6p_conflict -- --nocapture`
-  EXPECT: Raw non-UTF-8, no-replace, and scoped conflict tests pass.
-  EVIDENCE: Two focused tests pass. Keep Both creates `item (copy).txt` without replacing `item.txt`; batch Skip All suppresses only later conflicts in the same batch.
+- [x] G4: Duplicate uses deterministic bounded sibling names, preserves symlinks, batches FIFO, and never replaces an existing sibling.
+  CHECK: `cargo test -p floe-app phase_6q_duplicate -- --nocapture`
+  EXPECT: Naming, multi-selection, collision, and symlink tests pass.
+  EVIDENCE: Two focused tests pass bounded raw `(copy N)` naming and FIFO exact-source duplication with raw-name and symlink preservation.
 
-- [x] G5: Bounded memory-only history is visible and Clear Completed preserves actionable evidence.
-  CHECK: `cargo test -p floe-app phase_6p_history -- --nocapture`
-  EXPECT: History retention policy test passes.
-  EVIDENCE: The focused test removes only a completed entry and preserves the unresolved conflict entry; UI labels history as memory-only.
+- [x] G5: Fixed-capacity executor and `ApplicationState` integrate create/template/link lifecycle, retry identity, conflict revision, cancellation, history, and refresh without GTK filesystem work.
+  CHECK: `cargo test -p floe-app phase_6q_state -- --nocapture`
+  EXPECT: Focused executor/state lifecycle tests pass.
+  EVIDENCE: Three focused state/executor tests pass completion, conflict, cancellation, stable retry identity, no-overwrite `(copy 2)`, history, and affected-directory tracking.
 
-- [x] G6: Completed move/rename Undo captures and revalidates no-follow destination identity and never overwrites the original path.
-  CHECK: `cargo test -p floe-core phase_6p_undo -- --nocapture && cargo test -p floe-app phase_6p_undo -- --nocapture`
-  EXPECT: Core and application Undo tests pass.
-  EVIDENCE: Two core tests cover raw non-UTF-8 identity, occupied original path, and changed destination; one application test restores a completed move and rejects copy Undo.
+- [x] G6: New Folder, New Empty File, and New From Template are visible keyboard/pointer actions using validated names and native asynchronous template selection.
+  CHECK: `cargo test -p floe-app phase_6q_templates -- --nocapture`
+  EXPECT: Action, dialog, template, and typed-request routing policy tests pass.
+  EVIDENCE: Focused typed-request test passes; native smoke exported all create actions and activated `new-folder` to open the validated-name dialog without mutation.
 
-- [x] G7: Application state integrates batches, conflict scope, history, and Undo while GTK callbacks perform no filesystem work.
-  CHECK: `cargo test -p floe-app phase_6p_state -- --nocapture`
-  EXPECT: Focused state lifecycle test passes.
-  EVIDENCE: The state test passes FIFO pause/resume through application-owned executors; UI callbacks call only `ApplicationState` commands.
+- [x] G7: Reveal Link Target resolves raw relative/absolute targets asynchronously and handles broken targets without executing content or blocking GTK.
+  CHECK: `cargo test -p floe-app phase_6q_reveal -- --nocapture`
+  EXPECT: Exact target resolution, lexical traversal normalization, and raw-target tests pass.
+  EVIDENCE: Focused relative, absolute, traversal, and raw non-UTF-8 target policy test passes; implementation uses no-follow asynchronous GIO metadata and an accessibility check.
 
-- [x] G8: Operations Island exposes accessible pause/resume/history controls, unit-aware progress, terminal summaries, scoped conflicts, and safe Undo; native Wayland remains healthy.
-  CHECK: `cargo test -p floe-app phase_6p_ui -- --nocapture`
-  EXPECT: Deterministic UI policy test passes and native evidence is recorded.
-  EVIDENCE: Two UI policy tests pass exact item/byte/speed/ETA and batch-summary wording plus always-reachable history action. Isolated native launch exported 31 actions, activated `operation-history`, answered `Peer.Ping`, quit cleanly, and released `io.github.floe.FileManager`; only known host accessibility/RADV/Vulkan warnings appeared.
+- [x] G8: Copy Name/Path/Relative Path/URI actions retain exact identity, reject lossy text, and expose standard clipboard text without filesystem inspection.
+  CHECK: `cargo test -p floe-app phase_6q_clipboard -- --nocapture`
+  EXPECT: UTF-8, non-UTF-8 rejection, relative-base, URI encoding, and multi-selection tests pass.
+  EVIDENCE: Focused test passes newline-separated text, explicit current-folder base, outside-base rejection, non-UTF-8 text refusal, and exact percent-encoded local URI.
 
-- [x] G9: Formatting, workspace build, strict Clippy, all tests, diff hygiene, and native smoke pass.
+- [x] G9: Accessible context/header actions have truthful sensitivity; native Wayland action/dialog smoke stays healthy.
+  CHECK: `cargo test -p floe-app phase_6q_ui -- --nocapture`
+  EXPECT: UI policy tests pass and native evidence is recorded.
+  EVIDENCE: Focused menu mapping test passes. Isolated native Wayland smoke exported 42 window actions, opened New Folder, answered `Peer.Ping`, quit cleanly, and released `io.github.floe.FileManager`.
+
+- [x] G10: Formatting, workspace build, strict Clippy, all tests, diff hygiene, and native smoke pass.
   CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && git diff --check`
   EXPECT: Command exits 0.
-  EVIDENCE: Command exits 0. All 251 tests pass: 59 core and 192 application tests.
+  EVIDENCE: Command exits 0; all 265 tests pass with 63 core and 202 application tests, zero failures.
 
-- [x] G10: Persistent documentation records verified Phase 6P and exactly Phase 6Q as `NEXT`.
+- [x] G11: Persistent documentation records verified Phase 6Q and exactly Phase 6R as `NEXT`.
   CHECK: `node /home/rocappsec/.codex/skills/unlazy/scripts/gate-check.mjs --status GATES.md`
   EXPECT: `ALL MET`.
-  EVIDENCE: `AGENTS.md`, `PLAN.md`, `GATES.md`, `DESIGN.md`, `docs/ROADMAP.md`, `docs/FEATURE_MATRIX.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, and `docs/PRIVACY_SECURITY.md` are updated; roadmap marks only Phase 6Q `NEXT`.
+  EVIDENCE: `AGENTS.md`, `PLAN.md`, `GATES.md`, `DESIGN.md`, `docs/ROADMAP.md`, `docs/FEATURE_MATRIX.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, and `docs/PRIVACY_SECURITY.md` record verified Phase 6Q and Phase 6R only as next.

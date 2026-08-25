@@ -214,7 +214,7 @@ text-kind labels.
 ### `state.rs` and `job_manager.rs`
 
 `ApplicationState`, separate from `BrowserController`, owns the
-`ApplicationJobManager`, bounded copy/move/trash/restore/permanent-delete executors, internal
+`ApplicationJobManager`, bounded copy/create/move/trash/restore/permanent-delete executors, internal
 `TransferBuffer`, and `TrackedOperation` values keyed by `JobId`. The manager
 allocates operation/job IDs, stores core `JobRecord` values, applies core lifecycle
 commands, queues observable events, and creates retries under the original
@@ -396,6 +396,26 @@ owns the executor so its lifetime matches the application. GTK reaches it only
 through application commands and tracked requests.
 Move and rename retry methods allocate attempts through
 `ApplicationJobManager::retry` before reusing the same queue path.
+
+### `create_operation.rs` and `create_executor.rs`
+
+Phase 6Q adds GTK-independent `CreateRequest` variants for directories, empty
+files, template copies, symbolic links, and hard links. Exact source, target,
+and destination values remain `PathBuf`; every destination uses no-overwrite
+semantics. Template creation reuses the reviewed copy engine and preserves
+symlinks without following them. Symbolic links preserve the stored target,
+including raw non-UTF-8 and intentionally broken targets. Hard links accept only
+regular non-symlink sources and classify cross-filesystem behavior explicitly.
+
+`CreateExecutor` owns one fixed-capacity named worker and maps create progress,
+cancellation, conflicts, unsupported cases, permission failures, outcomes, and
+retries into the shared job manager. `ApplicationState` serializes duplicate
+selections through the existing batch boundary, retains FIFO source identity,
+and generates deterministic `(copy N)` retry names without filesystem work in
+GTK callbacks. Native name dialogs submit validated typed requests; template
+selection and reveal-target metadata use asynchronous GIO. Clipboard name/path
+text is derived only from exact UTF-8 values, while local file URI encoding
+preserves raw path bytes.
 
 ### `trash_executor.rs`
 
@@ -665,8 +685,9 @@ owned pixels or failure and retains generic icons. These helpers are supervised
 but not sandboxed; Phase 18L owns isolation. Phase 6N adds standards-correct
 local Trash browsing and restore. Phase 6O adds space-aware, metadata-aware
 copy, staged cross-filesystem move, and bounded desktop clipboard
-interoperability. Phase 6P adds operation control. Phase 6Q create, duplicate,
-and link commands are the sole recommended next phase.
+interoperability. Phase 6P adds operation control. Phase 6Q adds create,
+duplicate, link, reveal, and explicit path-copy commands. Phase 6R drag and drop
+is the sole recommended next phase.
 
 ## Known architectural debt
 

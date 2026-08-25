@@ -1,6 +1,7 @@
 //! GTK-independent filesystem and navigation foundations for Floe.
 
 mod copy;
+mod create_operation;
 mod directory;
 mod error;
 mod jobs;
@@ -14,6 +15,10 @@ mod trash_lifecycle;
 pub use copy::{
     ConflictPolicy, CopyCancellation, CopyError, CopyOutcome, CopyProgress, CopyRequest,
     SymlinkPolicy, execute_copy,
+};
+pub use create_operation::{
+    CreateCancellation, CreateError, CreateKind, CreateOutcome, CreateProgress, CreateRequest,
+    CreateRequestError, execute_create,
 };
 pub use directory::{enumerate_directory, enumerate_directory_with_cancel};
 pub use error::DirectoryError;
