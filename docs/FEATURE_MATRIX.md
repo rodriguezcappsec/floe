@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 7C. Phase 7D is the only
+The implementation baseline for this matrix is Phase 7D. Phase 7E is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -204,15 +204,15 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Split-view state model | `PLANNED` | 7D | Application state owns two independent browser contexts and active side. |
-| Independent path/history | `PLANNED` | 7D | Reuse Phase 7A sessions rather duplicate navigation logic. |
+| Split-view state model | `COMPLETE` | 7D | Every tab owns a GTK-independent primary session, optional secondary session, explicit active side, and bounded ratio while retaining stable tab identity. |
+| Independent path/history | `COMPLETE` | 7D | Both panes reuse Phase 7A sessions, preserving separate exact paths, histories, selections, scroll anchors, and view policies. |
 | Clear active-side indication | `PLANNED` | 7E | Must remain visible without color alone. |
 | Keyboard side switching | `PLANNED` | 7E | Focus and shortcut scope must be predictable. |
 | Copy/move between panes | `PLANNED` | 7E | Reuse existing operation commands with exact opposite-pane destination. |
 | Open folder in opposite pane | `PLANNED` | 7E | Requires explicit active/opposite semantics. |
 | Swap panes | `PLANNED` | 7E | Swap session identities, not GTK contents. |
 | Close pane | `PLANNED` | 7E | Preserve surviving pane session and focus. |
-| Persistent split ratio | `PLANNED` | 7D/20 | Store through application preferences, not GTK file I/O. |
+| Persistent split ratio | `PARTIAL` | 7D/20 | A bounded 20–80% ratio is part of versioned workspace state; visible paned-widget preference interaction remains 7E/20. |
 | Different view modes per pane | `PLANNED` | 7D | Depends on per-session view state. |
 | Active-pane filter/search | `PLANNED` | 13A-13B | Search ownership must follow active pane. |
 | Optional synchronized navigation | `DEFERRED` | 7F | Only after independent behavior is reliable and understandable. |

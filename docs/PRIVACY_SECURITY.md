@@ -16,8 +16,9 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ## Current security and privacy baseline
 
-- Phase 7C normally persists bounded ordered live tabs, active tab, recently
-  closed tabs, exact paths, history, selection, scroll anchors, and view policy
+- Phase 7C/7D normally persist bounded ordered live tabs, active tab, recently
+  closed tabs, up to two pane sessions per tab, exact paths, history, selection,
+  scroll anchors, active split side, bounded ratio, and view policy
   across clean shutdown in `$XDG_CONFIG_HOME/floe/browser-session-v1.bin`.
   The application-owned worker uses a 0700 directory, 0600 same-directory
   atomic file, bounded no-follow reads, version and hostile-input validation,
@@ -31,7 +32,7 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
-- Phase 7A's per-session codec and Phase 7C's workspace envelope preserve exact
+- Phase 7A's per-session codec and Phase 7C/7D's workspace envelope preserve exact
   raw path bytes and therefore contain sensitive navigation, selection, and
   history data. Both are bounded and malformed-input checked; corruption,
   unsupported versions, relative paths, duplicate IDs, and oversized data fall
@@ -280,7 +281,8 @@ A future Privacy and Security Center may summarize real vault, Sensitive Folder,
 Policy covers navigation, recent locations, closed tabs, session restore, operation and recovery history, search history, command recents, previews, and saved searches. Locked vault names and content never appear in ordinary indexes or results. A future private vault index must be memory-only or encrypted under vault-derived keys and unavailable while locked.
 
 **Current session policy:** normal clean shutdown retains at most 64 live tabs,
-32 recently closed tabs, and each session's bounded history and selection.
+32 recently closed tabs, up to two pane sessions per tab, and each session's
+bounded history and selection.
 Private or Sensitive policy removes and suppresses only Floe's workspace file.
 No claim is made that shutdown writes survive crashes before atomic publication
 or that deleting the file erases backups, snapshots, journals, or prior storage

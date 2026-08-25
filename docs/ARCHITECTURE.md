@@ -171,6 +171,14 @@ versions return no workspace and the application constructs one normal tab.
 One capacity-one worker exists per application window; no filesystem worker is
 added per tab.
 
+Phase 7D adds GTK-independent `split.rs`. `BrowserSplit` composes the existing
+`BrowserSession` primitive into primary and optional secondary panes with
+explicit active-side ownership and a bounded ratio. `BrowserTabs` stores one
+split context per live or recently closed tab while preserving the primary pane
+ID as stable tab identity. Workspace version 2 serializes both panes and safely
+migrates version-1 unsplit records. No GTK model, widget, watcher, or worker is
+created by this state layer.
+
 
 ### `application.rs` and `main.rs`
 
