@@ -458,9 +458,18 @@ Phase 8A adds no dependency and no runtime GTK wiring. Its focused checks are:
 cargo test -p floe-core phase_8a -- --nocapture
 ```
 
-No native Wayland smoke is appropriate for this GTK-independent model. Phase 8B
-will own native verification when it binds virtualized columns to existing
-directory results.
+No native Wayland smoke is appropriate for the GTK-independent Phase 8A model.
+Phase 8B adds no dependency. Its focused checks are:
+
+```bash
+cargo test --workspace phase_8b -- --nocapture
+```
+
+Native Wayland verification activates `win.view-miller`, adjusts width through
+`win.widen-miller-columns`, confirms the application remains responsive over
+D-Bus, quits through the application action, and checks the version-3 private
+preference file records the clamped global width. The active column must keep
+using the one existing browser result model and worker.
 
 ## Wayland environments
 

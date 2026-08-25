@@ -1,63 +1,61 @@
-# Gates: Floe Phase 8A — Miller column model
+# Gates: Floe Phase 8B — Virtualized Miller columns
 
-Scope: GTK-independent exact, bounded Miller navigation chain.
+Scope: deliver bounded native Miller columns over the existing exact-path browser pipeline, without Phase 8C–9 work.
 
-- [x] G1: Work is isolated on `phase-8a-miller-model` and adds no GTK column UI.
+- [x] G1: Work is isolated on the prescribed phase branch.
   CHECK: git branch --show-current
-  EXPECT: phase-8a-miller-model
-  EVIDENCE: branch matches; implementation changes are confined to `floe-core` plus phase documentation.
+  EXPECT: phase-8b-miller-ui
+  EVIDENCE: phase-8b-miller-ui
 
-- [x] G2: Exact direct-child selection/descent produces a deterministic parent/selected-child chain.
-  CHECK: cargo test -p floe-core phase_8a_chain -- --nocapture
+- [x] G2: Miller presentation state has explicit bounded columns, entries, and width policy while preserving exact raw path identity.
+  CHECK: cargo test --workspace phase_8b_policy -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: focused test passed leaf selection, directory descent, existing descent activation, invalid child, and relative-root rejection.
+  EVIDENCE: Running unittests src/main.rs (target/debug/deps/floe_app-c34335fcae0cf6e5) | Running unittests src/lib.rs (target/debug/deps/floe_core-9689122403c8558b)
 
-- [x] G3: Retained columns are bounded with stable logical depths and deterministic stale-depth errors.
-  CHECK: cargo test -p floe-core phase_8a_bounds -- --nocapture
+- [x] G3: The native Miller surface recycles column/row widgets and exposes non-color-only active-column and width controls.
+  CHECK: cargo test -p floe-app phase_8b_ui -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: 21-level descent retained exactly 16 depths 5 through 20 and rejected evicted depth 4 structurally.
+  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s | Running unittests src/main.rs (target/debug/deps/floe_app-c34335fcae0cf6e5)
 
-- [x] G4: Raw non-UTF-8 identity survives selection, descent, and rename without lossy reconstruction.
-  CHECK: cargo test -p floe-core phase_8a_non_utf8 -- --nocapture
+- [x] G4: Miller mode reuses the existing browser result pipeline and does not add a second directory worker or GTK filesystem enumeration.
+  CHECK: cargo test -p floe-app phase_8b_pipeline -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: focused raw-byte path test passed selection, child location, and same-parent rename remapping.
+  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.02s | Running unittests src/main.rs (target/debug/deps/floe_app-c34335fcae0cf6e5)
 
-- [x] G5: Same-parent rename and delete/root invalidation transitions reconcile retained descendants deterministically.
-  CHECK: cargo test -p floe-core phase_8a_reconcile -- --nocapture
+- [x] G5: List/grid/tabs/split behavior remains available and Miller selection/activation uses authoritative `PathBuf` values.
+  CHECK: cargo test -p floe-app phase_8b_integration -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: focused test passed prefix rename, cross-parent rejection, child truncation, leaf selection clear, root invalidation, empty-state rejection, and reset.
+  EVIDENCE: Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s | Running unittests src/main.rs (target/debug/deps/floe_app-c34335fcae0cf6e5)
 
-- [x] G6: The model owns no directory entries, enumeration, GTK, worker, or filesystem I/O.
-  EVIDENCE: `miller.rs` imports only std path/collection/raw-byte traits, `thiserror`, and a path-size constant; state fields are paths, depths, and selection only.
+- [x] G6: Native Wayland smoke verifies Miller activation, width adjustment, application health, and clean shutdown.
+  EVIDENCE: Two isolated launches activated `view-miller` and `widen-miller-columns`, answered D-Bus Ping, migrated/restored `miller-column-width=320`, quit with status 0, and released `io.github.floe.FileManager`.
 
 - [x] G7: Rust formatting is clean.
   CHECK: cargo fmt --all -- --check
   EXPECT: /^$/
-  EVIDENCE: command exited 0 with no output.
+  EVIDENCE: `cargo fmt --all -- --check` exited 0 with no output after final documentation and code edits.
 
 - [x] G8: The full workspace type-checks.
   CHECK: cargo check --workspace
   EXPECT: Finished `dev` profile
-  EVIDENCE: workspace check completed successfully.
+  EVIDENCE: Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.02s
 
 - [x] G9: Strict all-target/all-feature Clippy is warning-free.
   CHECK: cargo clippy --workspace --all-targets --all-features -- -D warnings
   EXPECT: Finished `dev` profile
-  EVIDENCE: strict Clippy completed successfully.
+  EVIDENCE: Checking floe-app v0.1.0 (/run/media/rocappsec/LNX-games-more/app-ideas/floe_file_manager/crates/app) | Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.51s
 
-- [x] G10: The full workspace test suite passes.
+- [x] G10: All workspace tests pass.
   CHECK: cargo test --workspace
   EXPECT: test result: ok
-  EVIDENCE: 330 tests passed: 239 application and 91 core; doc tests also passed.
+  EVIDENCE: Running unittests src/lib.rs (target/debug/deps/floe_core-9689122403c8558b) | Doc-tests floe_core
 
-- [x] G11: Patch whitespace hygiene is clean.
+- [x] G11: Patch hygiene is clean.
   CHECK: git diff --check
   EXPECT: /^$/
-  EVIDENCE: command exited 0 with no output.
+  EVIDENCE: `git diff --check` exited 0 with no output after final edits.
 
-- [x] G12: Persistent docs mark Phase 8A complete and exactly Phase 8B next.
-  CHECK: rg -n '8A — Column model.*COMPLETE|8B — Virtualized columns.*NEXT' docs/ROADMAP.md
-  EXPECT: 8B — Virtualized columns
-  EVIDENCE: roadmap contains both required status rows and no other NEXT phase.
-
-Recommended next phase: `phase-8b-miller-ui`.
+- [x] G12: Persistent documentation marks 8B complete, exactly 8C next, and records verified architecture/security boundaries.
+  CHECK: rg -n "8B.*COMPLETE|8C.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
+  EXPECT: 8C
+  EVIDENCE: docs/ROADMAP.md:157:| 8B — Virtualized columns | COMPLETE | `phase-8b-miller-ui` | Recyclable floating columns and adjustable widths. | Verified one shared active browser model, capacity-16 retained c

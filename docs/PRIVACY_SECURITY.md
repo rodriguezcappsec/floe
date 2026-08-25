@@ -38,9 +38,13 @@ Security state must use text and accessible semantics, never color alone. A fail
   unsupported versions, relative paths, duplicate IDs, and oversized data fall
   back to one normal tab rather than partial restore.
 
-- Phase 8A's Miller model retains at most 16 exact directory/selection paths in
-  memory. It performs no filesystem I/O and adds no persistence or logging.
-  Phase 8B must not duplicate these identities into unbounded widget-owned state.
+- Phase 8A's Miller model and Phase 8B presentation retain at most 16 exact
+  directory/selection paths in memory. Historical columns retain at most 4,096
+  shared entry identities each and are discarded with the application; the
+  active column shares the existing browser model, worker, and watcher. Only
+  the non-sensitive global column width and view-mode policy are added to the
+  private preference file. No column path, item snapshot, or selection is
+  logged or newly persisted by Phase 8B.
 
 - Floe runs as the calling desktop user. It does not run its GTK process as root and does not expose `Open as Administrator...` today.
 - The Cargo workspace forbids Rust `unsafe` code. The core crate is GTK-independent, and filesystem work stays out of GTK callbacks.

@@ -24,6 +24,7 @@ use crate::{
     launcher::OpenWithOptions,
     locations::Location,
     metadata::{MetadataCache, MetadataDetails, MetadataError, MetadataKey},
+    miller_view::MillerView,
     preferences::{SIDEBAR_WIDTH_MIN, SidebarDensity, ViewPreferences, clamp_sidebar_width},
     thumbnail::{LIST_THUMBNAIL_EDGE, ThumbnailError, ThumbnailKey, ThumbnailPixels},
     view::{FileViewDensity, GRID_SIZES, GridSize, ListColumn, ListColumnLayout, ViewMode},
@@ -727,6 +728,7 @@ pub struct BrowserWidgets {
     pub selection: gtk::MultiSelection,
     pub list_view: gtk::ListView,
     pub grid_view: gtk::GridView,
+    pub miller_view: MillerView,
     pub view_stack: gtk::Stack,
     pub list_header: gtk::Box,
     pub list_context_menu: gtk::PopoverMenu,
@@ -735,6 +737,7 @@ pub struct BrowserWidgets {
     pub grid_background_menu: gtk::PopoverMenu,
     pub list_view_button: gtk::ToggleButton,
     pub grid_view_button: gtk::ToggleButton,
+    pub miller_view_button: gtk::ToggleButton,
     pub grid_size_controls: gtk::Box,
     pub grid_size_scale: gtk::Scale,
     pub empty_state: gtk::Box,
@@ -783,6 +786,7 @@ struct DirectoryPanelWidgets {
     selection: gtk::MultiSelection,
     list_view: gtk::ListView,
     grid_view: gtk::GridView,
+    miller_view: MillerView,
     view_stack: gtk::Stack,
     list_header: gtk::Box,
     list_context_menu: gtk::PopoverMenu,
@@ -923,6 +927,7 @@ impl BrowserWidgets {
         self.grid_size_controls.set_visible(mode == ViewMode::Grid);
         self.list_view_button.set_active(mode == ViewMode::List);
         self.grid_view_button.set_active(mode == ViewMode::Grid);
+        self.miller_view_button.set_active(mode == ViewMode::Miller);
     }
 
     pub fn set_grid_size(&self, size: GridSize) {
@@ -950,12 +955,16 @@ impl BrowserWidgets {
             ViewMode::Grid => {
                 self.grid_view.grab_focus();
             }
+            ViewMode::Miller => {
+                self.miller_view.widget().grab_focus();
+            }
         }
     }
 
     pub fn set_views_sensitive(&self, sensitive: bool) {
         self.list_view.set_sensitive(sensitive);
         self.grid_view.set_sensitive(sensitive);
+        self.miller_view.widget().set_sensitive(sensitive);
     }
 
     pub fn set_trash_mode(&self, active: bool) {
@@ -1014,6 +1023,7 @@ impl BrowserWidgets {
         match mode {
             ViewMode::List => &self.list_context_menu,
             ViewMode::Grid => &self.grid_context_menu,
+            ViewMode::Miller => &self.list_context_menu,
         }
     }
 
@@ -1021,6 +1031,7 @@ impl BrowserWidgets {
         match mode {
             ViewMode::List => &self.list_background_menu,
             ViewMode::Grid => &self.grid_background_menu,
+            ViewMode::Miller => &self.list_background_menu,
         }
     }
 }
@@ -1225,6 +1236,10 @@ pub fn build(
     browser_view_model.append_submenu(Some("Group By"), &grouping_model);
     browser_view_model.append_submenu(Some("Folder Placement"), &directory_model);
     browser_view_model.append_submenu(Some("Columns"), &columns_model);
+    let miller_width_model = gio::Menu::new();
+    miller_width_model.append(Some("Narrower"), Some("win.narrow-miller-columns"));
+    miller_width_model.append(Some("Wider"), Some("win.widen-miller-columns"));
+    browser_view_model.append_submenu(Some("Miller Column Width"), &miller_width_model);
     browser_view_model.append(
         Some("Remember View per Folder"),
         Some("win.remember-folder-view"),
@@ -1278,12 +1293,21 @@ pub fn build(
         .group(&list_view_button)
         .build();
     set_accessible_label(&grid_view_button, "Grid view");
+    let miller_view_button = gtk::ToggleButton::builder()
+        .label("Columns")
+        .tooltip_text("Miller column view")
+        .action_name("win.view-miller")
+        .group(&list_view_button)
+        .build();
+    set_accessible_label(&miller_view_button, "Miller column view");
     list_view_button.set_active(preferences.mode == ViewMode::List);
     grid_view_button.set_active(preferences.mode == ViewMode::Grid);
+    miller_view_button.set_active(preferences.mode == ViewMode::Miller);
     let view_controls = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     view_controls.add_css_class("linked");
     view_controls.append(&list_view_button);
     view_controls.append(&grid_view_button);
+    view_controls.append(&miller_view_button);
 
     let zoom_out_button = icon_button(
         "zoom-out-symbolic",
@@ -1334,6 +1358,7 @@ pub fn build(
         selection,
         list_view,
         grid_view,
+        miller_view,
         view_stack,
         list_header,
         list_context_menu,
@@ -1546,6 +1571,7 @@ pub fn build(
         selection,
         list_view,
         grid_view,
+        miller_view,
         view_stack,
         list_header,
         list_context_menu,
@@ -1554,6 +1580,7 @@ pub fn build(
         grid_background_menu,
         list_view_button,
         grid_view_button,
+        miller_view_button,
         grid_size_controls,
         grid_size_scale,
         empty_state,
@@ -2686,10 +2713,13 @@ fn build_directory_panel(
         .child(&grid_view)
         .vexpand(true)
         .build();
+    let miller_view = MillerView::new();
+    miller_view.set_width(preferences.miller_column_width);
     let view_stack = gtk::Stack::new();
     view_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
     view_stack.add_named(&list_scroller, Some("list"));
     view_stack.add_named(&grid_scroller, Some("grid"));
+    view_stack.add_named(miller_view.widget(), Some("miller"));
     view_stack.set_visible_child_name(preferences.mode.stack_name());
     view_stack.set_vexpand(true);
 
@@ -2755,6 +2785,7 @@ fn build_directory_panel(
         selection,
         list_view,
         grid_view,
+        miller_view,
         view_stack,
         list_header,
         list_context_menu,
