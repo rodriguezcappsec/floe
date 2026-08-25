@@ -1160,12 +1160,20 @@ Last updated:
 Current phase:
 
 ```text
-Phase 9 — Quick Preview (Phase 9D complete)
+Phase 9 — Quick Preview (Phase 9E complete)
 ```
 
 Status:
 
 ```text
+Phase 9E adds reviewed-provider passive font specimens and built-in archive
+listings. Font sources are exact/no-follow and only bounded PNG becomes owned
+RGBA; Floe never installs the font. ZIP central-directory and uncompressed TAR
+headers are parsed with source, entry, name, output, cancellation, checksum, and
+truncation limits. Raw member bytes remain separate from lossy labels, and
+absolute/traversal-like names are visibly flagged. No member is extracted and
+no archive command runs. Compressed TAR and unsupported formats fail honestly.
+
 Phase 9D adds exact local audio/video Preview through main-thread GTK
 MediaFile/Video/MediaControls. A worker validates no-follow extension and GIO
 MIME identity and may request one bounded passive video poster through the
@@ -2239,9 +2247,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-9e-preview-fonts-archives` and implement bounded read-only font
-specimens and archive listings. Do not install fonts, extract archives, or add
-preview interaction polish.
+Create `phase-9f-preview-polish` and implement Space toggling, live navigation,
+focus restoration, presentation zoom/fullscreen/HiDPI behavior, and explicit
+memory-cache/privacy hooks. Do not add Inspector metadata work.
 ```
 
 ---

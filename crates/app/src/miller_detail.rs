@@ -188,6 +188,29 @@ impl From<&MillerDetailState> for MillerDetailPresentation {
                             ""
                         }
                     ),
+                    crate::preview::PreviewContent::Font {
+                        width,
+                        height,
+                        content_type,
+                        ..
+                    } => format!(
+                        "Passive font specimen, {width} by {height} pixels, {content_type}."
+                    ),
+                    crate::preview::PreviewContent::Archive {
+                        format,
+                        entries,
+                        truncated,
+                        ..
+                    } => format!(
+                        "Read-only {format:?} listing, {} entr{}{}.",
+                        entries.len(),
+                        if entries.len() == 1 { "y" } else { "ies" },
+                        if *truncated {
+                            ", truncated by safety limits"
+                        } else {
+                            ""
+                        }
+                    ),
                     crate::preview::PreviewContent::None => "Preview is ready.".to_owned(),
                 },
                 accessible_description: format!(
@@ -615,5 +638,50 @@ mod tests {
         assert!(matches!(hooks.state(), MillerDetailState::Empty { .. }));
         hooks.hide();
         assert_eq!(hooks.state(), &MillerDetailState::Hidden);
+    }
+
+    #[test]
+    fn phase_9e_presentation_labels_passive_archive_and_retires_stale_payload() {
+        let (root, entries, _) = fixture_entries();
+        let mut hooks = MillerDetailHooks::default();
+        hooks.toggle(
+            MillerDetailSurface::Preview,
+            Some(1),
+            root.path().to_path_buf(),
+            &entries,
+        );
+        assert!(hooks.begin_preview_loading(55));
+        let archive_entry = crate::preview::PreviewArchiveEntry {
+            raw_name: Arc::from(b"../unsafe".as_slice()),
+            display_name: Arc::from("../unsafe"),
+            size: 3,
+            is_directory: false,
+            unsafe_path: true,
+        };
+        assert!(hooks.finish_preview(
+            55,
+            crate::preview::PreviewOutcome::Ready(crate::preview::PreviewPayload {
+                provider_id: "floe.archive",
+                kind: crate::preview::PreviewKind::Archive,
+                content: crate::preview::PreviewContent::Archive {
+                    format: crate::preview::PreviewArchiveFormat::Zip,
+                    entries: Arc::from(vec![archive_entry]),
+                    listing: Arc::from("[unsafe path] ../unsafe\tfile\t3 bytes\n"),
+                    truncated: false,
+                },
+            })
+        ));
+        let presentation = MillerDetailPresentation::from(hooks.state());
+        assert!(presentation.message.contains("Read-only Zip listing"));
+        assert!(
+            presentation
+                .accessible_description
+                .contains("without executing")
+        );
+        hooks.refresh(None, root.path().to_path_buf(), &entries);
+        assert!(matches!(
+            hooks.state(),
+            MillerDetailState::Unsupported { .. }
+        ));
     }
 }

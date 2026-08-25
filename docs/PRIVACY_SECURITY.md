@@ -32,6 +32,13 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 9E font Preview accepts only bounded passive PNG from a reviewed
+  installed provider and never installs or loads the font into Floe. Archive
+  Preview parses capped ZIP central-directory and uncompressed TAR headers in
+  process, preserves raw member-name bytes, flags absolute/traversal-like names,
+  and performs no extraction or archive-command execution. Compressed TAR,
+  ZIP64, encrypted details, malformed input, and unsupported formats remain
+  unavailable rather than invoking broad-authority tools.
 - Phase 9D media Preview validates exact local audio/video sources no-follow and
   passes only typed path/MIME/poster data to the GTK thread. Native GTK media
   controls open the selected path with the user's normal codec stack; Floe does
