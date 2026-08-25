@@ -189,8 +189,8 @@ Miller mode is generic Wayland functionality and must never require Niri.
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
 | 11A — Command registry | COMPLETE | `phase-11a-command-registry` | Human-named commands, eligibility, shortcut and menu metadata. | Verified 59 unique bounded human-readable definitions, deterministic categories/search terms/placements/risk, authoritative live GAction eligibility, centralized unchanged accelerators, context-menu parity, explicit internal-action exclusions, runtime parity audit, and native Wayland lifecycle; no palette or callback duplication. |
-| 11B — Command palette | NEXT | `phase-11b-command-palette` | Ctrl+Shift+P search and bounded recent commands. | 11A/privacy hooks; verify context, focus, screen reader and native smoke. |
-| 11C — Keybindings | PLANNED | `phase-11c-keybindings` | Custom bindings, conflicts, reset and discoverability. | 11A; destructive defaults conservative; verify parser/migration/conflicts. |
+| 11B — Command palette | COMPLETE | `phase-11b-command-palette` | Ctrl+Shift+P search and bounded recent commands. | Verified 128-character metadata-only ranked search, 64-result cap, live enabled/disabled GAction state, direct existing-action activation, keyboard-first native dialog, explicit unavailable context, accessible labels/descriptions, 16-entry deduplicated memory-only recents, and native Wayland lifecycle; no persistence or shortcut editing. |
+| 11C — Keybindings | NEXT | `phase-11c-keybindings` | Custom bindings, conflicts, reset and discoverability. | 11A; destructive defaults conservative; verify parser/migration/conflicts. |
 | 11D — Optional Vim mode | PLANNED | `phase-11d-vim-mode` | Opt-in list/grid/Miller navigation mappings. | 11C/8C; never default; verify input fields and mode/focus transitions. |
 | 11E — Terminal integration | PLANNED | `phase-11e-terminal-integration` | Preferred terminal and Open Terminal Here using safe argv. | Generic integration as needed; no shell/password argv; embedded terminal deferred. |
 

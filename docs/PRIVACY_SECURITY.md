@@ -305,6 +305,15 @@ Locking clears Floe-owned selections, previews, decrypted metadata, search resul
 
 Auto-lock on timeout, app exit, session lock, suspend, or device removal ships only after each signal and failure path is verified. Closing a view must not hide active vault or administrator jobs.
 
+## Command history
+
+Phase 11B command-palette search examines only static command metadata. It does
+not inspect paths, filenames, file contents, clipboard data, or remote sources.
+The query and at most 16 recent command action IDs remain memory-only for the
+current process and are discarded on exit. Disabled and missing activation
+attempts are not recorded. Persistent command history remains prohibited until
+a later privacy review explicitly changes this policy.
+
 ## Sensitive Folder, Private Mode, and Protected Folder
 
 These terms are deliberately distinct and all are **PLANNED**.

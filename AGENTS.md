@@ -1176,10 +1176,14 @@ Last updated:
 Current phase:
 
 ```text
-Phase 11 — Commands, keyboard, and terminal (Phase 11A complete)
+Phase 11 — Commands, keyboard, and terminal (Phase 11B complete)
 ```
 
 Status:
+
+```text
+Phase 11B adds a native Ctrl+Shift+P command palette over the Phase 11A registry and existing live GActions. Search is limited to 128 Unicode scalar values and static command names, actions, descriptions, categories, and search terms; results are deterministically ranked and capped at 64. Disabled and missing commands remain visible with explicit context and cannot activate. Enter runs only an enabled existing GAction, while Down transfers focus to the result list and Escape uses native dialog dismissal. Rows expose accessible names/descriptions, shortcut/category context, focus state, and confirmation-required warnings. At most 16 successful command action IDs are deduplicated in memory only; queries and recents are never persisted or logged. No paths, filenames, contents, or clipboard data are searched. Phase 11C shortcut customization is not included.
+```
 
 ```text
 Phase 11A adds one bounded application-layer command registry for 59 normal user-invokable commands. Each definition has a unique existing `win.*` GAction, human name, description, deterministic category, at most eight search terms, default accelerators, menu placements, risk level, and palette eligibility. The registry owns no callbacks or filesystem logic: live GAction presence/enabled state remains the sole execution and context-eligibility authority. Existing window accelerators now install from registry metadata without changing bindings; background context labels resolve through the registry while preserving established order. File, Trash, and background context actions have parity tests. Parameterized tab IDs, stateful view/column controls, and widget plumbing are explicitly excluded from the normal command surface. Startup audits registry/action parity without logging command names or paths. Phase 11B command-palette UI is not included.
@@ -2358,9 +2362,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-11b-command-palette` and implement Ctrl+Shift+P bounded command
-search, live GAction eligibility, accessible keyboard navigation, and bounded
-memory-only recent commands. Do not add Phase 11C shortcut customization.
+Create `phase-11c-keybindings` and implement validated persistent custom
+shortcuts, conflict detection, conservative destructive-action guardrails,
+individual/all reset, and complete shortcut discoverability. Do not add Vim mode.
 ```
 
 ---
