@@ -252,6 +252,10 @@ impl Appearance {
   font-weight: 500;
 }}
 
+.floe-grid-group-label {{
+  padding: 0 4px;
+}}
+
 .floe-entry-icon {{
   opacity: 0.90;
 }}
