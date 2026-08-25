@@ -5,8 +5,8 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 9F. Phase 10A is the only
-`NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
+The implementation baseline for this matrix is Phase 10A. Phase 10B is the only `NEXT`
+phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
 
@@ -374,13 +374,13 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Inspector foundation / Ctrl+I | `NEXT` | 10A | Toggleable, accessible, asynchronous surface usable as final Miller column. |
+| Inspector foundation / Ctrl+I | `COMPLETE` | 10A | Toggleable, accessible, bounded asynchronous raw-path single/multi-selection facts in the usable final Miller column. |
 | General properties | `PLANNED` | 10C | Filename, exact path, type, MIME, size, and dates. |
 | Open With properties page | `PARTIAL` | 5D/10C | Chooser/default setting exists; integrated properties/association management does not. |
 | Owner/group/permissions | `PLANNED` | 10C-10D | Inspect first, then deliberate editing with partial-failure semantics. |
 | Symlink/broken-target properties | `PLANNED` | 10C | Show exact target and link status. |
 | Filesystem/mount information | `PLANNED` | 10C | Reuse generic desktop/location capability boundary. |
-| Multiple-selection aggregate properties | `PLANNED` | 10C | Counts, known/unknown bytes, shared/differing metadata. |
+| Multiple-selection aggregate properties | `PARTIAL` | 10A-10C | 10A provides bounded kind counts, known bytes, unknown sizes, overflow, and common parent; shared/differing rich properties remain planned. |
 | Recursive folder count/size | `PLANNED` | 10C | Asynchronous, cancellable, bounded, and never GTK-blocking. |
 | Image dimensions/EXIF | `PARTIAL` | 6F/10B | Thumbnail decoder observes image/orientation data, but no general metadata provider or UI exists. |
 | Media/audio metadata | `PLANNED` | 10F | Duration, artist, album, track, and safe provider policy. |
@@ -391,7 +391,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Copy checksum | `PLANNED` | 10E/11A | Reuse calculated value and central command registry. |
 | Checksum in Inspector/Properties | `PLANNED` | 10E | Do not calculate eagerly for every file. |
 | Tags/comments | `DEFERRED` | 19 | Requires an interoperable or clearly Floe-owned metadata model. |
-| Inspector width persistence | `PLANNED` | 10A/20 | Store through application preferences with clamping and reset. |
+| Inspector width persistence | `COMPLETE` | 10A | Independent 180–520 pixel width uses accessible controls and asynchronous version-4 preferences with version-3 migration. |
 
 ## Archives and batch productivity
 

@@ -51,6 +51,7 @@ const SPLIT_SNAPSHOT_CAPACITY: usize = 512;
 const MILLER_NAVIGATION_ACTIONS: [&str; 2] = ["win.miller-parent", "win.miller-child"];
 const MILLER_DETAIL_ACTIONS: [&str; 2] = ["miller-preview-hook", "miller-inspector-hook"];
 const QUICK_PREVIEW_ACCELERATOR: &str = "space";
+const INSPECTOR_ACCELERATOR: &str = "<Control>i";
 #[cfg(test)]
 const SPLIT_ACTION_NAMES: [&str; 10] = [
     "win.toggle-split",
@@ -181,6 +182,7 @@ use crate::{
         FileWatcher, RenamePair, ViewStateSnapshot, WatchBatch, batch_is_current,
         reconcile_view_state, scroll_anchor_index, watch_failure_message,
     },
+    inspector::{InspectorRequest, InspectorSubmitError, InspectorWorker},
     launcher,
     location_input::{
         PendingLocation, location_failure_message, location_text, resolve_location_input,
@@ -303,6 +305,7 @@ pub struct BrowserServices {
     browser: BrowserWorker,
     thumbnails: Option<ThumbnailWorker>,
     metadata: Option<MetadataWorker>,
+    inspector: Option<InspectorWorker>,
     preview: Option<PreviewWorker>,
     storage: Option<StorageWorker>,
     bookmarks: Option<BookmarkWorker>,
@@ -323,6 +326,7 @@ impl BrowserServices {
         browser: BrowserWorker,
         thumbnails: Option<ThumbnailWorker>,
         metadata: Option<MetadataWorker>,
+        inspector: Option<InspectorWorker>,
         preview: Option<PreviewWorker>,
         storage: Option<StorageWorker>,
         bookmarks: Option<BookmarkWorker>,
@@ -334,6 +338,7 @@ impl BrowserServices {
             browser,
             thumbnails,
             metadata,
+            inspector,
             preview,
             storage,
             bookmarks,
@@ -350,6 +355,8 @@ pub struct BrowserController {
     worker: RefCell<BrowserWorker>,
     thumbnail_worker: RefCell<Option<ThumbnailWorker>>,
     metadata_worker: RefCell<Option<MetadataWorker>>,
+    inspector_worker: RefCell<Option<InspectorWorker>>,
+    inspector_generation: Cell<u64>,
     preview_worker: RefCell<Option<PreviewWorker>>,
     preview_generation: Cell<u64>,
     storage_worker: RefCell<Option<StorageWorker>>,
@@ -442,6 +449,7 @@ impl BrowserController {
             browser,
             thumbnails,
             metadata,
+            inspector,
             preview,
             storage,
             bookmarks,
@@ -461,6 +469,8 @@ impl BrowserController {
             worker: RefCell::new(browser),
             thumbnail_worker: RefCell::new(thumbnails),
             metadata_worker: RefCell::new(metadata),
+            inspector_worker: RefCell::new(inspector),
+            inspector_generation: Cell::new(0),
             preview_worker: RefCell::new(preview),
             preview_generation: Cell::new(0),
             storage_worker: RefCell::new(storage),
@@ -1351,6 +1361,7 @@ impl BrowserController {
             controller.drain_thumbnail_worker();
             controller.submit_metadata_requests();
             controller.drain_metadata_worker();
+            controller.drain_inspector_worker();
             controller.drain_preview_worker();
             controller.drain_storage_worker();
             controller.flush_pending_preferences();
@@ -1617,6 +1628,14 @@ impl BrowserController {
             let width = controller.widgets.miller_view.width().wider();
             controller.set_miller_column_width(width);
         });
+        self.add_action("narrow-inspector", |controller| {
+            let width = controller.widgets.miller_view.detail_width().narrower();
+            controller.set_inspector_width(width);
+        });
+        self.add_action("widen-inspector", |controller| {
+            let width = controller.widgets.miller_view.detail_width().wider();
+            controller.set_inspector_width(width);
+        });
 
         let density = self.current_preferences.borrow().sidebar_density;
         let density_action = gio::SimpleAction::new_stateful(
@@ -1836,6 +1855,7 @@ impl BrowserController {
         application.set_accels_for_action("win.select-all", &["<Control>a"]);
         application.set_accels_for_action("win.clear-selection", &["<Control><Shift>a"]);
         application.set_accels_for_action("win.quick-preview", &[QUICK_PREVIEW_ACCELERATOR]);
+        application.set_accels_for_action("win.miller-inspector-hook", &[INSPECTOR_ACCELERATOR]);
         application.set_accels_for_action("win.new-tab", &["<Control>t"]);
         application.set_accels_for_action("win.close-tab-active", &["<Control>w"]);
         application.set_accels_for_action("win.reopen-closed-tab", &[REOPEN_CLOSED_ACCELERATOR]);
@@ -2688,6 +2708,13 @@ impl BrowserController {
         self.show_toast(&format!("Miller column width: {} pixels", width.get()), 3);
     }
 
+    fn set_inspector_width(&self, width: MillerColumnWidth) {
+        self.widgets.miller_view.set_detail_width(width);
+        self.current_preferences.borrow_mut().inspector_width = width;
+        self.queue_preferences();
+        self.show_toast(&format!("Inspector width: {} pixels", width.get()), 3);
+    }
+
     fn prepare_miller_for_current(&self) {
         if self.trash_active.get() {
             self.miller_model.borrow_mut().take();
@@ -2745,6 +2772,7 @@ impl BrowserController {
             &self.selected_entries.borrow(),
         );
         self.ensure_preview_request();
+        self.ensure_inspector_request();
         let detail = self.miller_detail.borrow().state().clone();
         let columns = self.miller_state.borrow().columns(model, &current);
         self.widgets
@@ -2871,6 +2899,78 @@ impl BrowserController {
                     .miller_detail
                     .borrow_mut()
                     .finish_preview(response.generation, response.outcome);
+            }
+        }
+        if changed && self.view_mode.get() == ViewMode::Miller {
+            self.render_miller();
+        }
+    }
+
+    fn ensure_inspector_request(&self) {
+        let target = match self.miller_detail.borrow().state() {
+            crate::miller_detail::MillerDetailState::Ready(target)
+                if target.surface() == MillerDetailSurface::Inspector =>
+            {
+                target.clone()
+            }
+            _ => return,
+        };
+        let generation = self.inspector_generation.get().wrapping_add(1).max(1);
+        self.inspector_generation.set(generation);
+        if !self
+            .miller_detail
+            .borrow_mut()
+            .begin_inspector_loading(generation)
+        {
+            return;
+        }
+        let request = match InspectorRequest::from_entries(
+            generation,
+            target.directory().to_path_buf(),
+            &self.selected_entries.borrow(),
+        ) {
+            Ok(request) => request,
+            Err(error) => {
+                self.miller_detail
+                    .borrow_mut()
+                    .finish_inspector(generation, Err(error));
+                return;
+            }
+        };
+        let worker = self.inspector_worker.borrow();
+        let Some(worker) = worker.as_ref() else {
+            self.miller_detail
+                .borrow_mut()
+                .finish_inspector_failure(generation, "Inspector worker unavailable.");
+            return;
+        };
+        if let Err(error) = worker.submit(request) {
+            let message = match error {
+                InspectorSubmitError::Full(_) => "Inspector queue busy.",
+                InspectorSubmitError::Disconnected => "Inspector worker unavailable.",
+            };
+            self.miller_detail
+                .borrow_mut()
+                .finish_inspector_failure(generation, message);
+        }
+    }
+
+    fn drain_inspector_worker(&self) {
+        let mut changed = false;
+        for _ in 0..crate::inspector::INSPECTOR_QUEUE_CAPACITY.min(8) {
+            let response = self
+                .inspector_worker
+                .borrow()
+                .as_ref()
+                .and_then(InspectorWorker::try_response);
+            let Some(response) = response else {
+                break;
+            };
+            if self.inspector_generation.get() == response.generation {
+                changed |= self
+                    .miller_detail
+                    .borrow_mut()
+                    .finish_inspector(response.generation, response.result);
             }
         }
         if changed && self.view_mode.get() == ViewMode::Miller {
@@ -6164,6 +6264,13 @@ mod tests {
         assert_eq!(WIDEN_PRIMARY_PANE_ACCELERATOR, "<Control><Alt>Right");
         assert_eq!(OPEN_OPPOSITE_ACCELERATOR, "<Control><Shift>Return");
         assert_ne!(COPY_OPPOSITE_ACCELERATOR, MOVE_OPPOSITE_ACCELERATOR);
+    }
+
+    #[test]
+    fn phase_10a_inspector_lifecycle_action_contract_is_keyboard_and_width_accessible() {
+        assert_eq!(INSPECTOR_ACCELERATOR, "<Control>i");
+        assert!(MILLER_DETAIL_ACTIONS.contains(&"miller-inspector-hook"));
+        assert_ne!("narrow-inspector", "widen-inspector");
     }
 
     #[test]

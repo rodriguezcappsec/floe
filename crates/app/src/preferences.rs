@@ -77,6 +77,7 @@ pub struct ViewPreferences {
     pub sidebar_density: SidebarDensity,
     pub sidebar_width: Option<u16>,
     pub miller_column_width: MillerColumnWidth,
+    pub inspector_width: MillerColumnWidth,
     pub file_density: FileViewDensity,
     pub sort: DirectorySort,
     pub columns: ListColumnLayout,
@@ -93,6 +94,7 @@ impl Default for ViewPreferences {
             sidebar_density: SidebarDensity::default(),
             sidebar_width: None,
             miller_column_width: MillerColumnWidth::default(),
+            inspector_width: MillerColumnWidth::default(),
             file_density: state.density,
             sort: state.sort,
             columns: state.columns,
@@ -191,6 +193,11 @@ impl ViewPreferences {
                         preferences.miller_column_width = MillerColumnWidth::new(width);
                     }
                 }
+                "inspector-width" => {
+                    if let Ok(width) = value.parse::<u16>() {
+                        preferences.inspector_width = MillerColumnWidth::new(width);
+                    }
+                }
                 "file-density" => {
                     if let Some(density) = FileViewDensity::from_persisted(value) {
                         preferences.file_density = density;
@@ -242,11 +249,12 @@ impl ViewPreferences {
 
     fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=3\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\n",
+            "version=4\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\n",
             self.mode.persisted(),
             self.grid_size.edge(),
             self.sidebar_density.persisted(),
             self.miller_column_width.get(),
+            self.inspector_width.get(),
             self.file_density.persisted(),
             self.sort.column.persisted(),
             self.sort.direction.persisted(),
@@ -566,13 +574,37 @@ mod tests {
         preferences.columns.set_visible(ListColumn::Mime, true);
         preferences.columns.set_width(ListColumn::Mime, 248);
         preferences.miller_column_width = MillerColumnWidth::new(360);
+        preferences.inspector_width = MillerColumnWidth::new(420);
         preferences.remember_per_folder = true;
 
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=3\n"));
+        assert!(serialized.starts_with("version=4\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
+        assert!(serialized.contains("inspector-width=420\n"));
+    }
+
+    #[test]
+    fn phase_10a_inspector_preferences_clamp_persist_and_migrate_version_three() {
+        let legacy = ViewPreferences::parse("version=3\nmiller-column-width=360\n");
+        assert_eq!(legacy.miller_column_width, MillerColumnWidth::new(360));
+        assert_eq!(legacy.inspector_width, MillerColumnWidth::default());
+
+        let narrow = ViewPreferences::parse("version=4\ninspector-width=1\n");
+        assert_eq!(narrow.inspector_width, MillerColumnWidth::new(1));
+        let wide = ViewPreferences::parse("version=4\ninspector-width=65535\n");
+        assert_eq!(wide.inspector_width, MillerColumnWidth::new(u16::MAX));
+
+        let mut preferences = legacy;
+        preferences.inspector_width = MillerColumnWidth::new(440);
+        let serialized = preferences.serialize();
+        assert!(serialized.starts_with("version=4\n"));
+        assert!(serialized.contains("inspector-width=440\n"));
+        assert_eq!(
+            ViewPreferences::parse(&serialized).inspector_width,
+            MillerColumnWidth::new(440)
+        );
     }
 
     #[cfg(unix)]

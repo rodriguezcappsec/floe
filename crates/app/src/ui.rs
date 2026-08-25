@@ -2721,6 +2721,7 @@ fn build_directory_panel(
         drop_dispatcher,
     );
     miller_view.set_width(preferences.miller_column_width);
+    miller_view.set_detail_width(preferences.inspector_width);
     let view_stack = gtk::Stack::new();
     view_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
     view_stack.add_named(&list_scroller, Some("list"));

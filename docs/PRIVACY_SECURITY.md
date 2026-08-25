@@ -401,6 +401,23 @@ Sandbox setup failure stops Open Safely. A user may separately choose normal Ope
 
 Child processes, D-Bus and session-bus access, portals, file chooser grants, downloads, save and export behavior, and cleanup require tests. An unsupported application is reported unsupported, not sandboxed.
 
+## Inspector selection facts
+
+Status: **IMPLEMENTED through Phase 10A foundation only**.
+
+The Inspector foundation aggregates only metadata already held by the current
+successful directory listing: exact selected paths, entry kinds, known byte
+sizes, unknown-size count, overflow state, and common parent. Its fixed-capacity
+worker performs no new filesystem reads, recursion, content parsing, network
+access, or execution. Results are memory-only and generation-bound so a stale
+selection result cannot replace current Inspector state.
+
+The versioned preference file stores only the independently clamped Inspector
+column width. It does not store selected paths, aggregate facts, or Inspector
+history. Rich metadata providers, privacy findings, permission inspection,
+checksums, and all property edits remain later phases and must not be inferred
+from this read-only foundation.
+
 ## Suspicious files and metadata privacy
 
 Status: **PLANNED**.

@@ -38,6 +38,10 @@ impl MillerDetailTarget {
         self.surface
     }
 
+    pub fn directory(&self) -> &std::path::Path {
+        &self.directory
+    }
+
     pub fn paths(&self) -> &[PathBuf] {
         &self.paths
     }
@@ -55,9 +59,17 @@ pub enum MillerDetailState {
         target: MillerDetailTarget,
         request_generation: u64,
     },
+    InspectorLoading {
+        target: MillerDetailTarget,
+        request_generation: u64,
+    },
     Provided {
         target: MillerDetailTarget,
         payload: crate::preview::PreviewPayload,
+    },
+    Inspected {
+        target: MillerDetailTarget,
+        facts: crate::inspector::InspectorFacts,
     },
     Unsupported {
         surface: MillerDetailSurface,
@@ -80,7 +92,15 @@ impl MillerDetailState {
                 target: MillerDetailTarget { surface, .. },
                 ..
             }
+            | Self::InspectorLoading {
+                target: MillerDetailTarget { surface, .. },
+                ..
+            }
             | Self::Provided {
+                target: MillerDetailTarget { surface, .. },
+                ..
+            }
+            | Self::Inspected {
                 target: MillerDetailTarget { surface, .. },
                 ..
             }
@@ -140,6 +160,12 @@ impl From<&MillerDetailState> for MillerDetailPresentation {
                 message: "Loading Preview…".to_owned(),
                 accessible_description:
                     "Quick Preview is loading in a bounded background provider.".to_owned(),
+            },
+            MillerDetailState::InspectorLoading { target, .. } => Self {
+                title: target.surface().title(),
+                message: "Collecting selection facts…".to_owned(),
+                accessible_description:
+                    "Inspector is aggregating bounded selection facts in the background.".to_owned(),
             },
             MillerDetailState::Provided { target, payload } => Self {
                 title: target.surface().title(),
@@ -218,6 +244,29 @@ impl From<&MillerDetailState> for MillerDetailPresentation {
                     payload.provider_id
                 ),
             },
+            MillerDetailState::Inspected { target, facts } => Self {
+                title: target.surface().title(),
+                message: format!(
+                    "{} selected\n{} files, {} folders, {} links, {} other\n{} known bytes; {} unknown sizes\nCommon parent: {}{}",
+                    facts.selection_count(),
+                    facts.regular_files,
+                    facts.directories,
+                    facts.symbolic_links,
+                    facts.other_entries,
+                    facts.known_bytes,
+                    facts.unknown_sizes,
+                    facts.common_parent.to_string_lossy(),
+                    if facts.bytes_overflowed {
+                        " (total overflowed)"
+                    } else {
+                        ""
+                    }
+                ),
+                accessible_description: format!(
+                    "Read-only Inspector summary for {} selected items.",
+                    facts.selection_count()
+                ),
+            },
             MillerDetailState::Unsupported { surface, reason } => Self {
                 title: surface.title(),
                 message: (*reason).to_owned(),
@@ -257,6 +306,70 @@ impl MillerDetailHooks {
         self.state = MillerDetailState::Loading {
             target: target.clone(),
             request_generation,
+        };
+        true
+    }
+
+    pub fn begin_inspector_loading(&mut self, request_generation: u64) -> bool {
+        let MillerDetailState::Ready(target) = &self.state else {
+            return false;
+        };
+        if target.surface != MillerDetailSurface::Inspector || request_generation == 0 {
+            return false;
+        }
+        self.state = MillerDetailState::InspectorLoading {
+            target: target.clone(),
+            request_generation,
+        };
+        true
+    }
+
+    pub fn finish_inspector(
+        &mut self,
+        request_generation: u64,
+        result: Result<crate::inspector::InspectorFacts, crate::inspector::InspectorRequestError>,
+    ) -> bool {
+        let MillerDetailState::InspectorLoading {
+            target,
+            request_generation: current,
+        } = &self.state
+        else {
+            return false;
+        };
+        if *current != request_generation {
+            return false;
+        }
+        self.state = match result {
+            Ok(facts) => MillerDetailState::Inspected {
+                target: target.clone(),
+                facts,
+            },
+            Err(error) => MillerDetailState::Failed {
+                surface: MillerDetailSurface::Inspector,
+                message: error.to_string(),
+            },
+        };
+        true
+    }
+
+    pub fn finish_inspector_failure(
+        &mut self,
+        request_generation: u64,
+        message: impl Into<String>,
+    ) -> bool {
+        let MillerDetailState::InspectorLoading {
+            request_generation: current,
+            ..
+        } = &self.state
+        else {
+            return false;
+        };
+        if *current != request_generation {
+            return false;
+        }
+        self.state = MillerDetailState::Failed {
+            surface: MillerDetailSurface::Inspector,
+            message: message.into(),
         };
         true
     }
@@ -387,7 +500,9 @@ impl MillerDetailHooks {
         let current = match &self.state {
             MillerDetailState::Ready(target)
             | MillerDetailState::Loading { target, .. }
-            | MillerDetailState::Provided { target, .. } => Some(target),
+            | MillerDetailState::InspectorLoading { target, .. }
+            | MillerDetailState::Provided { target, .. }
+            | MillerDetailState::Inspected { target, .. } => Some(target),
             _ => None,
         };
         if current.is_some_and(|current| {
@@ -429,7 +544,7 @@ mod tests {
             .into_entries()
             .into_iter()
             .map(Arc::new)
-            .collect();
+            .collect::<Vec<_>>();
         (root, entries, raw)
     }
 
@@ -524,6 +639,60 @@ mod tests {
                 .message
                 .contains("No Preview provider")
         );
+    }
+
+    #[test]
+    fn phase_10a_inspector_lifecycle_rejects_stale_and_presents_read_only_multi_selection() {
+        let (root, _, raw) = fixture_entries();
+        let second = root.path().join("second.bin");
+        fs::write(&second, b"12").expect("second fixture");
+        let entries = floe_core::enumerate_directory(root.path())
+            .expect("listing")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>();
+        let mut hooks = MillerDetailHooks::default();
+        hooks.toggle(
+            MillerDetailSurface::Inspector,
+            Some(1),
+            root.path().to_path_buf(),
+            &entries,
+        );
+        assert!(hooks.begin_inspector_loading(71));
+        let facts = crate::inspector::InspectorFacts {
+            selection_paths: entries
+                .iter()
+                .map(|entry| entry.path().to_path_buf())
+                .collect::<Vec<_>>()
+                .into(),
+            regular_files: 2,
+            directories: 0,
+            symbolic_links: 0,
+            other_entries: 0,
+            known_bytes: 9,
+            unknown_sizes: 0,
+            bytes_overflowed: false,
+            common_parent: root.path().to_path_buf(),
+        };
+        assert!(!hooks.finish_inspector(70, Ok(facts.clone())));
+        assert!(matches!(
+            hooks.state(),
+            MillerDetailState::InspectorLoading { .. }
+        ));
+        assert!(hooks.finish_inspector(71, Ok(facts)));
+        let MillerDetailState::Inspected { target, .. } = hooks.state() else {
+            panic!("Inspector facts ready");
+        };
+        assert_eq!(target.paths().len(), 2);
+        assert!(target.paths().contains(&raw));
+        let presentation = MillerDetailPresentation::from(hooks.state());
+        assert!(presentation.message.contains("2 selected"));
+        assert!(presentation.accessible_description.contains("Read-only"));
+        hooks.refresh(Some(1), root.path().to_path_buf(), &entries);
+        assert!(matches!(hooks.state(), MillerDetailState::Inspected { .. }));
+        hooks.refresh(Some(1), root.path().to_path_buf(), &[]);
+        assert!(matches!(hooks.state(), MillerDetailState::Empty { .. }));
     }
 
     #[test]
