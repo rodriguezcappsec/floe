@@ -21,6 +21,7 @@ pub mod move_executor;
 mod operation_control;
 mod operations;
 mod permanent_delete_executor;
+mod permission_executor;
 mod preferences;
 pub mod preview;
 mod properties;

@@ -9,8 +9,8 @@ use std::{
 
 use floe_core::{
     ConflictPolicy, CopyRequest, CreateKind, CreateRequest, CreateRequestError, JobEvent, JobId,
-    MoveRequest, OperationId, PermanentDeleteRequest, PermanentDeleteRequestError, RenameRequest,
-    RestoreRequest, RestoreRequestError, SymlinkPolicy,
+    MoveRequest, OperationId, PermanentDeleteRequest, PermanentDeleteRequestError,
+    PermissionRequest, RenameRequest, RestoreRequest, RestoreRequestError, SymlinkPolicy,
 };
 use thiserror::Error;
 
@@ -31,6 +31,10 @@ use crate::{
     permanent_delete_executor::{
         PermanentDeleteCancelError, PermanentDeleteExecutor, PermanentDeleteExecutorSpawnError,
         PermanentDeleteSubmission, PermanentDeleteSubmitError,
+    },
+    permission_executor::{
+        PermissionExecutor, PermissionExecutorSpawnError, PermissionSubmission,
+        PermissionSubmitError,
     },
     restore_executor::{
         RestoreCancelError, RestoreExecutor, RestoreExecutorSpawnError, RestoreSubmission,
@@ -478,6 +482,8 @@ pub enum CopyInteractionError {
     RestoreSubmit(#[from] RestoreSubmitError),
     #[error(transparent)]
     RestoreCancel(#[from] RestoreCancelError),
+    #[error("permission cancellation failed: {0}")]
+    PermissionCancel(String),
     #[error("terminal operation history does not contain job {0:?}")]
     RetryNotFound(JobId),
     #[error("completed job {0:?} cannot be retried")]
@@ -519,6 +525,8 @@ pub enum ApplicationStateSpawnError {
     #[error(transparent)]
     PermanentDelete(#[from] PermanentDeleteExecutorSpawnError),
     #[error(transparent)]
+    Permission(#[from] PermissionExecutorSpawnError),
+    #[error(transparent)]
     Restore(#[from] RestoreExecutorSpawnError),
 }
 
@@ -531,9 +539,11 @@ pub struct ApplicationState {
     move_executor: MoveExecutor,
     trash_executor: TrashExecutor,
     permanent_delete_executor: PermanentDeleteExecutor,
+    permission_executor: PermissionExecutor,
     restore_executor: RestoreExecutor,
     transfer_buffer: RefCell<TransferBuffer>,
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
+    permission_requests: RefCell<HashMap<JobId, PermissionRequest>>,
     terminal_history: RefCell<VecDeque<TerminalOperation>>,
     resolved_conflicts: RefCell<HashSet<JobId>>,
     resolved_undos: RefCell<HashSet<JobId>>,
@@ -552,6 +562,7 @@ impl ApplicationState {
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
         let trash_executor = TrashExecutor::spawn(Arc::clone(&jobs))?;
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
+        let permission_executor = PermissionExecutor::spawn(Arc::clone(&jobs))?;
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
@@ -560,9 +571,11 @@ impl ApplicationState {
             move_executor,
             trash_executor,
             permanent_delete_executor,
+            permission_executor,
             restore_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
+            permission_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
             resolved_undos: RefCell::new(HashSet::new()),
@@ -854,6 +867,31 @@ impl ApplicationState {
         self.operation_requests.borrow().get(&job_id).cloned()
     }
 
+    pub fn permission_affected_directories(&self, job_id: JobId) -> Vec<PathBuf> {
+        let requests = self.permission_requests.borrow();
+        let Some(request) = requests.get(&job_id) else {
+            return Vec::new();
+        };
+        let mut directories = Vec::new();
+        for target in request.targets() {
+            if let Some(parent) = target.parent() {
+                let parent = parent.to_path_buf();
+                if !directories.contains(&parent) {
+                    directories.push(parent);
+                }
+            }
+        }
+        directories
+    }
+
+    pub fn is_permission_operation(&self, job_id: JobId) -> bool {
+        self.permission_requests.borrow().contains_key(&job_id)
+    }
+
+    pub fn finish_permission(&self, job_id: JobId) {
+        self.permission_requests.borrow_mut().remove(&job_id);
+    }
+
     pub fn submit_trash(&self, source: PathBuf) -> Result<TrashSubmission, CopyInteractionError> {
         let request = TrashRequest::new(source)?;
         match self.trash_executor.submit_trash(request.clone()) {
@@ -888,6 +926,28 @@ impl ApplicationState {
                     self.track(job_id, TrackedOperation::PermanentDelete(request));
                 }
                 Err(error.into())
+            }
+        }
+    }
+
+    pub fn submit_permissions(
+        &self,
+        request: PermissionRequest,
+    ) -> Result<PermissionSubmission, PermissionSubmitError> {
+        match self.permission_executor.submit(request.clone()) {
+            Ok(submission) => {
+                self.permission_requests
+                    .borrow_mut()
+                    .insert(submission.job_id(), request);
+                Ok(submission)
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.permission_requests
+                        .borrow_mut()
+                        .insert(job_id, request);
+                }
+                Err(error)
             }
         }
     }
@@ -1817,6 +1877,12 @@ impl ApplicationState {
     }
 
     pub fn cancel_operation(&self, job_id: JobId) -> Result<(), CopyInteractionError> {
+        if self.permission_requests.borrow().contains_key(&job_id) {
+            self.permission_executor
+                .cancel(job_id)
+                .map_err(|error| CopyInteractionError::PermissionCancel(error.to_string()))?;
+            return Ok(());
+        }
         match self.operation_request(job_id) {
             Some(TrackedOperation::Copy(_)) => self.copy_executor.cancel(job_id)?,
             Some(TrackedOperation::Create(_)) => self.create_executor.cancel(job_id)?,
@@ -1857,6 +1923,7 @@ impl ApplicationState {
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
         let trash_executor = TrashExecutor::spawn_with_backend(Arc::clone(&jobs), 8, backend)?;
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
+        let permission_executor = PermissionExecutor::spawn(Arc::clone(&jobs))?;
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
@@ -1865,9 +1932,11 @@ impl ApplicationState {
             move_executor,
             trash_executor,
             permanent_delete_executor,
+            permission_executor,
             restore_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
+            permission_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
             resolved_undos: RefCell::new(HashSet::new()),
@@ -1995,7 +2064,9 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use floe_core::{CopyCancellation, JobEventKind, JobFailureKind, JobState};
+    use floe_core::{
+        CopyCancellation, JobEventKind, JobFailureKind, JobState, PermissionChange, PermissionScope,
+    };
     use tempfile::tempdir;
 
     use super::*;
@@ -2016,6 +2087,38 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    #[test]
+    fn phase_10d_permission_state_tracks_lifecycle_and_affected_parent() {
+        let fixture = tempdir().expect("fixture");
+        let target = fixture.path().join("item");
+        fs::write(&target, b"floe").expect("target");
+        let request = PermissionRequest::new(
+            vec![target.clone()],
+            PermissionScope::Direct,
+            PermissionChange::new(Some(0o600), None, None, None, None).expect("change"),
+        )
+        .expect("request");
+        let state = ApplicationState::new().expect("application state");
+        let submission = state.submit_permissions(request).expect("submission");
+        assert_eq!(
+            state.permission_affected_directories(submission.job_id()),
+            vec![fixture.path().to_path_buf()]
+        );
+        assert_eq!(
+            wait_for_terminal(&state, submission.job_id()),
+            JobState::Completed
+        );
+        assert!(state.drain_job_events().iter().any(|event| {
+            event.job_id() == submission.job_id() && event.kind() == &JobEventKind::Completed
+        }));
+        state.finish_permission(submission.job_id());
+        assert!(
+            state
+                .permission_affected_directories(submission.job_id())
+                .is_empty()
+        );
     }
 
     #[test]

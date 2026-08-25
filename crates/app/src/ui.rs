@@ -666,7 +666,22 @@ pub struct OpenWithDialogWidgets {
 pub struct PropertiesDialogWidgets {
     pub dialog: adw::Dialog,
     pub open_with_button: gtk::Button,
+    pub edit_permissions_button: gtk::Button,
     pub close_button: gtk::Button,
+}
+
+pub struct PermissionDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub file_mode_entry: gtk::Entry,
+    pub directory_mode_entry: gtk::Entry,
+    pub executable_dropdown: gtk::DropDown,
+    pub owner_entry: gtk::Entry,
+    pub group_entry: gtk::Entry,
+    pub recursive_check: gtk::CheckButton,
+    pub acknowledge_check: gtk::CheckButton,
+    pub error_label: gtk::Label,
+    pub cancel_button: gtk::Button,
+    pub apply_button: gtk::Button,
 }
 
 pub struct ConflictDialogWidgets {
@@ -2067,9 +2082,27 @@ pub fn build_properties_dialog(
     open_with_button.set_sensitive(presentation.open_with_available);
     open_with_button.set_halign(gtk::Align::Start);
     content.append(&open_with_button);
+    let permissions_heading = gtk::Label::builder()
+        .label("Permissions")
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .build();
+    permissions_heading.add_css_class("heading");
+    content.append(&permissions_heading);
+    let edit_permissions_button = gtk::Button::with_label(if presentation.permissions.editable {
+        "Edit Permissions…"
+    } else {
+        "Unavailable for this selection"
+    });
+    edit_permissions_button.set_sensitive(presentation.permissions.editable);
+    edit_permissions_button.set_halign(gtk::Align::Start);
+    edit_permissions_button.set_tooltip_text(Some(
+        "Change Unix modes or ownership through a bounded background job",
+    ));
+    content.append(&edit_permissions_button);
     let note = gtk::Label::builder()
         .label(
-            "Read-only properties. No permissions, ownership, names, or file contents are changed.",
+            "Viewing Properties is read-only. Permission changes require Edit Permissions and explicit Apply.",
         )
         .halign(gtk::Align::Start)
         .wrap(true)
@@ -2096,7 +2129,154 @@ pub fn build_properties_dialog(
     PropertiesDialogWidgets {
         dialog,
         open_with_button,
+        edit_permissions_button,
         close_button,
+    }
+}
+
+pub fn build_permission_dialog(
+    defaults: &crate::properties::PermissionDefaults,
+) -> PermissionDialogWidgets {
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(20)
+        .margin_bottom(20)
+        .margin_start(20)
+        .margin_end(20)
+        .build();
+    let heading = gtk::Label::builder()
+        .label(format!(
+            "Edit permissions for {} item{}",
+            defaults.targets.len(),
+            if defaults.targets.len() == 1 { "" } else { "s" }
+        ))
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    heading.add_css_class("title-2");
+    content.append(&heading);
+    let explanation = gtk::Label::builder()
+        .label("Leave a field blank to keep it unchanged. Modes are octal. Local owner/group names are resolved by the background worker. Symbolic links and mount crossings are never followed.")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    explanation.add_css_class("floe-status");
+    content.append(&explanation);
+
+    let add_entry = |label: &str, placeholder: String, sensitive: bool| {
+        let row = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(12)
+            .build();
+        let row_label = gtk::Label::builder()
+            .label(label)
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .width_chars(18)
+            .build();
+        let entry = gtk::Entry::builder()
+            .placeholder_text(placeholder)
+            .hexpand(true)
+            .sensitive(sensitive)
+            .build();
+        entry.update_property(&[gtk::accessible::Property::Label(label)]);
+        row.append(&row_label);
+        row.append(&entry);
+        content.append(&row);
+        entry
+    };
+    let file_mode_entry = add_entry(
+        "File mode",
+        defaults.common_file_mode.map_or_else(
+            || "No change".to_owned(),
+            |mode| format!("Current {:04o}", mode),
+        ),
+        defaults.has_files,
+    );
+    let directory_mode_entry = add_entry(
+        "Directory mode",
+        defaults.common_directory_mode.map_or_else(
+            || "No change".to_owned(),
+            |mode| format!("Current {:04o}", mode),
+        ),
+        defaults.has_directories,
+    );
+    let executable_dropdown = gtk::DropDown::from_strings(&[
+        "Keep executable bits",
+        "Make files executable",
+        "Remove executable bits",
+    ]);
+    executable_dropdown
+        .update_property(&[gtk::accessible::Property::Label("Executable file bits")]);
+    content.append(&executable_dropdown);
+    let owner_entry = add_entry(
+        "Owner",
+        defaults.common_uid.map_or_else(
+            || "UID or local name".to_owned(),
+            |uid| format!("Current UID {uid}"),
+        ),
+        true,
+    );
+    let group_entry = add_entry(
+        "Group",
+        defaults.common_gid.map_or_else(
+            || "GID or local name".to_owned(),
+            |gid| format!("Current GID {gid}"),
+        ),
+        true,
+    );
+    let recursive_check = gtk::CheckButton::with_label(
+        "Apply recursively to selected folders (bounded, no mount crossings)",
+    );
+    recursive_check.set_sensitive(defaults.has_directories);
+    content.append(&recursive_check);
+    let acknowledge_check = gtk::CheckButton::with_label(
+        "I understand recursive or ownership changes can partially commit before an error",
+    );
+    content.append(&acknowledge_check);
+    let error_label = gtk::Label::builder()
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    error_label.add_css_class("error");
+    error_label.update_property(&[gtk::accessible::Property::Label(
+        "Permission validation message",
+    )]);
+    content.append(&error_label);
+    let actions = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::End)
+        .build();
+    let cancel_button = gtk::Button::with_label("Cancel");
+    let apply_button = gtk::Button::with_label("Apply");
+    apply_button.add_css_class("destructive-action");
+    actions.append(&cancel_button);
+    actions.append(&apply_button);
+    content.append(&actions);
+    let dialog = adw::Dialog::builder()
+        .title("Edit Permissions")
+        .content_width(600)
+        .content_height(620)
+        .child(&content)
+        .build();
+    dialog.update_property(&[gtk::accessible::Property::Label("Edit Permissions")]);
+    PermissionDialogWidgets {
+        dialog,
+        file_mode_entry,
+        directory_mode_entry,
+        executable_dropdown,
+        owner_entry,
+        group_entry,
+        recursive_check,
+        acknowledge_check,
+        error_label,
+        cancel_button,
+        apply_button,
     }
 }
 
@@ -4145,6 +4325,19 @@ mod tests {
             }],
             selection_count: 2,
             open_with_available: false,
+            permissions: crate::properties::PermissionDefaults {
+                targets: std::sync::Arc::from([
+                    std::path::PathBuf::from("/tmp/a"),
+                    std::path::PathBuf::from("/tmp/b"),
+                ]),
+                common_file_mode: Some(0o644),
+                common_directory_mode: None,
+                common_uid: Some(1000),
+                common_gid: Some(1000),
+                has_files: true,
+                has_directories: false,
+                editable: true,
+            },
         };
         assert_eq!(presentation.selection_count, 2);
         assert!(!presentation.open_with_available);

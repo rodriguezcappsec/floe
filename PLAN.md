@@ -1,23 +1,16 @@
-# Plan: Floe Phase 10C — Properties
+# Plan: Floe Phase 10D — Permissions
 
 ## Contract
 
-- Add a native, accessible, read-only Properties surface for exact current selection.
-- Present General facts from Phase 10B: exact display path identity, kind, MIME, known size, dates, link state, dimensions, and immediate non-recursive folder facts.
-- Present truthful multi-selection common/differing/unknown summaries without inventing shared values.
-- Reuse existing asynchronous GIO Open With discovery and explicit set-default action; launching and association changes remain deliberate and separate.
-- Add bounded asynchronous filesystem/mount facts for the exact local selection/common parent: filesystem type, total/free space, read-only state, and mount root when available.
-- Calculate explicitly requested recursive selected-folder item/known-byte totals on the same cancellable bounded worker, never following symbolic links or crossing the entry cap silently.
-- Keep GTK responsive; callbacks submit application work and render returned owned facts only.
-- Preserve raw `PathBuf`/`OsString` identity, stale-generation rejection, no-follow source rules, and memory-only property state.
-- Exclude Phase 10D mode/owner/group edits, root-process elevation, ACL/xattr changes, checksums, EXIF/media tags, and persistent property history.
+- Add explicit Properties-driven editing of executable state and Unix mode bits on exact selected local entries.
+- Add deliberate owner/group editing using numeric UID/GID and validated local-name resolution; never elevate the whole Floe process.
+- Represent direct and recursive changes as typed application jobs with whole-request no-follow preflight, fixed capacity, progress, cancellation before commit, and explicit partial-failure evidence after commit.
+- Preserve exact `PathBuf` identity and refuse roots, mount crossings, replaced entries, and implicit symbolic-link following.
+- Recursive policy must be opt-in, visibly scoped, bounded, and apply mode semantics separately to files and directories.
+- Reuse the Operations Island lifecycle and refresh affected parents; GTK callbacks submit commands and never mutate the filesystem.
+- Present current Phase 10B UID/GID/mode before editing, validate octal mode and owner/group input inline, and require explicit confirmation for recursive or ownership changes.
+- Exclude ACL/xattr/capability/immutable editing, polkit/admin browsing, whole-process root, checksums, and future metadata work.
 
 ## Status
 
-COMPLETE on `phase-10c-properties`.
-
-Implemented native read-only Properties over one capacity-8 stale-safe worker,
-shared Phase 10B facts, containing GIO filesystem/mount facts, and capped
-descriptor-relative recursive folder totals. Focused tests, strict checks, 382
-tests, native build, diff hygiene, and live Wayland action/dialog/health/clean
-quit passed. Phase 10D is the sole recommended next phase.
+COMPLETE and verified on `phase-10d-permissions`. The sole recommended next phase is 10E Checksums; do not begin Phase 10F advanced metadata with it.

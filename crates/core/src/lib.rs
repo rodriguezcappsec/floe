@@ -10,6 +10,7 @@ mod model;
 mod move_operation;
 mod navigation;
 mod permanent_delete;
+mod permissions;
 mod session;
 mod sorting;
 mod split;
@@ -45,6 +46,10 @@ pub use navigation::NavigationState;
 pub use permanent_delete::{
     PermanentDeleteError, PermanentDeleteOutcome, PermanentDeleteProgress, PermanentDeleteRequest,
     PermanentDeleteRequestError, execute_permanent_delete,
+};
+pub use permissions::{
+    PERMISSION_IDENTITY_NAME_CAPACITY, PERMISSION_TARGET_CAPACITY, PermissionChange,
+    PermissionIdentity, PermissionRequest, PermissionRequestError, PermissionScope,
 };
 pub use session::{
     BrowserSession, BrowserSessionId, SESSION_HISTORY_CAPACITY, SESSION_MAX_PATH_BYTES,
