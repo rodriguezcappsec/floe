@@ -195,6 +195,14 @@ link operations therefore retain existing FIFO, conflict, cancellation, and
 no-overwrite semantics. The inactive pane owns no enumerator, watcher, job
 executor, or hover-navigation timer.
 
+Phase 8A adds GTK-independent `miller.rs` in `floe-core`. `MillerColumnModel`
+stores only a bounded `VecDeque` of exact directory paths, selected direct-child
+paths, stable logical depths, and active depth. It validates path and chain
+invariants and reconciles caller-supplied rename/delete events without touching
+the filesystem. It deliberately owns no `DirectoryEntry`, listing cache,
+enumerator, worker, widget, GIO, compositor, or persistence dependency; Phase 8B
+must bind existing directory results rather than duplicate them in this model.
+
 
 ### `application.rs` and `main.rs`
 

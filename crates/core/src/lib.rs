@@ -5,6 +5,7 @@ mod create_operation;
 mod directory;
 mod error;
 mod jobs;
+mod miller;
 mod model;
 mod move_operation;
 mod navigation;
@@ -30,6 +31,10 @@ pub use jobs::{
     InvalidJobProgress, JobCommand, JobCommandKind, JobEvent, JobEventKind, JobFailure,
     JobFailureKind, JobId, JobProgress, JobRecord, JobState, JobTransitionError, OperationId,
     ProgressUnit,
+};
+pub use miller::{
+    MILLER_COLUMN_CAPACITY, MillerChildKind, MillerColumn, MillerColumnDepth, MillerColumnModel,
+    MillerReconcileTransition, MillerSelectionTransition, MillerStateError,
 };
 pub use model::{DirectoryEntry, DirectoryListing, EntryKind, ThumbnailState, TrashMetadata};
 pub use move_operation::{
