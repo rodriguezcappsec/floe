@@ -2,6 +2,7 @@ mod appearance;
 mod application;
 mod bookmarks;
 mod browser;
+mod clipboard;
 pub mod copy_executor;
 mod devices;
 mod iconography;

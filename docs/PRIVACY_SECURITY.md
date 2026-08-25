@@ -2,7 +2,7 @@
 
 Status: authoritative design and threat model. Most capabilities in this document are **PLANNED**, not implemented. This document does not select a cryptographic format, cryptographic library, vault backend, or sandbox mechanism.
 
-Last reviewed against the repository: `2026-08-24`, after Phase 6K2.
+Last reviewed against the repository: `2026-08-24`, after Phase 6O.
 
 ## Status vocabulary and claim discipline
 
@@ -21,7 +21,7 @@ Security state must use text and accessible semantics, never color alone. A fail
 - Floe runs as the calling desktop user. It does not run its GTK process as root and does not expose `Open as Administrator...` today.
 - The Cargo workspace forbids Rust `unsafe` code. The core crate is GTK-independent, and filesystem work stays out of GTK callbacks.
 - Filesystem identities retain `PathBuf` and `OsString`. Lossy display labels are not reconstructed into operation targets. GIO launches receive a URI created from the exact local path.
-- Directory enumeration uses `symlink_metadata`. Copy has an explicit preserve-or-reject symlink policy. Same-filesystem move and rename use `RENAME_NOREPLACE`, so a conflict cannot overwrite an existing target.
+- Directory enumeration uses `symlink_metadata`. Copy has an explicit preserve-or-reject symlink policy. Same-filesystem move and rename use `RENAME_NOREPLACE`, so a conflict cannot overwrite an existing target. Phase 6O cross-filesystem move copies to a hidden sibling, revalidates exact no-follow source identity, atomically publishes without overwrite, synchronizes the destination parent, and classifies post-commit source-cleanup failure as non-retryable partial completion.
 - Copy, move, rename, Trash, restore, and permanent deletion use bounded application-owned executors, structured job state, cooperative cancellation, and explicit terminal failures. Copy tracks newly created destinations for best-effort cleanup after failure. Trash delegates to GIO rather than a shell command. Permanent deletion uses a validated exact-path batch, full no-follow preflight, root/mount refusal, postorder removal, and device/inode/kind revalidation without shelling out.
 - Permanent deletion requires an explicit safe-focus confirmation showing escaped exact target labels. Cancellation is confirmed only before the first removal; after commit, completion or exact partial failure is reported. Partial deletion is non-retryable and no undo or secure-erasure claim is made.
 - Phase 6N local Trash metadata is treated as untrusted input. Floe bounds
@@ -38,9 +38,17 @@ Security state must use text and accessible semantics, never color alone. A fail
 - The freedesktop thumbnail cache validates URI, modification time, size, and Floe's nanosecond marker. Floe uses private cache directories, `0600` files, atomic writes, and ownership markers. MD5 is only the freedesktop cache filename convention; it is not an integrity mechanism.
 - Bookmarks retain exact path bytes and use bounded asynchronous atomic persistence with `0700` directories and `0600` files. View preferences use asynchronous atomic `0600` file writes.
 - Password-protected device mounting uses a window-parented `GtkMountOperation`. The desktop and GIO own the prompt and credential exchange. Floe code does not receive, persist, log, or pass the password on a command line.
-- Floe's copy/cut buffer is application-internal and memory-only. Terminal operation history is bounded and memory-only. Neither is a system clipboard privacy feature or a persistent audit journal.
+- Floe's exact-path transfer buffer and terminal operation history are bounded and memory-only. Phase 6O also publishes selected local file URIs to the desktop clipboard using standard GNOME/KDE-compatible formats. Clipboard managers, desktop services, and other applications may retain those paths after Floe changes or exits; this is interoperability, not a privacy feature or audit journal.
 
 ### PARTIAL or absent protections
+
+- Phase 6O preserves regular-file/directory mode and access/modification times,
+  but does not claim ownership, ACL, xattr, capability, security-label, sparse,
+  reflink, or symlink-metadata preservation. Destination-space preflight is a
+  point-in-time `statvfs` comparison, not reserved capacity. Staged
+  cross-filesystem publication reduces data-loss risk but is not persistent
+  interrupted-operation recovery, content verification, or a durable
+  transaction; Phase 18V owns Copy Verify and Phase 18Y owns recovery journals.
 
 - Persistent thumbnails contain derived pixels and standard `Thumb::URI` source metadata. File permissions reduce cross-account exposure, but another process running as the same user, a backup, or a copied cache can read them. Sensitive Folder, vault, and Private Mode cache policies do not exist yet.
 - Structured tracing exists, but there is no comprehensive path-redaction or private-session logging policy. Some structured errors may include paths. Floe cannot currently claim privacy-safe logging.
@@ -256,7 +264,12 @@ Sensitive, vault, and Private operations default to generic notifications withou
 
 Floe never auto-copies passwords or private key material. Copying recovery material requires an explicit action and warning. Replacing Floe-owned secret clipboard data after a timeout is best effort; clipboard managers and other applications may already retain it. “Erased from clipboard” is therefore prohibited.
 
-The internal file transfer buffer contains exact paths, not file contents. Future Sensitive and Private policy must clear or visibly scope it.
+The internal file transfer buffer contains exact paths, not file contents.
+Phase 6O's interoperable desktop clipboard contains local file URIs, which still
+reveal names and locations and may be retained by clipboard managers or other
+applications. Floe clears a cut clipboard after it queues the move as a
+best-effort lifecycle action, never as an erasure claim. Future Sensitive and
+Private policy must clear or visibly scope both internal and desktop state.
 
 ## Sandboxed providers and Open Safely
 

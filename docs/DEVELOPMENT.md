@@ -244,8 +244,28 @@ Trash tests must use temporary `Trash/files` and `Trash/info` roots and must
 never enumerate, restore, empty, or permanently delete the real user Trash.
 Native smoke should override `HOME`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`, and
 `XDG_CACHE_HOME`, use a private D-Bus session, activate `open-trash`, and verify
-restore/confirmation actions against only that fixture. After verified Phase
-6N, continue only on `phase-6o-transfer-semantics`.
+restore/confirmation actions against only that fixture.
+
+Phase 6O adds no dependency. Focused checks are:
+
+```bash
+cargo test -p floe-core phase_6o -- --nocapture
+cargo test -p floe-app phase_6o -- --nocapture
+```
+
+The core suite includes an actual `EXDEV` test when `/tmp` and the checkout are
+different devices, plus deterministic injected fallback/recovery tests. It
+creates only `tempfile` roots and removes them automatically. Clipboard tests
+round-trip raw non-UTF-8 filename URIs, GNOME/KDE copy/cut semantics, remote and
+malformed rejection, duplicate handling, and 4 MiB/4096-item bounds. Native
+Wayland smoke uses isolated HOME/XDG roots, activates Select All and Copy through
+the exported window actions, confirms Paste becomes enabled from Floe's provider,
+answers `Peer.Ping`, quits cleanly, and releases the application name. Automated
+cross-client clipboard claiming is compositor/input-serial constrained on the
+current Niri host, so deterministic MIME parsing/provider tests are the
+interoperability evidence; no native external-owner claim is made.
+
+After verified Phase 6O, continue only on `phase-6p-operation-control`.
 
 ## Wayland environments
 

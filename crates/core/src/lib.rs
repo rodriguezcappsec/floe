@@ -24,7 +24,7 @@ pub use jobs::{
 pub use model::{DirectoryEntry, DirectoryListing, EntryKind, ThumbnailState, TrashMetadata};
 pub use move_operation::{
     MoveCancellation, MoveError, MoveOutcome, MoveRequest, RenameRequest, execute_move,
-    execute_rename,
+    execute_move_with_progress, execute_rename,
 };
 pub use navigation::NavigationState;
 pub use permanent_delete::{

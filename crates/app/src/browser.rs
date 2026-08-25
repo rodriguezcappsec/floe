@@ -14,10 +14,11 @@ use floe_core::{
     DirectoryEntry, DirectoryError, DirectorySort, EntryKind, NavigationState, RestoreRequest,
     SortColumn, TrashEnumerateError, TrashRoot,
 };
-use gtk::{gio, glib};
+use gtk::{gdk, gio, glib};
 
 use crate::{
     bookmarks::{BookmarkWorker, BookmarkWorkerEvent},
+    clipboard::{self, ClipboardTransfer},
     devices::{
         DeviceAction, DeviceActionOutcome, DeviceId, DeviceMonitor, DeviceSnapshot,
         DeviceSubscriptionId,
@@ -214,6 +215,14 @@ impl BrowserController {
 
     pub fn wire(self: &Rc<Self>, application: &adw::Application, locations: &[Location]) {
         self.install_actions(application);
+        let clipboard = self.widgets.window.clipboard();
+        let controller = Rc::downgrade(self);
+        clipboard.connect_changed(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.refresh_paste_enabled();
+            }
+        });
+        self.refresh_paste_enabled();
         self.update_sort_headers();
         self.widgets
             .apply_sidebar_density(self.current_preferences.borrow().sidebar_density);
@@ -864,7 +873,7 @@ impl BrowserController {
         self.restore_pending_navigation();
         let was_trash = self.trash_active.replace(false);
         self.widgets.set_trash_mode(false);
-        self.set_paste_enabled(self.application_state.staged_transfers().is_some());
+        self.refresh_paste_enabled();
         if self.navigation.borrow_mut().navigate_to(destination) || was_trash {
             self.load_current();
         }
@@ -904,7 +913,7 @@ impl BrowserController {
         self.restore_pending_navigation();
         if self.trash_active.replace(false) {
             self.widgets.set_trash_mode(false);
-            self.set_paste_enabled(self.application_state.staged_transfers().is_some());
+            self.refresh_paste_enabled();
             self.load_current();
             return;
         }
@@ -1725,6 +1734,13 @@ impl BrowserController {
         }
     }
 
+    fn refresh_paste_enabled(&self) {
+        let available = !self.trash_active.get()
+            && (self.application_state.staged_transfers().is_some()
+                || clipboard::contains_transfer(&self.widgets.window.clipboard()));
+        self.set_paste_enabled(available);
+    }
+
     fn stage_selected_copy(&self) {
         let selected = self.selected_entries.borrow();
         if selected.is_empty() {
@@ -1748,16 +1764,25 @@ impl BrowserController {
         let count = paths.len();
         drop(selected);
 
+        let clipboard_transfer = ClipboardTransfer::new(TransferIntent::Copy, paths.clone());
         match self.application_state.stage_copy_many(paths) {
             Ok(()) => {
-                self.set_paste_enabled(true);
-                self.show_toast(
-                    &format!(
+                let published = clipboard_transfer.and_then(|transfer| {
+                    clipboard::publish_transfer(&self.widgets.window.clipboard(), &transfer)
+                });
+                self.refresh_paste_enabled();
+                let message = if published.is_ok() {
+                    format!(
                         "Ready to copy {}. Open a destination and press Ctrl+V.",
                         item_count_text(count)
-                    ),
-                    5,
-                );
+                    )
+                } else {
+                    format!(
+                        "Ready to copy {} inside Floe; desktop clipboard unavailable.",
+                        item_count_text(count)
+                    )
+                };
+                self.show_toast(&message, 6);
             }
             Err(error) => self.show_toast(&format!("Could not stage copy: {error}"), 6),
         }
@@ -1770,16 +1795,25 @@ impl BrowserController {
             return;
         }
         let count = paths.len();
+        let clipboard_transfer = ClipboardTransfer::new(TransferIntent::Move, paths.clone());
         match self.application_state.stage_move_many(paths) {
             Ok(()) => {
-                self.set_paste_enabled(true);
-                self.show_toast(
-                    &format!(
+                let published = clipboard_transfer.and_then(|transfer| {
+                    clipboard::publish_transfer(&self.widgets.window.clipboard(), &transfer)
+                });
+                self.refresh_paste_enabled();
+                let message = if published.is_ok() {
+                    format!(
                         "Ready to move {}. Open a destination and press Ctrl+V.",
                         item_count_text(count)
-                    ),
-                    5,
-                );
+                    )
+                } else {
+                    format!(
+                        "Ready to move {} inside Floe; desktop clipboard unavailable.",
+                        item_count_text(count)
+                    )
+                };
+                self.show_toast(&message, 6);
             }
             Err(error) => self.show_toast(&format!("Could not stage move: {error}"), 6),
         }
@@ -1787,6 +1821,74 @@ impl BrowserController {
 
     fn paste_transfer(&self) {
         let destination = self.navigation.borrow().current().to_path_buf();
+        let clipboard = self.widgets.window.clipboard();
+        if clipboard::contains_transfer(&clipboard) {
+            let application_state = Rc::clone(&self.application_state);
+            let status_label = self.widgets.status_label.clone();
+            let toast_overlay = self.widgets.toast_overlay.clone();
+            let window = self.widgets.window.clone();
+            clipboard::read_transfer_async(&clipboard, move |result| {
+                let transfer = match result {
+                    Ok(transfer) => transfer,
+                    Err(error) => {
+                        toast_overlay.add_toast(
+                            adw::Toast::builder()
+                                .title(format!("Could not read clipboard files: {error}"))
+                                .timeout(7)
+                                .build(),
+                        );
+                        return;
+                    }
+                };
+                let intent = transfer.intent();
+                let stage_result = match intent {
+                    TransferIntent::Copy => {
+                        application_state.stage_copy_many(transfer.paths().to_vec())
+                    }
+                    TransferIntent::Move => {
+                        application_state.stage_move_many(transfer.paths().to_vec())
+                    }
+                };
+                if let Err(error) = stage_result {
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not stage clipboard files: {error}"))
+                            .timeout(7)
+                            .build(),
+                    );
+                    return;
+                }
+                match application_state.submit_paste_batch(&destination) {
+                    Ok(batch) => {
+                        status_label.set_label(&format!(
+                            "{} {} queued…",
+                            match intent {
+                                TransferIntent::Move => "Move",
+                                TransferIntent::Copy => "Copy",
+                            },
+                            item_count_text(batch.queued())
+                        ));
+                        if intent == TransferIntent::Move {
+                            let _ = window.clipboard().set_content(gdk::ContentProvider::NONE);
+                            if let Some(action) = window
+                                .lookup_action("paste")
+                                .and_downcast::<gio::SimpleAction>()
+                            {
+                                action.set_enabled(false);
+                            }
+                        }
+                    }
+                    Err(error) => toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not start operation: {error}"))
+                            .timeout(7)
+                            .build(),
+                    ),
+                }
+            });
+            return;
+        }
+
         let intent = self
             .application_state
             .staged_transfers()

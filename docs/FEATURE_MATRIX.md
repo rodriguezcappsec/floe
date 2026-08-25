@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 6N. Phase 6O is the only
+The implementation baseline for this matrix is Phase 6O. Phase 6P is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -69,14 +69,14 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | GTK-independent operation/job model | `COMPLETE` | 3 | Strong operation and attempt IDs, progress, commands, events, failures, and legal transitions live outside widgets. |
-| Bounded background executors | `COMPLETE` | 4A-6N | Copy, move/rename, Trash, restore, and permanent deletion use fixed-capacity application-owned workers. |
-| GTK-thread filesystem mutation prohibition | `COMPLETE` | 0-6N | GTK callbacks submit application commands; filesystem work stays in core/application workers. |
+| Bounded background executors | `COMPLETE` | 4A-6O | Copy, move/rename, Trash, restore, and permanent deletion use fixed-capacity application-owned workers. |
+| GTK-thread filesystem mutation prohibition | `COMPLETE` | 0-6O | GTK callbacks submit application commands; filesystem work stays in core/application workers. |
 | Multiple logical operations | `COMPLETE` | 3/6J | Each request has stable logical identity; multi-selection batches serialize requests over bounded workers. |
 | Copy files and directories | `COMPLETE` | 4A/4B | Recursive copy has no-follow link policy, chunk cancellation, progress, tracked cleanup, and fail-if-exists behavior. |
 | Internal Cut/Copy/Paste | `COMPLETE` | 4B/4D/6J | Application-owned exact-path transfer buffer supports multi-selection batches. |
-| Cross-application clipboard | `PLANNED` | 6O | Needs standard desktop formats, ownership/lifetime rules, and exact path/URI import validation. |
+| Cross-application clipboard | `COMPLETE` | 6O | Publishes bounded `text/uri-list`, GNOME copy/cut, and KDE cut marker formats; asynchronously imports deduplicated local file URIs into exact-path application state. Remote and malformed URIs are rejected. |
 | Same-filesystem move | `COMPLETE` | 4C/4D | Linux no-replace rename handles files, directories, and symlinks. |
-| Cross-filesystem move | `PLANNED` | 6O | Depends on metadata-preserving copy, verified completion, cleanup, and conservative crash recovery. |
+| Cross-filesystem move | `COMPLETE` | 6O | `EXDEV` uses synchronized hidden sibling staging, source-tree identity revalidation, atomic no-replace publication, and no-follow cleanup. Post-commit cleanup failure is an explicit non-retryable partial result; persistent crash journaling remains Phase 18Y. |
 | Byte progress | `COMPLETE` | 3/4A | Validated progress is emitted when copy totals are meaningful. |
 | Item progress | `PARTIAL` | 6J/6P | Batch dispatcher advances per item; Phase 6P adds unified items-completed/total presentation. |
 | Transfer speed | `PLANNED` | 6P | Requires sampled byte progress and stable smoothing rather than misleading instantaneous rates. |
@@ -91,7 +91,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Operations Island | `COMPLETE` | 4B/5B/5F/6K2 | Non-modal progress, cancel, Retry, and Resolve Conflict use bounded aligned geometry. |
 | Completion notification | `PLANNED` | 14/20 | Must respect sensitive notification policy and avoid noisy foreground notifications. |
 | Partial failure reporting | `PARTIAL` | 4/6J/6P | Individual jobs fail structurally; Phase 6P adds batch summaries while crash recovery remains Phase 18Y. |
-| Insufficient-space preflight | `PLANNED` | 6O | Requires filesystem capacity and copy-growth estimation without false guarantees. |
+| Insufficient-space preflight | `COMPLETE` | 6O | Copy compares planned regular-file bytes with destination `statvfs` user-available bytes before output creation and reports exact required/available values. This is a point-in-time check, not a reservation or completion guarantee. |
 | Self-copy/self-nesting rejection | `COMPLETE` | 4A/4C | Core preflight rejects unsafe destination relationships. |
 | Destination conflict detection | `COMPLETE` | 4/5E | Existing destinations are distinct conflict outcomes and never overwritten silently. |
 | Keep Existing | `COMPLETE` | 5E/5F | A conflict can be acknowledged without submitting another job. |
@@ -103,9 +103,9 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Skip All | `PLANNED` | 6P | Needs bounded batch conflict scope and visible decision lifetime. |
 | Metadata comparison in conflicts | `PLANNED` | 6P/6T | Phase 6T supplies lazy metadata; Phase 6P uses it without implying equality from weak evidence. |
 | Apply-to-all conflict policy | `PLANNED` | 6P | Must be scoped to one operation and remain reversible where practical. |
-| Metadata-complete copy | `PARTIAL` | 4A/6O | Current copy preserves Unix permission bits, regular-file bytes, directory structure, and symlink targets; timestamps, ownership, ACLs, xattrs, sparse extents, and reflinks remain. |
-| Timestamp preservation | `PLANNED` | 6O | Dependency: metadata-preserving copy policy. |
-| Unix permission-bit preservation | `COMPLETE` | 4A | The core copy plan reapplies source `Permissions` to destination files and directories; richer ACL/xattr ownership remains separate. |
+| Metadata-complete copy | `PARTIAL` | 4A/6O | Current copy preserves regular-file bytes, directory structure, symlink targets, Unix permission bits, and file/directory access and modification timestamps. Ownership, ACLs, xattrs, security labels, sparse extents, and reflinks remain explicitly unclaimed. |
+| Timestamp preservation | `COMPLETE` | 6O | The copy plan reapplies captured access and modification timestamps to regular files and directories after content completion and synchronizes resulting metadata. Symlink metadata is explicitly reported as not preserved. |
+| Unix permission-bit preservation | `COMPLETE` | 4A/6O | The core copy plan reapplies source `Permissions` to destination files and directories; richer ACL/xattr ownership remains separate. |
 | Extended attributes and ACL preservation | `DEFERRED` | 6O | Implement only after Linux/filesystem support and privacy implications are reviewed. |
 | Sparse-file preservation | `DEFERRED` | 6O | Add where practical without corrupting semantic content. |
 | Reflink acceleration | `DEFERRED` | 6O | Capability-driven optimization with safe fallback; never change copy semantics. |
@@ -689,7 +689,7 @@ These small behaviors are acceptance requirements, not optional polish.
 
 | Dependent capability | Status | Phase | Required foundation |
 | --- | --- | --- | --- |
-| Cross-filesystem move | `PLANNED` | 6O | Requires metadata-preserving copy, verified completion, conservative source cleanup, and crash recovery. |
+| Cross-filesystem move | `COMPLETE` | 6O | Synchronized staged copy, atomic no-replace publication, source identity revalidation, and conservative partial cleanup exist. Persistent interrupted-operation recovery remains Phase 18Y. |
 | Undo | `PLANNED` | 6P | Requires explicit operation-specific reversible semantics and current-state revalidation. |
 | Tabs/session restore | `PLANNED` | 7A-7C | Serializable reusable browser session; privacy-safe history policy before sensitive content persists. |
 | Split view | `PLANNED` | 7D-7F | Reusable navigation sessions and explicit active-pane ownership. |

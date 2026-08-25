@@ -1,72 +1,76 @@
-# Plan: Floe Phase 6N Trash lifecycle
+# Plan: Floe Phase 6O Transfer semantics
 
 Mode: solo, depth 4.
 
 ## Contract
 
-- `floe-core` owns exact Trash entry metadata, freedesktop `.trashinfo` parsing,
-  no-overwrite restore requests, and isolated local Trash-root discovery.
-- The application owns bounded Trash enumeration/restore workers, operation
-  lifecycle mapping, permanent-delete reuse, and aggregate Empty Trash state.
-- GTK owns only Trash navigation, selection-aware actions, confirmations, and
-  status/error presentation. GTK callbacks perform no filesystem work.
-- Backing Trash paths and decoded original paths remain exact `PathBuf` values;
-  lossy labels are display-only and never reconstruct filesystem targets.
-- Restore never overwrites. Destination conflicts remain explicit. Empty Trash
-  requires one aggregate irreversible confirmation and uses the verified Phase
-  6M permanent-delete engine.
-- Floe makes no secure-erasure claim. Cleanup/retention preferences, Trash undo,
-  remote Trash, Phase 6O transfer semantics, and later roadmap work stay out of
+- `floe-core` owns destination-space preflight, basic metadata preservation,
+  source-tree identity checks, and no-overwrite cross-filesystem move semantics.
+- The application owns bounded executor dispatch, structured job outcomes, and
+  interoperable desktop clipboard parsing/publishing. GTK callbacks only submit
+  application commands and asynchronous clipboard requests.
+- Original `PathBuf`/`OsString` values remain authoritative. URI clipboard text
+  is decoded through filename-URI APIs and never reconstructed from labels.
+- Copy preserves supported POSIX mode plus access/modification timestamps.
+  Ownership, ACLs, extended attributes, sparse extents, reflinks, capabilities,
+  and security labels are not claimed as preserved.
+- Cross-filesystem move keeps the source until a fully copied staging tree is
+  synchronized, revalidated, and atomically finalized without overwrite. A
+  post-commit delete failure is an explicit non-retryable partial outcome.
+- Queue controls, richer progress/history, overwrite/apply-to-all, verified-copy
+  hashing, drag and drop, remote transfers, and later roadmap phases stay out of
   scope.
 
 ## Depth tree
 
-1. Standards and core model
-   - Discover only supported local freedesktop Trash roots without scanning user
-     data or following symlinked metadata roots.
-   - Parse `[Trash Info]`, percent-encoded `Path`, and `DeletionDate` with
-     bounded metadata reads and exact byte preservation where representable.
-   - Enumerate backing entries and pair them with safe metadata; malformed or
-     orphaned entries remain visible with unavailable restore metadata.
-   - Restore through an exact no-replace request, reject unsafe destinations,
-     and remove `.trashinfo` only after the payload move succeeds.
-2. Application services
-   - Add fixed-capacity, cancellable Trash browse/restore worker requests.
-   - Map restore jobs into the shared job registry and Operations Island without
-     adding GTK filesystem work.
-   - Route individual Delete Permanently and confirmed Empty Trash batches to
-     the existing Phase 6M executor.
-3. Browser and interaction
-   - Add a first-class Trash sidebar destination and explicit browser mode.
-   - Show deletion date and original location from standards metadata when
-     available, retaining normal list/grid virtualization and selection.
-   - In Trash mode expose Restore, Delete Permanently, and Empty Trash; suppress
-     inapplicable normal-location mutation actions.
-   - Refresh Trash after restore/deletion and preserve responsive navigation.
-4. Verification and persistence
-   - Add core, worker, state, policy, and UI-surface tests using temporary Trash
-     roots only.
-   - Run formatting, workspace check, strict Clippy, all tests, diff checks, and
-     isolated native Wayland smoke without touching the real user Trash.
-   - Update persistent architecture, roadmap, feature, design, privacy/security,
-     gates, and project-status documentation; set exactly one next phase.
+1. Copy contract
+   - Capture no-follow source identity, POSIX mode, access time, and modified time.
+   - Check destination filesystem availability before creating output.
+   - Preserve supported metadata after content and synchronize regular files.
+   - Keep cleanup exact and report unsupported/insufficient-space cases truthfully.
+2. Cross-filesystem move
+   - Retain atomic `RENAME_NOREPLACE` fast path.
+   - On `EXDEV`, copy to a collision-safe hidden sibling staging path.
+   - Revalidate the complete source tree before finalization; never delete a
+     source that changed while copying.
+   - Atomically publish staging, then remove only identity-matching source nodes.
+     Classify cancellation/failure after publication as partial completion.
+3. External clipboard
+   - Publish bounded `text/uri-list`, `x-special/gnome-copied-files`, and KDE cut
+     marker formats alongside the exact in-process transfer buffer.
+   - Read supported formats asynchronously, validate local file URIs and limits,
+     deduplicate exact paths, and stage them through `ApplicationState`.
+   - Prefer the richer GNOME copy/cut format, then URI list plus KDE cut marker;
+     reject remote/invalid clipboard targets without filesystem work in GTK.
+4. Verification and records
+   - Add focused core, executor, state, and clipboard tests covering space,
+     timestamps/mode, cross-device fallback injection, cancellation/partials,
+     symlinks, conflicts, and non-UTF-8 paths.
+   - Run formatting, workspace check, strict Clippy, all tests, diff hygiene, and
+     isolated native Wayland clipboard/transfer smoke where practical.
+   - Update persistent architecture, roadmap, feature, privacy/security, gates,
+     and project status; select exactly one recommended next phase.
 
 ## Status log
 
-- 2026-08-24: Created `phase-6n-trash-lifecycle` from synchronized `main` at
-  `942a0c0`; inspected Phase 6M deletion, GIO Trash, application state, browser,
-  operations, sidebar, model, worker, roadmap, and privacy/security boundaries.
+- 2026-08-24: Created `phase-6o-transfer-semantics` from synchronized `main` at
+  `ed966e1`; inspected copy/move executors, application transfer state, browser
+  actions, dependencies, roadmap, architecture, and privacy/security boundaries.
 - 2026-08-24: Phase contract and executable gates defined before coding.
-- 2026-08-24: Added local home/mounted Trash discovery, bounded no-follow
-  `.trashinfo` parsing, exact metadata-bearing entries, and no-replace restore.
-- 2026-08-24: Added fixed-capacity restore execution, shared job/conflict/batch
-  state, first-class Trash mode, Restore/Delete Permanently/Empty Trash actions,
-  metadata cleanup, and aggregate safe-focus confirmation.
-- 2026-08-24: Verified 220 tests, formatting, check, strict Clippy, diff hygiene,
-  isolated native Trash/Empty Trash action smoke, and an isolated end-to-end
-  restore that removed matching metadata without touching real user Trash.
-- 2026-08-24: Updated persistent project documentation and selected only Phase
-  6O transfer semantics as NEXT.
+- 2026-08-24: Implemented destination-space preflight, supported POSIX
+  metadata preservation, staged no-overwrite `EXDEV` move fallback with exact
+  source-tree revalidation, and bounded standard desktop clipboard exchange.
+- 2026-08-24: Added eight focused core and seven focused application tests;
+  the complete workspace now passes 235 tests (56 core, 179 application).
+- 2026-08-24: Isolated native Wayland smoke verified application ownership,
+  30 exported window actions, Select All/Copy activation, Paste enablement from
+  Floe's provider, D-Bus health, and clean shutdown. The compositor input-serial
+  rule prevented automated external-client ownership, so interoperability is
+  supported by deterministic provider/parser tests rather than a native
+  cross-client claim.
+- 2026-08-24: Updated persistent architecture, design, development,
+  privacy/security, roadmap, feature matrix, gates, and project status. Exactly
+  one next phase is recommended: `phase-6p-operation-control`.
 
 ## Status
 

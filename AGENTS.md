@@ -1160,12 +1160,25 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — Browser filesystem foundations (Phase 6N complete)
+Phase 6 — Browser filesystem foundations (Phase 6O complete)
 ```
 
 Status:
 
 ```text
+Phase 6O adds safe transfer semantics. Copy now checks point-in-time
+destination user-available space before creation, preserves and synchronizes
+regular-file/directory Unix mode plus access/modification timestamps, and
+explicitly does not claim ownership/ACL/xattr/security-label/sparse/reflink or
+symlink-metadata preservation. `EXDEV` move uses a synchronized hidden sibling
+staging path, complete source identity revalidation, atomic no-replace
+publication, destination-parent sync, and no-follow source cleanup. A
+post-publication cleanup/cancellation failure is a non-retryable partial result;
+persistent crash recovery remains deferred. Copy/cut publishes bounded
+freedesktop/GNOME/KDE local-file clipboard formats, while paste reads them
+asynchronously, rejects malformed/remote/oversized input, preserves exact
+decoded paths, and stages only through application state.
+
 Phase 6N adds first-class local Trash browsing for home and mounted-volume
 freedesktop roots, standards metadata display, bounded no-overwrite restore,
 per-item permanent deletion, and confirmed Empty Trash. Exact paths remain
@@ -1351,17 +1364,29 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6N is complete. The one recommended next branch is
-`phase-6o-transfer-semantics`, adding cross-filesystem move recovery,
-metadata-aware copy, destination-space checks, and an interoperable external
-clipboard without silent data or metadata loss.
+Phase 6O is complete. The one recommended next branch is
+`phase-6p-operation-control`, adding queue controls, unified item progress,
+speed/ETA, truthful pause where supported, richer scoped conflict policy, and
+safe operation-specific undo/history without claiming irreversible work is
+undoable.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-220 tests pass: forty-eight core and 172 application tests. Fifteen focused
+235 tests pass: fifty-six core and 179 application tests. Fifteen focused
+Phase 6O tests cover exact required/available space errors, file/directory mode
+and timestamp preservation, truthful symlink metadata reporting, injected and
+real-`EXDEV` staging, no-overwrite cleanup, exact non-UTF-8 paths/symlinks,
+changed-source recovery, committed partial failure classification, bounded
+GNOME/KDE/URI-list copy/cut encoding and parsing, remote/malformed/duplicate
+handling. Native Wayland smoke used isolated HOME/XDG roots, exported 30 window
+actions, activated Select All and Copy, observed Paste enabled from Floe's
+provider, answered D-Bus `Peer.Ping`, quit cleanly, and released its name.
+Automated external clipboard ownership could not satisfy the current
+compositor's input-serial rule, so no cross-client native claim is made; focused
+provider/parser tests are the interoperability evidence. Fifteen focused
 Phase 6N tests cover raw percent-decoded paths, mounted relative metadata,
 malformed/orphan handling, symlinked roots, safe restore, no-overwrite conflict,
 bounded worker dispatch, exact conflict retry, Trash-mode action policy, and
@@ -1486,13 +1511,20 @@ eviction. Formatting, strict Clippy, and native smoke status are in `GATES.md`.
 Known issues:
 
 ```text
-No application correctness failures are known. The copy interaction uses a
-Floe-internal clipboard only; it does not interoperate with other applications.
+No application correctness failures are known. Phase 6O's external clipboard
+interoperability exposes selected local path URIs to desktop clipboard services
+and managers under normal user authority; it is not a privacy feature and
+automated cross-client ownership could not be natively exercised without a
+real Wayland input serial on the current host.
 `BrowserWorker` has one worker thread and generation supersession, but its
 request channel is currently unbounded; do not describe its queue as bounded.
-Copy still does not preserve timestamps, ownership, ACLs, extended attributes,
-sparse extents, or reflink state. Move/rename is currently same-filesystem only;
-cross-filesystem copy-delete recovery is not implemented. Native smoke runs may emit host
+Copy preserves mode and file/directory access/modification timestamps but not
+ownership, ACLs, extended attributes, security labels, symlink metadata, sparse
+extents, or reflink state. Destination-space checks do not reserve capacity.
+Cross-filesystem moves are staged and source-safe but do not have persistent
+crash journaling; a post-publication interruption can leave a complete
+destination and retained or partially cleaned source, reported as Partial when
+observed. Native smoke runs may emit host
 GtkSettings/libadwaita and Vulkan suboptimal-swapchain warnings; neither
 originates from Floe logic.
 GIO trash cancellation is cooperative and cannot reverse a move after the
@@ -1520,10 +1552,9 @@ MIME types remain deliberately excluded.
 Deferred:
 
 ```text
-Cross-application clipboard support, overwrite and apply-to-all conflict policy,
-cross-filesystem moves, Restore Elsewhere and Trash cleanup preferences,
-metadata-complete copies, job
-persistence/history UI, drag and drop, heavyweight/RAW/vector thumbnails,
+Overwrite and apply-to-all conflict policy, Restore Elsewhere and Trash cleanup
+preferences, ownership/ACL/xattr/sparse/reflink-complete copies, persistent
+operation recovery/history UI, drag and drop, heavyweight/RAW/vector thumbnails,
 tabs, split view, Miller columns, previews, archives, search, richer device
 details, Niri IPC, KDE-specific APIs, and network filesystems.
 First-class theme/font customization, full file-association/external-tool
@@ -1533,6 +1564,16 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 6O transfer semantics on `phase-6o-transfer-semantics`.
+* Added point-in-time destination-space preflight, synchronized POSIX
+  mode/timestamp preservation, and explicit unsupported-metadata reporting.
+* Added real `EXDEV` staged move fallback with exact source-tree revalidation,
+  no-overwrite atomic publication, destination-parent sync, conservative
+  no-follow cleanup, progress, and non-retryable committed partial outcomes.
+* Added bounded freedesktop/GNOME/KDE copy/cut clipboard publishing and
+  asynchronous local-file URI import while retaining exact internal paths.
+* Verified 235 tests, formatting, workspace check, strict Clippy, diff hygiene,
+  and isolated native Wayland clipboard-provider/action health smoke.
 * Completed Phase 6N Trash lifecycle on `phase-6n-trash-lifecycle`.
 * Added first-class home and mounted-volume local Trash browsing with bounded,
   no-follow freedesktop metadata parsing and exact original/backing paths.
@@ -1540,7 +1581,7 @@ Completed this session:
   retry, metadata-after-payload cleanup, and explicit cleanup partial failure.
 * Added Trash-only Restore/Delete Permanently menus, aggregate confirmed Empty
   Trash, companion metadata deletion through Phase 6M, and no secure-erase claim.
-* Verified 219 tests and isolated native Wayland Trash/restore action smokes.
+* Verified 220 tests and isolated native Wayland Trash/restore action smokes.
 * Previously completed Phase 6M permanent deletion on `phase-6m-permanent-delete`.
 * Added exact multi-target request validation, full no-follow postorder
   preflight, root/mount refusal, device/inode/kind revalidation, and truthful
@@ -1770,9 +1811,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-6o-transfer-semantics` and add cross-filesystem move recovery,
-metadata-aware copy semantics, destination-space checks, and interoperable
-external clipboard formats without silent overwrite or metadata-loss claims.
+Create `phase-6p-operation-control` and add bounded queue controls, unified
+item progress, measured speed/ETA, truthful pause only where execution can
+actually pause, richer scoped conflict decisions, and safe operation-specific
+undo/history without claiming irreversible work is reversible.
 ```
 
 ---
