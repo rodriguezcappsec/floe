@@ -2,6 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    ffi::OsStr,
     fs::File,
     io::{Cursor, Read},
     panic::{AssertUnwindSafe, catch_unwind},
@@ -19,6 +20,8 @@ use floe_core::{DirectoryEntry, EntryKind};
 use image::{ImageDecoder, ImageFormat, ImageReader, Limits, metadata::Orientation};
 use rustix::fs::{Mode, OFlags};
 use thiserror::Error;
+
+use crate::system_thumbnailer::{SystemThumbnailerError, SystemThumbnailerRegistry};
 
 pub const PREVIEW_QUEUE_CAPACITY: usize = 16;
 pub const PREVIEW_PROVIDER_CAPACITY: usize = 32;
@@ -85,6 +88,14 @@ pub enum PreviewContent {
     Text {
         text: Arc<str>,
         format: PreviewTextFormat,
+    },
+    Document {
+        width: u32,
+        height: u32,
+        rowstride: usize,
+        rgba: Arc<[u8]>,
+        content_type: Arc<str>,
+        first_page_only: bool,
     },
 }
 
@@ -173,6 +184,8 @@ pub struct PreviewPayload {
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum PreviewProviderError {
+    #[error("no preview provider is available for this format")]
+    Unsupported,
     #[error("preview was cancelled")]
     Cancelled,
     #[error("preview source exceeds configured limits")]
@@ -247,6 +260,9 @@ impl PreviewProviderRegistry {
             .register(Arc::new(TextPreviewProvider))
             .expect("first-party text provider registration is bounded and unique");
         registry
+            .register(Arc::new(DocumentPreviewProvider::discover()))
+            .expect("first-party document provider registration is bounded and unique");
+        registry
     }
 
     pub fn register(
@@ -285,6 +301,7 @@ impl PreviewProviderRegistry {
         match catch_unwind(AssertUnwindSafe(|| provider.load(request, cancellation))) {
             Ok(Ok(_payload)) if cancellation.is_cancelled() => PreviewOutcome::Cancelled,
             Ok(Ok(payload)) => PreviewOutcome::Ready(payload),
+            Ok(Err(PreviewProviderError::Unsupported)) => PreviewOutcome::Unsupported,
             Ok(Err(PreviewProviderError::Cancelled)) => PreviewOutcome::Cancelled,
             Ok(Err(error)) => PreviewOutcome::Failed(error.to_string()),
             Err(_) => PreviewOutcome::Failed("preview provider panicked".to_owned()),
@@ -400,6 +417,84 @@ impl PreviewProvider for TextPreviewProvider {
     }
 }
 
+#[derive(Clone, Debug)]
+struct DocumentPreviewProvider {
+    providers: SystemThumbnailerRegistry,
+}
+
+impl DocumentPreviewProvider {
+    fn discover() -> Self {
+        Self {
+            providers: SystemThumbnailerRegistry::discover(),
+        }
+    }
+
+    #[cfg(test)]
+    fn discover_from_data_dirs(data_dirs: &[PathBuf]) -> Self {
+        Self {
+            providers: SystemThumbnailerRegistry::discover_from_data_dirs(data_dirs),
+        }
+    }
+}
+
+impl PreviewProvider for DocumentPreviewProvider {
+    fn id(&self) -> &'static str {
+        "floe.document"
+    }
+
+    fn supports(&self, request: &PreviewRequest) -> bool {
+        document_extension_allowed(request.source().path())
+    }
+
+    fn load(
+        &self,
+        request: &PreviewRequest,
+        cancellation: &PreviewCancellation,
+    ) -> Result<PreviewPayload, PreviewProviderError> {
+        if !document_extension_allowed(request.source().path()) {
+            return Err(PreviewProviderError::Failed(
+                "unsupported document format".to_owned(),
+            ));
+        }
+        let source = open_verified_source(request)?;
+        drop(source);
+        self.providers
+            .supports_path(request.source().path())
+            .map_err(map_thumbnailer_error)?;
+        let output = self
+            .providers
+            .generate(request.source().path(), 1_024, || {
+                cancellation.is_cancelled()
+            })
+            .map_err(map_thumbnailer_error)?;
+        if output.bytes.len() as u64 > request.limits().max_output_bytes {
+            return Err(PreviewProviderError::LimitExceeded);
+        }
+        let source = open_verified_source(request)?;
+        revalidate_source(&source, request.source())?;
+        if cancellation.is_cancelled() {
+            return Err(PreviewProviderError::Cancelled);
+        }
+        let decoded = decode_rgba(
+            output.bytes,
+            ImageFormat::Png,
+            request.limits().max_output_bytes,
+        )?;
+        Ok(PreviewPayload {
+            provider_id: self.id(),
+            kind: PreviewKind::Document,
+            content: PreviewContent::Document {
+                width: decoded.width,
+                height: decoded.height,
+                rowstride: decoded.rowstride,
+                rgba: decoded.rgba,
+                content_type: Arc::from(output.content_type),
+                first_page_only: true,
+            },
+        })
+    }
+}
+
 fn raster_format(path: &Path) -> Option<ImageFormat> {
     let extension = path.extension()?.to_str()?;
     if extension.eq_ignore_ascii_case("png") {
@@ -426,6 +521,72 @@ fn map_image_error(error: image::ImageError) -> PreviewProviderError {
         image::ImageError::Limits(_) => PreviewProviderError::LimitExceeded,
         error => PreviewProviderError::Failed(error.to_string()),
     }
+}
+
+fn map_thumbnailer_error(error: SystemThumbnailerError) -> PreviewProviderError {
+    match error {
+        SystemThumbnailerError::Unsupported => PreviewProviderError::Unsupported,
+        SystemThumbnailerError::Cancelled => PreviewProviderError::Cancelled,
+        SystemThumbnailerError::OutputTooLarge => PreviewProviderError::LimitExceeded,
+        error => PreviewProviderError::Failed(error.to_string()),
+    }
+}
+
+fn document_extension_allowed(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(OsStr::to_str) else {
+        return false;
+    };
+    [
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "odg", "odf",
+        "rtf",
+    ]
+    .iter()
+    .any(|candidate| extension.eq_ignore_ascii_case(candidate))
+}
+
+struct DecodedRgba {
+    width: u32,
+    height: u32,
+    rowstride: usize,
+    rgba: Arc<[u8]>,
+}
+
+fn decode_rgba(
+    encoded: Vec<u8>,
+    format: ImageFormat,
+    max_output_bytes: u64,
+) -> Result<DecodedRgba, PreviewProviderError> {
+    let mut reader = ImageReader::with_format(Cursor::new(encoded), format);
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(65_535);
+    limits.max_image_height = Some(65_535);
+    limits.max_alloc = Some(max_output_bytes);
+    reader.limits(limits);
+    let mut decoder = reader.into_decoder().map_err(map_image_error)?;
+    let (width, height) = decoder.dimensions();
+    if width == 0 || height == 0 || decoder.total_bytes() > max_output_bytes {
+        return Err(PreviewProviderError::LimitExceeded);
+    }
+    let orientation = decoder.orientation().unwrap_or(Orientation::NoTransforms);
+    let mut decoded = image::DynamicImage::from_decoder(decoder).map_err(map_image_error)?;
+    decoded.apply_orientation(orientation);
+    let rgba = decoded.into_rgba8();
+    let width = rgba.width();
+    let height = rgba.height();
+    let rowstride = usize::try_from(width)
+        .ok()
+        .and_then(|width| width.checked_mul(4))
+        .ok_or(PreviewProviderError::LimitExceeded)?;
+    let pixels = rgba.into_raw();
+    if pixels.len() as u64 > max_output_bytes {
+        return Err(PreviewProviderError::LimitExceeded);
+    }
+    Ok(DecodedRgba {
+        width,
+        height,
+        rowstride,
+        rgba: pixels.into(),
+    })
 }
 
 fn text_format(path: &Path) -> Option<PreviewTextFormat> {
@@ -1181,5 +1342,182 @@ mod tests {
                 }) if actual == format
             ));
         }
+    }
+
+    fn controlled_document_provider(root: &Path, script_body: &str) -> DocumentPreviewProvider {
+        use std::os::unix::fs::PermissionsExt;
+
+        let data = root.join("data");
+        let definitions = data.join("thumbnailers");
+        fs::create_dir_all(&definitions).expect("thumbnailer definitions");
+        let script = root.join("document-provider");
+        fs::write(&script, format!("#!/bin/sh\nset -eu\n{script_body}\n"))
+            .expect("provider script");
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700))
+            .expect("provider executable");
+        fs::write(
+            definitions.join("document.thumbnailer"),
+            format!(
+                "[Thumbnailer Entry]\nExec={} %i %o %s\nMimeType=application/pdf;application/vnd.openxmlformats-officedocument.wordprocessingml.document;\n",
+                script.display()
+            ),
+        )
+        .expect("provider definition");
+        DocumentPreviewProvider::discover_from_data_dirs(&[data])
+    }
+
+    fn load_document_provider(
+        provider: DocumentPreviewProvider,
+        source: PreviewSourceKey,
+        limits: PreviewLimits,
+    ) -> PreviewOutcome {
+        let generation = 52;
+        let active_generation = Arc::new(AtomicU64::new(generation));
+        let request = PreviewRequest::new(generation, source, limits, PreviewCachePolicy::Disabled)
+            .expect("document request");
+        PreviewProviderRegistry {
+            providers: vec![Arc::new(provider)],
+            ids: HashSet::from(["floe.document"]),
+        }
+        .load(
+            &request,
+            &PreviewCancellation {
+                active_generation,
+                generation,
+                started: Instant::now(),
+                deadline: Duration::from_secs(2),
+            },
+        )
+    }
+
+    #[test]
+    fn phase_9c_document_contract_limits_formats_and_keeps_fallback_truthful() {
+        let root = tempdir().expect("document root");
+        for name in [
+            "report.pdf",
+            "report.docx",
+            "sheet.xlsx",
+            "slides.pptx",
+            "open.odt",
+            "legacy.rtf",
+        ] {
+            assert!(
+                document_extension_allowed(&root.path().join(name)),
+                "{name}"
+            );
+        }
+        for name in [
+            "macro.docm",
+            "macro.xlsm",
+            "active.html",
+            "vector.svg",
+            "archive.zip",
+        ] {
+            assert!(
+                !document_extension_allowed(&root.path().join(name)),
+                "{name}"
+            );
+        }
+
+        let source = root.path().join("unsupported.pdf");
+        fs::write(&source, b"%PDF fixture").expect("document fixture");
+        let provider = DocumentPreviewProvider {
+            providers: SystemThumbnailerRegistry::default(),
+        };
+        assert_eq!(
+            load_document_provider(provider, source_for(&source), PreviewLimits::default()),
+            PreviewOutcome::Unsupported
+        );
+    }
+
+    #[test]
+    fn phase_9c_document_provider_bounds_png_and_revalidates_exact_source() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempdir().expect("document provider root");
+        let rendition = root.path().join("rendition.png");
+        image::RgbaImage::from_raw(2, 2, [20, 40, 60, 255].repeat(4))
+            .expect("rendition pixels")
+            .save(&rendition)
+            .expect("rendition PNG");
+        let provider = controlled_document_provider(
+            root.path(),
+            &format!("cp '{}' \"$2\"", rendition.display()),
+        );
+        let source = root
+            .path()
+            .join(std::ffi::OsString::from_vec(b"report-\xff.pdf".to_vec()));
+        fs::write(&source, b"%PDF passive fixture").expect("PDF fixture");
+        let payload = match load_document_provider(
+            provider.clone(),
+            source_for(&source),
+            PreviewLimits::default(),
+        ) {
+            PreviewOutcome::Ready(payload) => payload,
+            outcome => panic!("unexpected document outcome: {outcome:?}"),
+        };
+        assert!(matches!(
+            payload,
+            PreviewPayload {
+                kind: PreviewKind::Document,
+                content: PreviewContent::Document {
+                    width: 2,
+                    height: 2,
+                    rowstride: 8,
+                    first_page_only: true,
+                    ref content_type,
+                    ..
+                },
+                ..
+            } if content_type.as_ref() == "application/pdf"
+        ));
+        assert!(source.as_os_str().as_bytes().contains(&0xff));
+
+        let small_output = PreviewLimits {
+            max_output_bytes: 8,
+            ..PreviewLimits::default()
+        };
+        assert!(matches!(
+            load_document_provider(provider.clone(), source_for(&source), small_output),
+            PreviewOutcome::Failed(message) if message.contains("limits")
+        ));
+
+        let malformed_provider = controlled_document_provider(
+            &root.path().join("malformed-provider"),
+            "printf 'not png' > \"$2\"",
+        );
+        assert!(matches!(
+            load_document_provider(
+                malformed_provider,
+                source_for(&source),
+                PreviewLimits::default()
+            ),
+            PreviewOutcome::Failed(_)
+        ));
+
+        let changing_provider = controlled_document_provider(
+            &root.path().join("changing-provider"),
+            &format!(
+                "printf 'changed by provider' > \"$1\"\ncp '{}' \"$2\"",
+                rendition.display()
+            ),
+        );
+        let changing_source = root.path().join("changing.pdf");
+        fs::write(&changing_source, b"%PDF original").expect("changing source");
+        assert!(matches!(
+            load_document_provider(
+                changing_provider,
+                source_for(&changing_source),
+                PreviewLimits::default()
+            ),
+            PreviewOutcome::Failed(message) if message.contains("changed")
+        ));
+
+        let link = root.path().join("linked.pdf");
+        symlink(&source, &link).expect("document symlink");
+        assert!(matches!(
+            load_document_provider(provider, source_for(&link), PreviewLimits::default()),
+            PreviewOutcome::Failed(_)
+        ));
     }
 }

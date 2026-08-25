@@ -486,6 +486,45 @@ impl MillerView {
                         .build();
                     scroller.upcast::<gtk::Widget>()
                 }
+                PreviewContent::Document {
+                    width,
+                    height,
+                    rowstride,
+                    rgba,
+                    ..
+                } => {
+                    let Ok(width) = i32::try_from(*width) else {
+                        return self.build_unavailable_detail_column(
+                            state,
+                            "Document rendition dimensions exceed GTK limits.",
+                        );
+                    };
+                    let Ok(height) = i32::try_from(*height) else {
+                        return self.build_unavailable_detail_column(
+                            state,
+                            "Document rendition dimensions exceed GTK limits.",
+                        );
+                    };
+                    let bytes = glib::Bytes::from_owned(Arc::clone(rgba));
+                    let texture = gtk::gdk::MemoryTexture::new(
+                        width,
+                        height,
+                        gtk::gdk::MemoryFormat::R8g8b8a8,
+                        &bytes,
+                        *rowstride,
+                    );
+                    let picture = gtk::Picture::for_paintable(&texture);
+                    picture.set_can_shrink(true);
+                    picture.set_content_fit(gtk::ContentFit::Contain);
+                    picture.set_margin_top(12);
+                    picture.set_margin_start(10);
+                    picture.set_margin_end(10);
+                    picture.set_accessible_role(gtk::AccessibleRole::Img);
+                    picture.update_property(&[gtk::accessible::Property::Description(
+                        "Passive first-page document rendition.",
+                    )]);
+                    picture.upcast::<gtk::Widget>()
+                }
                 PreviewContent::None => icon.clone().upcast::<gtk::Widget>(),
             },
             _ => icon.clone().upcast::<gtk::Widget>(),

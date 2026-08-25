@@ -160,6 +160,20 @@ impl From<&MillerDetailState> for MillerDetailPresentation {
                     crate::preview::PreviewContent::Text { format, .. } => {
                         format!("Passive {format:?} source preview.")
                     }
+                    crate::preview::PreviewContent::Document {
+                        width,
+                        height,
+                        content_type,
+                        first_page_only,
+                        ..
+                    } => format!(
+                        "Document preview, {width} by {height} pixels, {content_type}{}.",
+                        if *first_page_only {
+                            ", first page rendition"
+                        } else {
+                            ""
+                        }
+                    ),
                     crate::preview::PreviewContent::None => "Preview is ready.".to_owned(),
                 },
                 accessible_description: format!(
@@ -519,5 +533,40 @@ mod tests {
         assert!(matches!(hooks.state(), MillerDetailState::Provided { .. }));
         hooks.refresh(Some(1), root.path().to_path_buf(), &[]);
         assert!(matches!(hooks.state(), MillerDetailState::Empty { .. }));
+    }
+
+    #[test]
+    fn phase_9c_document_presentation_labels_passive_first_page_and_rejects_stale() {
+        let (root, entries, _) = fixture_entries();
+        let mut hooks = MillerDetailHooks::default();
+        hooks.toggle(
+            MillerDetailSurface::Preview,
+            Some(1),
+            root.path().to_path_buf(),
+            &entries,
+        );
+        assert!(hooks.begin_preview_loading(31));
+        let payload = crate::preview::PreviewPayload {
+            provider_id: "floe.document",
+            kind: crate::preview::PreviewKind::Document,
+            content: crate::preview::PreviewContent::Document {
+                width: 2,
+                height: 3,
+                rowstride: 8,
+                rgba: Arc::from(vec![0_u8; 24]),
+                content_type: Arc::from("application/pdf"),
+                first_page_only: true,
+            },
+        };
+        assert!(!hooks.finish_preview(30, crate::preview::PreviewOutcome::Ready(payload.clone())));
+        assert!(hooks.finish_preview(31, crate::preview::PreviewOutcome::Ready(payload)));
+        let presentation = MillerDetailPresentation::from(hooks.state());
+        assert!(presentation.message.contains("first page rendition"));
+        assert!(presentation.message.contains("application/pdf"));
+        assert!(
+            presentation
+                .accessible_description
+                .contains("without executing")
+        );
     }
 }
