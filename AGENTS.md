@@ -1160,12 +1160,21 @@ Last updated:
 Current phase:
 
 ```text
-Phase 8 — Miller and spatial navigation (Phase 8B complete)
+Phase 8 — Miller and spatial navigation (Phase 8C complete)
 ```
 
 Status:
 
 ```text
+Phase 8C adds bounded Up/Down/Home/End item movement, logical parent/child
+directory movement with LTR/RTL reversal, and dominant-horizontal trackpad
+scrolling that leaves vertical column scrolling intact. Modified key chords
+fall through to native GTK selection behavior. Recycled active lists retain
+focus-visible exact selection; active state remains textual. GTK's animation
+setting disables kinetic scrolling for reduced motion. Logical parent/child
+actions are exported for parity and native verification. No Vim mode, column
+context actions, drag/drop, new worker, or new persisted path state is added.
+
 Phase 8B adds native horizontally scrolling, virtualized Miller columns. The
 active column shares the existing `GtkMultiSelection`, `GioListStore`, browser
 worker, and watcher; prior columns retain only already-returned shared entries,
@@ -1515,14 +1524,22 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 8B is complete. The one recommended next branch is
-`phase-8c-miller-navigation`, adding directional keyboard and horizontal
-trackpad behavior with explicit focus, RTL, and reduced-motion handling.
+Phase 8C is complete. The one recommended next branch is
+`phase-8d-miller-actions`, adding selection-aware standard file actions and
+context menus with exact active-column ownership.
 ```
 
 Verified:
 
 ```text
+Phase 8C passes formatting, workspace check, strict all-target/all-feature
+Clippy, and 340 tests: 249 application and 91 core. Five focused Phase 8C tests
+cover LTR/RTL policy, bounded focus selection, horizontal trackpad clamping,
+modified-key isolation, reduced motion, and exported logical actions. Native
+Wayland smoke activated Miller mode, described both navigation actions,
+invoked the safe root-parent path, answered D-Bus Ping, quit cleanly, and
+released the application name.
+
 Phase 8B passes formatting, workspace check, strict all-target/all-feature
 Clippy, and 335 tests: 244 application and 91 core. Five focused Phase 8B tests
 cover bounded snapshots/widths, raw non-UTF-8 identity, active shared-model
@@ -1811,6 +1828,13 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 8C Miller keyboard/trackpad navigation on
+  `phase-8c-miller-navigation`.
+* Added bounded item movement, LTR/RTL logical directory movement, exact focus
+  restoration, modified-key fallthrough, horizontal gesture clamping, and
+  reduced-motion kinetic suppression without Phase 8D actions.
+* Verified 340 tests, strict Clippy, formatting/check/diff hygiene, and native
+  Wayland action/health/clean-quit lifecycle. Phase 8D is sole next.
 * Completed Phase 8B virtualized Miller columns on `phase-8b-miller-ui`.
 * Added one native shared-model active column, bounded retained snapshots,
   exact-path activation, adjustable persistent global width, and accessible
@@ -2149,10 +2173,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-8c-miller-navigation` and add left/right directory movement,
-up/down item movement, and smooth horizontal trackpad interaction with exact
-focus ownership, RTL behavior, and reduced-motion handling. Do not add Phase
-8D column actions.
+Create `phase-8d-miller-actions` and add selection-aware standard file actions
+and context menus to every retained/active Miller column with exact
+active-column ownership and pointer/keyboard parity. Do not add Phase 8E drag.
 ```
 
 ---

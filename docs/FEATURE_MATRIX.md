@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 8B. Phase 8C is the only
+The implementation baseline for this matrix is Phase 8C. Phase 8D is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -225,13 +225,13 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Column navigation state | `COMPLETE` | 8A | GTK-independent exact parent/selection/child relationships with stable logical depths; no Niri dependency. |
 | Virtualized/recycled column UI | `COMPLETE` | 8B | Native horizontally scrolling columns use virtualized list rows; the active column shares the existing browser model while historical results retain at most 16 capped snapshots. |
 | Parent context and child relationship | `COMPLETE` | 8A-8B | Core exact direct-child transitions bind visible parent selections and active child columns without reconstructing paths from labels. |
-| Left/right directory movement | `PLANNED` | 8C | Keyboard-first spatial navigation. |
-| Up/down item movement | `PLANNED` | 8C | Preserve selection semantics and focus visibility. |
-| Trackpad horizontal navigation | `PLANNED` | 8C | Smooth behavior must coexist with vertical list scrolling. |
+| Left/right directory movement | `COMPLETE` | 8C | Logical parent/child movement reverses for RTL and has exported action alternatives without hard-wiring physical-direction accelerators. |
+| Up/down item movement | `COMPLETE` | 8C | Up/Down/Home/End select within bounds and scroll focus visibly; modified selection chords fall through to native GTK behavior. |
+| Trackpad horizontal navigation | `COMPLETE` | 8C | Dominant horizontal deltas scroll the outer column surface with clamped adjustment while vertical gestures remain available to column lists. |
 | Adjustable column width | `COMPLETE` | 8B | One global 180–520 px width uses explicit Narrower/Wider actions and version-3 preference persistence; no per-path width map. |
 | Bounded retained columns | `COMPLETE` | 8A | Core retains at most 16 locations while stable logical depths identify evicted/stale requests. |
 | Column context menus/actions | `PLANNED` | 8D | Reuse command/action registry and selection policy. |
-| Selection preservation | `PARTIAL` | 8A-8C | Exact selected-child state binds retained columns; complete focus-visible keyboard restoration remains Phase 8C. |
+| Selection preservation | `COMPLETE` | 8A-8C | Exact selected-child state binds retained columns and recycled active lists restore focus-visible bounded keyboard selection. |
 | Cross-column drag/drop | `PLANNED` | 8E | Depends on Phase 8A exact destinations and general drag infrastructure. |
 | Quick Preview final column | `PLANNED` | 8F/9 | Hook only; providers remain Phase 9. |
 | Inspector final column | `PLANNED` | 8F/10 | Hook only; metadata providers remain Phase 10. |

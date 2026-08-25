@@ -956,7 +956,7 @@ impl BrowserWidgets {
                 self.grid_view.grab_focus();
             }
             ViewMode::Miller => {
-                self.miller_view.widget().grab_focus();
+                self.miller_view.focus_active();
             }
         }
     }

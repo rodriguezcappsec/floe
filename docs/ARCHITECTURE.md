@@ -211,6 +211,14 @@ returns the captured logical depth plus exact entry identity to
 `BrowserController`; labels are display-only. The single global clamped column
 width persists through the existing preference worker.
 
+Phase 8C keeps key and scroll controllers inside `MillerView` but sends logical
+parent/child commands—depth plus an exact selected `DirectoryEntry`—back to
+`BrowserController`. The controller alone mutates `MillerColumnModel` and the
+active `BrowserSession`; widgets never derive a path from labels. Up/Down and
+Home/End operate on the current `GtkSelectionModel`. Dominant horizontal scroll
+updates only the bounded outer adjustment, and GTK animation settings control
+kinetic scrolling. No worker, enumerator, or persistence channel is added.
+
 
 ### `application.rs` and `main.rs`
 

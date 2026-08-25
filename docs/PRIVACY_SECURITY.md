@@ -45,6 +45,10 @@ Security state must use text and accessible semantics, never color alone. A fail
   the non-sensitive global column width and view-mode policy are added to the
   private preference file. No column path, item snapshot, or selection is
   logged or newly persisted by Phase 8B.
+- Phase 8C keyboard and trackpad navigation produces no new history, cache,
+  log, or preference format. It operates only on exact identities already held
+  by the active/retained Miller state. Horizontal deltas and focus transitions
+  are not logged or persisted.
 
 - Floe runs as the calling desktop user. It does not run its GTK process as root and does not expose `Open as Administrator...` today.
 - The Cargo workspace forbids Rust `unsafe` code. The core crate is GTK-independent, and filesystem work stays out of GTK callbacks.

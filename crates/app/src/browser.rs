@@ -48,6 +48,8 @@ fn folder_tab_eligible(entries: &[Arc<DirectoryEntry>], trash_active: bool) -> b
 
 const SPLIT_SNAPSHOT_CAPACITY: usize = 512;
 #[cfg(test)]
+const MILLER_NAVIGATION_ACTIONS: [&str; 2] = ["win.miller-parent", "win.miller-child"];
+#[cfg(test)]
 const SPLIT_ACTION_NAMES: [&str; 10] = [
     "win.toggle-split",
     "win.switch-split-side",
@@ -171,7 +173,9 @@ use crate::{
     },
     locations::Location,
     metadata::{MetadataSubmitError, MetadataWorker},
-    miller_view::{MillerActivation, MillerPresentationState},
+    miller_view::{
+        MillerActivation, MillerNavigation, MillerNavigationCommand, MillerPresentationState,
+    },
     preferences::{
         PreferenceSubmitError, PreferenceWorker, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
         SidebarDensity, ViewPreferences, clamp_sidebar_width,
@@ -600,6 +604,12 @@ impl BrowserController {
         self.widgets.miller_view.bind_activate(move |activation| {
             if let Some(controller) = controller.upgrade() {
                 controller.activate_miller_entry(activation);
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.miller_view.bind_navigation(move |navigation| {
+            if let Some(controller) = controller.upgrade() {
+                controller.navigate_miller_keyboard(navigation);
             }
         });
 
@@ -1489,6 +1499,12 @@ impl BrowserController {
                 controller.apply_view_command(command);
             });
         }
+        self.add_action("miller-parent", |controller| {
+            controller.navigate_active_miller_command(MillerNavigationCommand::Parent);
+        });
+        self.add_action("miller-child", |controller| {
+            controller.navigate_active_miller_command(MillerNavigationCommand::Child);
+        });
         self.add_action("narrow-miller-columns", |controller| {
             let width = controller.widgets.miller_view.width().narrower();
             controller.set_miller_column_width(width);
@@ -2660,6 +2676,68 @@ impl BrowserController {
                 self.activate_entry(&activation.entry);
             }
         }
+    }
+
+    fn navigate_miller_keyboard(&self, navigation: MillerNavigation) {
+        if self.view_mode.get() != ViewMode::Miller || self.trash_active.get() {
+            return;
+        }
+        match navigation.command {
+            MillerNavigationCommand::Parent => {
+                let destination = {
+                    let mut model = self.miller_model.borrow_mut();
+                    let Some(model) = model.as_mut() else {
+                        return;
+                    };
+                    let previous = model
+                        .columns()
+                        .rfind(|column| column.depth().get() < navigation.depth)
+                        .map(|column| (column.depth(), column.directory().to_path_buf()));
+                    let Some((depth, destination)) = previous else {
+                        self.show_toast("This is the first retained Miller column", 3);
+                        return;
+                    };
+                    if let Err(error) = model.activate(depth) {
+                        tracing::warn!(%error, "could not activate parent Miller column");
+                        return;
+                    }
+                    destination
+                };
+                self.navigate_to(destination);
+                self.change_view_mode(ViewMode::Miller);
+            }
+            MillerNavigationCommand::Child => {
+                let Some(entry) = navigation.selected_entry else {
+                    self.show_toast("Select a folder before moving to the next column", 3);
+                    return;
+                };
+                if !entry.is_navigable_directory() {
+                    self.show_toast("The selected item does not open another column", 3);
+                    return;
+                }
+                self.activate_miller_entry(MillerActivation {
+                    depth: navigation.depth,
+                    entry,
+                });
+            }
+        }
+    }
+
+    fn navigate_active_miller_command(&self, command: MillerNavigationCommand) {
+        let depth = self
+            .miller_model
+            .borrow()
+            .as_ref()
+            .and_then(MillerColumnModel::active_depth)
+            .map(|depth| depth.get());
+        let Some(depth) = depth else {
+            return;
+        };
+        self.navigate_miller_keyboard(MillerNavigation {
+            depth,
+            command,
+            selected_entry: self.selected_entries.borrow().first().cloned(),
+        });
     }
 
     fn change_grid_size(&self, size: GridSize) {
@@ -5623,6 +5701,14 @@ mod tests {
         assert_eq!(
             opposite_pane_destination(&tabs),
             Some(PathBuf::from("/primary"))
+        );
+    }
+
+    #[test]
+    fn phase_8c_integration_exports_logical_navigation_actions_without_fixed_rtl_keys() {
+        assert_eq!(
+            MILLER_NAVIGATION_ACTIONS,
+            ["win.miller-parent", "win.miller-child"]
         );
     }
 

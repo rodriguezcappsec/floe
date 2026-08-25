@@ -18,6 +18,41 @@ use gtk::{gio, glib, prelude::*};
 use crate::view::MillerColumnWidth;
 
 pub const MILLER_SNAPSHOT_ENTRY_CAPACITY: usize = 4_096;
+const MILLER_TRACKPAD_SCALE: f64 = 48.0;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MillerNavigationCommand {
+    Parent,
+    Child,
+}
+
+#[derive(Clone, Debug)]
+pub struct MillerNavigation {
+    pub depth: usize,
+    pub command: MillerNavigationCommand,
+    pub selected_entry: Option<Arc<DirectoryEntry>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MillerItemCommand {
+    Previous,
+    Next,
+    First,
+    Last,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct MillerMotionPolicy {
+    kinetic_scrolling: bool,
+}
+
+impl MillerMotionPolicy {
+    const fn from_animations_enabled(enabled: bool) -> Self {
+        Self {
+            kinetic_scrolling: enabled,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 struct MillerSnapshot {
@@ -104,6 +139,7 @@ pub struct MillerActivation {
 }
 
 type ActivationHandler = Box<dyn Fn(MillerActivation)>;
+type NavigationHandler = Box<dyn Fn(MillerNavigation)>;
 
 #[derive(Clone, Default)]
 pub struct MillerActivationDispatcher(Rc<RefCell<Option<ActivationHandler>>>);
@@ -120,11 +156,28 @@ impl MillerActivationDispatcher {
     }
 }
 
+#[derive(Clone, Default)]
+struct MillerNavigationDispatcher(Rc<RefCell<Option<NavigationHandler>>>);
+
+impl MillerNavigationDispatcher {
+    fn bind(&self, handler: impl Fn(MillerNavigation) + 'static) {
+        self.0.replace(Some(Box::new(handler)));
+    }
+
+    fn dispatch(&self, navigation: MillerNavigation) {
+        if let Some(handler) = self.0.borrow().as_ref() {
+            handler(navigation);
+        }
+    }
+}
+
 pub struct MillerView {
     scroller: gtk::ScrolledWindow,
     columns: gtk::Box,
     width: Cell<MillerColumnWidth>,
     dispatcher: MillerActivationDispatcher,
+    navigation_dispatcher: MillerNavigationDispatcher,
+    active_list: RefCell<Option<gtk::ListView>>,
 }
 
 impl MillerView {
@@ -148,12 +201,44 @@ impl MillerView {
             .build();
         scroller.add_css_class("floe-miller-view");
         scroller.update_property(&[gtk::accessible::Property::Label("Miller column browser")]);
+        let animations_enabled = gtk::Settings::default()
+            .map(|settings| settings.is_gtk_enable_animations())
+            .unwrap_or(false);
+        let motion = MillerMotionPolicy::from_animations_enabled(animations_enabled);
+        scroller.set_kinetic_scrolling(motion.kinetic_scrolling);
+        if !motion.kinetic_scrolling {
+            scroller.add_css_class("floe-reduced-motion");
+        }
+
+        let mut scroll_flags = gtk::EventControllerScrollFlags::BOTH_AXES;
+        if motion.kinetic_scrolling {
+            scroll_flags.insert(gtk::EventControllerScrollFlags::KINETIC);
+        }
+        let horizontal_scroll = gtk::EventControllerScroll::new(scroll_flags);
+        let scroller_for_scroll = scroller.clone();
+        horizontal_scroll.connect_scroll(move |_, delta_x, delta_y| {
+            if !trackpad_prefers_horizontal(delta_x, delta_y) {
+                return glib::Propagation::Proceed;
+            }
+            let adjustment = scroller_for_scroll.hadjustment();
+            adjustment.set_value(horizontal_scroll_target(
+                adjustment.value(),
+                delta_x * MILLER_TRACKPAD_SCALE,
+                adjustment.lower(),
+                adjustment.upper(),
+                adjustment.page_size(),
+            ));
+            glib::Propagation::Stop
+        });
+        scroller.add_controller(horizontal_scroll);
 
         Self {
             scroller,
             columns,
             width: Cell::new(MillerColumnWidth::default()),
             dispatcher: MillerActivationDispatcher::default(),
+            navigation_dispatcher: MillerNavigationDispatcher::default(),
+            active_list: RefCell::new(None),
         }
     }
 
@@ -163,6 +248,18 @@ impl MillerView {
 
     pub fn bind_activate(&self, handler: impl Fn(MillerActivation) + 'static) {
         self.dispatcher.bind(handler);
+    }
+
+    pub fn bind_navigation(&self, handler: impl Fn(MillerNavigation) + 'static) {
+        self.navigation_dispatcher.bind(handler);
+    }
+
+    pub fn focus_active(&self) {
+        if let Some(list) = self.active_list.borrow().as_ref() {
+            list.grab_focus();
+        } else {
+            self.scroller.grab_focus();
+        }
     }
 
     pub fn width(&self) -> MillerColumnWidth {
@@ -185,6 +282,7 @@ impl MillerView {
         while let Some(child) = self.columns.first_child() {
             self.columns.remove(&child);
         }
+        self.active_list.borrow_mut().take();
 
         for column in columns {
             let shell = self.build_column(column, active_selection);
@@ -270,6 +368,50 @@ impl MillerView {
         let list = gtk::ListView::new(Some(model), Some(factory));
         list.set_single_click_activate(false);
         list.add_css_class("floe-miller-column-list");
+        list.update_property(&[gtk::accessible::Property::Description(&format!(
+            "Miller column {}. Use Up and Down to select items; logical Left and Right move between folders.",
+            column.depth + 1
+        ))]);
+
+        let key_navigation = gtk::EventControllerKey::new();
+        let navigation_dispatcher = self.navigation_dispatcher.clone();
+        let list_for_keys = list.clone();
+        let depth_for_keys = column.depth;
+        key_navigation.connect_key_pressed(move |_, key, _, modifiers| {
+            if !navigation_modifiers_allowed(modifiers) {
+                return glib::Propagation::Proceed;
+            }
+            if let Some(command) = item_command_for_key(key) {
+                let Some(model) = list_for_keys.model() else {
+                    return glib::Propagation::Proceed;
+                };
+                if let Some(target) =
+                    item_selection_target(first_selected_index(&model), model.n_items(), command)
+                {
+                    model.select_item(target, true);
+                    list_for_keys.scroll_to(
+                        target,
+                        gtk::ListScrollFlags::FOCUS,
+                        None::<gtk::ScrollInfo>,
+                    );
+                }
+                return glib::Propagation::Stop;
+            }
+            let rtl = list_for_keys.direction() == gtk::TextDirection::Rtl;
+            let Some(command) = logical_navigation_for_key(key, rtl) else {
+                return glib::Propagation::Proceed;
+            };
+            let selected_entry = list_for_keys
+                .model()
+                .and_then(|model| selected_entry_from_model(&model));
+            navigation_dispatcher.dispatch(MillerNavigation {
+                depth: depth_for_keys,
+                command,
+                selected_entry,
+            });
+            glib::Propagation::Stop
+        });
+        list.add_controller(key_navigation);
         let dispatcher = self.dispatcher.clone();
         let depth = column.depth;
         list.connect_activate(move |list, position| {
@@ -284,6 +426,9 @@ impl MillerView {
                 entry: object.borrow::<Arc<DirectoryEntry>>().clone(),
             });
         });
+        if column.is_active {
+            self.active_list.replace(Some(list.clone()));
+        }
 
         let list_scroller = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
@@ -357,6 +502,79 @@ fn miller_column_accessible_description(column: &MillerRenderColumn) -> String {
     )
 }
 
+fn logical_navigation_for_key(key: gtk::gdk::Key, rtl: bool) -> Option<MillerNavigationCommand> {
+    match (key, rtl) {
+        (gtk::gdk::Key::Left, false) | (gtk::gdk::Key::Right, true) => {
+            Some(MillerNavigationCommand::Parent)
+        }
+        (gtk::gdk::Key::Right, false) | (gtk::gdk::Key::Left, true) => {
+            Some(MillerNavigationCommand::Child)
+        }
+        _ => None,
+    }
+}
+
+fn item_command_for_key(key: gtk::gdk::Key) -> Option<MillerItemCommand> {
+    match key {
+        gtk::gdk::Key::Up => Some(MillerItemCommand::Previous),
+        gtk::gdk::Key::Down => Some(MillerItemCommand::Next),
+        gtk::gdk::Key::Home => Some(MillerItemCommand::First),
+        gtk::gdk::Key::End => Some(MillerItemCommand::Last),
+        _ => None,
+    }
+}
+
+fn navigation_modifiers_allowed(modifiers: gtk::gdk::ModifierType) -> bool {
+    !modifiers.intersects(
+        gtk::gdk::ModifierType::CONTROL_MASK
+            | gtk::gdk::ModifierType::ALT_MASK
+            | gtk::gdk::ModifierType::SHIFT_MASK
+            | gtk::gdk::ModifierType::SUPER_MASK,
+    )
+}
+
+fn item_selection_target(
+    selected: Option<u32>,
+    item_count: u32,
+    command: MillerItemCommand,
+) -> Option<u32> {
+    if item_count == 0 {
+        return None;
+    }
+    let last = item_count - 1;
+    Some(match command {
+        MillerItemCommand::Previous => selected.unwrap_or(0).saturating_sub(1),
+        MillerItemCommand::Next => selected.map_or(0, |index| index.saturating_add(1).min(last)),
+        MillerItemCommand::First => 0,
+        MillerItemCommand::Last => last,
+    })
+}
+
+fn first_selected_index(model: &gtk::SelectionModel) -> Option<u32> {
+    (0..model.n_items()).find(|index| model.is_selected(*index))
+}
+
+fn selected_entry_from_model(model: &gtk::SelectionModel) -> Option<Arc<DirectoryEntry>> {
+    let index = first_selected_index(model)?;
+    let object = model.item(index)?.downcast::<glib::BoxedAnyObject>().ok()?;
+    Some(object.borrow::<Arc<DirectoryEntry>>().clone())
+}
+
+fn trackpad_prefers_horizontal(delta_x: f64, delta_y: f64) -> bool {
+    delta_x != 0.0 && delta_x.abs() > delta_y.abs()
+}
+
+fn horizontal_scroll_target(
+    current: f64,
+    delta: f64,
+    lower: f64,
+    upper: f64,
+    page_size: f64,
+) -> f64 {
+    let maximum = (upper - page_size).max(lower);
+    (current + delta).clamp(lower, maximum)
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, os::unix::ffi::OsStringExt, path::PathBuf, sync::Arc};
@@ -367,8 +585,11 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        MILLER_SNAPSHOT_ENTRY_CAPACITY, MillerPresentationState,
-        miller_column_accessible_description,
+        MILLER_SNAPSHOT_ENTRY_CAPACITY, MillerItemCommand, MillerMotionPolicy,
+        MillerNavigationCommand, MillerPresentationState, horizontal_scroll_target,
+        item_command_for_key, item_selection_target, logical_navigation_for_key,
+        miller_column_accessible_description, navigation_modifiers_allowed,
+        trackpad_prefers_horizontal,
     };
     use crate::view::{
         MILLER_COLUMN_WIDTH_DEFAULT, MILLER_COLUMN_WIDTH_MAX, MILLER_COLUMN_WIDTH_MIN,
@@ -459,5 +680,91 @@ mod tests {
         assert!(VIEW_ACTIONS.contains(&("view-list", ViewCommand::List)));
         assert!(VIEW_ACTIONS.contains(&("view-grid", ViewCommand::Grid)));
         assert!(VIEW_ACTIONS.contains(&("view-miller", ViewCommand::Miller)));
+    }
+
+    #[test]
+    fn phase_8c_policy_maps_logical_directions_rtl_items_and_reduced_motion() {
+        assert_eq!(
+            logical_navigation_for_key(gtk::gdk::Key::Left, false),
+            Some(MillerNavigationCommand::Parent)
+        );
+        assert_eq!(
+            logical_navigation_for_key(gtk::gdk::Key::Right, false),
+            Some(MillerNavigationCommand::Child)
+        );
+        assert_eq!(
+            logical_navigation_for_key(gtk::gdk::Key::Left, true),
+            Some(MillerNavigationCommand::Child)
+        );
+        assert_eq!(
+            logical_navigation_for_key(gtk::gdk::Key::Right, true),
+            Some(MillerNavigationCommand::Parent)
+        );
+        assert_eq!(
+            item_command_for_key(gtk::gdk::Key::Home),
+            Some(MillerItemCommand::First)
+        );
+        assert!(!MillerMotionPolicy::from_animations_enabled(false).kinetic_scrolling);
+        assert!(MillerMotionPolicy::from_animations_enabled(true).kinetic_scrolling);
+    }
+
+    #[test]
+    fn phase_8c_focus_selection_targets_are_bounded_and_predictable() {
+        assert_eq!(
+            item_selection_target(None, 0, MillerItemCommand::Next),
+            None
+        );
+        assert_eq!(
+            item_selection_target(None, 4, MillerItemCommand::Next),
+            Some(0)
+        );
+        assert_eq!(
+            item_selection_target(Some(0), 4, MillerItemCommand::Previous),
+            Some(0)
+        );
+        assert_eq!(
+            item_selection_target(Some(3), 4, MillerItemCommand::Next),
+            Some(3)
+        );
+        assert_eq!(
+            item_selection_target(Some(2), 4, MillerItemCommand::First),
+            Some(0)
+        );
+        assert_eq!(
+            item_selection_target(Some(1), 4, MillerItemCommand::Last),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn phase_8c_trackpad_consumes_only_dominant_horizontal_motion_and_clamps() {
+        assert!(trackpad_prefers_horizontal(2.0, 0.5));
+        assert!(trackpad_prefers_horizontal(-2.0, 0.5));
+        assert!(!trackpad_prefers_horizontal(0.5, 2.0));
+        assert!(!trackpad_prefers_horizontal(0.0, 0.0));
+        assert_eq!(
+            horizontal_scroll_target(20.0, -50.0, 0.0, 500.0, 100.0),
+            0.0
+        );
+        assert_eq!(
+            horizontal_scroll_target(390.0, 50.0, 0.0, 500.0, 100.0),
+            400.0
+        );
+    }
+
+    #[test]
+    fn phase_8c_integration_preserves_modified_shortcuts_for_other_surfaces() {
+        assert!(navigation_modifiers_allowed(gtk::gdk::ModifierType::empty()));
+        assert!(!navigation_modifiers_allowed(
+            gtk::gdk::ModifierType::SHIFT_MASK
+        ));
+        assert!(!navigation_modifiers_allowed(
+            gtk::gdk::ModifierType::CONTROL_MASK
+        ));
+        assert!(!navigation_modifiers_allowed(
+            gtk::gdk::ModifierType::ALT_MASK
+        ));
+        assert!(VIEW_ACTIONS.contains(&("view-list", ViewCommand::List)));
+        assert!(VIEW_ACTIONS.contains(&("view-grid", ViewCommand::Grid)));
     }
 }
