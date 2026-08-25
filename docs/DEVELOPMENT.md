@@ -441,6 +441,17 @@ cleanly relaunch the same isolated configuration to confirm split restoration.
 The inactive pane is a bounded snapshot; only the active pane owns the live
 browser and watcher pipeline.
 
+Phase 7F adds no dependency. Its focused application checks are:
+
+```bash
+cargo test -p floe-app phase_7f -- --nocapture
+```
+
+Native smoke verifies the exported Link to Other Pane action, split target
+construction, D-Bus health, and clean shutdown. Automated focused tests perform
+real copy/move/link jobs because synthetic Wayland drag serials are not a
+reliable native-smoke input mechanism.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

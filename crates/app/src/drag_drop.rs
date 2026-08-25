@@ -470,4 +470,15 @@ mod tests {
             "Move to Trash — release to apply"
         );
     }
+
+    #[test]
+    fn phase_7f_split_drag_accessibility_feedback_names_action_destination_and_commit() {
+        let message = drop_feedback(
+            &DropDestination::Directory(PathBuf::from("/opposite-pane")),
+            DropAction::Move,
+        );
+        assert!(message.contains("Move"));
+        assert!(message.contains("/opposite-pane"));
+        assert!(message.contains("release to apply"));
+    }
 }

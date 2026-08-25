@@ -1249,6 +1249,10 @@ pub fn build(
         Some("Move to Other Pane"),
         Some("win.move-to-opposite-pane"),
     );
+    split_view_model.append(
+        Some("Create Links in Other Pane"),
+        Some("win.link-to-opposite-pane"),
+    );
     file_actions_model.append_section(Some("Split View"), &split_view_model);
     file_actions_model.append(
         Some(OPERATION_HISTORY_MENU_ITEM.0),
@@ -3024,6 +3028,10 @@ fn build_file_context_menu_model() -> gio::Menu {
     opposite.append(
         Some("Move to Other Pane"),
         Some("win.move-to-opposite-pane"),
+    );
+    opposite.append(
+        Some("Create Links in Other Pane"),
+        Some("win.link-to-opposite-pane"),
     );
     menu.append_section(Some("Other Pane"), &opposite);
 

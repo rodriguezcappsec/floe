@@ -1160,12 +1160,19 @@ Last updated:
 Current phase:
 
 ```text
-Phase 7 — Tabs and split view (Phase 7E complete)
+Phase 7 — Tabs and split view (Phase 7F complete)
 ```
 
 Status:
 
 ```text
+Phase 7F makes the inactive pane an exact, live-resolved local-file drop target.
+Standard GDK payloads and desktop modifiers reuse the existing copy/move/link
+dispatcher, FIFO jobs, no-overwrite conflicts, self-nesting checks, and
+non-color-only action/path/commit feedback. Open, Copy, Move, and Create Links in
+Other Pane provide explicit keyboard/menu alternatives. The target does not
+hover-open, clone the browser pipeline, detach tabs, or implement Miller drag.
+
 Phase 7E adds one native horizontal split over the Phase 7D state. F3 toggles,
 F6 switches active side, Ctrl+Alt+Left/Right changes the primary ratio in 5%
 steps, and menus expose close, swap, Open Folder in Other Pane, and direct
@@ -1173,8 +1180,7 @@ Copy/Move to Other Pane. Text identifies the active left/right side; the inactiv
 pane is a bounded, truthfully stale snapshot. Exact opposite destinations reuse
 existing no-overwrite FIFO jobs without disturbing the staged transfer buffer.
 Only one active list/grid, browser worker, thumbnail/metadata pipeline, and
-watcher exists. Split state and ratio restore across clean launches. Inter-pane
-drag/drop remains Phase 7F.
+watcher exists. Split state and ratio restore across clean launches.
 
 Phase 7D adds GTK-independent per-tab split state. Every live and recently
 closed tab now owns a primary `BrowserSession`, optional secondary session,
@@ -1490,10 +1496,10 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 7E is complete. The one recommended next branch is
-`phase-7f-tab-split-drag`, adding exact-path file-operation drag/drop between
-split contexts through the existing bounded dispatcher. Do not add Miller
-column drag or detached windows in Phase 7F.
+Phase 7F is complete. The one recommended next branch is
+`phase-8a-miller-model`, adding a GTK-independent exact parent/selected-child
+column chain with bounded retention and deterministic rename/delete transitions.
+Do not add Miller widgets or duplicate directory enumeration in Phase 8A.
 ```
 
 Verified:
@@ -1771,7 +1777,7 @@ Deferred:
 Overwrite and apply-to-all conflict policy, Restore Elsewhere and Trash cleanup
 preferences, ownership/ACL/xattr/sparse/reflink-complete copies, persistent
 operation recovery/history UI, template management, heavyweight/RAW/vector thumbnails,
-inter-pane drag/drop, Miller columns, previews, archives, search, richer device
+tab detachment, Miller columns, previews, archives, search, richer device
 details, Niri IPC, KDE-specific APIs, and network filesystems.
 First-class theme/font customization, full file-association/external-tool
 management, and privileged GFile browsing remain explicit later milestones.
@@ -1780,6 +1786,13 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 7F split drag on `phase-7f-tab-split-drag`.
+* Added a live exact inactive-pane drop target using existing local file-list
+  copy/move/link negotiation, no-overwrite FIFO jobs, accessible feedback, and
+  complete Open/Copy/Move/Link alternatives without hover-open or a second pipeline.
+* Verified 326 tests, strict Clippy, formatting/check/diff hygiene, exported
+  action state, split-target construction, D-Bus health, and clean native quit;
+  Phase 8A is the sole recommended next phase.
 * Completed Phase 7E split interaction on `phase-7e-split-interaction`.
 * Added native resizable panes, explicit active-side ownership, bounded inactive
   snapshots, toggle/switch/swap/close, exact opposite-pane open/copy/move, and
@@ -2098,10 +2111,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-7f-tab-split-drag` and add exact-path file-operation drag/drop
-between split contexts using the existing bounded dispatcher, modifier policy,
-accessible destination feedback, and complete keyboard alternatives. Do not add
-Miller-column drag or detached windows.
+Create `phase-8a-miller-model` and add the GTK-independent exact
+parent/selected-child column chain, bounded retained state, raw non-UTF-8
+identity, and deterministic rename/delete transitions. Do not add GTK column
+widgets or duplicate directory enumeration.
 ```
 
 ---
