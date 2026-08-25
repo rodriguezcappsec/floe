@@ -200,8 +200,16 @@ stores only a bounded `VecDeque` of exact directory paths, selected direct-child
 paths, stable logical depths, and active depth. It validates path and chain
 invariants and reconciles caller-supplied rename/delete events without touching
 the filesystem. It deliberately owns no `DirectoryEntry`, listing cache,
-enumerator, worker, widget, GIO, compositor, or persistence dependency; Phase 8B
-must bind existing directory results rather than duplicate them in this model.
+enumerator, worker, widget, GIO, compositor, or persistence dependency.
+
+Phase 8B adds application-owned `miller_view.rs`. Its active `GtkListView`
+shares the existing `GtkMultiSelection` and `GioListStore`; it never owns a
+second browser worker, watcher, or filesystem enumerator. Previously returned
+columns are capped snapshots of shared `Arc<DirectoryEntry>` values (16 columns,
+4,096 entries each), so recycling cannot grow without bound. GTK activation
+returns the captured logical depth plus exact entry identity to
+`BrowserController`; labels are display-only. The single global clamped column
+width persists through the existing preference worker.
 
 
 ### `application.rs` and `main.rs`

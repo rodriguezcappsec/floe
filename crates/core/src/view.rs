@@ -10,6 +10,7 @@ pub enum ViewMode {
     #[default]
     List,
     Grid,
+    Miller,
 }
 
 impl ViewMode {
@@ -21,6 +22,7 @@ impl ViewMode {
         match self {
             Self::List => "list",
             Self::Grid => "grid",
+            Self::Miller => "miller",
         }
     }
 
@@ -28,6 +30,7 @@ impl ViewMode {
         match value {
             "list" => Some(Self::List),
             "grid" => Some(Self::Grid),
+            "miller" => Some(Self::Miller),
             _ => None,
         }
     }
@@ -360,6 +363,7 @@ mod tests {
     fn phase_7a_view_preserves_strict_modes_and_bounded_grid_steps() {
         assert_eq!(ViewMode::from_persisted("list"), Some(ViewMode::List));
         assert_eq!(ViewMode::from_persisted("grid"), Some(ViewMode::Grid));
+        assert_eq!(ViewMode::from_persisted("miller"), Some(ViewMode::Miller));
         assert_eq!(ViewMode::from_persisted("GRID"), None);
         let smallest = GridSize::from_index(0).expect("smallest");
         let largest = GridSize::from_index(GRID_SIZES.len() - 1).expect("largest");

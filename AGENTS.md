@@ -1160,12 +1160,22 @@ Last updated:
 Current phase:
 
 ```text
-Phase 8 — Miller and spatial navigation (Phase 8A complete)
+Phase 8 — Miller and spatial navigation (Phase 8B complete)
 ```
 
 Status:
 
 ```text
+Phase 8B adds native horizontally scrolling, virtualized Miller columns. The
+active column shares the existing `GtkMultiSelection`, `GioListStore`, browser
+worker, and watcher; prior columns retain only already-returned shared entries,
+bounded to 16 snapshots and 4,096 entries each. Exact `PathBuf` identity and
+logical depth return from recycled-row activation. Active state is named in
+text, and one global 180–520 px column width persists through version-3 view
+preferences. List/grid, tabs, splits, operations, and file watching remain on
+the same application pipeline. Phase 8B adds no per-column context actions,
+drag/drop, Preview/Inspector content, or Phase 8C keyboard/trackpad navigation.
+
 Phase 8A adds a GTK-independent `MillerColumnModel` with exact directory and
 selected-direct-child paths, stable logical depths, and a fixed 16-column
 retention window. It rejects relative, oversized, non-child, stale-depth, and
@@ -1505,15 +1515,21 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 8A is complete. The one recommended next branch is
-`phase-8b-miller-ui`, binding recyclable floating columns to the existing
-directory-result pipeline with adjustable widths and bounded widget state. Do
-not duplicate enumeration or add keyboard/trackpad navigation in Phase 8B.
+Phase 8B is complete. The one recommended next branch is
+`phase-8c-miller-navigation`, adding directional keyboard and horizontal
+trackpad behavior with explicit focus, RTL, and reduced-motion handling.
 ```
 
 Verified:
 
 ```text
+Phase 8B passes formatting, workspace check, strict all-target/all-feature
+Clippy, and 335 tests: 244 application and 91 core. Five focused Phase 8B tests
+cover bounded snapshots/widths, raw non-UTF-8 identity, active shared-model
+pipeline, non-color-only active descriptions, and list/grid/Miller action
+parity. Native Wayland smoke activated Miller mode and width adjustment over
+D-Bus, remained healthy, quit cleanly, and released the application name.
+
 Phase 7C passes formatting, workspace check, strict all-target/all-feature
 Clippy, and 312 tests: 82 core and 230 application. Focused coverage includes
 bounded closed-tab transitions, hostile workspace input, private atomic storage,
@@ -1795,6 +1811,12 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 8B virtualized Miller columns on `phase-8b-miller-ui`.
+* Added one native shared-model active column, bounded retained snapshots,
+  exact-path activation, adjustable persistent global width, and accessible
+  active-column text without a second enumerator or watcher.
+* Verified 335 tests, strict Clippy, formatting/check/diff hygiene, and native
+  Wayland view/width/action/health/clean-quit lifecycle. Phase 8C is sole next.
 * Completed Phase 8A Miller column model on `phase-8a-miller-model`.
 * Added exact direct-child chains, stable logical depths, bounded 16-column
   retention, raw non-UTF-8 identity, structured selection/descent and
@@ -2127,10 +2149,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-8b-miller-ui` and bind recyclable floating columns to the existing
-bounded directory-result pipeline with adjustable widths, exact selection, and
-accessible active-column semantics. Do not duplicate enumeration or add Phase
-8C keyboard/trackpad navigation.
+Create `phase-8c-miller-navigation` and add left/right directory movement,
+up/down item movement, and smooth horizontal trackpad interaction with exact
+focus ownership, RTL behavior, and reduced-motion handling. Do not add Phase
+8D column actions.
 ```
 
 ---

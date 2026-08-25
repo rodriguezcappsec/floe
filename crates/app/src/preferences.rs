@@ -18,7 +18,9 @@ use std::{
 use floe_core::{DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn, SortDirection};
 use thiserror::Error;
 
-use crate::view::{FileViewDensity, FolderViewState, GridSize, ListColumnLayout, ViewMode};
+use crate::view::{
+    FileViewDensity, FolderViewState, GridSize, ListColumnLayout, MillerColumnWidth, ViewMode,
+};
 
 const PREFERENCE_QUEUE_CAPACITY: usize = 1;
 const PREFERENCE_FILE_NAME: &str = "view-preferences.conf";
@@ -74,6 +76,7 @@ pub struct ViewPreferences {
     pub grid_size: GridSize,
     pub sidebar_density: SidebarDensity,
     pub sidebar_width: Option<u16>,
+    pub miller_column_width: MillerColumnWidth,
     pub file_density: FileViewDensity,
     pub sort: DirectorySort,
     pub columns: ListColumnLayout,
@@ -89,6 +92,7 @@ impl Default for ViewPreferences {
             grid_size: state.grid_size,
             sidebar_density: SidebarDensity::default(),
             sidebar_width: None,
+            miller_column_width: MillerColumnWidth::default(),
             file_density: state.density,
             sort: state.sort,
             columns: state.columns,
@@ -182,6 +186,11 @@ impl ViewPreferences {
                         preferences.sidebar_width = Some(clamp_sidebar_width(width));
                     }
                 }
+                "miller-column-width" => {
+                    if let Ok(width) = value.parse::<u16>() {
+                        preferences.miller_column_width = MillerColumnWidth::new(width);
+                    }
+                }
                 "file-density" => {
                     if let Some(density) = FileViewDensity::from_persisted(value) {
                         preferences.file_density = density;
@@ -233,10 +242,11 @@ impl ViewPreferences {
 
     fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=2\nview={}\ngrid-size={}\nsidebar-density={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\n",
+            "version=3\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\n",
             self.mode.persisted(),
             self.grid_size.edge(),
             self.sidebar_density.persisted(),
+            self.miller_column_width.get(),
             self.file_density.persisted(),
             self.sort.column.persisted(),
             self.sort.direction.persisted(),
@@ -555,12 +565,14 @@ mod tests {
             .with_grouping(DirectoryGrouping::Extension);
         preferences.columns.set_visible(ListColumn::Mime, true);
         preferences.columns.set_width(ListColumn::Mime, 248);
+        preferences.miller_column_width = MillerColumnWidth::new(360);
         preferences.remember_per_folder = true;
 
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=2\n"));
+        assert!(serialized.starts_with("version=3\n"));
+        assert!(serialized.contains("miller-column-width=360\n"));
     }
 
     #[cfg(unix)]

@@ -12,9 +12,10 @@ use std::{
 use adw::prelude::*;
 use floe_core::{
     BrowserSession, BrowserSessionId, BrowserTabs, CreateRequest, DirectoryEntry, DirectoryError,
-    DirectoryGrouping, DirectoryPlacement, DirectorySort, EntryKind, RestoreRequest,
-    SPLIT_RATIO_MAX, SPLIT_RATIO_MIN, SessionScrollAnchor, SortColumn, SplitRatio, SplitSide,
-    TabActivation, TabError, TrashEnumerateError, TrashRoot,
+    DirectoryGrouping, DirectoryPlacement, DirectorySort, EntryKind, MillerChildKind,
+    MillerColumnModel, MillerSelectionTransition, RestoreRequest, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN,
+    SessionScrollAnchor, SortColumn, SplitRatio, SplitSide, TabActivation, TabError,
+    TrashEnumerateError, TrashRoot,
 };
 
 fn tab_title(path: &Path) -> String {
@@ -170,6 +171,7 @@ use crate::{
     },
     locations::Location,
     metadata::{MetadataSubmitError, MetadataWorker},
+    miller_view::{MillerActivation, MillerPresentationState},
     preferences::{
         PreferenceSubmitError, PreferenceWorker, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
         SidebarDensity, ViewPreferences, clamp_sidebar_width,
@@ -183,7 +185,8 @@ use crate::{
     thumbnail::{ThumbnailSubmitError, ThumbnailWorker},
     ui::{self, BrowserWidgets},
     view::{
-        FileViewDensity, FolderViewState, GridSize, ListColumn, VIEW_ACTIONS, ViewCommand, ViewMode,
+        FileViewDensity, FolderViewState, GridSize, ListColumn, MillerColumnWidth, VIEW_ACTIONS,
+        ViewCommand, ViewMode,
     },
     worker::{BrowserWorker, ResponseKind},
 };
@@ -342,6 +345,8 @@ pub struct BrowserController {
     sort_selection_paths: RefCell<Vec<PathBuf>>,
     reveal_selection_path: RefCell<Option<PathBuf>>,
     view_mode: Cell<ViewMode>,
+    miller_model: RefCell<Option<MillerColumnModel>>,
+    miller_state: RefCell<MillerPresentationState>,
     grid_size: Cell<GridSize>,
     file_density: Cell<FileViewDensity>,
     list_columns: Cell<crate::view::ListColumnLayout>,
@@ -446,6 +451,8 @@ impl BrowserController {
             sort_selection_paths: RefCell::new(Vec::new()),
             reveal_selection_path: RefCell::new(None),
             view_mode: Cell::new(initial_view.mode),
+            miller_model: RefCell::new(None),
+            miller_state: RefCell::new(MillerPresentationState::default()),
             grid_size: Cell::new(initial_view.grid_size),
             file_density: Cell::new(initial_view.density),
             list_columns: Cell::new(initial_view.columns),
@@ -587,6 +594,12 @@ impl BrowserController {
         self.widgets.grid_view.connect_activate(move |_, position| {
             if let Some(controller) = controller.upgrade() {
                 controller.activate(position);
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.miller_view.bind_activate(move |activation| {
+            if let Some(controller) = controller.upgrade() {
+                controller.activate_miller_entry(activation);
             }
         });
 
@@ -772,6 +785,7 @@ impl BrowserController {
         let view: &gtk::Widget = match self.view_mode.get() {
             ViewMode::List => self.widgets.list_view.upcast_ref(),
             ViewMode::Grid => self.widgets.grid_view.upcast_ref(),
+            ViewMode::Miller => return None,
         };
         view.ancestor(gtk::ScrolledWindow::static_type())
             .and_downcast::<gtk::ScrolledWindow>()
@@ -812,6 +826,7 @@ impl BrowserController {
                     .grid_view
                     .scroll_to(index, gtk::ListScrollFlags::NONE, Some(info))
             }
+            ViewMode::Miller => {}
         }
     }
 
@@ -1474,6 +1489,14 @@ impl BrowserController {
                 controller.apply_view_command(command);
             });
         }
+        self.add_action("narrow-miller-columns", |controller| {
+            let width = controller.widgets.miller_view.width().narrower();
+            controller.set_miller_column_width(width);
+        });
+        self.add_action("widen-miller-columns", |controller| {
+            let width = controller.widgets.miller_view.width().wider();
+            controller.set_miller_column_width(width);
+        });
 
         let density = self.current_preferences.borrow().sidebar_density;
         let density_action = gio::SimpleAction::new_stateful(
@@ -2485,10 +2508,15 @@ impl BrowserController {
     }
 
     fn change_view_mode(&self, mode: ViewMode) {
+        let changed = self.view_mode.replace(mode) != mode;
         self.widgets.popdown_context_menus();
         self.widgets.set_view_mode(mode);
+        if mode == ViewMode::Miller {
+            self.prepare_miller_for_current();
+            self.render_miller();
+        }
         self.widgets.focus_view(mode);
-        if self.view_mode.replace(mode) != mode {
+        if changed {
             self.queue_preferences();
         }
     }
@@ -2497,8 +2525,140 @@ impl BrowserController {
         match command {
             ViewCommand::List => self.change_view_mode(ViewMode::List),
             ViewCommand::Grid => self.change_view_mode(ViewMode::Grid),
+            ViewCommand::Miller => self.change_view_mode(ViewMode::Miller),
             ViewCommand::ZoomIn => self.change_grid_size(self.grid_size.get().zoom_in()),
             ViewCommand::ZoomOut => self.change_grid_size(self.grid_size.get().zoom_out()),
+        }
+    }
+
+    fn set_miller_column_width(&self, width: MillerColumnWidth) {
+        self.widgets.miller_view.set_width(width);
+        self.current_preferences.borrow_mut().miller_column_width = width;
+        self.queue_preferences();
+        self.show_toast(&format!("Miller column width: {} pixels", width.get()), 3);
+    }
+
+    fn prepare_miller_for_current(&self) {
+        if self.trash_active.get() {
+            self.miller_model.borrow_mut().take();
+            self.miller_state.borrow_mut().clear();
+            return;
+        }
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
+        let retained_depth = self.miller_model.borrow().as_ref().and_then(|model| {
+            model
+                .columns()
+                .find(|column| column.directory() == current)
+                .map(|column| column.depth())
+        });
+        if let Some(depth) = retained_depth {
+            if let Some(model) = self.miller_model.borrow_mut().as_mut()
+                && let Err(error) = model.activate(depth)
+            {
+                tracing::warn!(%error, "could not reactivate retained Miller column");
+            }
+            return;
+        }
+        match MillerColumnModel::new(current) {
+            Ok(model) => {
+                self.miller_model.replace(Some(model));
+                self.miller_state.borrow_mut().clear();
+            }
+            Err(error) => {
+                tracing::warn!(%error, "could not initialize Miller columns");
+                self.miller_model.borrow_mut().take();
+                self.miller_state.borrow_mut().clear();
+            }
+        }
+    }
+
+    fn render_miller(&self) {
+        if self.view_mode.get() != ViewMode::Miller {
+            return;
+        }
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
+        let model = self.miller_model.borrow();
+        let Some(model) = model.as_ref() else {
+            self.widgets
+                .miller_view
+                .render(&[], &self.widgets.selection);
+            return;
+        };
+        let columns = self.miller_state.borrow().columns(model, &current);
+        self.widgets
+            .miller_view
+            .render(&columns, &self.widgets.selection);
+    }
+
+    fn activate_miller_entry(&self, activation: MillerActivation) {
+        if self.view_mode.get() != ViewMode::Miller || self.trash_active.get() {
+            return;
+        }
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
+        let source_is_current = self
+            .miller_model
+            .borrow()
+            .as_ref()
+            .and_then(|model| {
+                model
+                    .columns()
+                    .find(|column| column.depth().get() == activation.depth)
+                    .map(|column| column.directory() == current)
+            })
+            .unwrap_or(false);
+        if source_is_current {
+            self.miller_state.borrow_mut().capture(
+                activation.depth,
+                current,
+                &self.visible_entries.borrow(),
+            );
+        }
+
+        let kind = if activation.entry.is_navigable_directory() {
+            MillerChildKind::Directory
+        } else {
+            MillerChildKind::Leaf
+        };
+        let transition = self
+            .miller_model
+            .borrow_mut()
+            .as_mut()
+            .ok_or_else(|| "Miller column state is unavailable".to_owned())
+            .and_then(|model| {
+                let depth = model
+                    .columns()
+                    .find(|column| column.depth().get() == activation.depth)
+                    .map(|column| column.depth())
+                    .ok_or_else(|| "That Miller column is no longer retained".to_owned())?;
+                model
+                    .select_child(depth, activation.entry.path().to_path_buf(), kind)
+                    .map_err(|error| error.to_string())
+            });
+        let transition = match transition {
+            Ok(transition) => transition,
+            Err(message) => {
+                self.show_toast(&message, 5);
+                self.prepare_miller_for_current();
+                self.render_miller();
+                return;
+            }
+        };
+        self.miller_state
+            .borrow_mut()
+            .truncate_after(activation.depth);
+
+        match transition {
+            MillerSelectionTransition::Descended { .. }
+            | MillerSelectionTransition::ActivatedExisting { .. }
+                if kind == MillerChildKind::Directory =>
+            {
+                self.navigate_to(activation.entry.path().to_path_buf());
+                self.change_view_mode(ViewMode::Miller);
+            }
+            _ => {
+                self.render_miller();
+                self.activate_entry(&activation.entry);
+            }
         }
     }
 
@@ -3276,6 +3436,10 @@ impl BrowserController {
         self.visible_entries.replace(entries);
         self.set_selection_actions_enabled(false, false, false);
         self.pending_store.replace(Some(store));
+        if self.view_mode.get() == ViewMode::Miller {
+            self.prepare_miller_for_current();
+            self.render_miller();
+        }
         self.update_loading_status(0, count);
         if focus_list {
             self.widgets.focus_view(self.view_mode.get());

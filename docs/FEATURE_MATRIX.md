@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 8A. Phase 8B is the only
+The implementation baseline for this matrix is Phase 8B. Phase 8C is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -223,15 +223,15 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | Column navigation state | `COMPLETE` | 8A | GTK-independent exact parent/selection/child relationships with stable logical depths; no Niri dependency. |
-| Virtualized/recycled column UI | `PLANNED` | 8B | Bound retained columns and reuse directory results without duplicating filesystem state. |
-| Parent context and child relationship | `PARTIAL` | 8A-8B | Core model enforces direct exact children and deterministic truncation; visible binding remains 8B. |
+| Virtualized/recycled column UI | `COMPLETE` | 8B | Native horizontally scrolling columns use virtualized list rows; the active column shares the existing browser model while historical results retain at most 16 capped snapshots. |
+| Parent context and child relationship | `COMPLETE` | 8A-8B | Core exact direct-child transitions bind visible parent selections and active child columns without reconstructing paths from labels. |
 | Left/right directory movement | `PLANNED` | 8C | Keyboard-first spatial navigation. |
 | Up/down item movement | `PLANNED` | 8C | Preserve selection semantics and focus visibility. |
 | Trackpad horizontal navigation | `PLANNED` | 8C | Smooth behavior must coexist with vertical list scrolling. |
-| Adjustable column width | `PLANNED` | 8B | Persist appropriately without unbounded per-path settings. |
+| Adjustable column width | `COMPLETE` | 8B | One global 180–520 px width uses explicit Narrower/Wider actions and version-3 preference persistence; no per-path width map. |
 | Bounded retained columns | `COMPLETE` | 8A | Core retains at most 16 locations while stable logical depths identify evicted/stale requests. |
 | Column context menus/actions | `PLANNED` | 8D | Reuse command/action registry and selection policy. |
-| Selection preservation | `PARTIAL` | 8A-8D | Core preserves exact raw paths through descent/rename/delete; GTK recycling and actions remain later phases. |
+| Selection preservation | `PARTIAL` | 8A-8C | Exact selected-child state binds retained columns; complete focus-visible keyboard restoration remains Phase 8C. |
 | Cross-column drag/drop | `PLANNED` | 8E | Depends on Phase 8A exact destinations and general drag infrastructure. |
 | Quick Preview final column | `PLANNED` | 8F/9 | Hook only; providers remain Phase 9. |
 | Inspector final column | `PLANNED` | 8F/10 | Hook only; metadata providers remain Phase 10. |
@@ -694,7 +694,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Undo | `PLANNED` | 6P | Requires explicit operation-specific reversible semantics and current-state revalidation. |
 | Tabs/session restore | `COMPLETE` | 7A-7C | Versioned bounded raw-path workspace restores live/closed state through private atomic storage; explicit Private/Sensitive policy suppresses owned traces. |
 | Split view | `PLANNED` | 7D-7F | Reusable navigation sessions and explicit active-pane ownership. |
-| Miller columns | `PLANNED` | 8A-8F | View-independent navigation, exact selection identity, bounded directory results. |
+| Miller columns | `PARTIAL` | 8A-8F | Exact bounded model and native virtualized columns are complete; keyboard/trackpad, actions, cross-column drag, and detail hooks remain 8C–8F. |
 | Quick Preview | `PLANNED` | 9A-9F | Existing thumbnails plus cancellable provider boundary designed for Phase 18L sandboxing. |
 | Inspector | `PLANNED` | 10A-10F | Shared lazy metadata providers; no eager whole-directory enrichment. |
 | Command palette | `PLANNED` | 11A-11B | Central command registry; no business logic in palette callbacks. |
