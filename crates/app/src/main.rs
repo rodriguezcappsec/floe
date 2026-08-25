@@ -16,6 +16,8 @@ mod file_watcher;
 mod iconography;
 mod inspector;
 pub mod job_manager;
+mod keybindings;
+mod keyboard_shortcuts;
 mod launcher;
 mod location_input;
 mod locations;

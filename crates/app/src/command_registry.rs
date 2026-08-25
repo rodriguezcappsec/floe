@@ -124,6 +124,15 @@ pub static COMMANDS: &[CommandDefinition] = &[
         searchable: false,
     },
     command!(
+        "keyboard-shortcuts",
+        "Keyboard Shortcuts",
+        "View and customize every Floe keyboard shortcut",
+        Operations,
+        ["keys", "bindings", "hotkeys", "customize", "help"],
+        ["<Control>question"],
+        [H, W]
+    ),
+    command!(
         "open",
         "Open",
         "Open the selected item",
@@ -725,14 +734,6 @@ pub fn resolve_all<A: CommandActionSource>(group: &A) -> Vec<ResolvedCommand> {
         .filter(|command| command.searchable)
         .map(|command| resolve(group, command))
         .collect()
-}
-
-pub fn install_default_window_shortcuts(application: &adw::Application) {
-    for command in COMMANDS {
-        if !command.default_shortcuts.is_empty() {
-            application.set_accels_for_action(command.action, command.default_shortcuts);
-        }
-    }
 }
 
 pub fn missing_registered_actions<A: CommandActionSource>(group: &A) -> Vec<&'static str> {

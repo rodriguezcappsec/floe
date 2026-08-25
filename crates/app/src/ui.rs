@@ -43,6 +43,8 @@ const SIDEBAR_DENSITY_MENU_ITEMS: [(&str, &str); 3] = [
 const RESET_SIDEBAR_WIDTH_MENU_ITEM: (&str, &str) =
     ("Reset Sidebar Width", "win.reset-sidebar-width");
 const OPERATION_HISTORY_MENU_ITEM: (&str, &str) = ("Operation History", "win.operation-history");
+const KEYBOARD_SHORTCUTS_MENU_ITEM: (&str, &str) =
+    ("Keyboard Shortcuts…", "win.keyboard-shortcuts");
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OperationIslandRow {
@@ -1416,6 +1418,10 @@ pub fn build(
     file_actions_model.append(
         Some(OPERATION_HISTORY_MENU_ITEM.0),
         Some(OPERATION_HISTORY_MENU_ITEM.1),
+    );
+    file_actions_model.append(
+        Some(KEYBOARD_SHORTCUTS_MENU_ITEM.0),
+        Some(KEYBOARD_SHORTCUTS_MENU_ITEM.1),
     );
     let file_actions = gtk::MenuButton::builder()
         .icon_name("view-more-symbolic")

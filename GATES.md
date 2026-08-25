@@ -1,39 +1,41 @@
-# Gates: Floe Phase 11B — Command Palette
+# Gates: Floe Phase 11C — Keybindings
 
-- [x] G1: Correct phase branch and Phase 11B-only scope.
+Scope: Deliver bounded, persistent, conflict-safe shortcut customization and complete native shortcut discovery without adding Vim or terminal behavior.
+
+- [x] G1: The active branch and diff contain only Phase 11C work.
   CHECK: git branch --show-current
-  EXPECT: phase-11b-command-palette
-  EVIDENCE: Branch confirmed; no shortcut customization, Vim mode, terminal integration, or filesystem changes were added.
+  EXPECT: phase-11c-keybindings
+  EVIDENCE: Confirmed `phase-11c-keybindings`; implementation and documentation are limited to shortcut model, preferences, native dialog, action/menu wiring, and phase ledgers.
 
-- [x] G2: Search is deterministic, metadata-only, query/result bounded, category/term aware, and gives useful exact/prefix ranking.
-  CHECK: cargo test -p floe-app phase_11b_palette_search -- --nocapture
+- [x] G2: Override parsing, canonicalization, bounds, migration, conflict detection, reset-one/reset-all, and conservative risk guardrails are verified.
+  CHECK: cargo test -p floe-app phase_11c_keybinding_model -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Passed exact Open With ranking, checksum search term, Split View category, 128-character query bound, 64-result cap, and deterministic stable score order.
+  EVIDENCE: Two focused model tests passed, including malformed/hostile records, four-binding and 64-override bounds, exact conflicts, typing-key rejection, protected destructive actions, and resets.
 
-- [x] G3: Recent commands are de-duplicated, capped at 16, memory-only, and never record disabled/missing activation attempts.
-  CHECK: cargo test -p floe-app phase_11b_palette_recent -- --nocapture
+- [x] G3: Preferences round-trip validated effective shortcuts through the existing bounded worker while legacy files retain defaults.
+  CHECK: cargo test -p floe-app phase_11c_keybinding_preferences -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Passed 16-entry eviction, move-to-front de-duplication, unknown rejection, and process-owned structure with no persistence path.
+  EVIDENCE: Focused migration/round-trip test passed for version-4 defaults, version-5 custom and disabled bindings; full existing capacity-one worker persistence tests also passed.
 
-- [x] G4: Palette activation delegates only to live GActions, reflects enabled/disabled state, and closes/records only after valid activation.
-  CHECK: cargo test -p floe-app phase_11b_palette_activation -- --nocapture
+- [x] G4: The native Keyboard Shortcuts surface discovers every registered command and supports edit, conflict feedback, individual reset, and reset-all through existing GActions.
+  CHECK: cargo test -p floe-app phase_11c_keybinding_ui -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Passed disabled no-op/no-recent behavior, enabled live SimpleAction activation, one signal delivery, and successful recent recording.
+  EVIDENCE: UI contract test passed for all 60 bounded registry entries, 128-character search, registered action, native editor controls, accessible labels/status, custom/default and unavailable context.
 
-- [x] G5: Native UI exposes Ctrl+Shift+P, search/status/results, keyboard navigation, focus, disabled explanations, and accessible labels/descriptions.
-  CHECK: cargo test -p floe-app phase_11b_palette_ui -- --nocapture
+- [x] G5: Existing default accelerators remain unchanged when no override exists, and effective accelerators update without duplicating command eligibility logic.
+  CHECK: cargo test -p floe-app phase_11c_effective_accelerators -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Passed registry shortcut, non-self-search policy, and explicit query/result/recent bounds; native dialog code labels search, results, status, rows, and confirmation risk.
+  EVIDENCE: Focused test preserved Back and Refresh defaults; runtime installer derives only effective registry metadata while existing live GActions remain execution/eligibility authority.
 
-- [x] G6: Native Wayland smoke verifies open/search/activate/disabled behavior, focus/accessibility, D-Bus health, clean quit, and name release.
-  EVIDENCE: Niri/Wayland exported enabled `command-palette`, D-Bus activation opened it while Ping remained healthy, AT-SPI exposed `Command Palette` with the memory-only-recents description, startup registry parity remained clean, Quit exited, and the bus name was released.
+- [x] G6: Native Wayland smoke verifies dialog activation, searchable shortcut discovery, accessibility, accelerator update, D-Bus health, and clean quit.
+  EVIDENCE: Isolated Niri/Wayland run exported `keyboard-shortcuts`, D-Bus activation opened the native dialog, AT-SPI exposed `Keyboard Shortcuts`, Peer.Ping stayed healthy, Quit exited 0, and application-name ownership became false; only known RADV/Vulkan warnings appeared. Unit/persistence tests verify effective accelerator updates.
 
-- [x] G7: Formatting, workspace check, strict Clippy, full tests, native build, and diff hygiene pass.
+- [x] G7: Formatting, workspace check, strict Clippy, all tests, native build, and diff hygiene pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check
-  EXPECT: all commands exit 0
-  EVIDENCE: Passed; 407 tests total (313 app, 94 core), zero failures, native app build succeeded, and diff hygiene is clean.
+  EXPECT: Finished
+  EVIDENCE: All commands exited 0; 412 tests passed (318 application plus 94 core), zero failed, native application build and diff hygiene passed.
 
-- [x] G8: Documentation marks 11B complete, sets exactly 11C next, and keeps recents memory-only.
-  CHECK: test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "11B.*COMPLETE|11C.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
-  EXPECT: 11C is the sole next phase.
-  EVIDENCE: Roadmap has exactly one NEXT row at 11C; AGENTS, matrix, privacy/security, plan, and gates document bounded metadata-only search and memory-only recents.
+- [x] G8: Persistent documentation marks 11C complete, selects exactly 11D next, and records shortcut persistence and risk limits truthfully.
+  CHECK: test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "11C.*COMPLETE|11D.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
+  EXPECT: 11D
+  EVIDENCE: ROADMAP has exactly one NEXT at 11D; AGENTS, matrix, privacy/security, plan, and gates record bounded persistence, no usage/path history, and protected destructive bindings.
