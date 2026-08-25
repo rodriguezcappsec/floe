@@ -9,7 +9,9 @@ use crate::{
     bookmarks::BookmarkWorker,
     browser::{BrowserController, BrowserServices},
     devices::DeviceMonitor,
-    iconography, locations,
+    iconography,
+    inspector::InspectorWorker,
+    locations,
     metadata::MetadataWorker,
     operations::OperationController,
     preferences::{PreferenceWorker, ViewPreferences},
@@ -135,6 +137,13 @@ fn build_window(
             None
         }
     };
+    let inspector_worker = match InspectorWorker::spawn() {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            tracing::warn!(%error, "could not start Inspector worker; Inspector unavailable");
+            None
+        }
+    };
     let preview_worker = match PreviewWorker::spawn(PreviewProviderRegistry::first_party()) {
         Ok(worker) => Some(worker),
         Err(error) => {
@@ -192,6 +201,7 @@ fn build_window(
             worker,
             thumbnail_worker,
             metadata_worker,
+            inspector_worker,
             preview_worker,
             storage_worker,
             bookmark_worker,

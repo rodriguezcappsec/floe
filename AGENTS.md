@@ -1160,12 +1160,23 @@ Last updated:
 Current phase:
 
 ```text
-Phase 9 — Quick Preview (Phase 9F complete)
+Phase 10 — Inspector and properties (Phase 10A complete)
 ```
 
 Status:
 
 ```text
+Phase 10A adds a read-only Inspector final column backed by a fixed-capacity
+GTK-independent worker. It aggregates only exact raw selected paths and listing
+facts already in memory: entry-kind counts, known bytes, unknown sizes, overflow,
+and common parent. Requests are capped at 4,096 selections in a 16-slot queue;
+generation checks discard stale responses. Ctrl+I toggles the accessible Miller
+surface and closing restores active-column focus. Inspector width is independent
+from normal Miller columns, clamped to 180–520 pixels, and saved asynchronously in
+version-4 view preferences with version-3 migration. No filesystem reads,
+recursion, rich metadata providers, property edits, history, or selected paths are
+added to persistence.
+
 Phase 9F completes Preview interaction polish. A stable Space action yields to
 Entry/SearchEntry/SpinButton/TextView focus; open Preview follows exact
 selection/navigation generations and restores active-column focus on close.
@@ -1598,7 +1609,7 @@ Established product decisions:
 * Miller/column navigation is intended to become a major differentiating feature.
 * Strong keyboard navigation is a major goal.
 * Quick Preview is planned.
-* Inspector is planned.
+* Inspector foundation is complete; rich metadata and property editing are planned.
 * Command palette is planned.
 * A floating operations island is planned.
 * Niri IPC integration is planned for a later phase.
@@ -1607,14 +1618,23 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 8C is complete. The one recommended next branch is
-`phase-8d-miller-actions`, adding selection-aware standard file actions and
-context menus with exact active-column ownership.
+Phase 10A is complete. The one recommended next branch is
+`phase-10b-metadata-providers`, adding bounded lazy read-only dates, MIME, link,
+ownership, dimensions, and folder aggregate providers without eager recursion.
 ```
 
 Verified:
 
 ```text
+Phase 10A passes formatting, workspace check, strict all-target/all-feature
+Clippy, and 375 tests: 284 application and 91 core. Focused tests cover bounded
+raw non-UTF-8 aggregation, oversized selection rejection, multi-selection and
+stale lifecycle behavior, Ctrl+I/action contract, width clamping, persistence,
+and version-3 migration. Native Wayland smoke selected the live directory,
+opened and closed Inspector, adjusted width across launches, answered D-Bus
+Ping, quit cleanly, and restored 280-pixel persisted width. Only documented host
+libadwaita/RADV/Vulkan warnings appeared.
+
 Phase 8C passes formatting, workspace check, strict all-target/all-feature
 Clippy, and 340 tests: 249 application and 91 core. Five focused Phase 8C tests
 cover LTR/RTL policy, bounded focus selection, horizontal trackpad clamping,
@@ -1911,6 +1931,12 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 10A Inspector foundation on
+  `phase-10a-inspector-foundation`.
+* Added bounded asynchronous exact-path aggregate facts, stale-generation
+  rejection, Ctrl+I, accessible read-only presentation, focus restoration, and
+  independently persisted clamped Inspector width without metadata providers or
+  property edits.
 * Completed Phase 8C Miller keyboard/trackpad navigation on
   `phase-8c-miller-navigation`.
 * Added bounded item movement, LTR/RTL logical directory movement, exact focus
@@ -2256,9 +2282,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-10a-inspector-foundation` and implement a toggleable read-only
-Inspector final column with bounded asynchronous aggregate selection facts,
-Ctrl+I, and persisted width. Do not add metadata-provider detail phases or edits.
+Create `phase-10b-metadata-providers` and implement bounded lazy read-only dates,
+MIME, link, ownership, dimensions, and folder count/size provider facts. Do not
+add Phase 10C properties dialogs or any metadata/permission edits.
 ```
 
 ---

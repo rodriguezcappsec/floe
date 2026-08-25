@@ -244,6 +244,7 @@ pub struct MillerView {
     scroller: gtk::ScrolledWindow,
     columns: gtk::Box,
     width: Cell<MillerColumnWidth>,
+    detail_width: Cell<MillerColumnWidth>,
     dispatcher: MillerActivationDispatcher,
     navigation_dispatcher: MillerNavigationDispatcher,
     action_dispatcher: MillerActionDispatcher,
@@ -316,6 +317,7 @@ impl MillerView {
             scroller,
             columns,
             width: Cell::new(MillerColumnWidth::default()),
+            detail_width: Cell::new(MillerColumnWidth::default()),
             dispatcher: MillerActivationDispatcher::default(),
             navigation_dispatcher: MillerNavigationDispatcher::default(),
             action_dispatcher: MillerActionDispatcher::default(),
@@ -364,6 +366,10 @@ impl MillerView {
         self.width.get()
     }
 
+    pub fn detail_width(&self) -> MillerColumnWidth {
+        self.detail_width.get()
+    }
+
     pub fn preview_zoom_in(&self) {
         self.detail_zoom_percent
             .set(adjust_preview_zoom(self.detail_zoom_percent.get(), 25));
@@ -382,12 +388,25 @@ impl MillerView {
         self.width.set(width);
         let mut child = self.columns.first_child();
         while let Some(widget) = child {
-            widget.set_width_request(i32::from(width.get()));
+            if !widget.has_css_class("floe-miller-detail-column") {
+                widget.set_width_request(i32::from(width.get()));
+            }
             child = widget.next_sibling();
         }
         let description = format!("Miller column width: {} pixels", width.get());
         self.scroller
             .update_property(&[gtk::accessible::Property::Description(&description)]);
+    }
+
+    pub fn set_detail_width(&self, width: MillerColumnWidth) {
+        self.detail_width.set(width);
+        if let Some(detail) = self.detail_widget.borrow().as_ref() {
+            detail.set_width_request(i32::from(width.get()));
+            detail.update_property(&[gtk::accessible::Property::Description(&format!(
+                "Inspector and Preview column width: {} pixels",
+                width.get()
+            ))]);
+        }
     }
 
     pub fn render(
@@ -747,11 +766,30 @@ impl MillerView {
             )]);
             content.append(&clear_cache);
         }
+        if state.surface() == Some(MillerDetailSurface::Inspector) {
+            let width_controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            width_controls.set_halign(gtk::Align::Center);
+            width_controls.set_margin_top(8);
+            for (label, action, description) in [
+                (
+                    "Narrower",
+                    "win.narrow-inspector",
+                    "Narrow Inspector column",
+                ),
+                ("Wider", "win.widen-inspector", "Widen Inspector column"),
+            ] {
+                let button = gtk::Button::with_label(label);
+                button.set_action_name(Some(action));
+                button.update_property(&[gtk::accessible::Property::Description(description)]);
+                width_controls.append(&button);
+            }
+            content.append(&width_controls);
+        }
         content.append(&close);
 
         let shell = gtk::Box::builder()
             .orientation(gtk::Orientation::Vertical)
-            .width_request(i32::from(self.width.get().get()))
+            .width_request(i32::from(self.detail_width.get().get()))
             .focusable(true)
             .build();
         shell.add_css_class("floe-panel");
@@ -778,7 +816,7 @@ impl MillerView {
 
     fn build_unavailable_detail_column(&self, state: &MillerDetailState, reason: &str) -> gtk::Box {
         let shell = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        shell.set_width_request(i32::from(self.width.get().get()));
+        shell.set_width_request(i32::from(self.detail_width.get().get()));
         shell.add_css_class("floe-panel");
         shell.add_css_class("floe-miller-column");
         shell.add_css_class("floe-miller-detail-column");

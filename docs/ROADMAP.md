@@ -177,8 +177,8 @@ Miller mode is generic Wayland functionality and must never require Niri.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 10A — Inspector foundation | NEXT | `phase-10a-inspector-foundation` | Toggleable details, aggregate selection and Miller final-column surface. | 8F/9A; no edits; verify async selection, Ctrl+I and width persistence. |
-| 10B — Metadata providers | PLANNED | `phase-10b-metadata-providers` | Lazy dates, MIME, links, ownership, dimensions and folder counts/sizes. | 6T/9A; no eager recursion; verify bounds and disappearing files. |
+| 10A — Inspector foundation | COMPLETE | `phase-10a-inspector-foundation` | Toggleable details, aggregate selection and Miller final-column surface. | Verified bounded GTK-independent aggregation, exact raw multi-selection identity, stale-generation rejection, Ctrl+I, read-only accessible presentation, focus restoration, and independently clamped version-4 width persistence with version-3 migration; no filesystem reads, rich metadata providers, or edits. |
+| 10B — Metadata providers | NEXT | `phase-10b-metadata-providers` | Lazy dates, MIME, links, ownership, dimensions and folder counts/sizes. | 6T/9A/10A; no eager recursion; verify bounds and disappearing files. |
 | 10C — Properties | PLANNED | `phase-10c-properties` | General, Open With, filesystem, mount and aggregate properties. | 10A/10B/5D; verify multi-item truth and native dialog smoke. |
 | 10D — Permissions | PLANNED | `phase-10d-permissions` | Executable, mode and explicit owner/group editing with recursive preflight. | 10C/6P; no root-process elevation; verify symlinks and partial failure. |
 | 10E — Checksums | PLANNED | `phase-10e-checksums` | SHA-256, SHA-512, legacy-labelled MD5, expected-digest verification. | Job boundary; no authenticity claim; verify vectors, huge files and cancellation. |
