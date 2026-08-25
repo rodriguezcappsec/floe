@@ -32,6 +32,12 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 8D column action contexts remain memory-only and bounded to 4,096
+  selected identities. Floe revalidates the exact retained depth, directory,
+  and direct-child entry before dispatch; stale and overflowed contexts are
+  rejected. Aggregate ownership failures may be logged, but paths and
+  selections are not added to normal logs or persistence.
+
 - Phase 7A's per-session codec and Phase 7C/7D's workspace envelope preserve exact
   raw path bytes and therefore contain sensitive navigation, selection, and
   history data. Both are bounded and malformed-input checked; corruption,

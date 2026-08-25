@@ -482,6 +482,18 @@ logical `miller-parent`/`miller-child` actions, checks D-Bus health, quits, and
 confirms name release. Policy tests cover LTR/RTL mapping, bounded item movement,
 modified-key fallthrough, dominant-horizontal clamping, and reduced motion.
 
+Phase 8D focused verification is:
+
+```bash
+cargo test -p floe-app phase_8d -- --nocapture
+```
+
+The native Wayland smoke activates Miller mode, confirms standard file and
+creation actions remain exported with truthful sensitivity, pings the window
+action object, and exits cleanly. Focused tests cover raw non-UTF-8 identity,
+stale/overflow/wrong-parent rejection, pointer/keyboard menu policy, and
+list/grid/Miller action parity.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

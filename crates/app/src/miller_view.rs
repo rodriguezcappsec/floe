@@ -33,6 +33,49 @@ pub struct MillerNavigation {
     pub selected_entry: Option<Arc<DirectoryEntry>>,
 }
 
+pub const MILLER_ACTION_SELECTION_CAPACITY: usize = 4_096;
+
+#[derive(Clone, Debug)]
+pub struct MillerActionContext {
+    pub depth: usize,
+    pub directory: PathBuf,
+    pub selected_entries: Vec<Arc<DirectoryEntry>>,
+    pub background: bool,
+    pub overflowed: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MillerActionContextError {
+    Overflowed,
+    ShapeMismatch,
+    NotDirectChild,
+    StaleEntry,
+}
+
+pub fn resolve_action_context_entries(
+    context: &MillerActionContext,
+    available: &[Arc<DirectoryEntry>],
+) -> Result<Vec<Arc<DirectoryEntry>>, MillerActionContextError> {
+    if context.overflowed {
+        return Err(MillerActionContextError::Overflowed);
+    }
+    if context.background != context.selected_entries.is_empty() {
+        return Err(MillerActionContextError::ShapeMismatch);
+    }
+    let mut resolved = Vec::with_capacity(context.selected_entries.len());
+    for selected in &context.selected_entries {
+        if selected.path().parent() != Some(context.directory.as_path()) {
+            return Err(MillerActionContextError::NotDirectChild);
+        }
+        let entry = available
+            .iter()
+            .find(|entry| entry.path() == selected.path())
+            .ok_or(MillerActionContextError::StaleEntry)?;
+        resolved.push(Arc::clone(entry));
+    }
+    Ok(resolved)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum MillerItemCommand {
     Previous,
@@ -140,6 +183,7 @@ pub struct MillerActivation {
 
 type ActivationHandler = Box<dyn Fn(MillerActivation)>;
 type NavigationHandler = Box<dyn Fn(MillerNavigation)>;
+type ActionContextHandler = Box<dyn Fn(MillerActionContext)>;
 
 #[derive(Clone, Default)]
 pub struct MillerActivationDispatcher(Rc<RefCell<Option<ActivationHandler>>>);
@@ -171,17 +215,38 @@ impl MillerNavigationDispatcher {
     }
 }
 
+#[derive(Clone, Default)]
+struct MillerActionDispatcher(Rc<RefCell<Option<ActionContextHandler>>>);
+
+impl MillerActionDispatcher {
+    fn bind(&self, handler: impl Fn(MillerActionContext) + 'static) {
+        self.0.replace(Some(Box::new(handler)));
+    }
+
+    fn dispatch(&self, context: MillerActionContext) {
+        if let Some(handler) = self.0.borrow().as_ref() {
+            handler(context);
+        }
+    }
+}
+
 pub struct MillerView {
     scroller: gtk::ScrolledWindow,
     columns: gtk::Box,
     width: Cell<MillerColumnWidth>,
     dispatcher: MillerActivationDispatcher,
     navigation_dispatcher: MillerNavigationDispatcher,
+    action_dispatcher: MillerActionDispatcher,
     active_list: RefCell<Option<gtk::ListView>>,
+    file_context_model: gio::MenuModel,
+    background_context_model: gio::MenuModel,
 }
 
 impl MillerView {
-    pub fn new() -> Self {
+    pub fn new(
+        file_context_model: &gio::MenuModel,
+        background_context_model: &gio::MenuModel,
+    ) -> Self {
         let columns = gtk::Box::builder()
             .orientation(gtk::Orientation::Horizontal)
             .spacing(12)
@@ -238,7 +303,10 @@ impl MillerView {
             width: Cell::new(MillerColumnWidth::default()),
             dispatcher: MillerActivationDispatcher::default(),
             navigation_dispatcher: MillerNavigationDispatcher::default(),
+            action_dispatcher: MillerActionDispatcher::default(),
             active_list: RefCell::new(None),
+            file_context_model: file_context_model.clone(),
+            background_context_model: background_context_model.clone(),
         }
     }
 
@@ -252,6 +320,10 @@ impl MillerView {
 
     pub fn bind_navigation(&self, handler: impl Fn(MillerNavigation) + 'static) {
         self.navigation_dispatcher.bind(handler);
+    }
+
+    pub fn bind_action_context(&self, handler: impl Fn(MillerActionContext) + 'static) {
+        self.action_dispatcher.bind(handler);
     }
 
     pub fn focus_active(&self) {
@@ -333,8 +405,18 @@ impl MillerView {
             selection.upcast()
         };
 
+        let item_menu = gtk::PopoverMenu::from_model(Some(&self.file_context_model));
+        item_menu.set_has_arrow(false);
+        let background_menu = gtk::PopoverMenu::from_model(Some(&self.background_context_model));
+        background_menu.set_has_arrow(false);
+
         let factory = gtk::SignalListItemFactory::new();
-        factory.connect_setup(|_, object| {
+        let row_model = model.clone();
+        let row_menu = item_menu.clone();
+        let row_dispatcher = self.action_dispatcher.clone();
+        let row_directory = column.directory.clone();
+        let row_depth = column.depth;
+        factory.connect_setup(move |_, object| {
             let Some(item) = object.downcast_ref::<gtk::ListItem>() else {
                 return;
             };
@@ -347,6 +429,38 @@ impl MillerView {
                 .margin_bottom(4)
                 .build();
             label.add_css_class("floe-entry-name");
+            let secondary_click = gtk::GestureClick::new();
+            secondary_click.set_button(gtk::gdk::BUTTON_SECONDARY);
+            let item_weak = item.downgrade();
+            let selection = row_model.clone();
+            let menu = row_menu.clone();
+            let dispatcher = row_dispatcher.clone();
+            let directory = row_directory.clone();
+            secondary_click.connect_pressed(move |gesture, _, x, y| {
+                let Some(item) = item_weak.upgrade() else {
+                    return;
+                };
+                let position = item.position();
+                if position == gtk::INVALID_LIST_POSITION {
+                    return;
+                }
+                if !selection.is_selected(position) {
+                    selection.select_item(position, true);
+                }
+                let (selected_entries, overflowed) = action_selection(&selection);
+                dispatcher.dispatch(MillerActionContext {
+                    depth: row_depth,
+                    directory: directory.clone(),
+                    selected_entries,
+                    background: false,
+                    overflowed,
+                });
+                if let Some(widget) = gesture.widget() {
+                    popup_at_widget_point(&menu, &widget, x, y);
+                }
+                gesture.set_state(gtk::EventSequenceState::Claimed);
+            });
+            label.add_controller(secondary_click);
             item.set_child(Some(&label));
         });
         factory.connect_bind(|_, object| {
@@ -372,12 +486,65 @@ impl MillerView {
             "Miller column {}. Use Up and Down to select items; logical Left and Right move between folders.",
             column.depth + 1
         ))]);
+        item_menu.set_parent(&list);
+        background_menu.set_parent(&list);
+
+        let background_click = gtk::GestureClick::new();
+        background_click.set_button(gtk::gdk::BUTTON_SECONDARY);
+        let background_menu_for_click = background_menu.clone();
+        let background_dispatcher = self.action_dispatcher.clone();
+        let background_directory = column.directory.clone();
+        let background_depth = column.depth;
+        background_click.connect_pressed(move |gesture, _, x, y| {
+            let Some(widget) = gesture.widget() else {
+                return;
+            };
+            if picked_entry_widget(&widget, x, y) {
+                return;
+            }
+            background_dispatcher.dispatch(MillerActionContext {
+                depth: background_depth,
+                directory: background_directory.clone(),
+                selected_entries: Vec::new(),
+                background: true,
+                overflowed: false,
+            });
+            popup_at_widget_point(&background_menu_for_click, &widget, x, y);
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        list.add_controller(background_click);
 
         let key_navigation = gtk::EventControllerKey::new();
         let navigation_dispatcher = self.navigation_dispatcher.clone();
+        let action_dispatcher = self.action_dispatcher.clone();
+        let item_menu_for_keys = item_menu.clone();
+        let background_menu_for_keys = background_menu.clone();
+        let action_directory = column.directory.clone();
         let list_for_keys = list.clone();
         let depth_for_keys = column.depth;
         key_navigation.connect_key_pressed(move |_, key, _, modifiers| {
+            if context_menu_key(key, modifiers) {
+                let Some(model) = list_for_keys.model() else {
+                    return glib::Propagation::Proceed;
+                };
+                let (selected_entries, overflowed) = action_selection(&model);
+                let background = selected_entries.is_empty();
+                action_dispatcher.dispatch(MillerActionContext {
+                    depth: depth_for_keys,
+                    directory: action_directory.clone(),
+                    selected_entries,
+                    background,
+                    overflowed,
+                });
+                if background {
+                    background_menu_for_keys.set_pointing_to(None);
+                    background_menu_for_keys.popup();
+                } else {
+                    item_menu_for_keys.set_pointing_to(None);
+                    item_menu_for_keys.popup();
+                }
+                return glib::Propagation::Stop;
+            }
             if !navigation_modifiers_allowed(modifiers) {
                 return glib::Propagation::Proceed;
             }
@@ -533,6 +700,11 @@ fn navigation_modifiers_allowed(modifiers: gtk::gdk::ModifierType) -> bool {
     )
 }
 
+fn context_menu_key(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierType) -> bool {
+    key == gtk::gdk::Key::Menu
+        || (key == gtk::gdk::Key::F10 && modifiers.contains(gtk::gdk::ModifierType::SHIFT_MASK))
+}
+
 fn item_selection_target(
     selected: Option<u32>,
     item_count: u32,
@@ -560,6 +732,59 @@ fn selected_entry_from_model(model: &gtk::SelectionModel) -> Option<Arc<Director
     Some(object.borrow::<Arc<DirectoryEntry>>().clone())
 }
 
+fn action_selection(model: &gtk::SelectionModel) -> (Vec<Arc<DirectoryEntry>>, bool) {
+    let selected = model.selection();
+    let Some((indices, first)) = gtk::BitsetIter::init_first(&selected) else {
+        return (Vec::new(), false);
+    };
+    let mut entries = Vec::new();
+    let mut overflowed = false;
+    for position in std::iter::once(first).chain(indices) {
+        if entries.len() == MILLER_ACTION_SELECTION_CAPACITY {
+            overflowed = true;
+            break;
+        }
+        if let Some(object) = model.item(position).and_downcast::<glib::BoxedAnyObject>() {
+            entries.push(object.borrow::<Arc<DirectoryEntry>>().clone());
+        }
+    }
+    (entries, overflowed)
+}
+
+fn popup_at_widget_point(menu: &gtk::PopoverMenu, widget: &gtk::Widget, x: f64, y: f64) {
+    let Some(parent) = menu.parent() else {
+        return;
+    };
+    let point = gtk::graphene::Point::new(x as f32, y as f32);
+    let Some(point) = widget.compute_point(&parent, &point) else {
+        return;
+    };
+    menu.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
+        point.x().round() as i32,
+        point.y().round() as i32,
+        1,
+        1,
+    )));
+    menu.popup();
+}
+
+fn picked_entry_widget(widget: &gtk::Widget, x: f64, y: f64) -> bool {
+    let Some(target) = widget.pick(x, y, gtk::PickFlags::DEFAULT) else {
+        return false;
+    };
+    let mut current = Some(target);
+    while let Some(candidate) = current {
+        if candidate.has_css_class("floe-entry-name") {
+            return true;
+        }
+        if candidate == *widget {
+            break;
+        }
+        current = candidate.parent();
+    }
+    false
+}
+
 fn trackpad_prefers_horizontal(delta_x: f64, delta_y: f64) -> bool {
     delta_x != 0.0 && delta_x.abs() > delta_y.abs()
 }
@@ -577,7 +802,12 @@ fn horizontal_scroll_target(
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::ffi::OsStringExt, path::PathBuf, sync::Arc};
+    use std::{
+        fs,
+        os::unix::ffi::{OsStrExt, OsStringExt},
+        path::PathBuf,
+        sync::Arc,
+    };
 
     use floe_core::{
         MILLER_COLUMN_CAPACITY, MillerChildKind, MillerColumnModel, enumerate_directory,
@@ -585,11 +815,12 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        MILLER_SNAPSHOT_ENTRY_CAPACITY, MillerItemCommand, MillerMotionPolicy,
-        MillerNavigationCommand, MillerPresentationState, horizontal_scroll_target,
+        MILLER_ACTION_SELECTION_CAPACITY, MILLER_SNAPSHOT_ENTRY_CAPACITY, MillerActionContext,
+        MillerActionContextError, MillerItemCommand, MillerMotionPolicy, MillerNavigationCommand,
+        MillerPresentationState, MillerRenderColumn, context_menu_key, horizontal_scroll_target,
         item_command_for_key, item_selection_target, logical_navigation_for_key,
         miller_column_accessible_description, navigation_modifiers_allowed,
-        trackpad_prefers_horizontal,
+        resolve_action_context_entries, trackpad_prefers_horizontal,
     };
     use crate::view::{
         MILLER_COLUMN_WIDTH_DEFAULT, MILLER_COLUMN_WIDTH_MAX, MILLER_COLUMN_WIDTH_MIN,
@@ -766,5 +997,105 @@ mod tests {
         ));
         assert!(VIEW_ACTIONS.contains(&("view-list", ViewCommand::List)));
         assert!(VIEW_ACTIONS.contains(&("view-grid", ViewCommand::Grid)));
+    }
+
+    #[test]
+    fn phase_8d_context_preserves_raw_identity_and_rejects_stale_ownership() {
+        let root = tempdir().expect("temporary root");
+        let raw_name = std::ffi::OsString::from_vec(b"raw-\xff".to_vec());
+        let raw_path = root.path().join(&raw_name);
+        fs::write(&raw_path, b"x").expect("raw fixture");
+        let available = enumerate_directory(root.path())
+            .expect("fixture listing")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>();
+        let selected = available
+            .iter()
+            .find(|entry| entry.path() == raw_path)
+            .expect("raw entry")
+            .clone();
+        let context = MillerActionContext {
+            depth: 3,
+            directory: root.path().to_path_buf(),
+            selected_entries: vec![selected],
+            background: false,
+            overflowed: false,
+        };
+        let resolved = resolve_action_context_entries(&context, &available).expect("valid owner");
+        assert_eq!(
+            resolved[0].path().as_os_str().as_bytes(),
+            raw_path.as_os_str().as_bytes()
+        );
+
+        let stale_root = tempdir().expect("stale root");
+        let stale = MillerActionContext {
+            directory: stale_root.path().to_path_buf(),
+            ..context.clone()
+        };
+        assert!(matches!(
+            resolve_action_context_entries(&stale, &available),
+            Err(MillerActionContextError::NotDirectChild)
+        ));
+        let overflowed = MillerActionContext {
+            overflowed: true,
+            ..context
+        };
+        assert!(matches!(
+            resolve_action_context_entries(&overflowed, &available),
+            Err(MillerActionContextError::Overflowed)
+        ));
+    }
+
+    #[test]
+    fn phase_8d_menu_has_pointer_keyboard_and_non_color_owner_contracts() {
+        assert!(context_menu_key(
+            gtk::gdk::Key::F10,
+            gtk::gdk::ModifierType::SHIFT_MASK
+        ));
+        assert!(context_menu_key(
+            gtk::gdk::Key::Menu,
+            gtk::gdk::ModifierType::empty()
+        ));
+        assert!(!context_menu_key(
+            gtk::gdk::Key::F10,
+            gtk::gdk::ModifierType::empty()
+        ));
+        let active = MillerRenderColumn {
+            depth: 2,
+            directory: PathBuf::from("/projects/floe"),
+            selected_child: None,
+            entries: Vec::new(),
+            total_entries: 0,
+            is_active: true,
+        };
+        assert!(
+            miller_column_accessible_description(&active).starts_with("Active Miller column 3:")
+        );
+    }
+
+    #[test]
+    fn phase_8d_parity_bounds_exact_selection_collection() {
+        assert_eq!(
+            MILLER_ACTION_SELECTION_CAPACITY,
+            MILLER_SNAPSHOT_ENTRY_CAPACITY
+        );
+        let background = MillerActionContext {
+            depth: 0,
+            directory: PathBuf::from("/"),
+            selected_entries: Vec::new(),
+            background: true,
+            overflowed: false,
+        };
+        assert!(resolve_action_context_entries(&background, &[]).is_ok());
+    }
+
+    #[test]
+    fn phase_8d_integration_keeps_list_grid_and_miller_view_commands() {
+        assert!(VIEW_ACTIONS.contains(&("view-list", ViewCommand::List)));
+        assert!(VIEW_ACTIONS.contains(&("view-grid", ViewCommand::Grid)));
+        assert!(VIEW_ACTIONS.contains(&("view-miller", ViewCommand::Miller)));
+        assert!(navigation_modifiers_allowed(gtk::gdk::ModifierType::empty()));
     }
 }

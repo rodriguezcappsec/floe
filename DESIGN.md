@@ -480,6 +480,12 @@ vertical column scrolling. Active columns expose text descriptions, and GTK's
 disabled-animation setting turns off kinetic scrolling rather than making
 navigation unavailable.
 
+Phase 8D gives every active or retained column the same native file and
+background menus as list/grid. Secondary click and Shift+F10/Menu establish a
+textually announced action owner before dispatch. Menu targets come from exact
+column identity, never the visible title. Unsupported retained-column
+navigation commands are disabled instead of silently acting on another column.
+
 ### Open without a default application
 
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.

@@ -220,6 +220,15 @@ updates only the bounded outer adjustment, and GTK animation settings control
 kinetic scrolling. No worker, enumerator, or persistence channel is added.
 
 
+Phase 8D applies the same ownership boundary to actions. Each column menu emits
+its exact logical depth, directory `PathBuf`, and bounded selected shared
+entries. `BrowserController` revalidates the retained column and direct-child
+identity before making it the action owner. Existing application actions and
+bounded no-overwrite jobs remain the only mutation route. Retained-column
+create, paste, and relative-path commands use the validated owner directory;
+navigation-only background commands stay disabled when that directory is not
+the active browser session.
+
 ### `application.rs` and `main.rs`
 
 `main.rs` declares modules and starts `application::run`. `application.rs`
