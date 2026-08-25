@@ -38,6 +38,10 @@ Security state must use text and accessible semantics, never color alone. A fail
   unsupported versions, relative paths, duplicate IDs, and oversized data fall
   back to one normal tab rather than partial restore.
 
+- Phase 8A's Miller model retains at most 16 exact directory/selection paths in
+  memory. It performs no filesystem I/O and adds no persistence or logging.
+  Phase 8B must not duplicate these identities into unbounded widget-owned state.
+
 - Floe runs as the calling desktop user. It does not run its GTK process as root and does not expose `Open as Administrator...` today.
 - The Cargo workspace forbids Rust `unsafe` code. The core crate is GTK-independent, and filesystem work stays out of GTK callbacks.
 - Filesystem identities retain `PathBuf` and `OsString`. Lossy display labels are not reconstructed into operation targets. GIO launches receive a URI created from the exact local path.

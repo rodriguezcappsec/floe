@@ -153,8 +153,8 @@ Goal: make standards-correct local Trash a first-class Floe location.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 8A — Column model | NEXT | `phase-8a-miller-model` | Exact parent/selected-child chain and bounded retained columns. | 7A; no GTK; verify rename/delete/non-UTF-8 state transitions. |
-| 8B — Virtualized columns | PLANNED | `phase-8b-miller-ui` | Recyclable floating columns and adjustable widths. | 8A/6T; no detail column; verify bounded memory and no duplicate enumeration. |
+| 8A — Column model | COMPLETE | `phase-8a-miller-model` | Exact parent/selected-child chain and bounded retained columns. | Verified GTK-free direct-child invariants, stable logical depths, 16-column retention, raw non-UTF-8 identity, same-parent rename, delete/truncate/root invalidation, reset, and structured stale-depth errors; no entries, enumeration, workers, or widgets. |
+| 8B — Virtualized columns | NEXT | `phase-8b-miller-ui` | Recyclable floating columns and adjustable widths. | 8A/6T; no detail column; verify bounded memory and no duplicate enumeration. |
 | 8C — Keyboard/trackpad | PLANNED | `phase-8c-miller-navigation` | Left/right, up/down and smooth horizontal trackpad interaction. | 8B; Vim stays 11D; verify RTL, focus, reduced motion and native smoke. |
 | 8D — Column actions | PLANNED | `phase-8d-miller-actions` | Selection-aware normal context actions in every column. | 8B/6P/6Q; verify exact active-column ownership and parity. |
 | 8E — Cross-column drag | PLANNED | `phase-8e-miller-drag-drop` | Drag/drop and hover navigation across columns, sidebar, tabs and panes. | 6R/8D; verify modifiers, autoscroll and no silent overwrite. |

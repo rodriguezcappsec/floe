@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 7F. Phase 8A is the only
+The implementation baseline for this matrix is Phase 8A. Phase 8B is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -222,16 +222,16 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Column navigation state | `PLANNED` | 8A | GTK-independent exact parent/selection/child relationships; must not require Niri. |
+| Column navigation state | `COMPLETE` | 8A | GTK-independent exact parent/selection/child relationships with stable logical depths; no Niri dependency. |
 | Virtualized/recycled column UI | `PLANNED` | 8B | Bound retained columns and reuse directory results without duplicating filesystem state. |
-| Parent context and child relationship | `PLANNED` | 8A-8B | Selected parent drives exact child path. |
+| Parent context and child relationship | `PARTIAL` | 8A-8B | Core model enforces direct exact children and deterministic truncation; visible binding remains 8B. |
 | Left/right directory movement | `PLANNED` | 8C | Keyboard-first spatial navigation. |
 | Up/down item movement | `PLANNED` | 8C | Preserve selection semantics and focus visibility. |
 | Trackpad horizontal navigation | `PLANNED` | 8C | Smooth behavior must coexist with vertical list scrolling. |
 | Adjustable column width | `PLANNED` | 8B | Persist appropriately without unbounded per-path settings. |
-| Bounded retained columns | `PLANNED` | 8B | Performance/security requirement for deep paths. |
+| Bounded retained columns | `COMPLETE` | 8A | Core retains at most 16 locations while stable logical depths identify evicted/stale requests. |
 | Column context menus/actions | `PLANNED` | 8D | Reuse command/action registry and selection policy. |
-| Selection preservation | `PLANNED` | 8A-8D | Exact path identity must survive recycling. |
+| Selection preservation | `PARTIAL` | 8A-8D | Core preserves exact raw paths through descent/rename/delete; GTK recycling and actions remain later phases. |
 | Cross-column drag/drop | `PLANNED` | 8E | Depends on Phase 8A exact destinations and general drag infrastructure. |
 | Quick Preview final column | `PLANNED` | 8F/9 | Hook only; providers remain Phase 9. |
 | Inspector final column | `PLANNED` | 8F/10 | Hook only; metadata providers remain Phase 10. |

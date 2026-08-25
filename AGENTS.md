@@ -1160,12 +1160,21 @@ Last updated:
 Current phase:
 
 ```text
-Phase 7 — Tabs and split view (Phase 7F complete)
+Phase 8 — Miller and spatial navigation (Phase 8A complete)
 ```
 
 Status:
 
 ```text
+Phase 8A adds a GTK-independent `MillerColumnModel` with exact directory and
+selected-direct-child paths, stable logical depths, and a fixed 16-column
+retention window. It rejects relative, oversized, non-child, stale-depth, and
+cross-parent rename input while preserving raw non-UTF-8 identity. Selection,
+descent, same-parent rename, deletion truncation, root invalidation, and reset
+have explicit transitions. The model owns no directory entries, enumeration,
+workers, widgets, GIO, compositor state, or persistence. Visible Miller columns
+remain Phase 8B.
+
 Phase 7F makes the inactive pane an exact, live-resolved local-file drop target.
 Standard GDK payloads and desktop modifiers reuse the existing copy/move/link
 dispatcher, FIFO jobs, no-overwrite conflicts, self-nesting checks, and
@@ -1496,10 +1505,10 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 7F is complete. The one recommended next branch is
-`phase-8a-miller-model`, adding a GTK-independent exact parent/selected-child
-column chain with bounded retention and deterministic rename/delete transitions.
-Do not add Miller widgets or duplicate directory enumeration in Phase 8A.
+Phase 8A is complete. The one recommended next branch is
+`phase-8b-miller-ui`, binding recyclable floating columns to the existing
+directory-result pipeline with adjustable widths and bounded widget state. Do
+not duplicate enumeration or add keyboard/trackpad navigation in Phase 8B.
 ```
 
 Verified:
@@ -1777,7 +1786,7 @@ Deferred:
 Overwrite and apply-to-all conflict policy, Restore Elsewhere and Trash cleanup
 preferences, ownership/ACL/xattr/sparse/reflink-complete copies, persistent
 operation recovery/history UI, template management, heavyweight/RAW/vector thumbnails,
-tab detachment, Miller columns, previews, archives, search, richer device
+tab detachment, visible Miller columns, previews, archives, search, richer device
 details, Niri IPC, KDE-specific APIs, and network filesystems.
 First-class theme/font customization, full file-association/external-tool
 management, and privileged GFile browsing remain explicit later milestones.
@@ -1786,6 +1795,13 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 8A Miller column model on `phase-8a-miller-model`.
+* Added exact direct-child chains, stable logical depths, bounded 16-column
+  retention, raw non-UTF-8 identity, structured selection/descent and
+  rename/delete/root-invalidation/reset transitions without GTK or filesystem I/O.
+* Verified 330 tests, strict Clippy, formatting/check/diff hygiene, and all
+  model architecture gates; no native smoke is claimed for GTK-free Phase 8A.
+  Phase 8B is the sole recommended next phase.
 * Completed Phase 7F split drag on `phase-7f-tab-split-drag`.
 * Added a live exact inactive-pane drop target using existing local file-list
   copy/move/link negotiation, no-overwrite FIFO jobs, accessible feedback, and
@@ -2111,10 +2127,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-8a-miller-model` and add the GTK-independent exact
-parent/selected-child column chain, bounded retained state, raw non-UTF-8
-identity, and deterministic rename/delete transitions. Do not add GTK column
-widgets or duplicate directory enumeration.
+Create `phase-8b-miller-ui` and bind recyclable floating columns to the existing
+bounded directory-result pipeline with adjustable widths, exact selection, and
+accessible active-column semantics. Do not duplicate enumeration or add Phase
+8C keyboard/trackpad navigation.
 ```
 
 ---

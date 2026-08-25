@@ -452,6 +452,16 @@ construction, D-Bus health, and clean shutdown. Automated focused tests perform
 real copy/move/link jobs because synthetic Wayland drag serials are not a
 reliable native-smoke input mechanism.
 
+Phase 8A adds no dependency and no runtime GTK wiring. Its focused checks are:
+
+```bash
+cargo test -p floe-core phase_8a -- --nocapture
+```
+
+No native Wayland smoke is appropriate for this GTK-independent model. Phase 8B
+will own native verification when it binds virtualized columns to existing
+directory results.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

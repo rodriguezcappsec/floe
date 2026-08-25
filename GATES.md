@@ -1,61 +1,63 @@
-# Gates: Floe Phase 7F — Tab/split drag
+# Gates: Floe Phase 8A — Miller column model
 
-Scope: Exact-path file-operation drops between split contexts.
+Scope: GTK-independent exact, bounded Miller navigation chain.
 
-- [x] G1: Work is isolated on `phase-7f-tab-split-drag` with no detachment or Miller drag.
+- [x] G1: Work is isolated on `phase-8a-miller-model` and adds no GTK column UI.
   CHECK: git branch --show-current
-  EXPECT: phase-7f-tab-split-drag
-  EVIDENCE: branch matches; diff adds only inactive-pane drop and related alternatives/docs.
+  EXPECT: phase-8a-miller-model
+  EVIDENCE: branch matches; implementation changes are confined to `floe-core` plus phase documentation.
 
-- [x] G2: Inactive-pane destination resolution is exact, live, split-only, trash-safe, and non-UTF-8 preserving.
-  CHECK: cargo test -p floe-app phase_7f_split_drop_destination -- --nocapture
+- [x] G2: Exact direct-child selection/descent produces a deterministic parent/selected-child chain.
+  CHECK: cargo test -p floe-core phase_8a_chain -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: focused test passed for unsplit, raw secondary, Trash rejection, and switched-side primary destination.
+  EVIDENCE: focused test passed leaf selection, directory descent, existing descent activation, invalid child, and relative-root rejection.
 
-- [x] G3: Inactive pane reuses Phase 6R copy/move/link requests and no-overwrite FIFO job routing.
-  CHECK: cargo test -p floe-app phase_7f_split_drop_jobs -- --nocapture
+- [x] G3: Retained columns are bounded with stable logical depths and deterministic stale-depth errors.
+  CHECK: cargo test -p floe-core phase_8a_bounds -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: focused test completed real copy, move, and symbolic-link jobs through `ApplicationState::submit_drop`.
+  EVIDENCE: 21-level descent retained exactly 16 depths 5 through 20 and rejected evicted depth 4 structurally.
 
-- [x] G4: Drop feedback is non-color-only and every drag operation has a menu/keyboard alternative.
-  CHECK: cargo test -p floe-app phase_7f_split_drag_accessibility -- --nocapture
+- [x] G4: Raw non-UTF-8 identity survives selection, descent, and rename without lossy reconstruction.
+  CHECK: cargo test -p floe-core phase_8a_non_utf8 -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: 2 focused tests verify action/path/release wording and distinct Copy/Move/Link actions/accelerators.
+  EVIDENCE: focused raw-byte path test passed selection, child location, and same-parent rename remapping.
 
-- [x] G5: GTK callbacks only resolve state and submit typed requests through the shared dispatcher; no second pipeline or hover-open is added.
-  EVIDENCE: one `install_drop_target` uses the existing dispatcher with both hover-open and autoscroll false; resolver reads `BrowserTabs`, and no worker/model/watcher field was added.
+- [x] G5: Same-parent rename and delete/root invalidation transitions reconcile retained descendants deterministically.
+  CHECK: cargo test -p floe-core phase_8a_reconcile -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: focused test passed prefix rename, cross-parent rejection, child truncation, leaf selection clear, root invalidation, empty-state rejection, and reset.
 
-- [x] G6: Rust formatting is clean.
+- [x] G6: The model owns no directory entries, enumeration, GTK, worker, or filesystem I/O.
+  EVIDENCE: `miller.rs` imports only std path/collection/raw-byte traits, `thiserror`, and a path-size constant; state fields are paths, depths, and selection only.
+
+- [x] G7: Rust formatting is clean.
   CHECK: cargo fmt --all -- --check
   EXPECT: /^$/
   EVIDENCE: command exited 0 with no output.
 
-- [x] G7: The full workspace type-checks.
+- [x] G8: The full workspace type-checks.
   CHECK: cargo check --workspace
   EXPECT: Finished `dev` profile
   EVIDENCE: workspace check completed successfully.
 
-- [x] G8: Strict all-target/all-feature Clippy is warning-free.
+- [x] G9: Strict all-target/all-feature Clippy is warning-free.
   CHECK: cargo clippy --workspace --all-targets --all-features -- -D warnings
   EXPECT: Finished `dev` profile
   EVIDENCE: strict Clippy completed successfully.
 
-- [x] G9: The full workspace test suite passes.
+- [x] G10: The full workspace test suite passes.
   CHECK: cargo test --workspace
   EXPECT: test result: ok
-  EVIDENCE: 326 tests passed: 239 application and 87 core; doc tests also passed.
+  EVIDENCE: 330 tests passed: 239 application and 91 core; doc tests also passed.
 
-- [x] G10: Patch whitespace hygiene is clean.
+- [x] G11: Patch whitespace hygiene is clean.
   CHECK: git diff --check
   EXPECT: /^$/
   EVIDENCE: command exited 0 with no output.
 
-- [x] G11: Native Wayland action/drop-target lifecycle remains healthy.
-  EVIDENCE: Isolated native launch exported selection-gated Link to Other Pane, toggled split to construct the inactive target, answered D-Bus Peer.Ping, and quit cleanly. Only documented RADV/Vulkan and transient one-pixel GtkPaned warnings appeared; synthetic pointer drag was covered by focused real-job tests rather than claimed natively.
-
-- [x] G12: Persistent docs mark Phase 7F complete and exactly Phase 8A next.
-  CHECK: rg -n '7F — Tab/split drag.*COMPLETE|8A — Column model.*NEXT' docs/ROADMAP.md
-  EXPECT: 8A — Column model
+- [x] G12: Persistent docs mark Phase 8A complete and exactly Phase 8B next.
+  CHECK: rg -n '8A — Column model.*COMPLETE|8B — Virtualized columns.*NEXT' docs/ROADMAP.md
+  EXPECT: 8B — Virtualized columns
   EVIDENCE: roadmap contains both required status rows and no other NEXT phase.
 
-Recommended next phase: `phase-8a-miller-model`.
+Recommended next phase: `phase-8b-miller-ui`.

@@ -461,6 +461,14 @@ action/path/release text provide non-color feedback. Open, Copy, Move, and
 Create Links in Other Pane remain explicit alternatives. The target does not
 hover-activate the pane, and tab detachment and Miller-column drag stay deferred.
 
+Phase 8A defines Miller navigation without presenting it yet. A column is an
+exact directory path plus at most one exact selected direct child. Logical
+depths remain stable while only the newest 16 locations are retained, so deep
+navigation is bounded and stale UI requests can be rejected explicitly. Leaf
+selection, directory descent, same-parent rename, deletion truncation, root
+invalidation, and reset are deterministic. Phase 8B owns the floating,
+virtualized visual columns; Phase 8A performs no enumeration or GTK work.
+
 ### Open without a default application
 
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.

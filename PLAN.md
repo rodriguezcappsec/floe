@@ -1,32 +1,37 @@
-# Plan: Floe Phase 7F — Tab/split drag
+# Plan: Floe Phase 8A — Miller column model
 
-Mode: sequential solo phase, depth 3.
+Mode: sequential solo phase, depth 4.
 
 ## Contract
 
-- Accept standard local-file drops on the inactive split pane and resolve the
-  authoritative opposite `BrowserSession` path at interaction time.
-- Reuse Phase 6R file-list decoding, copy/move/link modifier negotiation,
-  no-overwrite FIFO jobs, self-nesting rejection, and accessible feedback.
-- Preserve exact `PathBuf` identity. GTK callbacks may submit typed requests but
-  may not enumerate or mutate the filesystem.
-- Keep explicit Open/Copy/Move and add Link to Other Pane as complete keyboard and
-  menu alternatives. Existing stable-ID tab reorder remains intact. Do not add
-  tab detachment, Miller-column drag, a second browser pipeline, or hover-open of
-  the inactive pane.
+- Add a GTK-independent Miller chain model to `floe-core`; it owns only exact
+  directory/selected-child navigation identity, never directory entries,
+  enumeration, widgets, workers, or compositor state.
+- Preserve raw `PathBuf` identity and enforce direct parent/child relationships.
+- Retain a bounded window of columns with stable logical depths so deep
+  navigation cannot grow state without limit.
+- Define deterministic selection, directory descent, rename, deletion, root
+  invalidation, and stale-depth behavior. Filesystem events are inputs supplied by
+  the application; the model performs no filesystem I/O.
+- Do not implement GTK columns, keyboard/trackpad UI, column actions, drag/drop,
+  preview, Inspector, Niri, or Plasma integration.
 
 ## Depth tree
 
-1. Destination contract
-   - Exact opposite-side resolver with split/trash gating and non-UTF-8 coverage.
-2. Native interaction
-   - Inactive-pane drop target using the shared dispatcher and accessible state.
-   - Link-to-opposite action plus keyboard/menu alternative.
-3. Verification and handoff
-   - Focused tests, full gates, native Wayland action/drop-target lifecycle,
-     persistent docs, exactly Phase 8A next.
+1. Invariants and public types
+   - Exact absolute paths, stable logical depth, direct-child validation,
+     bounded capacity, structured errors and transitions.
+2. Navigation state
+   - Select leaf, descend directory, clear/truncate, active logical depth,
+     left-window eviction without losing retained chain identity.
+3. External reconciliation
+   - Same-parent rename remaps exact raw prefixes through retained descendants.
+   - Delete clears/truncates deterministically and reports root invalidation.
+4. Verification and handoff
+   - Focused hostile/non-UTF-8/boundary tests, full gates, persistent docs,
+     exactly Phase 8B next; no native smoke for a GTK-free model.
 
 ## Status
 
-COMPLETE — all Phase 7F gates verified. Exactly one recommended next phase:
-`phase-8a-miller-model`.
+COMPLETE — all Phase 8A gates verified. Exactly one recommended next phase:
+`phase-8b-miller-ui`.
