@@ -378,14 +378,14 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Inspector foundation / Ctrl+I | `COMPLETE` | 10A | Toggleable, accessible, bounded asynchronous raw-path single/multi-selection facts in the usable final Miller column. |
 | General properties | `PLANNED` | 10C | Filename, exact path, type, MIME, size, and dates. |
 | Open With properties page | `PARTIAL` | 5D/10C | Chooser/default setting exists; integrated properties/association management does not. |
-| Owner/group/permissions | `PLANNED` | 10C-10D | Inspect first, then deliberate editing with partial-failure semantics. |
-| Symlink/broken-target properties | `PLANNED` | 10C | Show exact target and link status. |
+| Owner/group/permissions | `PARTIAL` | 10B-10D | 10B lazily inspects exact Unix UID/GID/mode; deliberate editing with partial-failure semantics remains 10D. |
+| Symlink/broken-target properties | `PARTIAL` | 10B-10C | 10B shows the exact raw stored target and bounded no-follow target-entry status; full properties treatment remains 10C. |
 | Filesystem/mount information | `PLANNED` | 10C | Reuse generic desktop/location capability boundary. |
 | Multiple-selection aggregate properties | `PARTIAL` | 10A-10C | 10A provides bounded kind counts, known bytes, unknown sizes, overflow, and common parent; shared/differing rich properties remain planned. |
 | Recursive folder count/size | `PLANNED` | 10C | Asynchronous, cancellable, bounded, and never GTK-blocking. |
-| Image dimensions/EXIF | `PARTIAL` | 6F/10B | Thumbnail decoder observes image/orientation data, but no general metadata provider or UI exists. |
+| Image dimensions/EXIF | `PARTIAL` | 6F/10B/10F | 10B shows safely limited raster dimensions in Inspector; EXIF and advanced format metadata remain 10F. |
 | Media/audio metadata | `PLANNED` | 10F | Duration, artist, album, track, and safe provider policy. |
-| Exact timestamps and relative dates | `PLANNED` | 10B/20 | List currently shows locale-aware modified time; Inspector needs exact values and optional relative presentation. |
+| Exact timestamps and relative dates | `PARTIAL` | 10B/20 | Inspector preserves exact created/modified/accessed `SystemTime` facts and presents local date/time; optional relative presentation remains 20. |
 | SHA-256 and SHA-512 hashing | `PLANNED` | 10E | Streaming, cancellable, progress-reporting jobs. |
 | MD5 checksum | `DEFERRED` | 10E | Legacy compatibility only, clearly not a modern security hash. |
 | Verify expected checksum | `PLANNED` | 10E | Parse explicit algorithms safely and report mismatch without authenticity claims. |
