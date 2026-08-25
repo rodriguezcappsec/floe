@@ -1,58 +1,58 @@
-# Gates: Floe Phase 6R Drag and drop
+# Gates: Floe Phase 6S File watching
 
 Status: COMPLETE
 
-- [x] G1: Work is isolated on `phase-6r-drag-drop`; Phase 6S file watching is not implemented.
+- [x] G1: Work is isolated on `phase-6s-file-watching`; Phase 6T browser completeness is not implemented.
   CHECK: `git branch --show-current && git diff --check`
-  EXPECT: Phase 6R branch and clean bounded diff.
-  EVIDENCE: Branch is `phase-6r-drag-drop`; diff hygiene passes and no watcher dependency or implementation exists.
+  EXPECT: Phase 6S branch and clean bounded diff.
+  EVIDENCE: Branch is `phase-6s-file-watching`; diff hygiene passes and no Phase 6T metadata, grouping, column, or per-folder preference work exists.
 
-- [x] G2: Drag policy preserves exact internal and external local paths, deduplicates without lossy conversion, and rejects invalid/self-nesting destinations.
-  CHECK: `cargo test -p floe-app phase_6r_drag_policy -- --nocapture`
-  EXPECT: Focused exact-path, raw non-UTF-8, duplicate, root, self, and descendant tests pass.
-  EVIDENCE: Focused policy test passes raw non-UTF-8 identity, exact deduplication, root, same-destination, and self-nesting rejection.
+- [x] G2: Exactly one application-owned GIO monitor follows the active successful local directory and is cancelled on navigation, replacement, Trash mode, and shutdown.
+  CHECK: `cargo test -p floe-app phase_6s_monitor -- --nocapture`
+  EXPECT: Focused lifecycle, exact path, generation, replacement, and stop tests pass.
+  EVIDENCE: Focused monitor test passes exact directory replacement, generation change, and stop; browser starts only after successful local listing and stops before every navigation/reload, Trash, failure, and shutdown.
 
-- [x] G3: Internal list/grid drags carry the complete exact selection and standards-based external local-file drops are accepted without shell or display-text reconstruction.
-  CHECK: `cargo test -p floe-app phase_6r_payload -- --nocapture`
-  EXPECT: Focused selected-row, multiselect, URI-list, local-only, and malformed payload tests pass.
-  EVIDENCE: Focused payload test passes local GFile round-trip, empty selection, and remote URI rejection; both views publish one exact multi-selection GDK file list.
+- [x] G3: Duplicate and storm events are coalesced by one cancellable timer with explicit event/path/rename caps and conservative overflow behavior.
+  CHECK: `cargo test -p floe-app phase_6s_coalescer -- --nocapture`
+  EXPECT: Focused debounce, deduplication, caps, overflow, and reset tests pass.
+  EVIDENCE: Focused coalescer test deduplicates 100 same-path events, caps 16,384 events, 4,096 paths, and 1,024 renames, records overflow, emits once, and resets.
 
-- [x] G4: Copy, move, and symbolic-link drops submit FIFO no-overwrite jobs through `ApplicationState`; Trash drops reuse the existing bounded Trash batch.
-  CHECK: `cargo test -p floe-app phase_6r_state -- --nocapture`
-  EXPECT: Focused action routing, ordering, conflict, link, Trash, and affected-directory tests pass.
-  EVIDENCE: Focused state test completes copy, move, and link batches with expected source semantics; code routes Trash directly to the reviewed Trash batch and all requests retain fail-if-exists behavior.
+- [x] G4: Create, delete, attribute, move-in/out, and exact rename pairs map to one typed watcher batch without lossy path reconstruction.
+  CHECK: `cargo test -p floe-app phase_6s_events -- --nocapture`
+  EXPECT: Focused event mapping and raw non-UTF-8 rename tests pass.
+  EVIDENCE: Focused event test passes create/delete/attribute/move-in/move-out mapping and preserves raw non-UTF-8 source/destination rename identities through GIO paths.
 
-- [x] G5: Directory rows/background, eligible Places/bookmarks/mounted devices, and Trash resolve exact destinations and reject unavailable targets.
-  CHECK: `cargo test -p floe-app phase_6r_destination -- --nocapture`
-  EXPECT: Focused row/background/sidebar/bookmark/device/Trash capability tests pass.
-  EVIDENCE: Exact destination planning test passes FIFO names; UI resolvers use current bound `DirectoryEntry`, authoritative location/bookmark paths, only navigable device paths, and a distinct Trash target.
+- [x] G5: Each current coalesced batch submits at most one superseding `BrowserWorker` enumeration; GTK performs no directory enumeration, metadata scan, mutation, or per-event model rebuild.
+  CHECK: `cargo test -p floe-app phase_6s_dispatch -- --nocapture`
+  EXPECT: Focused current/stale batch dispatch policy tests pass.
+  EVIDENCE: Focused dispatch test rejects old generation/directory batches; handler logs aggregate batch counts then calls `load_current_inner` exactly once, which submits one existing superseding worker request.
 
-- [x] G6: Hover-open and edge autoscroll are bounded, cancellable, and never perform filesystem work or uncontrolled timer/task spawning on GTK.
-  CHECK: `cargo test -p floe-app phase_6r_motion -- --nocapture`
-  EXPECT: Focused timing, edge direction, cancellation, and single-active-state tests pass.
-  EVIDENCE: Focused motion test passes 56 px edge zones and clamped 22 px steps; browser owns at most one 720 ms source and removes it on leave, drop, replacement, and shutdown.
+- [x] G6: Exact selection and stable scroll-anchor identity survive creates and renames, deleted identities disappear, and reconciliation is linear for 100k paths.
+  CHECK: `cargo test -p floe-app phase_6s_reconcile -- --nocapture`
+  EXPECT: Focused create/delete/rename/raw-path/100k selection and anchor tests pass.
+  EVIDENCE: Focused reconciliation test passes surviving/deleted selection, direct and chained rename translation, stable/fallback anchor, raw identity, scroll ratio, and 100,000 current paths.
 
-- [x] G7: Accepted/rejected destinations and negotiated actions have non-color-only accessible feedback, while existing keyboard/menu transfer alternatives remain available.
-  CHECK: `cargo test -p floe-app phase_6r_accessibility -- --nocapture`
-  EXPECT: Focused feedback wording, accessible state, and alternative-action tests pass.
-  EVIDENCE: Focused accessibility test passes action/release wording; dashed outline, accessible description, and status text supplement color, while existing Copy/Cut/Paste/menu actions remain exported.
+- [x] G7: Deleted/inaccessible directories and watcher failures show recoverable feedback, stale batches cannot replace newer navigation, and no integrity-monitoring claim is made.
+  CHECK: `cargo test -p floe-app phase_6s_failure -- --nocapture`
+  EXPECT: Focused failure wording and stale-generation tests pass.
+  EVIDENCE: Focused failure test rejects invalid watch locations and requires “use Refresh” recovery wording without integrity language; generation/path policy prevents stale application.
 
-- [x] G8: GTK callbacks only decode/drop/submit application commands; no filesystem mutation, blocking metadata, shell, privilege escalation, or implicit overwrite is introduced.
-  CHECK: `rg -n "std::fs|Command::new|pkexec|sudo|overwrite" crates/app/src/drag_drop.rs crates/app/src/browser.rs`
-  EXPECT: No forbidden Phase 6R GTK path; explicit fail-if-exists policy remains visible.
-  EVIDENCE: Audit command returns no forbidden match in Phase 6R paths; typed requests route to existing bounded executors with explicit `FailIfExists`.
-
-- [x] G9: Formatting, workspace build, strict Clippy, tests, and diff hygiene pass.
+- [x] G8: Formatting, workspace build, strict Clippy, tests, and diff hygiene pass.
   CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && git diff --check`
   EXPECT: All commands exit zero with measured test totals.
-  EVIDENCE: Command exits zero; all 271 tests pass: 63 core and 208 application, with zero failures.
+  EVIDENCE: Command exits zero; all 277 tests pass: 63 core and 214 application, with zero failures.
 
-- [x] G10: Native Wayland smoke verifies application ownership, exported actions, healthy list/grid/sidebar/Trash targets, and clean quit.
-  CHECK: native Wayland smoke procedure recorded in `GATES.md`
-  EXPECT: Floe remains responsive and releases its D-Bus name after quit.
-  EVIDENCE: Native `GDK_BACKEND=wayland` launch owned `io.github.floe.FileManager`, answered `Peer.Ping`, exported 42 window actions, remained healthy, quit through `app.quit`, and released its D-Bus name; only known host libadwaita, AT-SPI, and Vulkan warnings appeared.
+- [x] G9: Native Wayland smoke observes a coalesced external create/rename/delete cycle, application ownership, healthy responsiveness, and clean quit/name release.
+  CHECK: native Wayland external-change smoke procedure recorded in `GATES.md`
+  EXPECT: One reconciliation per event burst and clean application lifecycle.
+  EVIDENCE: Isolated HOME/XDG native run coalesced two creates as events=4/paths=2, mapped rename as events=1/paths=2/renames=1, reconciled delete once, exported 42 actions, answered `Peer.Ping`, quit cleanly, released its name; temporary root was removed.
 
-- [x] G11: Persistent documentation records verified Phase 6R and exactly Phase 6S as `NEXT`.
+- [x] G10: No new dependency, shell, privilege, path logging, recursive watch, or GTK-thread filesystem work is introduced.
+  CHECK: `git diff -- Cargo.toml crates/app/Cargo.toml && rg -n "std::fs|Command::new|pkexec|sudo|recursive" crates/app/src/file_watcher.rs crates/app/src/browser.rs`
+  EXPECT: Existing GIO dependency only and no forbidden Phase 6S path.
+  EVIDENCE: Cargo manifests are unchanged; source audit finds no shell, elevation, filesystem mutation/enumeration, recursive watch, or path-valued tracing in the watcher/GTK integration.
+
+- [x] G11: Persistent documentation records verified Phase 6S and exactly Phase 6T as `NEXT`.
   CHECK: `node <unlazy-skill-dir>/scripts/gate-check.mjs --status GATES.md`
   EXPECT: `ALL MET`.
-  EVIDENCE: `AGENTS.md`, `PLAN.md`, `GATES.md`, `DESIGN.md`, `docs/ROADMAP.md`, `docs/FEATURE_MATRIX.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, and `docs/PRIVACY_SECURITY.md` record verified Phase 6R and only Phase 6S next.
+  EVIDENCE: `AGENTS.md`, `PLAN.md`, `GATES.md`, `DESIGN.md`, `docs/ROADMAP.md`, `docs/FEATURE_MATRIX.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, and `docs/PRIVACY_SECURITY.md` record verified Phase 6S and only Phase 6T next.

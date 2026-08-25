@@ -429,6 +429,19 @@ values to `BrowserController`; `ApplicationState` converts them into existing
 FIFO copy, move, symbolic-link, or Trash jobs with fail-if-exists semantics.
 GTK owns only gesture presentation and submission, never filesystem mutation.
 
+### `file_watcher.rs`
+
+Phase 6S owns one non-recursive `gio::FileMonitor` for the active successful
+local listing. A single 140 ms cancellable source normalizes and deduplicates
+events into exact-path `WatchBatch` values with explicit caps of 16,384 events,
+4,096 paths, and 1,024 rename pairs. Overflow requests one conservative reload.
+The callback never enumerates or reads metadata; `BrowserController` accepts
+only the current monitor generation/directory and submits one superseding
+`BrowserWorker` enumeration per batch. Linear reconciliation translates rename
+chains, preserves surviving exact selections, and restores a stable path/index
+scroll anchor after existing 256-entry model insertion finishes. Monitors stop on
+navigation, replacement, Trash mode, failed listing, and shutdown.
+
 ### `trash_executor.rs`
 
 `TrashExecutor` owns one named worker and fixed-capacity queue for application-

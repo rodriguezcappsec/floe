@@ -26,6 +26,10 @@ use crate::{
     drag_drop::{
         DropDestination, DropEvent, DropRequest, install_drag_source, install_drop_target,
     },
+    file_watcher::{
+        FileWatcher, RenamePair, ViewStateSnapshot, WatchBatch, batch_is_current,
+        reconcile_view_state, scroll_anchor_index, watch_failure_message,
+    },
     launcher,
     location_input::{
         PendingLocation, location_failure_message, location_text, resolve_location_input,
@@ -133,6 +137,12 @@ pub struct BrowserServices {
     preferences: Option<PreferenceWorker>,
 }
 
+#[derive(Clone, Debug)]
+struct PendingReconciliation {
+    snapshot: ViewStateSnapshot,
+    renames: Vec<RenamePair>,
+}
+
 impl BrowserServices {
     pub fn new(
         browser: BrowserWorker,
@@ -188,6 +198,10 @@ pub struct BrowserController {
     device_monitor: DeviceMonitor,
     device_subscription: Cell<Option<DeviceSubscriptionId>>,
     drop_hover_source: RefCell<Option<glib::SourceId>>,
+    file_watcher: FileWatcher,
+    watch_generation: Cell<u64>,
+    pending_reconciliation: RefCell<Option<PendingReconciliation>>,
+    pending_scroll_index: Cell<Option<u32>>,
 }
 
 impl Drop for BrowserController {
@@ -201,6 +215,7 @@ impl Drop for BrowserController {
         if let Some(source) = self.drop_hover_source.get_mut().take() {
             source.remove();
         }
+        self.file_watcher.stop();
         let Some(worker) = self.preference_worker.get_mut().as_ref() else {
             return;
         };
@@ -262,6 +277,10 @@ impl BrowserController {
             device_monitor: devices,
             device_subscription: Cell::new(None),
             drop_hover_source: RefCell::new(None),
+            file_watcher: FileWatcher::default(),
+            watch_generation: Cell::new(0),
+            pending_reconciliation: RefCell::new(None),
+            pending_scroll_index: Cell::new(None),
         })
     }
 
@@ -283,6 +302,13 @@ impl BrowserController {
         self.widgets.drop_dispatcher.bind(move |event| {
             if let Some(controller) = controller.upgrade() {
                 controller.handle_drop_event(event);
+            }
+        });
+
+        let controller = Rc::downgrade(self);
+        self.file_watcher.bind(move |batch| {
+            if let Some(controller) = controller.upgrade() {
+                controller.handle_watch_batch(batch);
             }
         });
 
@@ -464,6 +490,105 @@ impl BrowserController {
     fn cancel_hover_open(&self) {
         if let Some(source) = self.drop_hover_source.borrow_mut().take() {
             source.remove();
+        }
+    }
+
+    fn handle_watch_batch(&self, batch: WatchBatch) {
+        if self.trash_active.get() {
+            return;
+        }
+        let current = self.navigation.borrow().current().to_path_buf();
+        if !batch_is_current(&batch, self.watch_generation.get(), &current) {
+            return;
+        }
+        let snapshot = self.capture_view_state();
+        tracing::debug!(
+            events = batch.event_count(),
+            paths = batch.changed_paths().len(),
+            renames = batch.renames().len(),
+            overflowed = batch.overflowed(),
+            "coalesced external filesystem changes"
+        );
+        self.pending_reconciliation
+            .replace(Some(PendingReconciliation {
+                snapshot,
+                renames: batch.renames().to_vec(),
+            }));
+        self.load_current_inner();
+    }
+
+    fn capture_view_state(&self) -> ViewStateSnapshot {
+        let entries = self.visible_entries.borrow();
+        let anchor_index = self
+            .current_scroll_adjustment()
+            .map_or(0, |adjustment| {
+                scroll_anchor_index(
+                    adjustment.value(),
+                    adjustment.lower(),
+                    adjustment.upper(),
+                    adjustment.page_size(),
+                    entries.len(),
+                )
+            })
+            .min(entries.len().saturating_sub(1));
+        ViewStateSnapshot {
+            selected_paths: self
+                .selected_entries
+                .borrow()
+                .iter()
+                .map(|entry| entry.path().to_path_buf())
+                .collect(),
+            anchor_path: entries
+                .get(anchor_index)
+                .map(|entry| entry.path().to_path_buf()),
+            anchor_index,
+        }
+    }
+
+    fn current_scroll_adjustment(&self) -> Option<gtk::Adjustment> {
+        let view: &gtk::Widget = match self.view_mode.get() {
+            ViewMode::List => self.widgets.list_view.upcast_ref(),
+            ViewMode::Grid => self.widgets.grid_view.upcast_ref(),
+        };
+        view.ancestor(gtk::ScrolledWindow::static_type())
+            .and_downcast::<gtk::ScrolledWindow>()
+            .map(|scroller| scroller.vadjustment())
+    }
+
+    fn start_current_watcher(&self) {
+        if self.trash_active.get() {
+            self.file_watcher.stop();
+            self.watch_generation.set(self.file_watcher.generation());
+            return;
+        }
+        let current = self.navigation.borrow().current().to_path_buf();
+        match self.file_watcher.watch_directory(current) {
+            Ok(generation) => self.watch_generation.set(generation),
+            Err(error) => {
+                tracing::warn!(%error, "directory live-update monitor unavailable");
+                self.watch_generation.set(self.file_watcher.generation());
+                self.show_toast(&watch_failure_message(&error), 7);
+            }
+        }
+    }
+
+    fn restore_scroll_anchor(&self) {
+        let Some(index) = self.pending_scroll_index.take() else {
+            return;
+        };
+        let info = gtk::ScrollInfo::new();
+        info.set_enable_vertical(true);
+        match self.view_mode.get() {
+            ViewMode::List => {
+                self.widgets
+                    .list_view
+                    .scroll_to(index, gtk::ListScrollFlags::NONE, Some(info))
+            }
+            ViewMode::Grid => {
+                self.widgets
+                    .grid_view
+                    .scroll_to(index, gtk::ListScrollFlags::NONE, Some(info))
+            }
         }
     }
 
@@ -952,7 +1077,7 @@ impl BrowserController {
         });
         self.add_action("hidden", |controller| controller.toggle_hidden());
         self.add_action("refresh", |controller| {
-            controller.load_current();
+            controller.reload_preserving_view(Vec::new());
         });
         self.add_action("open-trash", |controller| controller.open_trash());
         self.add_action("select-all", |controller| controller.select_all());
@@ -1473,6 +1598,14 @@ impl BrowserController {
     }
 
     fn load_current(&self) -> u64 {
+        self.pending_reconciliation.borrow_mut().take();
+        self.pending_scroll_index.set(None);
+        self.load_current_inner()
+    }
+
+    fn load_current_inner(&self) -> u64 {
+        self.file_watcher.stop();
+        self.watch_generation.set(self.file_watcher.generation());
         self.widgets.thumbnails.begin_generation();
         let thumbnail_generation = self
             .thumbnail_worker
@@ -1653,17 +1786,34 @@ impl BrowserController {
             .filter(|entry| self.trash_active.get() || show_hidden || !entry.is_hidden())
             .map(Arc::new)
             .collect();
-        let reveal_path = self.reveal_selection_path.borrow_mut().take();
-        let selected_paths = reveal_path.iter().cloned().collect::<Vec<_>>();
-        if let Some(target) = reveal_path
-            && !entries.iter().any(|entry| entry.path() == target)
-        {
-            self.show_toast(
-                "The symbolic link target changed or is no longer visible",
-                6,
+        let pending_reconciliation = self.pending_reconciliation.borrow_mut().take();
+        let selected_paths = if let Some(pending) = pending_reconciliation {
+            let current_paths = entries
+                .iter()
+                .map(|entry| entry.path().to_path_buf())
+                .collect::<Vec<_>>();
+            let reconciled =
+                reconcile_view_state(pending.snapshot, &pending.renames, &current_paths);
+            self.pending_scroll_index.set(
+                reconciled
+                    .anchor_index
+                    .and_then(|index| u32::try_from(index).ok()),
             );
-        }
+            reconciled.selected_paths
+        } else {
+            let reveal_path = self.reveal_selection_path.borrow_mut().take();
+            if let Some(target) = reveal_path.as_ref()
+                && !entries.iter().any(|entry| entry.path() == target)
+            {
+                self.show_toast(
+                    "The symbolic link target changed or is no longer visible",
+                    6,
+                );
+            }
+            reveal_path.into_iter().collect::<Vec<_>>()
+        };
         self.install_entries(entries, &selected_paths, true);
+        self.start_current_watcher();
     }
 
     fn install_entries(
@@ -1673,6 +1823,9 @@ impl BrowserController {
         focus_list: bool,
     ) {
         let count = entries.len();
+        if count == 0 {
+            self.pending_scroll_index.set(None);
+        }
         let selection_indices = selection_indices_for_paths(&entries, selected_paths);
         let store = gio::ListStore::new::<glib::BoxedAnyObject>();
         self.widgets.selection.set_model(Some(&store));
@@ -1720,6 +1873,9 @@ impl BrowserController {
             self.widgets.selection.select_item(index, false);
         }
         self.update_loading_status(loaded, total);
+        if loaded == total {
+            self.restore_scroll_anchor();
+        }
     }
 
     fn update_loading_status(&self, loaded: usize, total: usize) {
@@ -2662,8 +2818,17 @@ impl BrowserController {
                         == Some(directory)
             });
         if trash_directory || self.navigation.borrow().current() == directory {
-            self.load_current();
+            self.reload_preserving_view(Vec::new());
         }
+    }
+
+    fn reload_preserving_view(&self, renames: Vec<RenamePair>) {
+        self.pending_reconciliation
+            .replace(Some(PendingReconciliation {
+                snapshot: self.capture_view_state(),
+                renames,
+            }));
+        self.load_current_inner();
     }
 
     fn show_toast(&self, title: &str, timeout: u32) {
