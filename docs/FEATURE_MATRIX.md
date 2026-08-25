@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 6S. Phase 6T is the only
+The implementation baseline for this matrix is Phase 6T. Phase 7A is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -246,10 +246,10 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Virtualized grid/icons view | `COMPLETE` | 6D | Shares one store and `GtkMultiSelection` with list view. |
 | Instant list/grid switching | `COMPLETE` | 6D | Ctrl+1/Ctrl+2 and native controls preserve model and exact selection. |
 | Persistent global view mode | `COMPLETE` | 6D | Application worker loads/saves atomically. |
-| Per-folder view settings | `PLANNED` | 6T/20 | Opt-in only; must define inheritance and privacy-safe persistence. |
+| Per-folder view settings | `COMPLETE` | 6T | Opt-in, capped at 256 exact raw-path overrides with explicit global inheritance and private atomic persistence. |
 | Grid zoom | `COMPLETE` | 6D | Seven bounded 64-192 pixel sizes with keyboard controls persist. |
 | Sidebar density | `COMPLETE` | 6K2 | Compact, Balanced, and Comfortable apply live and persist. |
-| Main file-view density | `PLANNED` | 6T/20 | Compact/Comfortable/Spacious must share widgets and preserve target/focus usability. |
+| Main file-view density | `COMPLETE` | 6T | Compact/Comfortable/Spacious share list/grid widgets, preserve focus, and persist. |
 | Compact file view | `DEFERRED` | 20 | Add only if distinct from dense List and useful. |
 | Expandable tree view | `DEFERRED` | 20 | Optional; Miller mode is the primary spatial hierarchy investment. |
 | No thumbnail-induced layout jumps | `COMPLETE` | 6C-6G | Stable icon slots and fallbacks reserve presentation geometry. |
@@ -260,24 +260,24 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Modified sorting | `COMPLETE` | 6B | Unknown values remain last. |
 | Ascending/descending controls | `COMPLETE` | 6B | Native headings expose arrow, accessible label, and pressed state. |
 | Directories first | `COMPLETE` | 6B | Navigable directories stay first in both directions. |
-| Configurable directories first/last | `PLANNED` | 6T/20 | Requires an explicit sorting preference. |
+| Configurable directories first/last | `COMPLETE` | 6T | Explicit persisted policy remains independent from sort direction and grouping. |
 | MIME sorting | `PLANNED` | 6T/10B | Depends on bounded GIO/shared-mime enrichment. |
-| Extension sorting | `PLANNED` | 6T/10B | Use the original `OsStr`, not lossy display reconstruction. |
+| Extension sorting | `COMPLETE` | 6T | Uses original `OsStr` extension identity with exact path tie-breaking. |
 | Created/accessed sorting | `PLANNED` | 6T/10B | Filesystem availability varies; unknown values must remain honest. |
 | Owner/permissions sorting | `PLANNED` | 6T/10B | Depends on lazy metadata providers. |
 | Dimensions/duration/audio sorting | `PLANNED` | 6T/10B/10F | Expensive metadata stays lazy and stable during enrichment. |
-| Stable ordering during enrichment | `PLANNED` | 6T/10B | Must avoid disruptive row movement or define a clear resort boundary. |
-| Group by type/date/size/extension | `PLANNED` | 6T/10B/20 | Grouping stays independent from sorting. |
+| Stable ordering during enrichment | `COMPLETE` | 6T | Lazy metadata responses update bound labels only; deliberate policy actions own resort boundaries. |
+| Group by type/date/size/extension | `PARTIAL` | 6T/10B/20 | Type and raw extension grouping are implemented independently from sorting; date and size groups remain planned. |
 | Group by tags | `DEFERRED` | 19 | Depends on a real tag model. |
 | Collapsible groups | `PLANNED` | 6T/20 | Requires accessible headers and a persistent-state policy. |
-| Disable grouping | `PLANNED` | 6T/20 | This remains the default until grouping ships. |
+| Disable grouping | `COMPLETE` | 6T | None is the default and a persisted explicit grouping choice. |
 | Name/Type/Size/Modified columns | `COMPLETE` | 6A | Current four-column hierarchy is compact and virtualized. |
-| MIME/Extension/Created/Accessed columns | `PLANNED` | 10B | Lazy, selectable metadata columns. |
-| Permissions/Owner/Group/Path columns | `PLANNED` | 10B | Exact path is authoritative; displayed text may be lossy. |
+| MIME/Extension/Created/Accessed columns | `COMPLETE` | 6T | Extension uses enumerated identity; MIME, Created, and Accessed load only for bound rows through a fixed-capacity worker. |
+| Permissions/Owner/Group/Path columns | `PARTIAL` | 6T/10B | Lazy Unix permissions are implemented; Owner, Group, and Path columns remain planned. |
 | Symlink-target column | `PLANNED` | 10B | Must preserve raw target identity and broken-link status. |
 | Image/media/audio metadata columns | `PLANNED` | 10F | Dimensions, duration, artist, album, and track depend on reviewed providers. |
-| Column visibility selection | `PLANNED` | 6T/10B/20 | Persist configuration with versioned preferences. |
-| Column reorder/resize/autosize | `PLANNED` | 6T/10B/20 | Must remain usable for huge directories and keyboard users. |
+| Column visibility selection | `COMPLETE` | 6T | Optional columns use versioned global/per-folder persistence; Name cannot be hidden. |
+| Column reorder/resize/autosize | `PARTIAL` | 6T/10B/20 | Pointer resizing plus keyboard/menu narrow/widen actions persist clamped widths; reorder and autosize remain planned. |
 
 ## Selection and status surface
 
@@ -296,10 +296,10 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Context-menu selection retention | `COMPLETE` | 6J | Right-click preserves an existing multi-selection or retargets an unselected item. |
 | Keyboard-only selection/context access | `COMPLETE` | 5C/6J | Shift+F10/Menu and standard selection keys are supported. |
 | Selected item count | `COMPLETE` | 6J | Status policy distinguishes zero, one, and many selected entries. |
-| Selected bytes | `PLANNED` | 6T/10A/20 | Aggregate known sizes asynchronously and represent unknown totals honestly. |
+| Selected bytes | `COMPLETE` | 6T | Status sums only already-known non-recursive entry sizes and labels the result known. |
 | Total item count | `COMPLETE` | 1 | Status reports loading/loaded item counts. |
-| Free disk space | `PLANNED` | 6T/10C/20 | Depends on filesystem metadata and active local/remote location capability. |
-| Read-only state | `PLANNED` | 6T/10C/20 | Show in status/Inspector based on actual location/filesystem capability. |
+| Free disk space | `COMPLETE` | 6T | A fixed-capacity GIO worker reports available/total facts for the active local location and mounted local devices; unknown data is omitted. |
+| Read-only state | `COMPLETE` | 6T | Current local location and mounted-device status use actual GIO filesystem facts; unknown data is omitted. |
 | Loading/error/empty states | `COMPLETE` | 1 | Non-blocking spinner, plain empty state, toast errors, and tracing context exist. |
 | Active operation state | `COMPLETE` | 4B/6K2 | Operations Island remains non-modal while browsing continues. |
 | Sensitive/private/vault state | `PLANNED` | 18H/18K | Must be explicit and non-color-only after those modes exist. |
@@ -424,7 +424,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Mount/unmount/eject | `COMPLETE` | 6K | Async actions expose busy/unavailable/failure states. |
 | Password-protected/encrypted mounts | `COMPLETE` | 6K2 | Window-parented `GtkMountOperation`; desktop owns credentials and Floe is credential-opaque. |
 | Safe remove workflow | `PARTIAL` | 6K | Unmount/eject exist; verified copy/flush/eject is Phase 18W. |
-| Device label and free space | `PARTIAL` | 6K/6T/20 | GIO labels are shown where available; capacity/free-space presentation is missing. |
+| Device label and free space | `COMPLETE` | 6K/6T | Device labels come from GIO; mounted local roots receive bounded generation-checked capacity/free/read-only details. |
 | Sidebar width persistence/reset | `COMPLETE` | 6K2 | 128-480 px, 320 ms debounce, startup restore, appearance-default reset. |
 | Sidebar collapsed mode | `PLANNED` | 20 | Must retain accessible destinations and restore width predictably. |
 | Selection-aware file context menu | `COMPLETE` | 5C/6J | Open, Open With, Copy, Cut, Rename, and Trash reuse window actions. |

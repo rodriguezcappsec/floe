@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     ffi::{OsStr, OsString},
     os::unix::ffi::OsStrExt,
     path::{Component, Path, PathBuf},
@@ -11,8 +11,9 @@ use std::{
 
 use adw::prelude::*;
 use floe_core::{
-    CreateRequest, DirectoryEntry, DirectoryError, DirectorySort, EntryKind, NavigationState,
-    RestoreRequest, SortColumn, TrashEnumerateError, TrashRoot,
+    CreateRequest, DirectoryEntry, DirectoryError, DirectoryGrouping, DirectoryPlacement,
+    DirectorySort, EntryKind, NavigationState, RestoreRequest, SortColumn, TrashEnumerateError,
+    TrashRoot,
 };
 use gtk::{gdk, gio, glib};
 
@@ -35,14 +36,21 @@ use crate::{
         PendingLocation, location_failure_message, location_text, resolve_location_input,
     },
     locations::Location,
+    metadata::{MetadataSubmitError, MetadataWorker},
     preferences::{
         PreferenceSubmitError, PreferenceWorker, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
         SidebarDensity, ViewPreferences, clamp_sidebar_width,
     },
     state::{ApplicationState, TransferIntent, validate_rename_name},
+    storage::{
+        StorageFacts, StorageRequest, StorageSubmitError, StorageTarget, StorageWorker,
+        format_bytes, format_storage_facts,
+    },
     thumbnail::{ThumbnailSubmitError, ThumbnailWorker},
     ui::{self, BrowserWidgets},
-    view::{GridSize, VIEW_ACTIONS, ViewCommand, ViewMode},
+    view::{
+        FileViewDensity, FolderViewState, GridSize, ListColumn, VIEW_ACTIONS, ViewCommand, ViewMode,
+    },
     worker::{BrowserWorker, ResponseKind},
 };
 
@@ -105,6 +113,7 @@ impl CreateDialogKind {
 
 const SIDEBAR_PERSIST_DEBOUNCE: Duration = Duration::from_millis(320);
 
+#[cfg(test)]
 fn with_current_view_preferences(
     mut preferences: ViewPreferences,
     mode: ViewMode,
@@ -132,6 +141,8 @@ fn preferences_after_sidebar_reset(mut preferences: ViewPreferences) -> ViewPref
 pub struct BrowserServices {
     browser: BrowserWorker,
     thumbnails: Option<ThumbnailWorker>,
+    metadata: Option<MetadataWorker>,
+    storage: Option<StorageWorker>,
     bookmarks: Option<BookmarkWorker>,
     devices: DeviceMonitor,
     preferences: Option<PreferenceWorker>,
@@ -147,6 +158,8 @@ impl BrowserServices {
     pub fn new(
         browser: BrowserWorker,
         thumbnails: Option<ThumbnailWorker>,
+        metadata: Option<MetadataWorker>,
+        storage: Option<StorageWorker>,
         bookmarks: Option<BookmarkWorker>,
         devices: DeviceMonitor,
         preferences: Option<PreferenceWorker>,
@@ -154,6 +167,8 @@ impl BrowserServices {
         Self {
             browser,
             thumbnails,
+            metadata,
+            storage,
             bookmarks,
             devices,
             preferences,
@@ -166,6 +181,13 @@ pub struct BrowserController {
     navigation: RefCell<NavigationState>,
     worker: RefCell<BrowserWorker>,
     thumbnail_worker: RefCell<Option<ThumbnailWorker>>,
+    metadata_worker: RefCell<Option<MetadataWorker>>,
+    storage_worker: RefCell<Option<StorageWorker>>,
+    current_storage_generation: Cell<u64>,
+    device_storage_generation: Cell<u64>,
+    current_storage_facts: Cell<Option<StorageFacts>>,
+    device_storage_facts: RefCell<HashMap<String, StorageFacts>>,
+    device_snapshots: RefCell<Vec<DeviceSnapshot>>,
     thumbnail_generation: Cell<u64>,
     active_generation: Cell<u64>,
     show_hidden: Cell<bool>,
@@ -183,6 +205,8 @@ pub struct BrowserController {
     reveal_selection_path: RefCell<Option<PathBuf>>,
     view_mode: Cell<ViewMode>,
     grid_size: Cell<GridSize>,
+    file_density: Cell<FileViewDensity>,
+    list_columns: Cell<crate::view::ListColumnLayout>,
     preference_worker: RefCell<Option<PreferenceWorker>>,
     pending_preferences: Cell<Option<ViewPreferences>>,
     current_preferences: RefCell<ViewPreferences>,
@@ -219,7 +243,8 @@ impl Drop for BrowserController {
         let Some(worker) = self.preference_worker.get_mut().as_ref() else {
             return;
         };
-        if let Err(error) = worker.save_before_shutdown(*self.current_preferences.get_mut()) {
+        if let Err(error) = worker.save_before_shutdown(self.current_preferences.get_mut().clone())
+        {
             tracing::warn!(%error, "could not submit final view preferences");
         }
     }
@@ -236,15 +261,25 @@ impl BrowserController {
         let BrowserServices {
             browser,
             thumbnails,
+            metadata,
+            storage,
             bookmarks,
             devices,
             preferences,
         } = services;
+        let initial_view = view_preferences.effective_state(&initial_path);
         Rc::new(Self {
             widgets,
             navigation: RefCell::new(NavigationState::new(initial_path)),
             worker: RefCell::new(browser),
             thumbnail_worker: RefCell::new(thumbnails),
+            metadata_worker: RefCell::new(metadata),
+            storage_worker: RefCell::new(storage),
+            current_storage_generation: Cell::new(0),
+            device_storage_generation: Cell::new(0),
+            current_storage_facts: Cell::new(None),
+            device_storage_facts: RefCell::new(HashMap::new()),
+            device_snapshots: RefCell::new(Vec::new()),
             thumbnail_generation: Cell::new(0),
             active_generation: Cell::new(0),
             show_hidden: Cell::new(false),
@@ -256,12 +291,14 @@ impl BrowserController {
             pending_total: Cell::new(0),
             pending_selection_indices: RefCell::new(Vec::new()),
             selected_entries: RefCell::new(Vec::new()),
-            sort_order: Cell::new(DirectorySort::default()),
+            sort_order: Cell::new(initial_view.sort),
             sort_in_flight: Cell::new(false),
             sort_selection_paths: RefCell::new(Vec::new()),
             reveal_selection_path: RefCell::new(None),
-            view_mode: Cell::new(view_preferences.mode),
-            grid_size: Cell::new(view_preferences.grid_size),
+            view_mode: Cell::new(initial_view.mode),
+            grid_size: Cell::new(initial_view.grid_size),
+            file_density: Cell::new(initial_view.density),
+            list_columns: Cell::new(initial_view.columns),
             preference_worker: RefCell::new(preferences),
             pending_preferences: Cell::new(None),
             current_preferences: RefCell::new(view_preferences),
@@ -297,6 +334,17 @@ impl BrowserController {
         self.update_sort_headers();
         self.widgets
             .apply_sidebar_density(self.current_preferences.borrow().sidebar_density);
+        let initial_view = self
+            .current_preferences
+            .borrow()
+            .effective_state(self.navigation.borrow().current());
+        self.widgets.set_view_mode(initial_view.mode);
+        self.widgets.set_grid_size(initial_view.grid_size);
+        self.widgets.apply_file_view_policy(
+            initial_view.density,
+            initial_view.columns,
+            initial_view.sort.grouping,
+        );
 
         let controller = Rc::downgrade(self);
         self.widgets.drop_dispatcher.bind(move |event| {
@@ -355,6 +403,7 @@ impl BrowserController {
         let controller = Rc::downgrade(self);
         let subscription = self.device_monitor.connect_changed(move |snapshots| {
             if let Some(controller) = controller.upgrade() {
+                controller.request_device_storage_facts(snapshots);
                 controller.render_devices(snapshots);
             }
         });
@@ -816,7 +865,14 @@ impl BrowserController {
                     .ellipsize(gtk::pango::EllipsizeMode::End)
                     .build(),
             );
-            let status = sidebar_status_label(&policy.status);
+            let status_text = self
+                .device_storage_facts
+                .borrow()
+                .get(snapshot.id.as_str())
+                .copied()
+                .map(|facts| device_status_text(&policy.status, facts))
+                .unwrap_or(policy.status);
+            let status = sidebar_status_label(&status_text);
             labels.append(&status);
             content.append(&labels);
 
@@ -1033,6 +1089,9 @@ impl BrowserController {
             controller.pump_pending_entries();
             controller.submit_thumbnail_requests();
             controller.drain_thumbnail_worker();
+            controller.submit_metadata_requests();
+            controller.drain_metadata_worker();
+            controller.drain_storage_worker();
             controller.flush_pending_preferences();
             glib::ControlFlow::Continue
         });
@@ -1108,6 +1167,127 @@ impl BrowserController {
             }
         });
         self.widgets.window.add_action(&density_action);
+
+        let file_density = self.file_density.get();
+        let file_density_action = gio::SimpleAction::new_stateful(
+            "file-density",
+            Some(&String::static_variant_type()),
+            &file_density.persisted().to_variant(),
+        );
+        let controller = Rc::downgrade(self);
+        file_density_action.connect_activate(move |action, parameter| {
+            let Some(density) = parameter
+                .and_then(glib::Variant::str)
+                .and_then(FileViewDensity::from_persisted)
+            else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                controller.change_file_density(density);
+                action.set_state(&density.persisted().to_variant());
+            }
+        });
+        self.widgets.window.add_action(&file_density_action);
+
+        let grouping = self.sort_order.get().grouping;
+        let grouping_action = gio::SimpleAction::new_stateful(
+            "grouping",
+            Some(&String::static_variant_type()),
+            &grouping.persisted().to_variant(),
+        );
+        let controller = Rc::downgrade(self);
+        grouping_action.connect_activate(move |action, parameter| {
+            let Some(grouping) = parameter
+                .and_then(glib::Variant::str)
+                .and_then(DirectoryGrouping::from_persisted)
+            else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                controller.change_grouping(grouping);
+                action.set_state(&grouping.persisted().to_variant());
+            }
+        });
+        self.widgets.window.add_action(&grouping_action);
+
+        let placement = self.sort_order.get().directories;
+        let placement_action = gio::SimpleAction::new_stateful(
+            "directory-placement",
+            Some(&String::static_variant_type()),
+            &placement.persisted().to_variant(),
+        );
+        let controller = Rc::downgrade(self);
+        placement_action.connect_activate(move |action, parameter| {
+            let Some(placement) = parameter
+                .and_then(glib::Variant::str)
+                .and_then(DirectoryPlacement::from_persisted)
+            else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                controller.change_directory_placement(placement);
+                action.set_state(&placement.persisted().to_variant());
+            }
+        });
+        self.widgets.window.add_action(&placement_action);
+
+        let remember = self.current_preferences.borrow().remember_per_folder;
+        let remember_action =
+            gio::SimpleAction::new_stateful("remember-folder-view", None, &remember.to_variant());
+        let controller = Rc::downgrade(self);
+        remember_action.connect_activate(move |action, parameter| {
+            let enabled = parameter
+                .and_then(glib::Variant::get::<bool>)
+                .unwrap_or_else(|| {
+                    !action
+                        .state()
+                        .and_then(|state| state.get())
+                        .unwrap_or(false)
+                });
+            if let Some(controller) = controller.upgrade() {
+                controller.set_remember_per_folder(enabled);
+                action.set_state(&enabled.to_variant());
+            }
+        });
+        self.widgets.window.add_action(&remember_action);
+
+        self.add_action("narrow-name", |controller| {
+            controller.resize_list_column(ListColumn::Name, -16);
+        });
+        self.add_action("widen-name", |controller| {
+            controller.resize_list_column(ListColumn::Name, 16);
+        });
+        for column in ListColumn::OPTIONAL {
+            let action_name = format!("column-{}", column.persisted());
+            let visible = self.list_columns.get().is_visible(column);
+            let column_action =
+                gio::SimpleAction::new_stateful(&action_name, None, &visible.to_variant());
+            let controller = Rc::downgrade(self);
+            column_action.connect_activate(move |action, parameter| {
+                let visible = parameter
+                    .and_then(glib::Variant::get::<bool>)
+                    .unwrap_or_else(|| {
+                        !action
+                            .state()
+                            .and_then(|state| state.get())
+                            .unwrap_or(false)
+                    });
+                if let Some(controller) = controller.upgrade() {
+                    controller.toggle_list_column(column, visible);
+                    action.set_state(&visible.to_variant());
+                }
+            });
+            self.widgets.window.add_action(&column_action);
+
+            let narrower = format!("narrow-{}", column.persisted());
+            self.add_action(&narrower, move |controller| {
+                controller.resize_list_column(column, -16);
+            });
+            let wider = format!("widen-{}", column.persisted());
+            self.add_action(&wider, move |controller| {
+                controller.resize_list_column(column, 16);
+            });
+        }
 
         self.add_action("reset-sidebar-width", |controller| {
             controller.reset_sidebar_width();
@@ -1221,6 +1401,7 @@ impl BrowserController {
         self.widgets.set_trash_mode(false);
         self.refresh_paste_enabled();
         if self.navigation.borrow_mut().navigate_to(destination) || was_trash {
+            self.apply_folder_view_for_current();
             self.load_current();
         }
     }
@@ -1278,6 +1459,7 @@ impl BrowserController {
             return;
         }
         if self.navigation.borrow_mut().go_back() {
+            self.apply_folder_view_for_current();
             self.load_current();
         }
     }
@@ -1285,6 +1467,7 @@ impl BrowserController {
     fn go_forward(&self) {
         self.restore_pending_navigation();
         if self.navigation.borrow_mut().go_forward() {
+            self.apply_folder_view_for_current();
             self.load_current();
         }
     }
@@ -1292,6 +1475,7 @@ impl BrowserController {
     fn go_parent(&self) {
         self.restore_pending_navigation();
         if self.navigation.borrow_mut().go_parent() {
+            self.apply_folder_view_for_current();
             self.load_current();
         }
     }
@@ -1334,13 +1518,39 @@ impl BrowserController {
         self.queue_preferences();
     }
 
+    fn active_view_state(&self) -> FolderViewState {
+        FolderViewState {
+            mode: self.view_mode.get(),
+            grid_size: self.grid_size.get(),
+            density: self.file_density.get(),
+            sort: self.sort_order.get(),
+            columns: self.list_columns.get(),
+        }
+    }
+
+    fn apply_folder_view_for_current(&self) {
+        let state = self
+            .current_preferences
+            .borrow()
+            .effective_state(self.navigation.borrow().current());
+        self.view_mode.set(state.mode);
+        self.grid_size.set(state.grid_size);
+        self.sort_order.set(state.sort);
+        self.file_density.set(state.density);
+        self.list_columns.set(state.columns);
+        self.widgets.set_view_mode(state.mode);
+        self.widgets.set_grid_size(state.grid_size);
+        self.widgets
+            .apply_file_view_policy(state.density, state.columns, state.sort.grouping);
+        self.update_sort_headers();
+    }
+
     fn queue_preferences(&self) {
-        let preferences = with_current_view_preferences(
-            *self.current_preferences.borrow(),
-            self.view_mode.get(),
-            self.grid_size.get(),
-        );
-        *self.current_preferences.borrow_mut() = preferences;
+        let mut preferences = self.current_preferences.borrow().clone();
+        let state = self.active_view_state();
+        let current = self.navigation.borrow().current().to_path_buf();
+        preferences.remember_folder_state(current, state);
+        *self.current_preferences.borrow_mut() = preferences.clone();
         self.pending_preferences.set(Some(preferences));
         self.flush_pending_preferences();
     }
@@ -1383,7 +1593,7 @@ impl BrowserController {
             .workspace
             .set_position(self.widgets.sidebar_default_width);
         self.ignore_sidebar_position_signal.set(false);
-        let reset = preferences_after_sidebar_reset(*self.current_preferences.borrow());
+        let reset = preferences_after_sidebar_reset(self.current_preferences.borrow().clone());
         *self.current_preferences.borrow_mut() = reset;
         self.queue_preferences();
     }
@@ -1412,10 +1622,22 @@ impl BrowserController {
         if self.sort_in_flight.get() {
             return;
         }
-
         let sort = self.sort_order.get().next_for(column);
+        self.resort_with(sort);
+    }
+
+    fn resort_with(&self, sort: DirectorySort) {
+        if self.sort_in_flight.get() {
+            return;
+        }
         self.sort_order.set(sort);
         self.update_sort_headers();
+        self.widgets.apply_file_view_policy(
+            self.file_density.get(),
+            self.list_columns.get(),
+            sort.grouping,
+        );
+        self.queue_preferences();
         let entries = self.visible_entries.borrow().clone();
         if entries.len() < 2 {
             self.refresh_status();
@@ -1441,6 +1663,81 @@ impl BrowserController {
         let path = self.navigation.borrow().current().to_path_buf();
         let generation = self.worker.borrow_mut().request_sort(path, entries, sort);
         self.active_generation.set(generation);
+    }
+
+    fn change_file_density(&self, density: FileViewDensity) {
+        if self.file_density.replace(density) == density {
+            return;
+        }
+        self.widgets.apply_file_view_policy(
+            density,
+            self.list_columns.get(),
+            self.sort_order.get().grouping,
+        );
+        self.widgets.focus_view(self.view_mode.get());
+        self.queue_preferences();
+    }
+
+    fn change_grouping(&self, grouping: DirectoryGrouping) {
+        let sort = self.sort_order.get().with_grouping(grouping);
+        if sort == self.sort_order.get() {
+            return;
+        }
+        self.resort_with(sort);
+    }
+
+    fn change_directory_placement(&self, placement: DirectoryPlacement) {
+        let sort = self.sort_order.get().with_directories(placement);
+        if sort == self.sort_order.get() {
+            return;
+        }
+        self.resort_with(sort);
+    }
+
+    fn toggle_list_column(&self, column: ListColumn, visible: bool) {
+        let mut layout = self.list_columns.get();
+        layout.set_visible(column, visible);
+        if layout == self.list_columns.replace(layout) {
+            return;
+        }
+        self.widgets.apply_file_view_policy(
+            self.file_density.get(),
+            layout,
+            self.sort_order.get().grouping,
+        );
+        self.queue_preferences();
+    }
+
+    fn resize_list_column(&self, column: ListColumn, delta: i32) {
+        let mut layout = self.list_columns.get();
+        let revised = i32::from(layout.width(column)).saturating_add(delta);
+        let revised = u16::try_from(revised.max(0)).unwrap_or(u16::MAX);
+        layout.set_width(column, revised);
+        if layout == self.list_columns.replace(layout) {
+            return;
+        }
+        self.widgets.apply_file_view_policy(
+            self.file_density.get(),
+            layout,
+            self.sort_order.get().grouping,
+        );
+        self.queue_preferences();
+    }
+
+    fn set_remember_per_folder(&self, enabled: bool) {
+        let state = self.active_view_state();
+        let current = self.navigation.borrow().current().to_path_buf();
+        {
+            let mut preferences = self.current_preferences.borrow_mut();
+            preferences.remember_per_folder = enabled;
+            if enabled {
+                preferences.remember_folder_state(current, state);
+            } else {
+                preferences.clear_all_folder_states();
+                preferences.set_global_state(state);
+            }
+        }
+        self.queue_preferences();
     }
 
     fn update_sort_headers(&self) {
@@ -1535,6 +1832,148 @@ impl BrowserController {
         self.hide_location_entry();
     }
 
+    fn submit_metadata_requests(&self) {
+        while let Some(key) = self.widgets.metadata.take_request() {
+            let result = {
+                let worker = self.metadata_worker.borrow();
+                let Some(worker) = worker.as_ref() else {
+                    return;
+                };
+                worker.try_request(key)
+            };
+            match result {
+                Ok(()) => {}
+                Err(MetadataSubmitError::Full(key)) => {
+                    self.widgets.metadata.retry(key);
+                    break;
+                }
+                Err(MetadataSubmitError::Disconnected) => {
+                    tracing::warn!("metadata worker stopped accepting requests");
+                    self.metadata_worker.borrow_mut().take();
+                    break;
+                }
+            }
+        }
+    }
+
+    fn drain_metadata_worker(&self) {
+        loop {
+            let response = self
+                .metadata_worker
+                .borrow()
+                .as_ref()
+                .and_then(MetadataWorker::try_response);
+            let Some(response) = response else {
+                break;
+            };
+            self.widgets
+                .metadata
+                .complete(response.key, response.result);
+        }
+    }
+
+    fn request_current_storage_facts(&self) {
+        self.current_storage_facts.set(None);
+        if self.trash_active.get() {
+            self.refresh_status();
+            return;
+        }
+        let generation = self.current_storage_generation.get().wrapping_add(1).max(1);
+        self.current_storage_generation.set(generation);
+        let request = StorageRequest {
+            generation,
+            target: StorageTarget::CurrentLocation,
+            path: self.navigation.borrow().current().to_path_buf(),
+        };
+        self.submit_storage_request(request);
+    }
+
+    fn request_device_storage_facts(&self, snapshots: &[DeviceSnapshot]) {
+        let generation = self.device_storage_generation.get().wrapping_add(1).max(1);
+        self.device_storage_generation.set(generation);
+        self.device_snapshots.replace(snapshots.to_vec());
+        self.device_storage_facts.borrow_mut().clear();
+        for snapshot in snapshots {
+            let Some(path) = snapshot.local_root() else {
+                continue;
+            };
+            self.submit_storage_request(StorageRequest {
+                generation,
+                target: StorageTarget::Device(snapshot.id.as_str().to_owned()),
+                path: path.to_path_buf(),
+            });
+        }
+    }
+
+    fn submit_storage_request(&self, request: StorageRequest) {
+        let result = self
+            .storage_worker
+            .borrow()
+            .as_ref()
+            .map(|worker| worker.try_request(request));
+        match result {
+            Some(Ok(())) | None => {}
+            Some(Err(StorageSubmitError::Full(_))) => {
+                tracing::debug!("storage facts queue is at capacity");
+            }
+            Some(Err(StorageSubmitError::Disconnected)) => {
+                tracing::warn!("storage facts worker stopped accepting requests");
+                self.storage_worker.borrow_mut().take();
+            }
+        }
+    }
+
+    fn drain_storage_worker(self: &Rc<Self>) {
+        let mut current_changed = false;
+        let mut devices_changed = false;
+        loop {
+            let response = self
+                .storage_worker
+                .borrow()
+                .as_ref()
+                .and_then(StorageWorker::try_response);
+            let Some(response) = response else {
+                break;
+            };
+            let Ok(facts) = response.result else {
+                continue;
+            };
+            match response.request.target {
+                StorageTarget::CurrentLocation => {
+                    if current_storage_request_is_current(
+                        &response.request,
+                        self.current_storage_generation.get(),
+                        self.navigation.borrow().current(),
+                        self.trash_active.get(),
+                    ) {
+                        self.current_storage_facts.set(Some(facts));
+                        current_changed = true;
+                    }
+                }
+                StorageTarget::Device(id) => {
+                    if response.request.generation != self.device_storage_generation.get() {
+                        continue;
+                    }
+                    let is_current = self.device_snapshots.borrow().iter().any(|snapshot| {
+                        snapshot.id.as_str() == id
+                            && snapshot.local_root() == Some(response.request.path.as_path())
+                    });
+                    if is_current {
+                        self.device_storage_facts.borrow_mut().insert(id, facts);
+                        devices_changed = true;
+                    }
+                }
+            }
+        }
+        if current_changed {
+            self.refresh_status();
+        }
+        if devices_changed {
+            let snapshots = self.device_snapshots.borrow().clone();
+            self.render_devices(&snapshots);
+        }
+    }
+
     fn restore_pending_navigation(&self) {
         if let Some(pending) = self.pending_location.borrow_mut().take() {
             self.navigation.replace(pending.previous_navigation);
@@ -1607,6 +2046,7 @@ impl BrowserController {
         self.file_watcher.stop();
         self.watch_generation.set(self.file_watcher.generation());
         self.widgets.thumbnails.begin_generation();
+        self.widgets.metadata.begin_generation();
         let thumbnail_generation = self
             .thumbnail_worker
             .borrow_mut()
@@ -1813,6 +2253,7 @@ impl BrowserController {
             reveal_path.into_iter().collect::<Vec<_>>()
         };
         self.install_entries(entries, &selected_paths, true);
+        self.request_current_storage_facts();
         self.start_current_watcher();
     }
 
@@ -1989,7 +2430,12 @@ impl BrowserController {
     }
 
     fn refresh_status(&self) {
-        let label = selection_status(self.pending_total.get(), &self.selected_entries.borrow());
+        let visible_entries = self.visible_entries.borrow();
+        let label = selection_status(
+            &visible_entries,
+            &self.selected_entries.borrow(),
+            self.current_storage_facts.get(),
+        );
         self.widgets.status_label.set_label(&label);
     }
 
@@ -2039,7 +2485,8 @@ impl BrowserController {
         let toast_overlay = self.widgets.toast_overlay.clone();
         let status_label = self.widgets.status_label.clone();
         let selection = self.widgets.selection.clone();
-        let total = self.pending_total.get();
+        let visible = self.visible_entries.borrow().clone();
+        let storage = self.current_storage_facts.get();
         let action = self
             .widgets
             .window
@@ -2058,10 +2505,10 @@ impl BrowserController {
             if let Some(action) = action.as_ref() {
                 let selected = selected_entries_for_selection(&selection);
                 action.set_enabled(selection_action_state(&selected).open_with);
-                status_label.set_label(&selection_status(total, &selected));
+                status_label.set_label(&selection_status(&visible, &selected, storage));
             } else {
                 let selected = selected_entries_for_selection(&selection);
-                status_label.set_label(&selection_status(total, &selected));
+                status_label.set_label(&selection_status(&visible, &selected, storage));
             }
             match result {
                 Ok(options) if options.applications.is_empty() => {
@@ -3000,12 +3447,61 @@ fn lexically_normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
-fn selection_status(total: usize, selected: &[Arc<DirectoryEntry>]) -> String {
-    match selected {
-        [] => item_count_text(total),
+fn selection_status(
+    visible: &[Arc<DirectoryEntry>],
+    selected: &[Arc<DirectoryEntry>],
+    storage: Option<StorageFacts>,
+) -> String {
+    let entries = if selected.is_empty() {
+        visible
+    } else {
+        selected
+    };
+    let mut status = match selected {
+        [] => item_count_text(visible.len()),
         [entry] => format!("{} selected", entry.display_name_lossy()),
         entries => format!("{} selected", item_count_text(entries.len())),
+    };
+    if let Some(bytes) = known_byte_total(entries) {
+        status.push_str(" · ");
+        status.push_str(&format!("{} known", format_bytes(bytes)));
     }
+    if let Some(storage) = storage {
+        let storage = format_storage_facts(storage);
+        if !storage.is_empty() {
+            status.push_str(" · ");
+            status.push_str(&storage);
+        }
+    }
+    status
+}
+
+fn known_byte_total(entries: &[Arc<DirectoryEntry>]) -> Option<u64> {
+    entries
+        .iter()
+        .filter_map(|entry| entry.size())
+        .reduce(u64::saturating_add)
+}
+
+fn device_status_text(base: &str, facts: StorageFacts) -> String {
+    let facts = format_storage_facts(facts);
+    if facts.is_empty() {
+        base.to_owned()
+    } else {
+        format!("{base} · {facts}")
+    }
+}
+
+fn current_storage_request_is_current(
+    request: &StorageRequest,
+    generation: u64,
+    current_path: &Path,
+    trash_active: bool,
+) -> bool {
+    !trash_active
+        && request.target == StorageTarget::CurrentLocation
+        && request.generation == generation
+        && request.path == current_path
 }
 
 fn item_count_text(count: usize) -> String {
@@ -3323,12 +3819,11 @@ mod tests {
 
     #[test]
     fn phase_6k2_preferences_preserve_sidebar_state_across_view_changes() {
-        let current = ViewPreferences {
-            mode: ViewMode::List,
-            grid_size: GridSize::default(),
-            sidebar_density: SidebarDensity::Comfortable,
-            sidebar_width: Some(312),
-        };
+        let mut current = ViewPreferences::default();
+        current.mode = ViewMode::List;
+        current.grid_size = GridSize::default();
+        current.sidebar_density = SidebarDensity::Comfortable;
+        current.sidebar_width = Some(312);
         let updated =
             with_current_view_preferences(current, ViewMode::Grid, GridSize::default().zoom_in());
 
@@ -3346,12 +3841,11 @@ mod tests {
         assert_eq!(sidebar_width_from_position(i32::MAX), SIDEBAR_WIDTH_MAX);
         assert_eq!(SIDEBAR_PERSIST_DEBOUNCE, Duration::from_millis(320));
 
-        let current = ViewPreferences {
-            mode: ViewMode::Grid,
-            grid_size: GridSize::default(),
-            sidebar_density: SidebarDensity::Balanced,
-            sidebar_width: Some(312),
-        };
+        let mut current = ViewPreferences::default();
+        current.mode = ViewMode::Grid;
+        current.grid_size = GridSize::default();
+        current.sidebar_density = SidebarDensity::Balanced;
+        current.sidebar_width = Some(312);
         let reset = preferences_after_sidebar_reset(current);
         assert_eq!(reset.sidebar_width, None);
         assert_eq!(reset.sidebar_density, SidebarDensity::Balanced);
@@ -3454,9 +3948,106 @@ mod tests {
             }
         );
         assert_eq!(
-            selection_status(entries.len(), &entries),
-            "2 items selected"
+            selection_status(&entries, &entries, None),
+            "2 items selected · 6 B known"
         );
+    }
+
+    #[test]
+    fn phase_6t_status_reports_only_known_non_recursive_bytes() {
+        let directory = tempdir().expect("temporary directory should be created");
+        fs::write(directory.path().join("known.bin"), vec![0; 1_500])
+            .expect("fixture should be written");
+        fs::create_dir(directory.path().join("folder")).expect("folder should be created");
+        let entries = floe_core::enumerate_directory(directory.path())
+            .expect("directory should enumerate")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            selection_status(&entries, &[], None),
+            "2 items · 1.5 KB known"
+        );
+        assert_eq!(
+            selection_status(
+                &entries,
+                &[],
+                Some(StorageFacts {
+                    total: Some(10_000),
+                    free: Some(4_000),
+                    read_only: Some(true),
+                }),
+            ),
+            "2 items · 1.5 KB known · 4.0 KB free of 10.0 KB · Read-only"
+        );
+        let folder = entries
+            .iter()
+            .find(|entry| entry.is_navigable_directory())
+            .expect("folder entry");
+        assert_eq!(
+            selection_status(&entries, std::slice::from_ref(folder), None),
+            "folder selected"
+        );
+    }
+
+    #[test]
+    fn phase_6t_status_device_capacity_extends_base_state_without_false_detail() {
+        assert_eq!(
+            device_status_text(
+                "Mounted",
+                StorageFacts {
+                    total: Some(8_000),
+                    free: Some(2_000),
+                    read_only: Some(false),
+                }
+            ),
+            "Mounted · 2.0 KB free of 8.0 KB"
+        );
+        assert_eq!(
+            device_status_text(
+                "Mounted",
+                StorageFacts {
+                    total: None,
+                    free: None,
+                    read_only: None,
+                }
+            ),
+            "Mounted"
+        );
+    }
+
+    #[test]
+    fn phase_6t_status_rejects_stale_or_wrong_location_storage_facts() {
+        let request = StorageRequest {
+            generation: 4,
+            target: StorageTarget::CurrentLocation,
+            path: PathBuf::from("/current"),
+        };
+        assert!(current_storage_request_is_current(
+            &request,
+            4,
+            Path::new("/current"),
+            false
+        ));
+        assert!(!current_storage_request_is_current(
+            &request,
+            5,
+            Path::new("/current"),
+            false
+        ));
+        assert!(!current_storage_request_is_current(
+            &request,
+            4,
+            Path::new("/elsewhere"),
+            false
+        ));
+        assert!(!current_storage_request_is_current(
+            &request,
+            4,
+            Path::new("/current"),
+            true
+        ));
     }
 
     #[test]

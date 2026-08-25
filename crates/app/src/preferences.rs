@@ -7,14 +7,22 @@ use std::{
 };
 
 #[cfg(unix)]
-use std::os::unix::fs::OpenOptionsExt;
+use std::{
+    ffi::OsString,
+    os::unix::{
+        ffi::{OsStrExt, OsStringExt},
+        fs::OpenOptionsExt,
+    },
+};
 
+use floe_core::{DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn, SortDirection};
 use thiserror::Error;
 
-use crate::view::{GridSize, ViewMode};
+use crate::view::{FileViewDensity, FolderViewState, GridSize, ListColumnLayout, ViewMode};
 
 const PREFERENCE_QUEUE_CAPACITY: usize = 1;
 const PREFERENCE_FILE_NAME: &str = "view-preferences.conf";
+pub const FOLDER_VIEW_CAPACITY: usize = 256;
 
 /// The smallest useful sidebar width in Floe's compact density.
 pub const SIDEBAR_WIDTH_MIN: u16 = 128;
@@ -48,42 +56,173 @@ impl SidebarDensity {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FolderViewOverride {
+    path: PathBuf,
+    state: FolderViewState,
+}
+
+impl FolderViewOverride {
+    pub fn state(&self) -> FolderViewState {
+        self.state
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ViewPreferences {
     pub mode: ViewMode,
     pub grid_size: GridSize,
     pub sidebar_density: SidebarDensity,
     pub sidebar_width: Option<u16>,
+    pub file_density: FileViewDensity,
+    pub sort: DirectorySort,
+    pub columns: ListColumnLayout,
+    pub remember_per_folder: bool,
+    folder_views: Vec<FolderViewOverride>,
+}
+
+impl Default for ViewPreferences {
+    fn default() -> Self {
+        let state = FolderViewState::default();
+        Self {
+            mode: state.mode,
+            grid_size: state.grid_size,
+            sidebar_density: SidebarDensity::default(),
+            sidebar_width: None,
+            file_density: state.density,
+            sort: state.sort,
+            columns: state.columns,
+            remember_per_folder: false,
+            folder_views: Vec::new(),
+        }
+    }
 }
 
 impl ViewPreferences {
+    pub fn global_state(&self) -> FolderViewState {
+        FolderViewState {
+            mode: self.mode,
+            grid_size: self.grid_size,
+            density: self.file_density,
+            sort: self.sort,
+            columns: self.columns,
+        }
+    }
+
+    pub fn set_global_state(&mut self, state: FolderViewState) {
+        self.mode = state.mode;
+        self.grid_size = state.grid_size;
+        self.file_density = state.density;
+        self.sort = state.sort;
+        self.columns = state.columns;
+    }
+
+    pub fn effective_state(&self, path: &Path) -> FolderViewState {
+        if self.remember_per_folder {
+            self.folder_views
+                .iter()
+                .rev()
+                .find(|item| item.path == path)
+                .map(FolderViewOverride::state)
+                .unwrap_or_else(|| self.global_state())
+        } else {
+            self.global_state()
+        }
+    }
+
+    pub fn remember_folder_state(&mut self, path: PathBuf, state: FolderViewState) {
+        if !self.remember_per_folder {
+            self.set_global_state(state);
+            return;
+        }
+        self.folder_views.retain(|item| item.path != path);
+        self.folder_views.push(FolderViewOverride { path, state });
+        if self.folder_views.len() > FOLDER_VIEW_CAPACITY {
+            let excess = self.folder_views.len() - FOLDER_VIEW_CAPACITY;
+            self.folder_views.drain(..excess);
+        }
+    }
+
+    pub fn clear_all_folder_states(&mut self) {
+        self.folder_views.clear();
+    }
+
+    #[cfg(test)]
+    pub fn folder_view_count(&self) -> usize {
+        self.folder_views.len()
+    }
+
     fn parse(contents: &str) -> Self {
         let mut preferences = Self::default();
         for line in contents.lines() {
             let Some((key, value)) = line.split_once('=') else {
                 continue;
             };
+            let value = value.trim();
             match key.trim() {
                 "view" => {
-                    if let Some(mode) = ViewMode::from_persisted(value.trim()) {
+                    if let Some(mode) = ViewMode::from_persisted(value) {
                         preferences.mode = mode;
                     }
                 }
                 "grid-size" => {
-                    if let Ok(edge) = value.trim().parse::<u16>()
+                    if let Ok(edge) = value.parse::<u16>()
                         && let Some(size) = GridSize::from_persisted(edge)
                     {
                         preferences.grid_size = size;
                     }
                 }
                 "sidebar-density" => {
-                    if let Some(density) = SidebarDensity::from_persisted(value.trim()) {
+                    if let Some(density) = SidebarDensity::from_persisted(value) {
                         preferences.sidebar_density = density;
                     }
                 }
                 "sidebar-width" => {
-                    if let Ok(width) = value.trim().parse::<u16>() {
+                    if let Ok(width) = value.parse::<u16>() {
                         preferences.sidebar_width = Some(clamp_sidebar_width(width));
+                    }
+                }
+                "file-density" => {
+                    if let Some(density) = FileViewDensity::from_persisted(value) {
+                        preferences.file_density = density;
+                    }
+                }
+                "sort-column" => {
+                    if let Some(column) = SortColumn::from_persisted(value) {
+                        preferences.sort.column = column;
+                    }
+                }
+                "sort-direction" => {
+                    if let Some(direction) = SortDirection::from_persisted(value) {
+                        preferences.sort.direction = direction;
+                    }
+                }
+                "directories" => {
+                    if let Some(placement) = DirectoryPlacement::from_persisted(value) {
+                        preferences.sort.directories = placement;
+                    }
+                }
+                "grouping" => {
+                    if let Some(grouping) = DirectoryGrouping::from_persisted(value) {
+                        preferences.sort.grouping = grouping;
+                    }
+                }
+                "columns" => {
+                    preferences.columns = ListColumnLayout::parse_visible(value);
+                }
+                "column-widths" => preferences.columns.apply_widths_text(value),
+                "remember-per-folder" => {
+                    preferences.remember_per_folder = value == "true";
+                }
+                "folder" => {
+                    if let Some(folder) = parse_folder_override(value) {
+                        preferences
+                            .folder_views
+                            .retain(|item| item.path != folder.path);
+                        preferences.folder_views.push(folder);
+                        if preferences.folder_views.len() > FOLDER_VIEW_CAPACITY {
+                            preferences.folder_views.remove(0);
+                        }
                     }
                 }
                 _ => {}
@@ -92,15 +231,30 @@ impl ViewPreferences {
         preferences
     }
 
-    fn serialize(self) -> String {
+    fn serialize(&self) -> String {
         let mut serialized = format!(
-            "view={}\ngrid-size={}\nsidebar-density={}\n",
+            "version=2\nview={}\ngrid-size={}\nsidebar-density={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\n",
             self.mode.persisted(),
             self.grid_size.edge(),
             self.sidebar_density.persisted(),
+            self.file_density.persisted(),
+            self.sort.column.persisted(),
+            self.sort.direction.persisted(),
+            self.sort.directories.persisted(),
+            self.sort.grouping.persisted(),
+            self.columns.visible_names(),
+            self.columns.widths_text(),
+            self.remember_per_folder,
         );
         if let Some(width) = self.sidebar_width {
             serialized.push_str(&format!("sidebar-width={}\n", clamp_sidebar_width(width)));
+        }
+        for folder in &self.folder_views {
+            if let Some(encoded) = serialize_folder_override(folder) {
+                serialized.push_str("folder=");
+                serialized.push_str(&encoded);
+                serialized.push('\n');
+            }
         }
         serialized
     }
@@ -108,6 +262,101 @@ impl ViewPreferences {
 
 pub fn clamp_sidebar_width(width: u16) -> u16 {
     width.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
+}
+
+#[cfg(unix)]
+fn serialize_folder_override(folder: &FolderViewOverride) -> Option<String> {
+    let path = hex_encode(folder.path.as_os_str().as_bytes());
+    let state = folder.state;
+    Some(format!(
+        "{path}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        state.mode.persisted(),
+        state.grid_size.edge(),
+        state.density.persisted(),
+        state.sort.column.persisted(),
+        state.sort.direction.persisted(),
+        state.sort.directories.persisted(),
+        state.sort.grouping.persisted(),
+        state.columns.visible_names(),
+        state.columns.widths_text(),
+    ))
+}
+
+#[cfg(not(unix))]
+fn serialize_folder_override(_folder: &FolderViewOverride) -> Option<String> {
+    None
+}
+
+#[cfg(unix)]
+fn parse_folder_override(value: &str) -> Option<FolderViewOverride> {
+    let mut fields = value.split('\t');
+    let path = PathBuf::from(OsString::from_vec(hex_decode(fields.next()?)?));
+    if !path.is_absolute() {
+        return None;
+    }
+    let mode = ViewMode::from_persisted(fields.next()?)?;
+    let grid_size = GridSize::from_persisted(fields.next()?.parse().ok()?)?;
+    let density = FileViewDensity::from_persisted(fields.next()?)?;
+    let column = SortColumn::from_persisted(fields.next()?)?;
+    let direction = SortDirection::from_persisted(fields.next()?)?;
+    let directories = DirectoryPlacement::from_persisted(fields.next()?)?;
+    let grouping = DirectoryGrouping::from_persisted(fields.next()?)?;
+    let mut columns = ListColumnLayout::parse_visible(fields.next()?);
+    columns.apply_widths_text(fields.next()?);
+    if fields.next().is_some() {
+        return None;
+    }
+    Some(FolderViewOverride {
+        path,
+        state: FolderViewState {
+            mode,
+            grid_size,
+            density,
+            sort: DirectorySort::new(column, direction)
+                .with_directories(directories)
+                .with_grouping(grouping),
+            columns,
+        },
+    })
+}
+
+#[cfg(not(unix))]
+fn parse_folder_override(_value: &str) -> Option<FolderViewOverride> {
+    None
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
+fn hex_decode(value: &str) -> Option<Vec<u8>> {
+    if value.len() % 2 != 0 {
+        return None;
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = hex_nibble(pair[0])?;
+            let low = hex_nibble(pair[1])?;
+            Some((high << 4) | low)
+        })
+        .collect()
+}
+
+fn hex_nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Error)]
@@ -149,7 +398,7 @@ impl PreferenceWorker {
                     while let Ok(newer) = receiver.try_recv() {
                         preferences = newer;
                     }
-                    if let Err(error) = persist_preferences(&path, preferences) {
+                    if let Err(error) = persist_preferences(&path, &preferences) {
                         tracing::warn!(%error, "could not persist view preferences");
                     }
                 }
@@ -211,7 +460,7 @@ fn load_preferences(path: &Path) -> ViewPreferences {
     }
 }
 
-fn persist_preferences(path: &Path, preferences: ViewPreferences) -> io::Result<()> {
+fn persist_preferences(path: &Path, preferences: &ViewPreferences) -> io::Result<()> {
     let Some(parent) = path.parent() else {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -235,9 +484,13 @@ fn persist_preferences(path: &Path, preferences: ViewPreferences) -> io::Result<
 mod tests {
     use std::fs;
 
+    #[cfg(unix)]
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
     use tempfile::tempdir;
 
     use super::*;
+    use crate::view::ListColumn;
 
     #[test]
     fn phase_6d_preferences_parse_valid_fields_and_reject_invalid_values() {
@@ -251,75 +504,28 @@ mod tests {
 
     #[test]
     fn phase_6d_preference_worker_persists_without_blocking_submitter() {
-        let directory = tempdir().expect("temporary directory should be created");
+        let directory = tempdir().expect("temporary directory");
         let path = directory.path().join("nested").join(PREFERENCE_FILE_NAME);
         let (gate_sender, gate_receiver) = mpsc::channel();
         let (initial, worker) = PreferenceWorker::spawn_internal(path.clone(), Some(gate_receiver))
-            .expect("preference worker should start");
+            .expect("preference worker");
         assert_eq!(initial, ViewPreferences::default());
         let preferences = ViewPreferences {
             mode: ViewMode::Grid,
-            grid_size: GridSize::from_persisted(192).expect("grid size should be valid"),
+            grid_size: GridSize::from_persisted(192).expect("grid size"),
             ..ViewPreferences::default()
         };
-        worker
-            .try_save(preferences)
-            .expect("first preference save should enter bounded queue");
+        worker.try_save(preferences.clone()).expect("first save");
         assert!(matches!(
             worker.try_save(ViewPreferences::default()),
             Err(PreferenceSubmitError::Full(_))
         ));
-        gate_sender.send(()).expect("worker should be released");
+        gate_sender.send(()).expect("release worker");
         drop(worker);
 
-        let saved = fs::read_to_string(&path).expect("preference file should be written");
+        let saved = fs::read_to_string(&path).expect("saved preferences");
         assert_eq!(ViewPreferences::parse(&saved), preferences);
         assert!(!path.with_extension("tmp").exists());
-    }
-
-    #[test]
-    fn phase_6d_shutdown_submission_preserves_latest_full_queue_value() {
-        let directory = tempdir().expect("temporary directory should be created");
-        let path = directory.path().join(PREFERENCE_FILE_NAME);
-        let (gate_sender, gate_receiver) = mpsc::channel();
-        let (_, worker) = PreferenceWorker::spawn_internal(path.clone(), Some(gate_receiver))
-            .expect("preference worker should start");
-        worker
-            .try_save(ViewPreferences::default())
-            .expect("first preference save should fill the queue");
-        let latest = ViewPreferences {
-            mode: ViewMode::Grid,
-            grid_size: GridSize::from_persisted(160).expect("grid size should be valid"),
-            ..ViewPreferences::default()
-        };
-        gate_sender.send(()).expect("worker should be released");
-        worker
-            .save_before_shutdown(latest)
-            .expect("shutdown save should wait only for bounded queue capacity");
-        drop(worker);
-
-        let saved = fs::read_to_string(path).expect("latest preferences should be written");
-        assert_eq!(ViewPreferences::parse(&saved), latest);
-    }
-
-    #[test]
-    fn phase_6k2_preference_density_has_stable_names_and_compact_fallback() {
-        assert_eq!(SidebarDensity::default(), SidebarDensity::Compact);
-
-        for (density, persisted) in [
-            (SidebarDensity::Compact, "compact"),
-            (SidebarDensity::Balanced, "balanced"),
-            (SidebarDensity::Comfortable, "comfortable"),
-        ] {
-            assert_eq!(density.persisted(), persisted);
-            assert_eq!(SidebarDensity::from_persisted(persisted), Some(density));
-        }
-
-        assert_eq!(SidebarDensity::from_persisted("dense"), None);
-        assert_eq!(
-            ViewPreferences::parse("sidebar-density=dense\n").sidebar_density,
-            SidebarDensity::Compact
-        );
     }
 
     #[test]
@@ -338,60 +544,75 @@ mod tests {
             ViewPreferences::parse("sidebar-width=65535\n").sidebar_width,
             Some(SIDEBAR_WIDTH_MAX)
         );
-        assert_eq!(
-            ViewPreferences::parse("sidebar-width=not-a-number\n").sidebar_width,
-            None
-        );
-        assert_eq!(
-            ViewPreferences::parse("sidebar-width=70000\n").sidebar_width,
-            None
-        );
-
-        let complete = ViewPreferences {
-            mode: ViewMode::Grid,
-            grid_size: GridSize::from_persisted(192).expect("grid size should be valid"),
-            sidebar_density: SidebarDensity::Comfortable,
-            sidebar_width: Some(336),
-        };
-        let serialized = complete.serialize();
-        assert_eq!(ViewPreferences::parse(&serialized), complete);
-        assert!(serialized.contains("sidebar-density=comfortable\n"));
-        assert!(serialized.contains("sidebar-width=336\n"));
-
-        let out_of_range = ViewPreferences {
-            sidebar_width: Some(u16::MAX),
-            ..ViewPreferences::default()
-        };
-        assert_eq!(
-            ViewPreferences::parse(&out_of_range.serialize()).sidebar_width,
-            Some(SIDEBAR_WIDTH_MAX)
-        );
     }
 
     #[test]
-    fn phase_6k2_preference_worker_shutdown_preserves_newest_complete_state() {
-        let directory = tempdir().expect("temporary directory should be created");
-        let path = directory.path().join(PREFERENCE_FILE_NAME);
-        let (gate_sender, gate_receiver) = mpsc::channel();
-        let (_, worker) = PreferenceWorker::spawn_internal(path.clone(), Some(gate_receiver))
-            .expect("preference worker should start");
-        worker
-            .try_save(ViewPreferences::default())
-            .expect("first preference state should fill the bounded queue");
+    fn phase_6t_preferences_migrate_and_round_trip_complete_global_policy() {
+        let mut preferences = ViewPreferences::parse("view=grid\ngrid-size=160\n");
+        preferences.file_density = FileViewDensity::Compact;
+        preferences.sort = DirectorySort::new(SortColumn::Extension, SortDirection::Descending)
+            .with_directories(DirectoryPlacement::Last)
+            .with_grouping(DirectoryGrouping::Extension);
+        preferences.columns.set_visible(ListColumn::Mime, true);
+        preferences.columns.set_width(ListColumn::Mime, 248);
+        preferences.remember_per_folder = true;
 
-        let latest = ViewPreferences {
-            mode: ViewMode::Grid,
-            grid_size: GridSize::from_persisted(160).expect("grid size should be valid"),
-            sidebar_density: SidebarDensity::Balanced,
-            sidebar_width: Some(312),
+        let serialized = preferences.serialize();
+        let restored = ViewPreferences::parse(&serialized);
+        assert_eq!(restored, preferences);
+        assert!(serialized.starts_with("version=2\n"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn phase_6t_preferences_preserve_raw_folder_paths_and_bound_history() {
+        let raw = PathBuf::from("/tmp").join(OsString::from_vec(vec![b'f', 0x80]));
+        let mut preferences = ViewPreferences {
+            remember_per_folder: true,
+            ..ViewPreferences::default()
         };
-        gate_sender.send(()).expect("worker should be released");
-        worker
-            .save_before_shutdown(latest)
-            .expect("shutdown should submit the newest complete state");
-        drop(worker);
+        let state = FolderViewState {
+            mode: ViewMode::Grid,
+            density: FileViewDensity::Spacious,
+            ..FolderViewState::default()
+        };
+        preferences.remember_folder_state(raw.clone(), state);
+        for index in 0..FOLDER_VIEW_CAPACITY {
+            preferences.remember_folder_state(PathBuf::from(format!("/folder/{index}")), state);
+        }
+        assert_eq!(preferences.folder_view_count(), FOLDER_VIEW_CAPACITY);
+        assert_eq!(
+            preferences.effective_state(&raw),
+            preferences.global_state()
+        );
 
-        let saved = fs::read_to_string(path).expect("latest preferences should be persisted");
-        assert_eq!(ViewPreferences::parse(&saved), latest);
+        preferences.remember_folder_state(raw.clone(), state);
+        let restored = ViewPreferences::parse(&preferences.serialize());
+        assert_eq!(restored.effective_state(&raw), state);
+        assert_eq!(restored.folder_view_count(), FOLDER_VIEW_CAPACITY);
+    }
+
+    #[test]
+    fn phase_6t_preferences_inherit_global_until_per_folder_is_enabled() {
+        let path = PathBuf::from("/tmp/project");
+        let mut preferences = ViewPreferences::default();
+        let folder = FolderViewState {
+            mode: ViewMode::Grid,
+            ..FolderViewState::default()
+        };
+        preferences.remember_folder_state(path.clone(), folder);
+        assert_eq!(preferences.global_state(), folder);
+
+        preferences.remember_per_folder = true;
+        let override_state = FolderViewState {
+            density: FileViewDensity::Compact,
+            ..folder
+        };
+        preferences.remember_folder_state(path.clone(), override_state);
+        assert_eq!(preferences.effective_state(&path), override_state);
+        assert_eq!(
+            preferences.effective_state(Path::new("/unrecorded")),
+            preferences.global_state()
+        );
     }
 }

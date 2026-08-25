@@ -132,7 +132,8 @@ context.
 `main.rs` declares modules and starts `application::run`. `application.rs`
 creates application ID `io.github.floe.FileManager`, installs Ctrl+Q, selects
 appearance and XDG locations, builds the window, starts `BrowserWorker` and the
-optional `ThumbnailWorker`, starts the view-preference and bookmark workers,
+optional thumbnail, lazy-metadata, and storage-facts workers, starts the
+view-preference and bookmark workers,
 creates the application-owned GIO `DeviceMonitor`, and surfaces worker start
 failures.
 Thumbnail-worker start failure is non-fatal and leaves generic icons. It also
@@ -147,6 +148,20 @@ define strict persisted values and seven bounded zoom steps. `PreferenceWorker`
 loads startup preferences and owns a fixed-capacity channel plus atomic
 configuration-file writes. GTK actions submit current values non-blockingly;
 they never read or write the configuration file directly.
+
+Phase 6T extends that policy with file-view density, optional clamped list
+columns, sort/group settings, and at most 256 exact raw-path per-folder
+overrides.
+
+### `metadata.rs` and `storage.rs`
+
+Phase 6T keeps expensive browser enrichment outside enumeration and GTK.
+`MetadataWorker` has one thread, a capacity-64 request queue, and a 512-entry
+exact path/size/mtime cache; only bound rows with enabled lazy columns request
+MIME, Created, Accessed, and Unix mode. `StorageWorker` has one thread and a
+capacity-32 queue for GIO filesystem size/free/read-only facts. Current-location
+generation and device ID/path checks reject stale results. Neither worker owns
+sorting or filesystem mutation.
 
 ### `thumbnail.rs` and `thumbnail_cache.rs`
 
@@ -288,6 +303,12 @@ directory result. The module also builds the visible file-actions menu and
 focused rename dialog with inline error text. Symbolic icon buttons have
 tooltips and accessible labels, including the generic operation-cancellation
 control.
+
+Phase 6T extends the same bind boundary with Extension, MIME, Created, Accessed,
+and Permissions columns. Optional lazy details use weak recycled-row bindings
+and never create a parallel directory model. The UI also owns grouping labels,
+shared density classes, and pointer plus keyboard/menu column resize routes;
+application actions remain the source of policy changes.
 
 Phase 5C also constructs one native `GtkPopoverMenu` parented to the list view.
 Virtualized row setup adds only a secondary-click selection/presentation

@@ -69,7 +69,11 @@ or passphrase prompt belongs to the desktop, and Floe never receives, stores, or
 logs credentials. A mounted local filesystem root navigates through normal Floe
 navigation.
 Remote/network roots remain explicitly unavailable instead of being converted
-into `PathBuf`; their browsing support is deferred.
+into a `PathBuf`; their browsing support is deferred.
+
+Mounted local rows add capacity, free-space, and read-only detail only after a
+bounded asynchronous GIO query returns for the current device identity. Unknown
+facts are omitted rather than shown as zero or writable.
 
 ### Directory surface
 
@@ -92,6 +96,14 @@ Directories sort before other entries. Hidden entries can be toggled. Rows are
 inserted into the GTK model in batches so very large results do not arrive in
 one main-loop update. Metadata strings are produced in the list factory bind
 path for visible/reused rows instead of eagerly for the full directory result.
+
+Phase 6T adds Extension, MIME Type, Created, Accessed, and Permissions to the
+existing columns. Name remains mandatory; optional columns and clamped widths
+persist globally or in an opt-in per-folder override. Directories may be first
+or last, while None, Type, and raw-extension grouping remains independent of the
+active sort column. MIME, Created, Accessed, and Permissions are requested only
+for bound rows when needed; delayed enrichment never reorders the model or
+paints a recycled row.
 
 Phase 6C adds a 32-pixel thumbnail slot without changing row identity or
 selection behavior. Only bound rows lazily request regular PNG/JPEG images.
@@ -384,6 +396,10 @@ Density changes spacing and sizing, not information architecture. Compact mode
 must remain comfortably keyboard-navigable and must not shrink focus or pointer
 targets into precision controls. Future user settings should update shared
 tokens rather than fork widget trees.
+
+Phase 6T implements Compact, Comfortable, and Spacious file-view choices on the
+shared list/grid widgets. Density-only changes retain the model and factory,
+exact selection, visible focus, context actions, and drag/drop behavior.
 
 ### Motion and reduced motion
 
