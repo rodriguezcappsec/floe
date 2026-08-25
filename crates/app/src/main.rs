@@ -6,6 +6,7 @@ mod clipboard;
 pub mod copy_executor;
 pub mod create_executor;
 mod devices;
+mod drag_drop;
 mod iconography;
 pub mod job_manager;
 mod launcher;

@@ -1,47 +1,45 @@
-# Plan: Floe Phase 6Q Create, duplicate, and links
+# Plan: Floe Phase 6R Drag and drop
 
 Mode: sequential solo phase, depth 4.
 
 ## Contract
 
-- `floe-core` owns exact-path, no-overwrite creation requests and execution for directories, empty files, template copies, symbolic links, and hard links.
-- The application layer owns bounded execution, retries, duplicate batching/naming, native dialogs, clipboard presentation, and asynchronous link-target resolution.
-- GTK callbacks submit typed application commands or asynchronous GIO requests only. No filesystem mutation or blocking metadata work runs on the GTK main loop.
-- Names remain `OsString`; original targets and sources remain `PathBuf`. UI text is authoritative only when the user explicitly enters a new UTF-8 filename.
-- Creation never uses a shell, never elevates Floe, never overwrites, and never follows a source symlink for hard-link eligibility.
-- Template selection uses the native asynchronous file dialog, initially rooted at the XDG Templates directory when available; actual creation runs through the bounded executor.
-- Duplicate uses deterministic bounded sibling naming and preserves symlinks rather than following them.
-- Symbolic links may deliberately be broken. Hard links are limited to regular non-symlink files and kernel-enforced same-filesystem semantics.
-- Reveal Link Target reads the stored target asynchronously, preserves raw target identity, resolves relative targets lexically, and navigates without executing the target.
-- Copy Name/Path/Relative Path rejects values that cannot be represented losslessly as UTF-8 text. Copy URI uses exact percent-encoded local-file identity.
-- Phase 6R drag-and-drop remains out of scope until Phase 6Q is verified and merged.
+- `floe-core` owns GTK-independent exact-path drag payload, destination, and requested-action policy where domain validation is useful.
+- The application layer maps accepted drops onto existing bounded copy, move, symbolic-link, and Trash jobs. GTK callbacks never mutate or inspect the filesystem.
+- Internal drags preserve every selected original `PathBuf`; external drops accept standards-based local file lists without reconstructing paths from display text.
+- List/grid folder rows, directory background, eligible Places/bookmarks/devices, and Trash are explicit targets. Unsupported or unavailable targets reject the drop.
+- Copy, move, and link actions are explicit; the negotiated action is surfaced before commit and no path may be overwritten implicitly.
+- Hover-open and edge autoscroll use one bounded cancellable timer per active drag and are cancelled on leave/drop/navigation.
+- Drop eligibility and destination feedback use native accessible labels/status text plus visual styling; color is never the only signal.
+- Existing Copy/Cut/Paste, context-menu, and keyboard commands remain complete non-drag alternatives.
+- Phase 6S file watching remains out of scope until Phase 6R is verified, pushed, and merged.
 
 ## Depth tree
 
-1. Core creation semantics
-   - Add validated request/kind/outcome/error models.
-   - Implement no-overwrite directory/file/template/symbolic/hard-link execution.
-   - Cover collision, broken link, same-filesystem, symlink, and raw non-UTF-8 behavior.
-2. Application execution and state
-   - Add fixed-capacity creation executor and shared job lifecycle integration.
-   - Add batch duplicate submission, retry/conflict destination revision, and bounded outcome tracking.
-3. Desktop actions and presentation
-   - Add New Folder/File/From Template dialogs and selection/background menu actions.
-   - Add Duplicate, symbolic/hard link, Reveal Link Target, and copy name/path/relative/URI actions with truthful sensitivity.
-4. Verification and documentation
-   - Add focused core/application/UI tests and native Wayland action smoke.
-   - Run full formatting, build, strict Clippy, tests, and diff gates.
-   - Update persistent documentation and mark exactly Phase 6R `NEXT`.
+1. Drag domain policy
+   - Model exact internal/external sources, destination kinds, and requested action.
+   - Validate duplicate/self/descendant/Trash/link cases without lossy path reconstruction.
+2. Application operation routing
+   - Add FIFO batch submission for copy, move, link, and Trash drops.
+   - Reuse existing conflict, progress, pause/cancel, retry, and refresh semantics.
+3. GTK interaction
+   - Install drag sources on virtualized list/grid views.
+   - Install directory-row/background, sidebar, bookmark, device, and Trash targets.
+   - Add hover-open, autoscroll, action negotiation, and accessible drop feedback.
+4. Verification and records
+   - Add focused domain, state, and UI-policy tests.
+   - Run formatting, check, strict Clippy, workspace tests, diff hygiene, and native Wayland drag-action smoke.
+   - Update persistent docs to mark 6R complete and exactly 6S next.
 
 ## Status log
 
-- 2026-08-24: Created `phase-6q-create-duplicate-links` from verified Phase 6P main at `de3cdc9`.
-- 2026-08-24: Read project instructions and inspected current core copy/move models, bounded executors, application state, browser actions, menus, clipboard, navigation, and GTK dependencies.
-- 2026-08-24: Defined Phase 6Q contract and executable gates before coding.
-- 2026-08-24: Implemented and focused-tested core creation, bounded executor/state integration, duplicate batching/conflicts, native actions/dialogs, asynchronous reveal, and exact clipboard text/URI policy.
-- 2026-08-24: Full formatting, workspace check, strict Clippy, 265 tests, diff hygiene, and isolated native Wayland 42-action/dialog/health smoke passed.
-- 2026-08-24: Updated persistent documentation and set exactly Phase 6R drag and drop as `NEXT`; Phase 6R code was not started.
+- 2026-08-24: Created `phase-6r-drag-drop` from verified Phase 6Q `main` at `1693c1a`.
+- 2026-08-24: Read project instructions and inspected the roadmap/matrix, operation state, directory worker, list/grid virtualization, sidebar/device rendering, GTK dependencies, and accessibility guidance.
+- 2026-08-24: Defined the Phase 6R contract and executable gates before implementation.
+- 2026-08-24: Implemented exact GDK file-list sources/destinations, FIFO copy/move/link/Trash routing, recycled row and sidebar targets, hover-open, edge autoscroll, and accessible drop feedback.
+- 2026-08-24: Formatting, workspace check, strict Clippy, 271 tests, diff hygiene, and native Wayland 42-action/health/clean-quit smoke passed.
+- 2026-08-24: Updated persistent records to mark Phase 6R complete and exactly Phase 6S next.
 
 ## Status
 
-COMPLETE — next: `phase-6r-drag-drop`
+COMPLETE — next: `phase-6s-file-watching`

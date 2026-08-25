@@ -22,6 +22,7 @@ use crate::{
         CreateCancelError, CreateExecutor, CreateExecutorSpawnError, CreateSubmission,
         CreateSubmitError,
     },
+    drag_drop::{DropAction, DropDestination, DropPolicyError, DropRequest, plan_directory_drop},
     job_manager::{ApplicationJobManager, SharedJobManager},
     move_executor::{
         MoveCancelError, MoveExecutor, MoveExecutorSpawnError, MoveSubmission, MoveSubmitError,
@@ -444,6 +445,8 @@ pub enum CopyInteractionError {
     #[error("enter one filename without slashes")]
     InvalidRenameName,
     #[error(transparent)]
+    DropPolicy(#[from] DropPolicyError),
+    #[error(transparent)]
     CopySubmit(#[from] CopySubmitError),
     #[error(transparent)]
     CreateRequest(#[from] CreateRequestError),
@@ -647,6 +650,38 @@ impl ApplicationState {
                 operations.push(TrackedOperation::Trash(TrashRequest::new(source)?));
             }
         }
+        self.enqueue_batch(operations)
+    }
+
+    pub fn submit_drop(
+        &self,
+        request: DropRequest,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        if matches!(request.destination(), DropDestination::Trash) {
+            return self.submit_trash_batch(request.sources().to_vec());
+        }
+
+        let action = request.action();
+        let operations = plan_directory_drop(&request)?
+            .into_iter()
+            .map(|item| match action {
+                DropAction::Copy => Ok(TrackedOperation::Copy(CopyRequest::new(
+                    item.source,
+                    item.destination,
+                    ConflictPolicy::FailIfExists,
+                    SymlinkPolicy::Preserve,
+                ))),
+                DropAction::Move => Ok(TrackedOperation::Move(MoveRequest::new(
+                    item.source,
+                    item.destination,
+                    ConflictPolicy::FailIfExists,
+                ))),
+                DropAction::Link => CreateRequest::symbolic_link(item.source, item.destination)
+                    .map(TrackedOperation::Create)
+                    .map_err(CopyInteractionError::from),
+                DropAction::Trash => unreachable!("Trash destination returned above"),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         self.enqueue_batch(operations)
     }
 
@@ -3250,5 +3285,64 @@ mod tests {
             terminal[0].operation(),
             TrackedOperation::Create(_)
         ));
+    }
+
+    #[test]
+    fn phase_6r_state_routes_copy_move_and_link_drops_through_fifo_batches() {
+        let fixture = tempdir().expect("temporary fixture");
+        let copy_source = fixture.path().join("copy-source");
+        let move_source = fixture.path().join("move-source");
+        let link_source = fixture.path().join("link-source");
+        fs::write(&copy_source, b"copy").expect("copy source");
+        fs::write(&move_source, b"move").expect("move source");
+        fs::write(&link_source, b"link").expect("link source");
+        let state = ApplicationState::new().expect("application state");
+
+        for (source, directory, action) in [
+            (
+                copy_source.clone(),
+                fixture.path().join("copies"),
+                DropAction::Copy,
+            ),
+            (
+                move_source.clone(),
+                fixture.path().join("moves"),
+                DropAction::Move,
+            ),
+            (
+                link_source.clone(),
+                fixture.path().join("links"),
+                DropAction::Link,
+            ),
+        ] {
+            fs::create_dir(&directory).expect("drop destination");
+            let request = DropRequest::new(
+                vec![source.clone()],
+                DropDestination::Directory(directory.clone()),
+                action,
+            )
+            .expect("drop request");
+            let batch = state.submit_drop(request).expect("drop batch");
+            assert_eq!(batch.queued(), 1);
+            let job_id = state.batch_active.get().expect("active drop job");
+            assert_eq!(wait_for_terminal(&state, job_id), JobState::Completed);
+            state.finish_operation(job_id, TerminalOutcome::Completed);
+            let snapshot = state.batch_snapshot(batch.id()).expect("batch snapshot");
+            assert_eq!(snapshot.status(), BatchStatus::Completed);
+            assert_eq!(snapshot.completed(), 1);
+            assert!(
+                directory
+                    .join(source.file_name().expect("source name"))
+                    .exists()
+            );
+        }
+
+        assert!(copy_source.exists());
+        assert!(!move_source.exists());
+        let linked = fixture.path().join("links/link-source");
+        assert_eq!(
+            fs::read_link(linked).expect("symbolic link target"),
+            link_source
+        );
     }
 }

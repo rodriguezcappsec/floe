@@ -23,6 +23,9 @@ use crate::{
         DeviceAction, DeviceActionOutcome, DeviceId, DeviceMonitor, DeviceSnapshot,
         DeviceSubscriptionId,
     },
+    drag_drop::{
+        DropDestination, DropEvent, DropRequest, install_drag_source, install_drop_target,
+    },
     launcher,
     location_input::{
         PendingLocation, location_failure_message, location_text, resolve_location_input,
@@ -184,6 +187,7 @@ pub struct BrowserController {
     bookmark_save_in_flight: Cell<bool>,
     device_monitor: DeviceMonitor,
     device_subscription: Cell<Option<DeviceSubscriptionId>>,
+    drop_hover_source: RefCell<Option<glib::SourceId>>,
 }
 
 impl Drop for BrowserController {
@@ -193,6 +197,9 @@ impl Drop for BrowserController {
         }
         if let Some(subscription) = self.device_subscription.take() {
             self.device_monitor.disconnect_changed(subscription);
+        }
+        if let Some(source) = self.drop_hover_source.get_mut().take() {
+            source.remove();
         }
         let Some(worker) = self.preference_worker.get_mut().as_ref() else {
             return;
@@ -254,6 +261,7 @@ impl BrowserController {
             bookmark_save_in_flight: Cell::new(false),
             device_monitor: devices,
             device_subscription: Cell::new(None),
+            drop_hover_source: RefCell::new(None),
         })
     }
 
@@ -271,15 +279,41 @@ impl BrowserController {
         self.widgets
             .apply_sidebar_density(self.current_preferences.borrow().sidebar_density);
 
+        let controller = Rc::downgrade(self);
+        self.widgets.drop_dispatcher.bind(move |event| {
+            if let Some(controller) = controller.upgrade() {
+                controller.handle_drop_event(event);
+            }
+        });
+
+        self.install_file_view_drag_drop(&self.widgets.list_view);
+        self.install_file_view_drag_drop(&self.widgets.grid_view);
+
         for (button, location) in self.widgets.location_buttons.iter().zip(locations) {
             let controller = Rc::downgrade(self);
             let path = exact_sidebar_target(&location.path);
+            let drop_path = path.clone();
+            install_drop_target(
+                button,
+                Rc::new(move || Some(DropDestination::Directory(drop_path.clone()))),
+                self.widgets.drop_dispatcher.clone(),
+                false,
+                false,
+            );
             button.connect_clicked(move |_| {
                 if let Some(controller) = controller.upgrade() {
                     controller.navigate_to(exact_sidebar_target(&path));
                 }
             });
         }
+
+        install_drop_target(
+            &self.widgets.trash_button,
+            Rc::new(|| Some(DropDestination::Trash)),
+            self.widgets.drop_dispatcher.clone(),
+            false,
+            false,
+        );
 
         let controller = Rc::downgrade(self);
         self.widgets.add_bookmark_button.connect_clicked(move |_| {
@@ -343,6 +377,94 @@ impl BrowserController {
                 controller.submit_location_entry(entry.text().as_str());
             }
         });
+    }
+
+    fn install_file_view_drag_drop(self: &Rc<Self>, view: &impl IsA<gtk::Widget>) {
+        let controller = Rc::downgrade(self);
+        install_drag_source(
+            view,
+            Rc::new(move || {
+                controller.upgrade().map_or_else(Vec::new, |controller| {
+                    if controller.trash_active.get() {
+                        Vec::new()
+                    } else {
+                        controller
+                            .selected_entries
+                            .borrow()
+                            .iter()
+                            .map(|entry| entry.path().to_path_buf())
+                            .collect()
+                    }
+                })
+            }),
+        );
+        let controller = Rc::downgrade(self);
+        install_drop_target(
+            view,
+            Rc::new(move || {
+                let controller = controller.upgrade()?;
+                (!controller.trash_active.get()).then(|| {
+                    DropDestination::Directory(
+                        controller.navigation.borrow().current().to_path_buf(),
+                    )
+                })
+            }),
+            self.widgets.drop_dispatcher.clone(),
+            false,
+            true,
+        );
+    }
+
+    fn handle_drop_event(self: &Rc<Self>, event: DropEvent) {
+        match event {
+            DropEvent::Commit(request) => self.submit_drop(request),
+            DropEvent::Feedback(Some(message)) => {
+                self.widgets.status_label.set_label(&message);
+            }
+            DropEvent::Feedback(None) => self.refresh_status(),
+            DropEvent::HoverEnter(path) => self.schedule_hover_open(path),
+            DropEvent::HoverLeave => self.cancel_hover_open(),
+        }
+    }
+
+    fn submit_drop(&self, request: DropRequest) {
+        let action = request.action().label();
+        let count = request.sources().len();
+        match self.application_state.submit_drop(request) {
+            Ok(batch) => {
+                self.show_toast(
+                    &format!("{action}: queued {} of {count} items", batch.queued()),
+                    4,
+                );
+            }
+            Err(error) => {
+                tracing::warn!(%error, "drop request was rejected");
+                self.show_toast(&format!("Could not complete drop: {error}"), 7);
+            }
+        }
+    }
+
+    fn schedule_hover_open(self: &Rc<Self>, path: PathBuf) {
+        self.cancel_hover_open();
+        let controller = Rc::downgrade(self);
+        let source = glib::timeout_add_local_once(Duration::from_millis(720), move || {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            controller.drop_hover_source.borrow_mut().take();
+            if !controller.trash_active.get()
+                && controller.navigation.borrow().current() != path.as_path()
+            {
+                controller.navigate_to(path);
+            }
+        });
+        self.drop_hover_source.replace(Some(source));
+    }
+
+    fn cancel_hover_open(&self) {
+        if let Some(source) = self.drop_hover_source.borrow_mut().take() {
+            source.remove();
+        }
     }
 
     fn add_current_bookmark(self: &Rc<Self>) {
@@ -496,6 +618,14 @@ impl BrowserController {
                 .tooltip_text(path.to_string_lossy())
                 .build();
             set_accessible_label(&open, &format!("Open bookmark {display_name}"));
+            let drop_path = path.clone();
+            install_drop_target(
+                &open,
+                Rc::new(move || Some(DropDestination::Directory(drop_path.clone()))),
+                self.widgets.drop_dispatcher.clone(),
+                false,
+                false,
+            );
             let controller = Rc::downgrade(self);
             open.connect_clicked(move |_| {
                 if let Some(controller) = controller.upgrade() {
@@ -584,6 +714,16 @@ impl BrowserController {
             };
             set_accessible_label(&activate, &accessible);
             let activation = policy.activation.clone();
+            if let ui::DeviceActivation::Navigate(path) = &activation {
+                let drop_path = path.clone();
+                install_drop_target(
+                    &activate,
+                    Rc::new(move || Some(DropDestination::Directory(drop_path.clone()))),
+                    self.widgets.drop_dispatcher.clone(),
+                    false,
+                    false,
+                );
+            }
             let device_id = snapshot.id.clone();
             let controller = Rc::downgrade(self);
             activate.connect_clicked(move |_| {

@@ -1160,12 +1160,23 @@ Last updated:
 Current phase:
 
 ```text
-Phase 6 — Browser filesystem foundations (Phase 6Q complete)
+Phase 6 — Browser filesystem foundations (Phase 6R complete)
 ```
 
 Status:
 
 ```text
+Phase 6R adds exact-path internal and external local-file drag-and-drop to the
+virtualized list and grid. Folder rows, directory backgrounds, Places,
+bookmarks, navigable mounted devices, and Trash resolve authoritative
+destinations at interaction time. Standard GDK file-list payloads preserve raw
+paths; non-local, empty, invalid, same-destination, and self-nesting drops are
+rejected. Copy, move, symbolic-link, and Trash drops reuse FIFO bounded jobs and
+fail-if-exists semantics. One cancellable 720 ms hover timer and clamped edge
+autoscroll keep GTK responsive. Dashed outlines plus action/destination text and
+accessible descriptions avoid color-only feedback. Existing Copy/Cut/Paste and
+menu/keyboard actions remain complete non-drag alternatives.
+
 Phase 6Q adds a bounded application-owned creation executor for no-overwrite
 folders, empty files, template copies, symbolic links, and hard links. Native
 validated-name dialogs submit typed requests; native asynchronous template
@@ -1179,7 +1190,7 @@ name/path/relative-path/URI commands. Reveal Link Target reads no-follow GIO
 metadata asynchronously, resolves stored relative targets lexically, verifies
 accessibility, and navigates without executing content. Text clipboard commands
 reject non-UTF-8 identity; local file URI encoding preserves raw path bytes.
-GTK callbacks perform no filesystem mutation and Phase 6R is not implemented.
+GTK callbacks perform no filesystem mutation.
 
 Phase 6P adds bounded operation control. Progress carries explicit unknown,
 byte, or item units; Operations Island derives smoothed speed/ETA only from
@@ -1390,17 +1401,22 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6Q is complete. The one recommended next branch is
-`phase-6r-drag-drop`, adding internal/external file dragging, exact destination
-resolution, modifier semantics, sidebar and Trash targets, hover-open,
-autoscroll, and accessible highlighting without implicit overwrite.
+Phase 6R is complete. The one recommended next branch is
+`phase-6s-file-watching`, adding bounded external-change monitoring, burst
+coalescing, efficient exact-path reconciliation, and selection/scroll
+preservation without claiming integrity monitoring.
 ```
 
 Verified:
 
 ```text
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
-265 tests pass: sixty-three core and 202 application tests. Fourteen focused
+271 tests pass: sixty-three core and 208 application tests. Six focused Phase 6R
+tests cover raw-path/self-nesting policy, local/non-local payload decoding,
+FIFO copy/move/link state routing, exact destination planning, bounded edge
+motion, and non-color-only feedback. Native Wayland smoke exported 42 window
+actions, answered D-Bus `Peer.Ping`, remained healthy, quit cleanly, and released
+its application name. Fourteen focused
 Phase 6Q tests cover no-overwrite directory/file/template creation, cancellation,
 raw and broken symbolic targets, regular-file-only hard links, duplicate naming,
 FIFO symlink-preserving batches, stable conflict retry identity, create history,
@@ -1617,6 +1633,12 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 6R drag-and-drop on `phase-6r-drag-drop`.
+* Added exact selected-path GDK file-list sources and local-only external drop
+  decoding for list/grid, folder/background, Places/bookmarks/devices, and Trash.
+* Routed copy/move/link/Trash drops through existing FIFO no-overwrite jobs; added
+  self-nesting rejection, hover-open, bounded autoscroll, and accessible feedback.
+* Verified 271 tests and native Wayland 42-action/health/clean-quit smoke.
 * Completed Phase 6Q create, duplicate, and links on
   `phase-6q-create-duplicate-links`.
 * Added exact-path no-overwrite directory, empty-file, template, symbolic-link,
@@ -1881,10 +1903,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-6r-drag-drop` and add internal/external file dragging with exact
-destination resolution, copy/move modifier semantics, sidebar and Trash targets,
-hover-open, autoscroll, and accessible drop highlighting. Reuse application jobs,
-never overwrite implicitly, preserve raw paths, and keep keyboard alternatives.
+Create `phase-6s-file-watching` and add bounded external-change monitoring with
+burst coalescing, efficient exact-path reconciliation, and selection/scroll
+preservation across create, delete, and rename. Do not claim integrity monitoring
+and do not rebuild the GTK model for every low-level event.
 ```
 
 ---
