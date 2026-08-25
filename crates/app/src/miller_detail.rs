@@ -51,9 +51,17 @@ pub enum MillerDetailState {
         surface: MillerDetailSurface,
     },
     Ready(MillerDetailTarget),
+    Loading {
+        target: MillerDetailTarget,
+        request_generation: u64,
+    },
     Unsupported {
         surface: MillerDetailSurface,
         reason: &'static str,
+    },
+    Failed {
+        surface: MillerDetailSurface,
+        message: String,
     },
 }
 
@@ -63,6 +71,11 @@ impl MillerDetailState {
             Self::Hidden => None,
             Self::Empty { surface }
             | Self::Unsupported { surface, .. }
+            | Self::Failed { surface, .. }
+            | Self::Loading {
+                target: MillerDetailTarget { surface, .. },
+                ..
+            }
             | Self::Ready(MillerDetailTarget { surface, .. }) => Some(*surface),
         }
     }
@@ -114,10 +127,21 @@ impl From<&MillerDetailState> for MillerDetailPresentation {
                     if target.paths().len() == 1 { "" } else { "s" }
                 ),
             },
+            MillerDetailState::Loading { target, .. } => Self {
+                title: target.surface().title(),
+                message: "Loading Preview…".to_owned(),
+                accessible_description:
+                    "Quick Preview is loading in a bounded background provider.".to_owned(),
+            },
             MillerDetailState::Unsupported { surface, reason } => Self {
                 title: surface.title(),
                 message: (*reason).to_owned(),
                 accessible_description: format!("{} unavailable. {reason}", surface.title()),
+            },
+            MillerDetailState::Failed { surface, message } => Self {
+                title: surface.title(),
+                message: message.clone(),
+                accessible_description: format!("{} failed. {message}", surface.title()),
             },
         }
     }
@@ -136,6 +160,53 @@ impl MillerDetailHooks {
 
     pub fn hide(&mut self) {
         self.state = MillerDetailState::Hidden;
+    }
+
+    pub fn begin_preview_loading(&mut self, request_generation: u64) -> bool {
+        let MillerDetailState::Ready(target) = &self.state else {
+            return false;
+        };
+        if target.surface != MillerDetailSurface::Preview || request_generation == 0 {
+            return false;
+        }
+        self.state = MillerDetailState::Loading {
+            target: target.clone(),
+            request_generation,
+        };
+        true
+    }
+
+    pub fn finish_preview(
+        &mut self,
+        request_generation: u64,
+        outcome: crate::preview::PreviewOutcome,
+    ) -> bool {
+        let MillerDetailState::Loading {
+            target,
+            request_generation: current,
+        } = &self.state
+        else {
+            return false;
+        };
+        if *current != request_generation {
+            return false;
+        }
+        let surface = target.surface;
+        self.state = match outcome {
+            crate::preview::PreviewOutcome::Ready(_) => MillerDetailState::Ready(target.clone()),
+            crate::preview::PreviewOutcome::Unsupported => MillerDetailState::Unsupported {
+                surface,
+                reason: "No Preview provider is available for this file type yet.",
+            },
+            crate::preview::PreviewOutcome::Cancelled => MillerDetailState::Failed {
+                surface,
+                message: "Preview was cancelled.".to_owned(),
+            },
+            crate::preview::PreviewOutcome::Failed(message) => {
+                MillerDetailState::Failed { surface, message }
+            }
+        };
+        true
     }
 
     pub fn toggle(
@@ -225,12 +296,18 @@ impl MillerDetailHooks {
             .iter()
             .map(|entry| entry.path().to_path_buf())
             .collect::<Vec<_>>();
-        if let MillerDetailState::Ready(current) = &self.state
-            && current.surface == surface
-            && current.depth == depth
-            && current.directory == directory
-            && current.paths == paths
-        {
+        let current = match &self.state {
+            MillerDetailState::Ready(target) | MillerDetailState::Loading { target, .. } => {
+                Some(target)
+            }
+            _ => None,
+        };
+        if current.is_some_and(|current| {
+            current.surface == surface
+                && current.depth == depth
+                && current.directory == directory
+                && current.paths == paths
+        }) {
             return;
         }
         self.generation = self.generation.wrapping_add(1).max(1);
@@ -334,5 +411,30 @@ mod tests {
         assert_eq!(presentation.title, "Quick Preview");
         assert!(presentation.accessible_description.contains("unavailable"));
         assert!(presentation.message.contains("Unsupported"));
+    }
+
+    #[test]
+    fn phase_9a_lifecycle_applies_only_current_preview_worker_results() {
+        let (root, entries, _) = fixture_entries();
+        let mut hooks = MillerDetailHooks::default();
+        hooks.toggle(
+            MillerDetailSurface::Preview,
+            Some(1),
+            root.path().to_path_buf(),
+            &entries,
+        );
+        assert!(hooks.begin_preview_loading(9));
+        assert!(!hooks.finish_preview(8, crate::preview::PreviewOutcome::Unsupported));
+        assert!(matches!(hooks.state(), MillerDetailState::Loading { .. }));
+        assert!(hooks.finish_preview(9, crate::preview::PreviewOutcome::Unsupported));
+        assert!(matches!(
+            hooks.state(),
+            MillerDetailState::Unsupported { .. }
+        ));
+        assert!(
+            MillerDetailPresentation::from(hooks.state())
+                .message
+                .contains("No Preview provider")
+        );
     }
 }

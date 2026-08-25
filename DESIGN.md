@@ -500,6 +500,12 @@ panel says Preview content starts in Phase 9 and Inspector metadata in Phase 10.
 Closing the panel returns focus to the active column, and leaving Miller mode
 removes the panel rather than leaving a detached detail surface.
 
+Phase 9A turns the Preview handoff into honest Loading, unavailable, cancelled,
+and failed states. With no renderer registered yet, selecting a file resolves
+to “No Preview provider is available for this file type yet” rather than a
+blank or fabricated preview. Superseding selection/navigation cancels the old
+generation, and the existing final column remains focusable throughout.
+
 ### Open without a default application
 
 Phase 6I removes a dead end from normal Open. Floe first resolves the selected file's GIO content type and registered applications off the direct interaction callback. A known default launches normally; without one, the existing Open With chooser appears with compatible applications. Choosing Open is a one-time decision. Association changes remain visually and behaviorally separate behind the explicit Set as Default action. Empty chooser results provide a recovery message instead of a blank dialog.

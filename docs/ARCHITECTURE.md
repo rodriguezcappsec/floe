@@ -246,6 +246,15 @@ navigation, while `MillerView` renders an optional accessible final column.
 There is no provider worker, decoding, metadata lookup, cache, persistence, or
 sandbox claim; Phases 9 and 10 consume this contract.
 
+Phase 9A adds public GTK-independent `preview.rs`. A deterministic registry of
+at most 32 providers feeds one fixed-capacity 16-request worker. Requests carry
+exact source path/size/modified identity, nonzero generation, explicit source,
+output, text, archive, and deadline limits, and Disabled or MemoryOnly cache
+policy. One atomic generation token provides cooperative cancellation and stale
+rejection; provider support/load panics become failures. The GTK loop drains at
+most eight responses per tick and applies only the current generation to the
+Phase 8F lifecycle. The default registry is intentionally empty until 9B.
+
 ### `application.rs` and `main.rs`
 
 `main.rs` declares modules and starts `application::run`. `application.rs`

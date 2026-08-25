@@ -32,6 +32,11 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 9A Preview requests carry one exact selected source identity to a
+  fixed-capacity local worker. Default cache policy is memory-only and bounded
+  to 32 successful entries; no persistent preview cache exists. The default
+  registry has no renderer, network, shell, active-content, unrelated-file, or
+  sandbox claim. Phase 18L still owns real renderer isolation.
 - Phase 8F detail hooks retain at most 4,096 exact selected paths in memory and
   no file content. Leaving Miller or closing the hook drops presentation state.
   The phase adds no cache, history, persistence, provider execution, metadata

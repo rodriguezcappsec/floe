@@ -518,6 +518,18 @@ window action object, and quits cleanly. Tests cover raw target identity,
 generation stability, stale/unsupported states, truthful provider boundaries,
 accessible presentation text, and list/grid/Miller integration.
 
+Phase 9A focused verification is:
+
+```bash
+cargo test -p floe-app phase_9a -- --nocapture
+```
+
+The native Wayland smoke activates Miller, opens/closes the Preview hook,
+verifies its action remains enabled, pings the window action object, and quits
+cleanly. Fake-provider tests cover raw identity, unsupported fallback,
+memory-only reuse, queue pressure, stale requests, cancellation, provider
+failure/panic containment, current-result lifecycle, and bounded GTK draining.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and
