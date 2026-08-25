@@ -1,16 +1,17 @@
-# Plan: Floe Phase 10D — Permissions
+# Plan: Floe Phase 10E — Checksums
 
 ## Contract
 
-- Add explicit Properties-driven editing of executable state and Unix mode bits on exact selected local entries.
-- Add deliberate owner/group editing using numeric UID/GID and validated local-name resolution; never elevate the whole Floe process.
-- Represent direct and recursive changes as typed application jobs with whole-request no-follow preflight, fixed capacity, progress, cancellation before commit, and explicit partial-failure evidence after commit.
-- Preserve exact `PathBuf` identity and refuse roots, mount crossings, replaced entries, and implicit symbolic-link following.
-- Recursive policy must be opt-in, visibly scoped, bounded, and apply mode semantics separately to files and directories.
-- Reuse the Operations Island lifecycle and refresh affected parents; GTK callbacks submit commands and never mutate the filesystem.
-- Present current Phase 10B UID/GID/mode before editing, validate octal mode and owner/group input inline, and require explicit confirmation for recursive or ownership changes.
-- Exclude ACL/xattr/capability/immutable editing, polkit/admin browsing, whole-process root, checksums, and future metadata work.
+- Add typed exact local regular-file checksum requests for SHA-256, SHA-512, and clearly legacy-labelled MD5.
+- Stream bytes on a fixed-capacity application executor with no-follow opens, source identity/change revalidation, determinate byte progress, cancellation, bounded requests/results, and GTK responsiveness.
+- Accept an optional strict expected hexadecimal digest only for one selected file; report match/mismatch without implying signature, authorship, freshness, safety, or authenticity.
+- Add a selection-aware Calculate Checksums dialog and accessible result surface with selectable/copyable digest text; GTK callbacks submit jobs and never read files.
+- Preserve original `PathBuf` identity. Lossy names are display-only and never reconstructed into targets.
+- Reuse Operations Island lifecycle and expose specific checksum progress/completion/failure wording.
+- Reuse GLib's reviewed checksum implementation already present in the dependency graph; do not invent hash constructions or add an unnecessary crate.
+- Exclude saved integrity fingerprints/manifests, duplicate finding, copy verification, signatures, EXIF/media metadata, and Phase 10F work.
 
 ## Status
 
-COMPLETE and verified on `phase-10d-permissions`. The sole recommended next phase is 10E Checksums; do not begin Phase 10F advanced metadata with it.
+COMPLETE and verified on `phase-10e-checksums`. The sole recommended next phase
+is 10F Advanced Metadata; do not begin Phase 11A command-registry work with it.

@@ -8,13 +8,17 @@ use std::{
 };
 
 use floe_core::{
-    ConflictPolicy, CopyRequest, CreateKind, CreateRequest, CreateRequestError, JobEvent, JobId,
-    MoveRequest, OperationId, PermanentDeleteRequest, PermanentDeleteRequestError,
+    ChecksumRequest, ConflictPolicy, CopyRequest, CreateKind, CreateRequest, CreateRequestError,
+    JobEvent, JobId, MoveRequest, OperationId, PermanentDeleteRequest, PermanentDeleteRequestError,
     PermissionRequest, RenameRequest, RestoreRequest, RestoreRequestError, SymlinkPolicy,
 };
 use thiserror::Error;
 
 use crate::{
+    checksum_executor::{
+        ChecksumCancelError, ChecksumExecutor, ChecksumExecutorSpawnError, ChecksumOutcome,
+        ChecksumSubmission, ChecksumSubmitError,
+    },
     copy_executor::{
         CopyCancelError, CopyExecutor, CopyExecutorSpawnError, CopySubmission, CopySubmitError,
     },
@@ -484,6 +488,8 @@ pub enum CopyInteractionError {
     RestoreCancel(#[from] RestoreCancelError),
     #[error("permission cancellation failed: {0}")]
     PermissionCancel(String),
+    #[error(transparent)]
+    ChecksumCancel(#[from] ChecksumCancelError),
     #[error("terminal operation history does not contain job {0:?}")]
     RetryNotFound(JobId),
     #[error("completed job {0:?} cannot be retried")]
@@ -515,6 +521,8 @@ pub enum CopyInteractionError {
 #[derive(Debug, Error)]
 pub enum ApplicationStateSpawnError {
     #[error(transparent)]
+    Checksum(#[from] ChecksumExecutorSpawnError),
+    #[error(transparent)]
     Copy(#[from] CopyExecutorSpawnError),
     #[error(transparent)]
     Create(#[from] CreateExecutorSpawnError),
@@ -540,10 +548,12 @@ pub struct ApplicationState {
     trash_executor: TrashExecutor,
     permanent_delete_executor: PermanentDeleteExecutor,
     permission_executor: PermissionExecutor,
+    checksum_executor: ChecksumExecutor,
     restore_executor: RestoreExecutor,
     transfer_buffer: RefCell<TransferBuffer>,
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
     permission_requests: RefCell<HashMap<JobId, PermissionRequest>>,
+    checksum_requests: RefCell<HashMap<JobId, ChecksumRequest>>,
     terminal_history: RefCell<VecDeque<TerminalOperation>>,
     resolved_conflicts: RefCell<HashSet<JobId>>,
     resolved_undos: RefCell<HashSet<JobId>>,
@@ -563,6 +573,7 @@ impl ApplicationState {
         let trash_executor = TrashExecutor::spawn(Arc::clone(&jobs))?;
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
         let permission_executor = PermissionExecutor::spawn(Arc::clone(&jobs))?;
+        let checksum_executor = ChecksumExecutor::spawn(Arc::clone(&jobs))?;
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
@@ -572,10 +583,12 @@ impl ApplicationState {
             trash_executor,
             permanent_delete_executor,
             permission_executor,
+            checksum_executor,
             restore_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
             permission_requests: RefCell::new(HashMap::new()),
+            checksum_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
             resolved_undos: RefCell::new(HashSet::new()),
@@ -888,6 +901,15 @@ impl ApplicationState {
         self.permission_requests.borrow().contains_key(&job_id)
     }
 
+    pub fn is_checksum_operation(&self, job_id: JobId) -> bool {
+        self.checksum_requests.borrow().contains_key(&job_id)
+    }
+
+    pub fn finish_checksum(&self, job_id: JobId) -> Option<ChecksumOutcome> {
+        self.checksum_requests.borrow_mut().remove(&job_id);
+        self.checksum_executor.take_result(job_id)
+    }
+
     pub fn finish_permission(&self, job_id: JobId) {
         self.permission_requests.borrow_mut().remove(&job_id);
     }
@@ -946,6 +968,26 @@ impl ApplicationState {
                     self.permission_requests
                         .borrow_mut()
                         .insert(job_id, request);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub fn submit_checksum(
+        &self,
+        request: ChecksumRequest,
+    ) -> Result<ChecksumSubmission, ChecksumSubmitError> {
+        match self.checksum_executor.submit(request.clone()) {
+            Ok(submission) => {
+                self.checksum_requests
+                    .borrow_mut()
+                    .insert(submission.job_id(), request);
+                Ok(submission)
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.checksum_requests.borrow_mut().insert(job_id, request);
                 }
                 Err(error)
             }
@@ -1877,6 +1919,10 @@ impl ApplicationState {
     }
 
     pub fn cancel_operation(&self, job_id: JobId) -> Result<(), CopyInteractionError> {
+        if self.checksum_requests.borrow().contains_key(&job_id) {
+            self.checksum_executor.cancel(job_id)?;
+            return Ok(());
+        }
         if self.permission_requests.borrow().contains_key(&job_id) {
             self.permission_executor
                 .cancel(job_id)
@@ -1924,6 +1970,7 @@ impl ApplicationState {
         let trash_executor = TrashExecutor::spawn_with_backend(Arc::clone(&jobs), 8, backend)?;
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
         let permission_executor = PermissionExecutor::spawn(Arc::clone(&jobs))?;
+        let checksum_executor = ChecksumExecutor::spawn(Arc::clone(&jobs))?;
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
@@ -1933,10 +1980,12 @@ impl ApplicationState {
             trash_executor,
             permanent_delete_executor,
             permission_executor,
+            checksum_executor,
             restore_executor,
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
             permission_requests: RefCell::new(HashMap::new()),
+            checksum_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
             resolved_undos: RefCell::new(HashSet::new()),

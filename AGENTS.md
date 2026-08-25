@@ -1176,12 +1176,14 @@ Last updated:
 Current phase:
 
 ```text
-Phase 10 — Inspector, properties, and metadata (Phase 10D complete)
+Phase 10 — Inspector, properties, and metadata (Phase 10E complete)
 ```
 
 Status:
 
 ```text
+Phase 10E adds explicit checksum calculation for exact selected local regular files. Typed requests accept SHA-256, SHA-512, and clearly legacy-labelled MD5, with one optional strict expected hexadecimal digest for a single target. A capacity-4 application-owned executor streams 1 MiB chunks, reports determinate byte progress, supports cancellation, opens no-follow, and revalidates device/inode/size/mtime/ctime before accepting results. Standard vectors and explicit match/mismatch are covered. Native selection-aware dialogs expose selectable results and digest-only clipboard text; GTK submits jobs and never reads file contents. Results remain memory-only. A checksum match compares bytes at calculation time and does not prove authenticity, authorship, freshness, safety, signature validity, or future integrity. Phase 10F advanced metadata is not included.
+
 Phase 10D adds explicit Unix permission editing from Properties for exact selected local entries. Typed requests accept separate file/directory octal modes, executable-file enable/disable, numeric UID/GID values, and validated local owner/group names. A capacity-4 application-owned executor resolves local names off GTK, performs whole-request no-follow preflight capped at 250,000 entries and depth 1,024, refuses roots and mount crossings, revalidates device/inode identity, reports pre-commit cancellation separately from committed partial failure, and refreshes affected parents through Operations feedback. Recursive and ownership changes require explicit acknowledgement. Symbolic links are never followed; ACLs, xattrs, capabilities, immutable flags, checksums, password collection, and whole-process elevation remain out of scope.
 
 Phase 10C adds native read-only Properties through Alt+Enter, file/Trash/header
@@ -1648,7 +1650,7 @@ Established product decisions:
 * Miller/column navigation is intended to become a major differentiating feature.
 * Strong keyboard navigation is a major goal.
 * Quick Preview is planned.
-* Inspector, read-only Properties, and Unix permission editing are complete; checksums and advanced metadata remain planned.
+* Inspector, read-only Properties, Unix permission editing, and checksums are complete; advanced metadata remains planned.
 * Command palette is planned.
 * A floating operations island is planned.
 * Niri IPC integration is planned for a later phase.
@@ -1657,12 +1659,21 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 10D is complete. The one recommended next branch is
-`phase-10e-checksums`, adding bounded SHA-256/SHA-512 and clearly legacy-labelled
-MD5 calculation plus expected-digest verification without authenticity claims.
+Phase 10E is complete. The one recommended next branch is
+`phase-10f-advanced-metadata`, adding bounded safe EXIF and media/audio metadata
+without Phase 18O privacy findings or Phase 11 command-registry work.
 ```
 
 Verified:
+
+Phase 10E passes focused exact-request, standard-vector, streaming/cancellation,
+source-revalidation, and checksum-presentation tests; formatting, workspace
+check, strict all-target/all-feature Clippy, full workspace tests, native build,
+and diff hygiene. Native Wayland smoke selected isolated regular-file fixtures,
+opened Calculate Checksums through exported actions, exposed legacy/no-
+authenticity language through AT-SPI, returned the exact SHA-256 for `abc`,
+exposed digest-only copy and result state, remained responsive to D-Bus Ping,
+quit cleanly, and released the application name.
 
 ```text
 Phase 10D passes focused typed-request, direct/recursive executor, local-name resolution, application-state lifecycle, and permission-editor validation tests; formatting, workspace check, strict all-target/all-feature Clippy, full workspace tests, native build, and diff hygiene. Native Wayland smoke selected an isolated fixture, opened Properties and Edit Permissions through exported/accessibility actions, exposed the risk controls, reported empty-input validation, applied mode 0600 only to the temporary file, exercised Cancel, answered D-Bus Ping, retained focus state, quit cleanly, and released the application name. Only the documented host RADV/Vulkan warnings appeared.
@@ -2341,9 +2352,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-10e-checksums` and implement bounded cancellable SHA-256/SHA-512,
-clearly legacy-labelled MD5, and expected-digest verification. Do not claim
-authenticity or add Phase 10F advanced metadata.
+Create `phase-10f-advanced-metadata` and implement bounded, lazy, safe EXIF and
+media/audio metadata with malformed-input handling and stable optional-column
+enrichment. Do not add Phase 18O privacy findings or Phase 11A command-registry
+work.
 ```
 
 ---

@@ -11,11 +11,11 @@ use std::{
 
 use adw::prelude::*;
 use floe_core::{
-    BrowserSession, BrowserSessionId, BrowserTabs, CreateRequest, DirectoryEntry, DirectoryError,
-    DirectoryGrouping, DirectoryPlacement, DirectorySort, EntryKind, MillerChildKind,
-    MillerColumnModel, MillerSelectionTransition, RestoreRequest, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN,
-    SessionScrollAnchor, SortColumn, SplitRatio, SplitSide, TabActivation, TabError,
-    TrashEnumerateError, TrashRoot,
+    BrowserSession, BrowserSessionId, BrowserTabs, ChecksumAlgorithm, CreateRequest,
+    DirectoryEntry, DirectoryError, DirectoryGrouping, DirectoryPlacement, DirectorySort,
+    EntryKind, MillerChildKind, MillerColumnModel, MillerSelectionTransition, RestoreRequest,
+    SPLIT_RATIO_MAX, SPLIT_RATIO_MIN, SessionScrollAnchor, SortColumn, SplitRatio, SplitSide,
+    TabActivation, TabError, TrashEnumerateError, TrashRoot,
 };
 
 fn tab_title(path: &Path) -> String {
@@ -169,6 +169,7 @@ use gtk::{gdk, gio, glib};
 
 use crate::{
     bookmarks::{BookmarkWorker, BookmarkWorkerEvent},
+    checksum_ui::{ChecksumDialogInput, build_checksum_request},
     clipboard::{self, ClipboardTransfer},
     devices::{
         DeviceAction, DeviceActionOutcome, DeviceId, DeviceMonitor, DeviceSnapshot,
@@ -1804,6 +1805,9 @@ impl BrowserController {
         let properties_action =
             self.add_action("properties", |controller| controller.show_properties());
         properties_action.set_enabled(false);
+        let checksum_action =
+            self.add_action("checksum", |controller| controller.show_checksum_dialog());
+        checksum_action.set_enabled(false);
         let copy_action = self.add_action("copy", |controller| controller.stage_selected_copy());
         copy_action.set_enabled(false);
         let cut_action = self.add_action("cut", |controller| controller.stage_selected_move());
@@ -3798,6 +3802,7 @@ impl BrowserController {
         self.set_open_enabled(false);
         self.set_open_with_enabled(false);
         self.set_properties_enabled(false);
+        self.set_checksum_enabled(false);
         self.set_selection_actions_enabled(false, false, false);
         let path = if self.trash_active.get() {
             self.trash_root.files().to_path_buf()
@@ -4145,6 +4150,7 @@ impl BrowserController {
         self.set_open_enabled(state.single);
         self.set_open_with_enabled(state.open_with);
         self.set_properties_enabled(!self.selected_entries.borrow().is_empty());
+        self.set_checksum_enabled(state.checksum);
         self.set_selection_actions_enabled(state.transfer, state.rename, state.trash);
         for name in ["open-new-tab", "open-background-tab"] {
             if let Some(action) = self
@@ -4270,6 +4276,77 @@ impl BrowserController {
         {
             action.set_enabled(enabled && self.properties_worker.borrow().is_some());
         }
+    }
+
+    fn set_checksum_enabled(&self, enabled: bool) {
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("checksum")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(enabled);
+        }
+    }
+
+    fn show_checksum_dialog(&self) {
+        let selected = self.selected_entries.borrow();
+        let targets = selected
+            .iter()
+            .filter(|entry| matches!(entry.kind(), EntryKind::RegularFile))
+            .map(|entry| entry.path().to_path_buf())
+            .collect::<Vec<_>>();
+        if targets.is_empty() || targets.len() != selected.len() {
+            drop(selected);
+            self.show_toast("Select one or more regular files to calculate checksums", 5);
+            return;
+        }
+        drop(selected);
+        let targets: Arc<[PathBuf]> = targets.into();
+        let widgets = ui::build_checksum_dialog(targets.len());
+        let dialog = widgets.dialog.downgrade();
+        widgets.cancel_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+        let dialog = widgets.dialog.downgrade();
+        let algorithm_dropdown = widgets.algorithm_dropdown.clone();
+        let expected_entry = widgets.expected_entry.clone();
+        let error_label = widgets.error_label.clone();
+        let state = Rc::clone(&self.application_state);
+        let toast_overlay = self.widgets.toast_overlay.clone();
+        widgets.calculate_button.connect_clicked(move |_| {
+            let algorithm = match algorithm_dropdown.selected() {
+                1 => ChecksumAlgorithm::Sha512,
+                2 => ChecksumAlgorithm::Md5Legacy,
+                _ => ChecksumAlgorithm::Sha256,
+            };
+            let input = ChecksumDialogInput {
+                algorithm,
+                expected: expected_entry.text().to_string(),
+            };
+            match build_checksum_request(Arc::clone(&targets), &input) {
+                Ok(request) => match state.submit_checksum(request) {
+                    Ok(_) => {
+                        if let Some(dialog) = dialog.upgrade() {
+                            dialog.close();
+                        }
+                        toast_overlay.add_toast(
+                            adw::Toast::builder()
+                                .title("Checksum calculation queued")
+                                .timeout(4)
+                                .build(),
+                        );
+                    }
+                    Err(error) => error_label
+                        .set_label(&format!("Could not queue checksum calculation: {error}")),
+                },
+                Err(error) => error_label.set_label(&error.to_string()),
+            }
+        });
+        widgets.dialog.present(Some(&self.widgets.window));
+        widgets.algorithm_dropdown.grab_focus();
     }
 
     fn show_properties(&self) {
@@ -5277,6 +5354,7 @@ fn selected_entries_for_selection(selection: &gtk::MultiSelection) -> Vec<Arc<Di
 struct SelectionActionState {
     single: bool,
     open_with: bool,
+    checksum: bool,
     transfer: bool,
     duplicate: bool,
     symbolic_link: bool,
@@ -5316,6 +5394,10 @@ fn selection_action_state(entries: &[Arc<DirectoryEntry>]) -> SelectionActionSta
     SelectionActionState {
         single,
         open_with: single && open_with_eligible(&entries[0]),
+        checksum: !entries.is_empty()
+            && entries
+                .iter()
+                .all(|entry| matches!(entry.kind(), EntryKind::RegularFile)),
         transfer: transferable,
         duplicate: transferable,
         symbolic_link: single && !matches!(entries[0].kind(), EntryKind::Other),
@@ -5965,6 +6047,7 @@ mod tests {
             SelectionActionState {
                 single: false,
                 open_with: false,
+                checksum: false,
                 transfer: false,
                 duplicate: false,
                 symbolic_link: false,
@@ -5980,6 +6063,7 @@ mod tests {
             SelectionActionState {
                 single: true,
                 open_with: true,
+                checksum: true,
                 transfer: true,
                 duplicate: true,
                 symbolic_link: true,
@@ -5995,6 +6079,7 @@ mod tests {
             SelectionActionState {
                 single: false,
                 open_with: false,
+                checksum: true,
                 transfer: true,
                 duplicate: true,
                 symbolic_link: false,

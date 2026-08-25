@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 10D. Phase 10E is the only `NEXT`
+The implementation baseline for this matrix is Phase 10E. Phase 10F is the only `NEXT`
 phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -386,11 +386,11 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Image dimensions/EXIF | `PARTIAL` | 6F/10B/10F | 10B shows safely limited raster dimensions in Inspector; EXIF and advanced format metadata remain 10F. |
 | Media/audio metadata | `PLANNED` | 10F | Duration, artist, album, track, and safe provider policy. |
 | Exact timestamps and relative dates | `PARTIAL` | 10B/20 | Inspector preserves exact created/modified/accessed `SystemTime` facts and presents local date/time; optional relative presentation remains 20. |
-| SHA-256 and SHA-512 hashing | `PLANNED` | 10E | Streaming, cancellable, progress-reporting jobs. |
-| MD5 checksum | `DEFERRED` | 10E | Legacy compatibility only, clearly not a modern security hash. |
-| Verify expected checksum | `PLANNED` | 10E | Parse explicit algorithms safely and report mismatch without authenticity claims. |
-| Copy checksum | `PLANNED` | 10E/11A | Reuse calculated value and central command registry. |
-| Checksum in Inspector/Properties | `PLANNED` | 10E | Do not calculate eagerly for every file. |
+| SHA-256 and SHA-512 hashing | `COMPLETE` | 10E | Exact selected local regular files stream through a capacity-4 worker in 1 MiB chunks with byte progress, cancellation, no-follow opens, and source identity revalidation. |
+| MD5 checksum | `COMPLETE` | 10E | Available only as explicitly legacy-labelled compatibility output; it is never presented as modern security or authenticity evidence. |
+| Verify expected checksum | `COMPLETE` | 10E | One selected file accepts a strict algorithm-sized hexadecimal digest and reports match or mismatch without authenticity, authorship, freshness, or safety claims. |
+| Copy checksum | `COMPLETE` | 10E | The result dialog exposes digest-only clipboard text; filenames and paths are deliberately excluded from that payload. |
+| Checksum in Inspector/Properties | `PLANNED` | 20 | Phase 10E provides explicit calculation and results; any Inspector/Properties shortcut must remain on-demand and never hash every file eagerly. |
 | Tags/comments | `DEFERRED` | 19 | Requires an interoperable or clearly Floe-owned metadata model. |
 | Inspector width persistence | `COMPLETE` | 10A | Independent 180–520 pixel width uses accessible controls and asynchronous version-4 preferences with version-3 migration. |
 
