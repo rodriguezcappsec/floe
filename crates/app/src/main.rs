@@ -23,6 +23,7 @@ mod operations;
 mod permanent_delete_executor;
 mod preferences;
 pub mod preview;
+mod properties;
 pub mod restore_executor;
 mod session_store;
 pub mod state;

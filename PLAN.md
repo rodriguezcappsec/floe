@@ -1,22 +1,23 @@
-# Plan: Floe Phase 10B — Metadata providers
+# Plan: Floe Phase 10C — Properties
 
 ## Contract
 
-- Add a bounded GTK-independent lazy metadata-provider worker for exact selected local entries.
-- Provide no-follow MIME, exact timestamps, Unix owner/group/mode, symlink target/status, and safe image-dimension facts.
-- Provide bounded non-recursive folder child counts and known immediate-child bytes only on explicit Inspector demand; do not claim recursive folder size.
-- Key requests and responses by exact path identity plus selection generation; stale, changed, missing, unreadable, and oversized work must remain explicit.
-- Merge provider facts into the existing read-only Inspector without eager whole-directory enrichment or GTK filesystem work.
-- Preserve raw `PathBuf`/`OsString` identity, bounded queues/state, cancellation/supersession, privacy boundaries, and Preview behavior.
-- Exclude Phase 10C properties pages, metadata/permission edits, recursive traversal, checksums, EXIF/media tags, and persistent metadata caches.
+- Add a native, accessible, read-only Properties surface for exact current selection.
+- Present General facts from Phase 10B: exact display path identity, kind, MIME, known size, dates, link state, dimensions, and immediate non-recursive folder facts.
+- Present truthful multi-selection common/differing/unknown summaries without inventing shared values.
+- Reuse existing asynchronous GIO Open With discovery and explicit set-default action; launching and association changes remain deliberate and separate.
+- Add bounded asynchronous filesystem/mount facts for the exact local selection/common parent: filesystem type, total/free space, read-only state, and mount root when available.
+- Calculate explicitly requested recursive selected-folder item/known-byte totals on the same cancellable bounded worker, never following symbolic links or crossing the entry cap silently.
+- Keep GTK responsive; callbacks submit application work and render returned owned facts only.
+- Preserve raw `PathBuf`/`OsString` identity, stale-generation rejection, no-follow source rules, and memory-only property state.
+- Exclude Phase 10D mode/owner/group edits, root-process elevation, ACL/xattr changes, checksums, EXIF/media tags, and persistent property history.
 
 ## Status
 
-COMPLETE on `phase-10b-metadata-providers`.
+COMPLETE on `phase-10c-properties`.
 
-Implemented one fixed-capacity, generation-superseding Inspector provider that
-keeps exact path identity, performs no-follow/revalidated read-only metadata
-work off GTK, and exposes truthful bounded single/multi-selection facts. Focused
-tests, strict workspace checks, 379 tests, native build, diff hygiene, and live
-Wayland action/health/clean-quit lifecycle all passed. Phase 10C is the sole
-recommended next phase.
+Implemented native read-only Properties over one capacity-8 stale-safe worker,
+shared Phase 10B facts, containing GIO filesystem/mount facts, and capped
+descriptor-relative recursive folder totals. Focused tests, strict checks, 382
+tests, native build, diff hygiene, and live Wayland action/dialog/health/clean
+quit passed. Phase 10D is the sole recommended next phase.

@@ -202,6 +202,10 @@ use crate::{
         PREVIEW_QUEUE_CAPACITY, PreviewCachePolicy, PreviewLimits, PreviewOutcome, PreviewRequest,
         PreviewSourceKey, PreviewSubmitError, PreviewWorker,
     },
+    properties::{
+        PROPERTIES_RESULT_CAPACITY, PropertiesRequest, PropertiesSubmitError, PropertiesWorker,
+        present as present_properties,
+    },
     session_store::SessionStoreWorker,
     state::{ApplicationState, TransferIntent, validate_rename_name},
     storage::{
@@ -307,6 +311,7 @@ pub struct BrowserServices {
     metadata: Option<MetadataWorker>,
     inspector: Option<InspectorWorker>,
     preview: Option<PreviewWorker>,
+    properties: Option<PropertiesWorker>,
     storage: Option<StorageWorker>,
     bookmarks: Option<BookmarkWorker>,
     devices: DeviceMonitor,
@@ -328,6 +333,7 @@ impl BrowserServices {
         metadata: Option<MetadataWorker>,
         inspector: Option<InspectorWorker>,
         preview: Option<PreviewWorker>,
+        properties: Option<PropertiesWorker>,
         storage: Option<StorageWorker>,
         bookmarks: Option<BookmarkWorker>,
         devices: DeviceMonitor,
@@ -340,6 +346,7 @@ impl BrowserServices {
             metadata,
             inspector,
             preview,
+            properties,
             storage,
             bookmarks,
             devices,
@@ -359,6 +366,8 @@ pub struct BrowserController {
     inspector_generation: Cell<u64>,
     preview_worker: RefCell<Option<PreviewWorker>>,
     preview_generation: Cell<u64>,
+    properties_worker: RefCell<Option<PropertiesWorker>>,
+    properties_generation: Cell<u64>,
     storage_worker: RefCell<Option<StorageWorker>>,
     current_storage_generation: Cell<u64>,
     device_storage_generation: Cell<u64>,
@@ -451,6 +460,7 @@ impl BrowserController {
             metadata,
             inspector,
             preview,
+            properties,
             storage,
             bookmarks,
             devices,
@@ -473,6 +483,8 @@ impl BrowserController {
             inspector_generation: Cell::new(0),
             preview_worker: RefCell::new(preview),
             preview_generation: Cell::new(0),
+            properties_worker: RefCell::new(properties),
+            properties_generation: Cell::new(0),
             storage_worker: RefCell::new(storage),
             current_storage_generation: Cell::new(0),
             device_storage_generation: Cell::new(0),
@@ -1363,6 +1375,7 @@ impl BrowserController {
             controller.drain_metadata_worker();
             controller.drain_inspector_worker();
             controller.drain_preview_worker();
+            controller.drain_properties_worker();
             controller.drain_storage_worker();
             controller.flush_pending_preferences();
             glib::ControlFlow::Continue
@@ -1787,6 +1800,9 @@ impl BrowserController {
         let open_with_action =
             self.add_action("open-with", |controller| controller.show_open_with());
         open_with_action.set_enabled(false);
+        let properties_action =
+            self.add_action("properties", |controller| controller.show_properties());
+        properties_action.set_enabled(false);
         let copy_action = self.add_action("copy", |controller| controller.stage_selected_copy());
         copy_action.set_enabled(false);
         let cut_action = self.add_action("cut", |controller| controller.stage_selected_move());
@@ -1856,6 +1872,7 @@ impl BrowserController {
         application.set_accels_for_action("win.clear-selection", &["<Control><Shift>a"]);
         application.set_accels_for_action("win.quick-preview", &[QUICK_PREVIEW_ACCELERATOR]);
         application.set_accels_for_action("win.miller-inspector-hook", &[INSPECTOR_ACCELERATOR]);
+        application.set_accels_for_action("win.properties", &["<Alt>Return"]);
         application.set_accels_for_action("win.new-tab", &["<Control>t"]);
         application.set_accels_for_action("win.close-tab-active", &["<Control>w"]);
         application.set_accels_for_action("win.reopen-closed-tab", &[REOPEN_CLOSED_ACCELERATOR]);
@@ -3779,6 +3796,7 @@ impl BrowserController {
         self.widgets.empty_state.set_visible(false);
         self.set_open_enabled(false);
         self.set_open_with_enabled(false);
+        self.set_properties_enabled(false);
         self.set_selection_actions_enabled(false, false, false);
         let path = if self.trash_active.get() {
             self.trash_root.files().to_path_buf()
@@ -4115,11 +4133,17 @@ impl BrowserController {
     }
 
     fn apply_action_selection(&self, selected_entries: Vec<Arc<DirectoryEntry>>) {
+        let properties_generation = self.properties_generation.get().wrapping_add(1).max(1);
+        self.properties_generation.set(properties_generation);
+        if let Some(worker) = self.properties_worker.borrow().as_ref() {
+            worker.supersede(properties_generation);
+        }
         let state = selection_action_state(&selected_entries);
         let folder_tab = folder_tab_eligible(&selected_entries, self.trash_active.get());
         self.selected_entries.replace(selected_entries);
         self.set_open_enabled(state.single);
         self.set_open_with_enabled(state.open_with);
+        self.set_properties_enabled(!self.selected_entries.borrow().is_empty());
         self.set_selection_actions_enabled(state.transfer, state.rename, state.trash);
         for name in ["open-new-tab", "open-background-tab"] {
             if let Some(action) = self
@@ -4234,6 +4258,102 @@ impl BrowserController {
         {
             action.set_enabled(enabled);
         }
+    }
+
+    fn set_properties_enabled(&self, enabled: bool) {
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("properties")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(enabled && self.properties_worker.borrow().is_some());
+        }
+    }
+
+    fn show_properties(&self) {
+        let selected = self.selected_entries.borrow().clone();
+        if selected.is_empty() {
+            self.show_toast("Select one or more items to view Properties", 4);
+            return;
+        }
+        let generation = self.properties_generation.get().wrapping_add(1).max(1);
+        self.properties_generation.set(generation);
+        let Some(directory) = selected[0].path().parent().map(Path::to_path_buf) else {
+            self.show_toast("Properties unavailable for this root entry", 5);
+            return;
+        };
+        let request = match InspectorRequest::from_entries(generation, directory, &selected)
+            .ok()
+            .and_then(|request| PropertiesRequest::new(request).ok())
+        {
+            Some(request) => request,
+            None => {
+                self.show_toast("Properties request is invalid", 6);
+                return;
+            }
+        };
+        let submitted = self
+            .properties_worker
+            .borrow()
+            .as_ref()
+            .map(|worker| worker.submit(request));
+        match submitted {
+            Some(Ok(())) => {
+                self.set_properties_enabled(false);
+                self.show_toast("Loading read-only Properties…", 2);
+            }
+            Some(Err(PropertiesSubmitError::Full(_))) => {
+                self.show_toast("Properties queue is busy; try again", 5);
+            }
+            Some(Err(PropertiesSubmitError::Disconnected)) | None => {
+                self.show_toast("Properties worker is unavailable", 6);
+            }
+        }
+    }
+
+    fn drain_properties_worker(&self) {
+        for _ in 0..PROPERTIES_RESULT_CAPACITY.min(8) {
+            let response = self
+                .properties_worker
+                .borrow()
+                .as_ref()
+                .and_then(PropertiesWorker::try_response);
+            let Some(response) = response else {
+                break;
+            };
+            if response.generation != self.properties_generation.get() {
+                continue;
+            }
+            self.set_properties_enabled(!self.selected_entries.borrow().is_empty());
+            match response.result {
+                Ok(snapshot) => self.present_properties_dialog(&present_properties(&snapshot)),
+                Err(error) => self.show_toast(&format!("Properties unavailable: {error}"), 7),
+            }
+        }
+    }
+
+    fn present_properties_dialog(&self, presentation: &crate::properties::PropertiesPresentation) {
+        let widgets = ui::build_properties_dialog(presentation);
+        let dialog = widgets.dialog.downgrade();
+        widgets.close_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+        let window = self.widgets.window.downgrade();
+        let dialog = widgets.dialog.downgrade();
+        widgets.open_with_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+            if let Some(window) = window.upgrade() {
+                gio::prelude::ActionGroupExt::activate_action(&window, "open-with", None);
+            }
+        });
+        self.widgets.focus_view(self.view_mode.get());
+        widgets.dialog.present(Some(&self.widgets.window));
+        widgets.close_button.grab_focus();
     }
 
     fn show_open_with(&self) {

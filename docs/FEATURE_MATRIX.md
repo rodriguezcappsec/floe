@@ -376,13 +376,13 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | Inspector foundation / Ctrl+I | `COMPLETE` | 10A | Toggleable, accessible, bounded asynchronous raw-path single/multi-selection facts in the usable final Miller column. |
-| General properties | `PLANNED` | 10C | Filename, exact path, type, MIME, size, and dates. |
-| Open With properties page | `PARTIAL` | 5D/10C | Chooser/default setting exists; integrated properties/association management does not. |
+| General properties | `COMPLETE` | 10C | Native read-only Properties shows exact path display, type counts, MIME, known size, dates, Unix identity, link/dimension/folder facts from bounded Phase 10B providers. |
+| Open With properties page | `COMPLETE` | 5D/10C | Single regular-file Properties exposes a deliberate bridge to the existing chooser and explicit default-association action; multi-selection does not imply one association. |
 | Owner/group/permissions | `PARTIAL` | 10B-10D | 10B lazily inspects exact Unix UID/GID/mode; deliberate editing with partial-failure semantics remains 10D. |
 | Symlink/broken-target properties | `PARTIAL` | 10B-10C | 10B shows the exact raw stored target and bounded no-follow target-entry status; full properties treatment remains 10C. |
-| Filesystem/mount information | `PLANNED` | 10C | Reuse generic desktop/location capability boundary. |
-| Multiple-selection aggregate properties | `PARTIAL` | 10A-10C | 10A provides bounded kind counts, known bytes, unknown sizes, overflow, and common parent; shared/differing rich properties remain planned. |
-| Recursive folder count/size | `PLANNED` | 10C | Asynchronous, cancellable, bounded, and never GTK-blocking. |
+| Filesystem/mount information | `COMPLETE` | 10C | Bounded worker queries containing filesystem type/capacity/read-only and enclosing GIO mount name/root; unavailable values stay explicit. |
+| Multiple-selection aggregate properties | `COMPLETE` | 10A-10C | Exact selected paths retain aggregate kinds/known bytes/common parent; shared MIME appears only when identical and differing/unknown values are not merged. |
+| Recursive folder count/size | `COMPLETE` | 10C | Explicit Properties demand uses cancellable descriptor-relative no-follow traversal capped at 250,000 entries and depth 1,024 with truncation, unreadable, and overflow evidence. |
 | Image dimensions/EXIF | `PARTIAL` | 6F/10B/10F | 10B shows safely limited raster dimensions in Inspector; EXIF and advanced format metadata remain 10F. |
 | Media/audio metadata | `PLANNED` | 10F | Duration, artist, album, track, and safe provider policy. |
 | Exact timestamps and relative dates | `PARTIAL` | 10B/20 | Inspector preserves exact created/modified/accessed `SystemTime` facts and presents local date/time; optional relative presentation remains 20. |

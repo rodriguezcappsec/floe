@@ -16,6 +16,7 @@ use crate::{
     operations::OperationController,
     preferences::{PreferenceWorker, ViewPreferences},
     preview::{PreviewProviderRegistry, PreviewWorker},
+    properties::PropertiesWorker,
     session_store::{SessionStoreWorker, SessionTracePolicy},
     state::ApplicationState,
     storage::StorageWorker,
@@ -151,6 +152,13 @@ fn build_window(
             None
         }
     };
+    let properties_worker = match PropertiesWorker::spawn() {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            tracing::warn!(%error, "could not start Properties worker; Properties unavailable");
+            None
+        }
+    };
     let storage_worker = match StorageWorker::spawn() {
         Ok(worker) => Some(worker),
         Err(error) => {
@@ -203,6 +211,7 @@ fn build_window(
             metadata_worker,
             inspector_worker,
             preview_worker,
+            properties_worker,
             storage_worker,
             bookmark_worker,
             device_monitor,
