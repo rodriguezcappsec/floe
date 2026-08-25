@@ -16,6 +16,10 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ## Current security and privacy baseline
 
+- Phase 7B live tabs are memory-only. They retain exact paths, history,
+  selection, and scroll/view state only for the running process and add no disk
+  persistence, telemetry, logging of tab paths, or claim of Private Mode.
+
 ### IMPLEMENTED
 
 - Phase 7A's versioned browser-session codec preserves exact raw path bytes and

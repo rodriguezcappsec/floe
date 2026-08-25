@@ -1160,12 +1160,21 @@ Last updated:
 Current phase:
 
 ```text
-Phase 7 — Tabs and split view (Phase 7A complete)
+Phase 7 — Tabs and split view (Phase 7B complete)
 ```
 
 Status:
 
 ```text
+Phase 7B adds bounded live tab interaction over the Phase 7A session model. The
+compact native strip supports new, close, switch, duplicate, stable-ID pointer
+and keyboard reorder, foreground/background folder open, middle-click folder
+open, and middle-click tab close. Active transitions capture exact selection,
+path/index scroll anchor, and complete view policy, then restore through the
+existing single browser pipeline. Tabs share one virtualized model, bounded
+workers, watcher, jobs, and Operations Island. They remain memory-only; closed
+tab retention, startup persistence, and split view are not implemented.
+
 The post-7A grid-grouping correction makes Type and Extension grouping visible
 inside the virtualized grid with the same boundary labels used by list view.
 Every grouped tile reserves a stable label row so recycled cells remain aligned;
@@ -1450,15 +1459,21 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 7A is complete. The one recommended next branch is
-`phase-7b-tabs-interaction`, adding tab widgets and new/close/switch/duplicate/
-reorder/foreground-background interaction on the reusable session model. Do not
-add closed-tab/startup persistence or split view in Phase 7B.
+Phase 7B is complete. The one recommended next branch is
+`phase-7c-tab-session-restore`, adding bounded recently closed tabs, close
+variants, Ctrl+Shift+T, and privacy-aware atomic startup persistence. Do not add
+split view in Phase 7C.
 ```
 
 Verified:
 
 ```text
+Phase 7B passes formatting, workspace check, strict all-target/all-feature
+Clippy, and 304 tests: 78 core and 226 application. Native Niri/Wayland smoke
+exported and activated new/switch/reorder/duplicate/close actions, answered
+D-Bus health, quit cleanly, and released the application name. Spectacle
+produced no file, so no visual capture is claimed.
+
 The grid-grouping correction passes formatting, workspace check, strict
 all-target/all-feature Clippy, and 298 tests: 75 core and 223 application.
 Focused `grid_grouping` tests cover visible list/grid boundary parity and dotted
@@ -1648,6 +1663,9 @@ eviction. Formatting, strict Clippy, and native smoke status are in `GATES.md`.
 Known issues:
 
 ```text
+Live tabs intentionally disappear at exit and closed tabs are not retained;
+Phase 7C owns privacy-aware session persistence and reopen-closed behavior.
+
 Phase 6T supports sorting by Extension and grouping by Type/Extension only.
 MIME/Created/Accessed/Permissions sorting, date/size grouping, natural-name
 sorting, column reorder/autosize, owner/group/path fields, and recursive folder
@@ -1720,6 +1738,12 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 7B tab interaction on `phase-7b-tabs-interaction`.
+* Added bounded stable-ID tabs, exact complete session capture/restoration,
+  accessible native strip, pointer/keyboard reorder, foreground/background and
+  middle-click folder/tab interaction over one shared browser pipeline.
+* Verified 304 tests plus native tab action, D-Bus health, clean quit, and name
+  release; Phase 7C is the sole recommended next phase.
 * Corrected grid Group By presentation on `fix-grid-grouping` without replacing
   `GtkGridView` or duplicating the shared model/selection.
 * Added stable accessible grid group labels and kept dotted directories in one
@@ -2018,10 +2042,9 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-7b-tabs-interaction` and implement tab widgets plus new, close,
-switch, duplicate, reorder, foreground/background open, and middle-click
-interaction over Phase 7A sessions. Do not add closed-tab/startup persistence or
-split view yet.
+Create `phase-7c-tab-session-restore` and implement bounded recently closed
+tabs, close-left/right/others, Ctrl+Shift+T, and versioned atomic startup session
+restore with explicit private/sensitive suppression. Do not add split view yet.
 ```
 
 ---
