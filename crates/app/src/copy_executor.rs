@@ -270,14 +270,21 @@ fn execute_task(
         return;
     }
 
-    let mut last_entries = None;
+    let mut last_completed = None;
     let result = execute_copy(&task.request, &task.cancellation, |progress| {
-        if last_entries == Some(progress.entries_copied()) {
+        let job_progress = if progress.total_bytes() > 0 {
+            JobProgress::bytes(progress.bytes_copied(), Some(progress.total_bytes()))
+        } else {
+            JobProgress::items(progress.entries_copied(), Some(progress.total_entries()))
+        };
+        let completed = job_progress
+            .as_ref()
+            .ok()
+            .map(|progress| progress.completed());
+        if last_completed == completed {
             return;
         }
-        last_entries = Some(progress.entries_copied());
-        let job_progress =
-            JobProgress::new(progress.entries_copied(), Some(progress.total_entries()));
+        last_completed = completed;
         match job_progress {
             Ok(progress) => {
                 let _ = transition(jobs, task.job_id, JobCommand::SetProgress(progress));

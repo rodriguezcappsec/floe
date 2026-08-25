@@ -219,6 +219,18 @@ dismissal makes no decision and leaves a labelled Resolve Conflict action in
 the Operations Island. Keep Existing acknowledges without a new job; Retry
 with New Name returns to normal queued/progress feedback.
 
+Phase 6P gives serial multi-item work a stable batch identity and truthful
+item-boundary controls. “Pause after current” never implies an active syscall or
+GIO request is suspended; Resume continues FIFO and Cancel stops the active
+attempt where cooperative cancellation is still possible while removing queued
+items. The Island distinguishes byte and item progress, shows smoothed speed and
+ETA only for meaningful determinate byte samples, and summarizes completed,
+skipped, failed, and cancelled batch items. Conflict UI adds deterministic Keep
+Both and batch-only Skip All, but deliberately no Replace action. A recent-action
+button opens bounded memory-only history. Clear Completed preserves actionable
+failures and conflicts; Undo appears only for completed move/rename records and
+submits an exact-identity, no-overwrite reverse move.
+
 ### Trash job foundation
 
 Phase 4E adds the application-owned backend contract for moving one original

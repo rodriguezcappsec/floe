@@ -292,7 +292,7 @@ fn execute_task(
     }
 
     let command = match backend.delete(&task.request, &task.cancellation, &mut |progress| {
-        let progress = JobProgress::new(progress.completed(), Some(progress.total()))
+        let progress = JobProgress::items(progress.completed(), Some(progress.total()))
             .expect("core permanent-delete progress is valid");
         let _ = transition(jobs, task.job_id, JobCommand::SetProgress(progress));
     }) {

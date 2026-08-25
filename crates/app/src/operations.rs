@@ -1,22 +1,28 @@
 use std::{
     cell::{Cell, RefCell},
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     ffi::{OsStr, OsString},
     path::Path,
     rc::Rc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use adw::prelude::*;
-use floe_core::{JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId};
-use gtk::glib;
+use floe_core::{
+    JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId, JobProgress, ProgressUnit,
+};
+use gtk::{gio, glib};
 
 use crate::{
+    operation_control::{BatchId, BatchSnapshot, BatchStatus, TransferEstimate, TransferTelemetry},
     state::{
-        ApplicationState, ConflictDecision, ConflictResolution, TerminalOutcome, TrackedOperation,
-        validate_rename_name,
+        ApplicationState, ConflictDecision, ConflictResolution, TerminalOperation, TerminalOutcome,
+        TrackedOperation, validate_rename_name,
     },
-    ui::{OperationWidgets, build_conflict_dialog},
+    ui::{
+        OperationHistoryItem, OperationWidgets, build_conflict_dialog,
+        build_operation_history_dialog,
+    },
 };
 
 const JOB_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -32,6 +38,21 @@ enum TerminalAction {
 struct ConflictInteractions {
     pending: VecDeque<JobId>,
     dialog_job: Option<JobId>,
+}
+
+#[derive(Debug)]
+struct JobTelemetry {
+    started_at: Instant,
+    sampler: TransferTelemetry,
+}
+
+impl JobTelemetry {
+    fn new() -> Self {
+        Self {
+            started_at: Instant::now(),
+            sampler: TransferTelemetry::default(),
+        }
+    }
 }
 
 impl ConflictInteractions {
@@ -76,8 +97,10 @@ pub struct OperationController {
     state: Rc<ApplicationState>,
     active_jobs: RefCell<VecDeque<JobId>>,
     visible_job: Cell<Option<JobId>>,
+    visible_batch: Cell<Option<BatchId>>,
     retryable_job: Cell<Option<JobId>>,
     conflicts: RefCell<ConflictInteractions>,
+    telemetry: RefCell<HashMap<JobId, JobTelemetry>>,
     indeterminate: Cell<bool>,
     visibility_generation: Rc<Cell<u64>>,
     on_operation_completed: Box<dyn Fn(&Path)>,
@@ -98,8 +121,10 @@ impl OperationController {
             state,
             active_jobs: RefCell::new(VecDeque::new()),
             visible_job: Cell::new(None),
+            visible_batch: Cell::new(None),
             retryable_job: Cell::new(None),
             conflicts: RefCell::new(ConflictInteractions::default()),
+            telemetry: RefCell::new(HashMap::new()),
             indeterminate: Cell::new(false),
             visibility_generation: Rc::new(Cell::new(0)),
             on_operation_completed: Box::new(on_operation_completed),
@@ -120,6 +145,26 @@ impl OperationController {
                 controller.activate_terminal_action();
             }
         });
+        let controller = Rc::downgrade(self);
+        self.widgets.operation_pause.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.toggle_visible_batch_pause();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.operation_history.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.present_operation_history();
+            }
+        });
+        let history_action = gio::SimpleAction::new("operation-history", None);
+        let controller = Rc::downgrade(self);
+        history_action.connect_activate(move |_, _| {
+            if let Some(controller) = controller.upgrade() {
+                controller.present_operation_history();
+            }
+        });
+        self.window.add_action(&history_action);
 
         let controller = Rc::clone(self);
         glib::timeout_add_local(JOB_POLL_INTERVAL, move || {
@@ -144,6 +189,10 @@ impl OperationController {
         match event.kind() {
             JobEventKind::Queued => {
                 self.track_active(event.job_id());
+                self.telemetry
+                    .borrow_mut()
+                    .entry(event.job_id())
+                    .or_insert_with(JobTelemetry::new);
                 self.show_running(
                     event.job_id(),
                     waiting_detail(self.request(event.job_id())),
@@ -152,6 +201,10 @@ impl OperationController {
             }
             JobEventKind::Started | JobEventKind::Resumed => {
                 self.track_active(event.job_id());
+                self.telemetry
+                    .borrow_mut()
+                    .entry(event.job_id())
+                    .or_insert_with(JobTelemetry::new);
                 self.show_running(
                     event.job_id(),
                     running_detail(self.request(event.job_id())),
@@ -160,10 +213,7 @@ impl OperationController {
             }
             JobEventKind::Progressed(progress) => {
                 self.track_active(event.job_id());
-                let detail = match progress.total() {
-                    Some(total) => format!("{} of {total} items", progress.completed()),
-                    None => running_detail(self.request(event.job_id())).to_owned(),
-                };
+                let detail = self.progress_detail(event.job_id(), *progress);
                 self.show_running(event.job_id(), &detail, progress.fraction());
             }
             JobEventKind::Paused => {
@@ -194,6 +244,51 @@ impl OperationController {
         }
     }
 
+    fn progress_detail(&self, job_id: JobId, progress: JobProgress) -> String {
+        let mut telemetry = self.telemetry.borrow_mut();
+        let sample = telemetry.entry(job_id).or_insert_with(JobTelemetry::new);
+        let estimate = sample
+            .sampler
+            .observe(sample.started_at.elapsed(), progress);
+        progress_detail(progress, estimate)
+    }
+
+    fn update_batch_controls(&self, job_id: JobId) {
+        let Some(batch_id) = self.state.batch_for_job(job_id) else {
+            self.visible_batch.set(None);
+            self.widgets.operation_pause.set_visible(false);
+            return;
+        };
+        self.visible_batch.set(Some(batch_id));
+        let Some(snapshot) = self.state.batch_snapshot(batch_id) else {
+            self.visible_batch.set(None);
+            self.widgets.operation_pause.set_visible(false);
+            return;
+        };
+        if snapshot.status().is_terminal() {
+            self.widgets.operation_pause.set_visible(false);
+            return;
+        }
+        let resuming = matches!(
+            snapshot.status(),
+            BatchStatus::Paused | BatchStatus::Pausing
+        );
+        self.widgets.operation_pause.set_label(if resuming {
+            "Resume"
+        } else {
+            "Pause after current"
+        });
+        self.widgets
+            .operation_pause
+            .set_tooltip_text(Some(if resuming {
+                "Resume this batch"
+            } else {
+                "Pause this batch after the current item finishes"
+            }));
+        self.widgets.operation_pause.set_visible(true);
+        self.widgets.operation_pause.set_sensitive(true);
+    }
+
     fn show_running(&self, job_id: JobId, detail: &str, fraction: Option<f64>) {
         self.hide_retry();
         self.visibility_generation
@@ -211,6 +306,7 @@ impl OperationController {
                 operation_verb(request.as_ref()).to_lowercase()
             )));
         self.widgets.operation_cancel.set_sensitive(true);
+        self.update_batch_controls(job_id);
         match fraction {
             Some(fraction) => {
                 self.indeterminate.set(false);
@@ -229,16 +325,19 @@ impl OperationController {
         self.active_jobs
             .borrow_mut()
             .retain(|active| *active != job_id);
+        self.telemetry.borrow_mut().remove(&job_id);
         let outcome = terminal_outcome(&result);
-        if outcome == TerminalOutcome::Conflict {
-            self.conflicts.borrow_mut().enqueue(job_id);
-        }
         self.retryable_job.set(updated_retryable_job(
             self.retryable_job.get(),
             job_id,
             outcome,
         ));
         let request = self.state.finish_operation(job_id, outcome);
+        let conflict_pending =
+            outcome == TerminalOutcome::Conflict && self.state.pending_conflict(job_id).is_ok();
+        if conflict_pending {
+            self.conflicts.borrow_mut().enqueue(job_id);
+        }
 
         match result {
             TerminalResult::Completed => {
@@ -309,6 +408,20 @@ impl OperationController {
             }
         }
 
+        if let Some(batch_id) = self.state.batch_for_job(job_id)
+            && let Some(snapshot) = self.state.batch_snapshot(batch_id)
+        {
+            let (title, detail) = batch_summary(snapshot);
+            self.widgets.operation_label.set_label(title);
+            self.widgets.operation_detail.set_label(&detail);
+            self.visible_batch.set(Some(batch_id));
+            if snapshot.status().is_terminal() {
+                self.widgets.operation_pause.set_visible(false);
+            } else {
+                self.update_batch_controls(job_id);
+            }
+        }
+
         if let Some(next_job) = self.active_jobs.borrow().back().copied() {
             let request = self.request(next_job);
             self.show_running(next_job, waiting_detail(request), None);
@@ -316,7 +429,7 @@ impl OperationController {
             self.show_available_terminal_action();
         }
 
-        if outcome == TerminalOutcome::Conflict {
+        if conflict_pending {
             self.present_conflict(job_id);
         }
     }
@@ -359,13 +472,112 @@ impl OperationController {
         let Some(job_id) = self.visible_job.get() else {
             return;
         };
-        match self.state.cancel_operation(job_id) {
+        let result = self.state.batch_for_job(job_id).map_or_else(
+            || self.state.cancel_operation(job_id),
+            |batch| self.state.cancel_batch(batch),
+        );
+        match result {
             Ok(()) => {
                 self.widgets.operation_cancel.set_sensitive(false);
-                self.widgets.operation_detail.set_label("Cancelling…");
+                self.widgets.operation_pause.set_sensitive(false);
+                self.widgets
+                    .operation_detail
+                    .set_label("Cancelling active and queued items…");
             }
             Err(error) => self.show_toast(&format!("Could not cancel operation: {error}"), 6),
         }
+    }
+
+    fn toggle_visible_batch_pause(&self) {
+        let Some(batch_id) = self.visible_batch.get() else {
+            return;
+        };
+        let Some(snapshot) = self.state.batch_snapshot(batch_id) else {
+            self.widgets.operation_pause.set_visible(false);
+            return;
+        };
+        let result = if matches!(
+            snapshot.status(),
+            BatchStatus::Paused | BatchStatus::Pausing
+        ) {
+            self.state.resume_batch(batch_id)
+        } else {
+            self.state.pause_batch(batch_id)
+        };
+        match result {
+            Ok(()) => {
+                if let Some(job_id) = self.visible_job.get() {
+                    self.update_batch_controls(job_id);
+                } else if let Some(updated) = self.state.batch_snapshot(batch_id) {
+                    let resuming =
+                        !matches!(updated.status(), BatchStatus::Paused | BatchStatus::Pausing);
+                    self.widgets.operation_pause.set_label(if resuming {
+                        "Pause after current"
+                    } else {
+                        "Resume"
+                    });
+                }
+            }
+            Err(error) => self.show_toast(&format!("Could not change batch state: {error}"), 6),
+        }
+    }
+
+    fn present_operation_history(self: &Rc<Self>) {
+        let entries = self.state.terminal_history();
+        let items = entries
+            .iter()
+            .map(|entry| history_item(entry, self.state.can_undo(entry.job_id())))
+            .collect::<Vec<_>>();
+        let can_clear = entries
+            .iter()
+            .any(|entry| entry.outcome() == TerminalOutcome::Completed);
+        let history = build_operation_history_dialog(&items, can_clear);
+
+        for (button, entry) in history.undo_buttons.iter().zip(entries.iter()) {
+            let controller = Rc::downgrade(self);
+            let dialog = history.dialog.downgrade();
+            let job_id = entry.job_id();
+            button.connect_clicked(move |button| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                button.set_sensitive(false);
+                match controller.state.undo_operation(job_id) {
+                    Ok(submission) => {
+                        if let Some(dialog) = dialog.upgrade() {
+                            dialog.close();
+                        }
+                        controller.track_active(submission.job_id());
+                        controller.show_running(
+                            submission.job_id(),
+                            waiting_detail(controller.request(submission.job_id())),
+                            None,
+                        );
+                    }
+                    Err(error) => {
+                        button.set_sensitive(true);
+                        controller.show_toast(&format!("Could not undo operation: {error}"), 7);
+                    }
+                }
+            });
+        }
+
+        let controller = Rc::downgrade(self);
+        let dialog = history.dialog.downgrade();
+        history
+            .clear_completed_button
+            .connect_clicked(move |button| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                let removed = controller.state.clear_completed_history();
+                button.set_sensitive(false);
+                controller.show_toast(&format!("Cleared {removed} completed operations"), 4);
+                if let Some(dialog) = dialog.upgrade() {
+                    dialog.close();
+                }
+            });
+        history.dialog.present(Some(&self.window));
     }
 
     fn show_retry(&self, job_id: JobId) {
@@ -453,6 +665,9 @@ impl OperationController {
         let destination = pending.destination().to_string_lossy().into_owned();
         let existing_name = pending.destination().file_name().map(OsString::from);
         let conflict = build_conflict_dialog(&source, &destination);
+        conflict
+            .skip_all_button
+            .set_visible(self.state.batch_for_job(job_id).is_some());
 
         let retry_button = conflict.retry_button.clone();
         let name_error = conflict.name_error.clone();
@@ -546,6 +761,70 @@ impl OperationController {
 
         let controller = Rc::downgrade(self);
         let dialog = conflict.dialog.downgrade();
+        conflict.keep_both_button.connect_clicked(move |button| {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            button.set_sensitive(false);
+            match controller
+                .state
+                .resolve_conflict(job_id, ConflictDecision::KeepBoth)
+            {
+                Ok(ConflictResolution::Retried(submission)) => {
+                    controller.conflicts.borrow_mut().resolve(job_id);
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.close();
+                    }
+                    controller.track_active(submission.job_id());
+                    controller.show_running(
+                        submission.job_id(),
+                        waiting_detail(controller.request(submission.job_id())),
+                        None,
+                    );
+                }
+                Ok(ConflictResolution::KeptExisting) => {
+                    button.set_sensitive(true);
+                    controller.show_toast("Could not create a Keep Both retry", 7);
+                }
+                Err(error) => {
+                    button.set_sensitive(true);
+                    controller.show_toast(&format!("Could not keep both items: {error}"), 7);
+                }
+            }
+        });
+
+        let controller = Rc::downgrade(self);
+        let dialog = conflict.dialog.downgrade();
+        conflict.skip_all_button.connect_clicked(move |button| {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            button.set_sensitive(false);
+            match controller
+                .state
+                .resolve_conflict(job_id, ConflictDecision::SkipAll)
+            {
+                Ok(ConflictResolution::KeptExisting) => {
+                    controller.conflicts.borrow_mut().resolve(job_id);
+                    controller.show_toast("Skipped this and later batch conflicts", 4);
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.close();
+                    }
+                    controller.show_available_terminal_action();
+                }
+                Ok(ConflictResolution::Retried(_)) => {
+                    button.set_sensitive(true);
+                    controller.show_toast("Could not apply Skip All", 7);
+                }
+                Err(error) => {
+                    button.set_sensitive(true);
+                    controller.show_toast(&format!("Could not skip batch conflicts: {error}"), 7);
+                }
+            }
+        });
+
+        let controller = Rc::downgrade(self);
+        let dialog = conflict.dialog.downgrade();
         let name_entry = conflict.name_entry.clone();
         let name_error = conflict.name_error.clone();
         let keep_existing_button = conflict.keep_existing_button.clone();
@@ -609,6 +888,117 @@ impl OperationController {
     fn show_toast(&self, title: &str, timeout: u32) {
         self.toast_overlay
             .add_toast(adw::Toast::builder().title(title).timeout(timeout).build());
+    }
+}
+
+fn batch_summary(snapshot: BatchSnapshot) -> (&'static str, String) {
+    let title = match snapshot.status() {
+        BatchStatus::Queued | BatchStatus::Running => "Batch in progress",
+        BatchStatus::Pausing => "Batch will pause after current item",
+        BatchStatus::Paused => "Batch paused",
+        BatchStatus::Cancelling => "Cancelling batch",
+        BatchStatus::Completed => "Batch complete",
+        BatchStatus::CompletedWithIssues => "Batch completed with issues",
+        BatchStatus::Cancelled => "Batch cancelled",
+    };
+    let mut details = vec![format!(
+        "{} of {} items processed",
+        snapshot.processed(),
+        snapshot.total()
+    )];
+    if snapshot.completed() > 0 {
+        details.push(format!("{} completed", snapshot.completed()));
+    }
+    if snapshot.skipped() > 0 {
+        details.push(format!("{} skipped", snapshot.skipped()));
+    }
+    if snapshot.failed() > 0 {
+        details.push(format!("{} failed", snapshot.failed()));
+    }
+    if snapshot.cancelled() > 0 {
+        details.push(format!("{} cancelled", snapshot.cancelled()));
+    }
+    (title, details.join(" • "))
+}
+
+fn progress_detail(progress: JobProgress, estimate: Option<TransferEstimate>) -> String {
+    match progress.unit() {
+        ProgressUnit::Bytes => {
+            let mut detail = match progress.total() {
+                Some(total) => format!(
+                    "{} of {}",
+                    format_transfer_bytes(progress.completed()),
+                    format_transfer_bytes(total)
+                ),
+                None => format!(
+                    "{} transferred",
+                    format_transfer_bytes(progress.completed())
+                ),
+            };
+            if let Some(estimate) = estimate {
+                detail.push_str(&format!(
+                    " • {}/s • {} remaining",
+                    format_transfer_bytes(estimate.bytes_per_second()),
+                    format_eta(estimate.eta())
+                ));
+            }
+            detail
+        }
+        ProgressUnit::Items => match progress.total() {
+            Some(total) => format!("{} of {total} items", progress.completed()),
+            None => format!("{} items", progress.completed()),
+        },
+        ProgressUnit::Unknown => match progress.total() {
+            Some(total) => format!("{} of {total}", progress.completed()),
+            None => "Working…".to_owned(),
+        },
+    }
+}
+
+fn format_transfer_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} {}", UNITS[unit])
+    } else if value >= 10.0 {
+        format!("{value:.0} {}", UNITS[unit])
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+fn format_eta(duration: Duration) -> String {
+    let seconds = duration.as_secs().max(1);
+    if seconds < 60 {
+        format!("{seconds}s")
+    } else if seconds < 3_600 {
+        format!("{}m {}s", seconds / 60, seconds % 60)
+    } else {
+        format!("{}h {}m", seconds / 3_600, (seconds % 3_600) / 60)
+    }
+}
+
+fn history_item(entry: &TerminalOperation, can_undo: bool) -> OperationHistoryItem {
+    let outcome = match entry.outcome() {
+        TerminalOutcome::Completed => "Completed",
+        TerminalOutcome::Cancelled => "Cancelled",
+        TerminalOutcome::Conflict => "Needs conflict resolution",
+        TerminalOutcome::PartialFailure => "Completed with partial changes",
+        TerminalOutcome::Failed => "Failed",
+    };
+    let detail = entry.batch_id().map_or_else(
+        || outcome.to_owned(),
+        |batch_id| format!("{outcome} • batch {}", batch_id.get()),
+    );
+    OperationHistoryItem {
+        title: operation_title(Some(entry.operation())),
+        detail,
+        can_undo,
     }
 }
 
@@ -708,6 +1098,7 @@ fn operation_verb(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Trash(_)) => "Move to Trash",
         Some(TrackedOperation::PermanentDelete(_)) => "Delete Permanently",
         Some(TrackedOperation::Restore(_)) => "Restore",
+        Some(TrackedOperation::UndoMove { .. }) => "Undo Move",
         None => "Operation",
     }
 }
@@ -720,6 +1111,7 @@ fn operation_verb_ing(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Trash(_)) => "Moving to Trash",
         Some(TrackedOperation::PermanentDelete(_)) => "Deleting permanently",
         Some(TrackedOperation::Restore(_)) => "Restoring",
+        Some(TrackedOperation::UndoMove { .. }) => "Undoing move for",
         None => "Working on",
     }
 }
@@ -732,6 +1124,7 @@ fn waiting_detail(request: Option<TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Trash(_)) => "Waiting to move to Trash…",
         Some(TrackedOperation::PermanentDelete(_)) => "Preparing permanent deletion…",
         Some(TrackedOperation::Restore(_)) => "Waiting to restore…",
+        Some(TrackedOperation::UndoMove { .. }) => "Waiting to undo move…",
         None => "Waiting…",
     }
 }
@@ -744,6 +1137,7 @@ fn running_detail(request: Option<TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Trash(_)) => "Moving to Trash through GIO…",
         Some(TrackedOperation::PermanentDelete(_)) => "Deleting permanently…",
         Some(TrackedOperation::Restore(_)) => "Restoring to the original location…",
+        Some(TrackedOperation::UndoMove { .. }) => "Restoring the original location…",
         None => "Working…",
     }
 }
@@ -756,6 +1150,7 @@ fn completed_title(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Trash(_)) => "Moved to Trash",
         Some(TrackedOperation::PermanentDelete(_)) => "Deleted permanently",
         Some(TrackedOperation::Restore(_)) => "Restore complete",
+        Some(TrackedOperation::UndoMove { .. }) => "Undo complete",
         None => "Operation complete",
     }
 }
@@ -768,6 +1163,7 @@ fn completed_detail(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::Trash(_)) => "Item is available in Trash",
         Some(TrackedOperation::PermanentDelete(_)) => "Permanent deletion completed",
         Some(TrackedOperation::Restore(_)) => "Restored to the original location",
+        Some(TrackedOperation::UndoMove { .. }) => "Moved back to the original location",
         None => "Completed successfully",
     }
 }
@@ -784,6 +1180,9 @@ fn completed_toast(request: Option<&TrackedOperation>) -> String {
             format!("Deleted {} permanently", operation_name(request))
         }
         Some(TrackedOperation::Restore(_)) => format!("Restored {}", operation_name(request)),
+        Some(TrackedOperation::UndoMove { .. }) => {
+            format!("Undid move for {}", operation_name(request))
+        }
         None => "Operation completed".to_owned(),
     }
 }
@@ -979,6 +1378,43 @@ mod tests {
         assert_eq!(
             failure_recovery(Some(&moved), &failure),
             "Choose a destination on the same filesystem, then try the move again."
+        );
+    }
+
+    #[test]
+    fn phase_6p_ui_progress_and_batch_summaries_are_truthful() {
+        let items = JobProgress::items(2, Some(5)).expect("item progress");
+        assert_eq!(progress_detail(items, None), "2 of 5 items");
+
+        let mut telemetry = TransferTelemetry::default();
+        let start = JobProgress::bytes(0, Some(2_048)).expect("starting byte progress");
+        assert_eq!(telemetry.observe(Duration::ZERO, start), None);
+        let progressed = JobProgress::bytes(1_024, Some(2_048)).expect("byte progress");
+        let estimate = telemetry
+            .observe(Duration::from_secs(1), progressed)
+            .expect("meaningful byte progress should estimate");
+        assert_eq!(
+            progress_detail(progressed, Some(estimate)),
+            "1.0 KiB of 2.0 KiB • 1.0 KiB/s • 1s remaining"
+        );
+
+        let batch_id = BatchId::new(7).expect("non-zero batch id");
+        let snapshot = BatchSnapshot::new(
+            batch_id,
+            BatchStatus::CompletedWithIssues,
+            5,
+            3,
+            1,
+            1,
+            0,
+            false,
+        );
+        assert_eq!(
+            batch_summary(snapshot),
+            (
+                "Batch completed with issues",
+                "5 of 5 items processed • 3 completed • 1 skipped • 1 failed".to_owned()
+            )
         );
     }
 

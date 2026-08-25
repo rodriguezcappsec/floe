@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 6O. Phase 6P is the only
+The implementation baseline for this matrix is Phase 6P. Phase 6Q is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -78,39 +78,39 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Same-filesystem move | `COMPLETE` | 4C/4D | Linux no-replace rename handles files, directories, and symlinks. |
 | Cross-filesystem move | `COMPLETE` | 6O | `EXDEV` uses synchronized hidden sibling staging, source-tree identity revalidation, atomic no-replace publication, and no-follow cleanup. Post-commit cleanup failure is an explicit non-retryable partial result; persistent crash journaling remains Phase 18Y. |
 | Byte progress | `COMPLETE` | 3/4A | Validated progress is emitted when copy totals are meaningful. |
-| Item progress | `PARTIAL` | 6J/6P | Batch dispatcher advances per item; Phase 6P adds unified items-completed/total presentation. |
-| Transfer speed | `PLANNED` | 6P | Requires sampled byte progress and stable smoothing rather than misleading instantaneous rates. |
-| ETA | `PLANNED` | 6P | Only show when total and rate are meaningful; depends on transfer-speed telemetry. |
+| Item progress | `COMPLETE` | 6J/6P | Multi-item batches and item-based executors expose explicit item units and completed/total counts. |
+| Transfer speed | `COMPLETE` | 6P | Operations Island shows smoothed measured byte rate only after meaningful samples. |
+| ETA | `COMPLETE` | 6P | Estimate appears only for determinate byte work with a meaningful rate and disappears on regression, completion, or non-byte progress. |
 | Cancellation | `COMPLETE` | 3/4 | Copy is chunk-cancellable, move observes its irreversible boundary, and GIO Trash cancellation is cooperative. |
-| Pause command/state vocabulary | `PARTIAL` | 3 | Core lifecycle can represent pause/resume, but executors and UI do not implement paused work. |
-| Pause/resume execution | `PLANNED` | 6P | Implement only for operations with safe resumable boundaries. |
+| Pause command/state vocabulary | `COMPLETE` | 3/6P | Stable batch state distinguishes running, pausing, paused, cancelling, and terminal outcomes. |
+| Pause/resume execution | `PARTIAL` | 6P | Serial multi-item batches pause truthfully after the current item and resume FIFO; in-flight syscalls and GIO work are never labelled paused. |
 | Retry failed/cancelled work | `COMPLETE` | 5A/5B | Copy, move, rename, and Trash retries keep operation ID and receive a fresh job ID. |
 | In-session terminal registry | `COMPLETE` | 5A | Bounded 64-entry terminal state supports recovery without evicting active jobs. |
-| User-visible operation history | `PLANNED` | 6P/18Y | Phase 6P adds usable in-session history; Phase 18Y adds privacy-aware persistence and interrupted-operation recovery. |
-| Clear completed operations | `PLANNED` | 6P/18Y | Depends on user-visible history and must not discard unresolved recovery evidence. |
+| User-visible operation history | `PARTIAL` | 6P/18Y | A bounded memory-only dialog exposes terminal work and safe Undo; Phase 18Y owns privacy-aware persistence and interrupted-operation recovery. |
+| Clear completed operations | `COMPLETE` | 6P | Clear Completed removes successful entries only and preserves conflict, failed, partial, and cancelled evidence. |
 | Operations Island | `COMPLETE` | 4B/5B/5F/6K2 | Non-modal progress, cancel, Retry, and Resolve Conflict use bounded aligned geometry. |
 | Completion notification | `PLANNED` | 14/20 | Must respect sensitive notification policy and avoid noisy foreground notifications. |
-| Partial failure reporting | `PARTIAL` | 4/6J/6P | Individual jobs fail structurally; Phase 6P adds batch summaries while crash recovery remains Phase 18Y. |
+| Partial failure reporting | `PARTIAL` | 4/6J/6P | Individual jobs fail structurally and batches summarize completed, skipped, failed, and cancelled counts; crash recovery remains Phase 18Y. |
 | Insufficient-space preflight | `COMPLETE` | 6O | Copy compares planned regular-file bytes with destination `statvfs` user-available bytes before output creation and reports exact required/available values. This is a point-in-time check, not a reservation or completion guarantee. |
 | Self-copy/self-nesting rejection | `COMPLETE` | 4A/4C | Core preflight rejects unsafe destination relationships. |
 | Destination conflict detection | `COMPLETE` | 4/5E | Existing destinations are distinct conflict outcomes and never overwritten silently. |
 | Keep Existing | `COMPLETE` | 5E/5F | A conflict can be acknowledged without submitting another job. |
 | Retry With New Name | `COMPLETE` | 5E/5F | Validated raw `OsString` sibling names retain logical operation identity. |
-| Keep Both automatic naming | `PLANNED` | 6P | Can build on Retry With New Name but needs deterministic collision-safe naming. |
+| Keep Both automatic naming | `COMPLETE` | 6P | Bounded deterministic raw-name sibling generation submits fresh atomic no-replace attempts. |
 | Replace | `PLANNED` | 6P | Requires explicit overwrite semantics, backup/undo policy, and no silent data loss. |
 | Replace All | `PLANNED` | 6P | Depends on reviewed Replace plus scoped apply-to-all decisions. |
 | Skip | `PARTIAL` | 5E/5F | Keep Existing is equivalent for one conflict but is not generalized batch Skip policy. |
-| Skip All | `PLANNED` | 6P | Needs bounded batch conflict scope and visible decision lifetime. |
+| Skip All | `COMPLETE` | 6P | Applies only to one stable batch and counts later conflicts as skipped without reopening dialogs. |
 | Metadata comparison in conflicts | `PLANNED` | 6P/6T | Phase 6T supplies lazy metadata; Phase 6P uses it without implying equality from weak evidence. |
-| Apply-to-all conflict policy | `PLANNED` | 6P | Must be scoped to one operation and remain reversible where practical. |
+| Apply-to-all conflict policy | `PARTIAL` | 6P | Batch-scoped Skip All exists. Replace/Replace All remain unavailable until backup/rollback semantics exist. |
 | Metadata-complete copy | `PARTIAL` | 4A/6O | Current copy preserves regular-file bytes, directory structure, symlink targets, Unix permission bits, and file/directory access and modification timestamps. Ownership, ACLs, xattrs, security labels, sparse extents, and reflinks remain explicitly unclaimed. |
 | Timestamp preservation | `COMPLETE` | 6O | The copy plan reapplies captured access and modification timestamps to regular files and directories after content completion and synchronizes resulting metadata. Symlink metadata is explicitly reported as not preserved. |
 | Unix permission-bit preservation | `COMPLETE` | 4A/6O | The core copy plan reapplies source `Permissions` to destination files and directories; richer ACL/xattr ownership remains separate. |
 | Extended attributes and ACL preservation | `DEFERRED` | 6O | Implement only after Linux/filesystem support and privacy implications are reviewed. |
 | Sparse-file preservation | `DEFERRED` | 6O | Add where practical without corrupting semantic content. |
 | Reflink acceleration | `DEFERRED` | 6O | Capability-driven optimization with safe fallback; never change copy semantics. |
-| Undo rename | `PLANNED` | 6P | Depends on explicit reversible operation records and conflict revalidation. |
-| Undo move | `PLANNED` | 6P | Requires source/destination state validation and cross-filesystem policy. |
+| Undo rename | `COMPLETE` | 6P | Completed rename captures destination identity; Undo revalidates it and uses no-overwrite move semantics. |
+| Undo move | `COMPLETE` | 6P | Completed same- or cross-filesystem move captures published destination identity; Undo rejects changed/missing objects and occupied original paths. |
 | Undo Trash | `PLANNED` | 6N/6P | Depends on standards-correct Trash metadata plus reversible-operation policy. |
 | Undo directory creation | `PLANNED` | 6P/6Q | Only safe when the created directory is still empty and identity matches. |
 | Redo | `DEFERRED` | 6P | Add only after operation-specific undo semantics are proven. |

@@ -21,6 +21,7 @@ use crate::{
     move_executor::{
         MoveCancelError, MoveExecutor, MoveExecutorSpawnError, MoveSubmission, MoveSubmitError,
     },
+    operation_control::{BatchId, BatchSnapshot, BatchStatus, keep_both_name},
     permanent_delete_executor::{
         PermanentDeleteCancelError, PermanentDeleteExecutor, PermanentDeleteExecutorSpawnError,
         PermanentDeleteSubmission, PermanentDeleteSubmitError,
@@ -99,10 +100,15 @@ impl TransferBuffer {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BatchSubmission {
+    id: BatchId,
     queued: usize,
 }
 
 impl BatchSubmission {
+    pub const fn id(self) -> BatchId {
+        self.id
+    }
+
     pub const fn queued(self) -> usize {
         self.queued
     }
@@ -116,9 +122,98 @@ pub enum TrackedOperation {
     Trash(TrashRequest),
     PermanentDelete(PermanentDeleteRequest),
     Restore(RestoreRequest),
+    UndoMove {
+        request: MoveRequest,
+        original_job_id: JobId,
+    },
 }
 
 pub const MAX_TERMINAL_HISTORY: usize = 64;
+const MAX_BATCH_HISTORY: usize = 64;
+
+#[derive(Clone, Debug)]
+struct PendingBatchItem {
+    batch_id: BatchId,
+    operation: TrackedOperation,
+}
+
+#[derive(Clone, Debug)]
+struct BatchRecord {
+    id: BatchId,
+    total: usize,
+    completed: usize,
+    skipped: usize,
+    failed: usize,
+    cancelled: usize,
+    active_job: Option<JobId>,
+    blocked_conflict: Option<JobId>,
+    paused: bool,
+    cancelling: bool,
+    skip_conflicts: bool,
+}
+
+impl BatchRecord {
+    fn new(id: BatchId, total: usize) -> Self {
+        Self {
+            id,
+            total,
+            completed: 0,
+            skipped: 0,
+            failed: 0,
+            cancelled: 0,
+            active_job: None,
+            blocked_conflict: None,
+            paused: false,
+            cancelling: false,
+            skip_conflicts: false,
+        }
+    }
+
+    fn processed(&self) -> usize {
+        self.completed
+            .saturating_add(self.skipped)
+            .saturating_add(self.failed)
+            .saturating_add(self.cancelled)
+    }
+
+    fn status(&self) -> BatchStatus {
+        if self.active_job.is_none()
+            && self.blocked_conflict.is_none()
+            && self.processed() >= self.total
+        {
+            if self.cancelled == self.total {
+                BatchStatus::Cancelled
+            } else if self.failed > 0 || self.skipped > 0 || self.cancelled > 0 {
+                BatchStatus::CompletedWithIssues
+            } else {
+                BatchStatus::Completed
+            }
+        } else if self.cancelling {
+            BatchStatus::Cancelling
+        } else if self.paused && self.active_job.is_some() {
+            BatchStatus::Pausing
+        } else if self.paused || self.blocked_conflict.is_some() {
+            BatchStatus::Paused
+        } else if self.active_job.is_some() {
+            BatchStatus::Running
+        } else {
+            BatchStatus::Queued
+        }
+    }
+
+    fn snapshot(&self) -> BatchSnapshot {
+        BatchSnapshot::new(
+            self.id,
+            self.status(),
+            self.total,
+            self.completed,
+            self.skipped,
+            self.failed,
+            self.cancelled,
+            self.active_job.is_some(),
+        )
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TerminalOutcome {
@@ -132,7 +227,25 @@ pub enum TerminalOutcome {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConflictDecision {
     KeepExisting,
+    KeepBoth,
+    SkipAll,
     RetryWithName(OsString),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UndoMove {
+    original_job_id: JobId,
+    request: MoveRequest,
+}
+
+impl UndoMove {
+    pub const fn original_job_id(&self) -> JobId {
+        self.original_job_id
+    }
+
+    pub fn request(&self) -> &MoveRequest {
+        &self.request
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -167,6 +280,8 @@ pub struct TerminalOperation {
     operation_id: OperationId,
     outcome: TerminalOutcome,
     operation: TrackedOperation,
+    batch_id: Option<BatchId>,
+    undo: Option<UndoMove>,
 }
 
 impl TerminalOperation {
@@ -185,6 +300,14 @@ impl TerminalOperation {
     pub fn operation(&self) -> &TrackedOperation {
         &self.operation
     }
+
+    pub const fn batch_id(&self) -> Option<BatchId> {
+        self.batch_id
+    }
+
+    pub fn undo(&self) -> Option<&UndoMove> {
+        self.undo.as_ref()
+    }
 }
 
 impl TrackedOperation {
@@ -196,6 +319,7 @@ impl TrackedOperation {
             Self::Trash(request) => request.source(),
             Self::PermanentDelete(request) => request.targets()[0].as_path(),
             Self::Restore(request) => request.backing_path(),
+            Self::UndoMove { request, .. } => request.source(),
         }
     }
 
@@ -224,6 +348,10 @@ impl TrackedOperation {
             }
             Self::Restore(request) => {
                 add_parent(request.backing_path());
+                add_parent(request.destination());
+            }
+            Self::UndoMove { request, .. } => {
+                add_parent(request.source());
                 add_parent(request.destination());
             }
         }
@@ -342,6 +470,18 @@ pub enum CopyInteractionError {
     ConflictAlreadyResolved(JobId),
     #[error("job {0:?} does not support destination conflict resolution")]
     ConflictUnsupported(JobId),
+    #[error("batch identifier space is exhausted")]
+    BatchIdentifierExhausted,
+    #[error("the bounded batch queue already contains {MAX_BATCH_HISTORY} batches")]
+    BatchQueueFull,
+    #[error("batch {0:?} is not available")]
+    BatchNotFound(BatchId),
+    #[error("batch {0:?} is already complete")]
+    BatchCompleted(BatchId),
+    #[error("job {0:?} has no safe undo action")]
+    UndoNotAvailable(JobId),
+    #[error("undo for job {0:?} was already submitted")]
+    UndoAlreadySubmitted(JobId),
 }
 
 #[derive(Debug, Error)]
@@ -371,8 +511,12 @@ pub struct ApplicationState {
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
     terminal_history: RefCell<VecDeque<TerminalOperation>>,
     resolved_conflicts: RefCell<HashSet<JobId>>,
-    batch_pending: RefCell<VecDeque<TrackedOperation>>,
+    resolved_undos: RefCell<HashSet<JobId>>,
+    batch_pending: RefCell<VecDeque<PendingBatchItem>>,
     batch_active: Cell<Option<JobId>>,
+    batches: RefCell<VecDeque<BatchRecord>>,
+    job_batches: RefCell<HashMap<JobId, BatchId>>,
+    next_batch_id: Cell<u64>,
 }
 
 impl ApplicationState {
@@ -394,8 +538,12 @@ impl ApplicationState {
             operation_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
+            resolved_undos: RefCell::new(HashSet::new()),
             batch_pending: RefCell::new(VecDeque::new()),
             batch_active: Cell::new(None),
+            batches: RefCell::new(VecDeque::new()),
+            job_batches: RefCell::new(HashMap::new()),
+            next_batch_id: Cell::new(1),
         })
     }
 
@@ -454,13 +602,11 @@ impl ApplicationState {
             };
             operations.push(operation);
         }
-        let queued = operations.len();
-        self.batch_pending.borrow_mut().extend(operations);
+        let batch = self.enqueue_batch(operations)?;
         if intent == TransferIntent::Move {
             self.transfer_buffer.borrow_mut().clear_move();
         }
-        self.pump_batch();
-        Ok(BatchSubmission { queued })
+        Ok(batch)
     }
 
     pub fn submit_trash_batch(
@@ -477,10 +623,7 @@ impl ApplicationState {
                 operations.push(TrackedOperation::Trash(TrashRequest::new(source)?));
             }
         }
-        let queued = operations.len();
-        self.batch_pending.borrow_mut().extend(operations);
-        self.pump_batch();
-        Ok(BatchSubmission { queued })
+        self.enqueue_batch(operations)
     }
 
     pub fn submit_restore_batch(
@@ -496,10 +639,7 @@ impl ApplicationState {
             .filter(|request| unique.insert(request.backing_path().to_path_buf()))
             .map(TrackedOperation::Restore)
             .collect::<Vec<_>>();
-        let queued = operations.len();
-        self.batch_pending.borrow_mut().extend(operations);
-        self.pump_batch();
-        Ok(BatchSubmission { queued })
+        self.enqueue_batch(operations)
     }
 
     pub fn submit_paste(
@@ -630,18 +770,184 @@ impl ApplicationState {
         }
     }
 
+    fn enqueue_batch(
+        &self,
+        operations: Vec<TrackedOperation>,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        if operations.is_empty() {
+            return Err(CopyInteractionError::EmptySelection);
+        }
+        {
+            let mut batches = self.batches.borrow_mut();
+            while batches.len() >= MAX_BATCH_HISTORY
+                && batches
+                    .front()
+                    .is_some_and(|batch| batch.status().is_terminal())
+            {
+                batches.pop_front();
+            }
+            if batches.len() >= MAX_BATCH_HISTORY {
+                return Err(CopyInteractionError::BatchQueueFull);
+            }
+        }
+        let raw_id = self.next_batch_id.get();
+        let id = BatchId::new(raw_id).ok_or(CopyInteractionError::BatchIdentifierExhausted)?;
+        self.next_batch_id
+            .set(raw_id.checked_add(1).unwrap_or_default());
+        let queued = operations.len();
+        self.batches
+            .borrow_mut()
+            .push_back(BatchRecord::new(id, queued));
+        self.batch_pending
+            .borrow_mut()
+            .extend(operations.into_iter().map(|operation| PendingBatchItem {
+                batch_id: id,
+                operation,
+            }));
+        self.pump_batch();
+        Ok(BatchSubmission { id, queued })
+    }
+
+    pub fn batch_snapshots(&self) -> Vec<BatchSnapshot> {
+        self.batches
+            .borrow()
+            .iter()
+            .map(BatchRecord::snapshot)
+            .collect()
+    }
+
+    pub fn batch_snapshot(&self, id: BatchId) -> Option<BatchSnapshot> {
+        self.batches
+            .borrow()
+            .iter()
+            .find(|batch| batch.id == id)
+            .map(BatchRecord::snapshot)
+    }
+
+    pub fn batch_for_job(&self, job_id: JobId) -> Option<BatchId> {
+        self.job_batches.borrow().get(&job_id).copied()
+    }
+
+    pub fn pause_batch(&self, id: BatchId) -> Result<(), CopyInteractionError> {
+        let mut batches = self.batches.borrow_mut();
+        let batch = batches
+            .iter_mut()
+            .find(|batch| batch.id == id)
+            .ok_or(CopyInteractionError::BatchNotFound(id))?;
+        if batch.status().is_terminal() {
+            return Err(CopyInteractionError::BatchCompleted(id));
+        }
+        batch.paused = true;
+        Ok(())
+    }
+
+    pub fn resume_batch(&self, id: BatchId) -> Result<(), CopyInteractionError> {
+        {
+            let mut batches = self.batches.borrow_mut();
+            let batch = batches
+                .iter_mut()
+                .find(|batch| batch.id == id)
+                .ok_or(CopyInteractionError::BatchNotFound(id))?;
+            if batch.status().is_terminal() {
+                return Err(CopyInteractionError::BatchCompleted(id));
+            }
+            batch.paused = false;
+        }
+        self.pump_batch();
+        Ok(())
+    }
+
+    pub fn cancel_batch(&self, id: BatchId) -> Result<(), CopyInteractionError> {
+        let removed = {
+            let mut pending = self.batch_pending.borrow_mut();
+            let before = pending.len();
+            pending.retain(|item| item.batch_id != id);
+            before.saturating_sub(pending.len())
+        };
+        let (active_job, blocked_conflict) = {
+            let mut batches = self.batches.borrow_mut();
+            let batch = batches
+                .iter_mut()
+                .find(|batch| batch.id == id)
+                .ok_or(CopyInteractionError::BatchNotFound(id))?;
+            if batch.status().is_terminal() {
+                return Err(CopyInteractionError::BatchCompleted(id));
+            }
+            batch.cancelling = true;
+            batch.cancelled = batch.cancelled.saturating_add(removed);
+            let blocked_conflict = batch.blocked_conflict.take();
+            if blocked_conflict.is_some() {
+                batch.cancelled = batch.cancelled.saturating_add(1);
+            }
+            (batch.active_job, blocked_conflict)
+        };
+        if let Some(job_id) = blocked_conflict {
+            self.resolved_conflicts.borrow_mut().insert(job_id);
+        }
+        if let Some(job_id) = active_job {
+            let already_terminal = lock(&self.jobs)
+                .record(job_id)
+                .is_some_and(|record| record.state().is_terminal());
+            if !already_terminal {
+                self.cancel_operation(job_id)?;
+            }
+        } else {
+            self.pump_batch();
+        }
+        Ok(())
+    }
+
     fn pump_batch(&self) {
         if self.batch_active.get().is_some() {
             return;
         }
-        while let Some(operation) = self.batch_pending.borrow_mut().pop_front() {
-            match self.submit_batch_operation(operation) {
+        loop {
+            let Some(next) = self.batch_pending.borrow().front().cloned() else {
+                return;
+            };
+            let dispatch = {
+                let mut batches = self.batches.borrow_mut();
+                let Some(batch) = batches.iter_mut().find(|batch| batch.id == next.batch_id) else {
+                    self.batch_pending.borrow_mut().pop_front();
+                    continue;
+                };
+                if batch.cancelling {
+                    batch.cancelled = batch.cancelled.saturating_add(1);
+                    false
+                } else if batch.paused || batch.blocked_conflict.is_some() {
+                    return;
+                } else {
+                    true
+                }
+            };
+            self.batch_pending.borrow_mut().pop_front();
+            if !dispatch {
+                continue;
+            }
+            match self.submit_batch_operation(next.operation) {
                 Ok(job_id) => {
                     self.batch_active.set(Some(job_id));
+                    self.job_batches.borrow_mut().insert(job_id, next.batch_id);
+                    if let Some(batch) = self
+                        .batches
+                        .borrow_mut()
+                        .iter_mut()
+                        .find(|batch| batch.id == next.batch_id)
+                    {
+                        batch.active_job = Some(job_id);
+                    }
                     return;
                 }
                 Err(error) => {
                     tracing::error!(%error, "could not dispatch queued batch operation");
+                    if let Some(batch) = self
+                        .batches
+                        .borrow_mut()
+                        .iter_mut()
+                        .find(|batch| batch.id == next.batch_id)
+                    {
+                        batch.failed = batch.failed.saturating_add(1);
+                    }
                 }
             }
         }
@@ -716,7 +1022,9 @@ impl ApplicationState {
                     }
                 }
             }
-            TrackedOperation::Rename(_) | TrackedOperation::PermanentDelete(_) => {
+            TrackedOperation::Rename(_)
+            | TrackedOperation::PermanentDelete(_)
+            | TrackedOperation::UndoMove { .. } => {
                 unreachable!("operation is never queued as a per-item multi-selection batch")
             }
         }
@@ -731,12 +1039,66 @@ impl ApplicationState {
             .record(job_id)
             .map(|record| record.operation_id());
         let operation = self.operation_requests.borrow_mut().remove(&job_id);
+        let batch_id = self.batch_for_job(job_id);
         if outcome == TerminalOutcome::Completed
             && let Some(TrackedOperation::Move(request)) = operation.as_ref()
         {
             self.transfer_buffer
                 .borrow_mut()
                 .clear_completed_move(request.source());
+        }
+        let undo = if outcome == TerminalOutcome::Completed {
+            self.move_executor
+                .take_outcome(job_id)
+                .and_then(|move_outcome| match operation.as_ref()? {
+                    TrackedOperation::Move(request) => Some(UndoMove {
+                        original_job_id: job_id,
+                        request: MoveRequest::new(
+                            request.destination(),
+                            request.source(),
+                            ConflictPolicy::FailIfExists,
+                        )
+                        .with_expected_source_identity(move_outcome.destination_identity()),
+                    }),
+                    TrackedOperation::Rename(request) => {
+                        let destination = request.source().parent()?.join(request.new_name());
+                        Some(UndoMove {
+                            original_job_id: job_id,
+                            request: MoveRequest::new(
+                                destination,
+                                request.source(),
+                                ConflictPolicy::FailIfExists,
+                            )
+                            .with_expected_source_identity(move_outcome.destination_identity()),
+                        })
+                    }
+                    _ => None,
+                })
+        } else {
+            None
+        };
+
+        if let Some(batch_id) = batch_id {
+            let mut batches = self.batches.borrow_mut();
+            if let Some(batch) = batches.iter_mut().find(|batch| batch.id == batch_id) {
+                batch.active_job = None;
+                match outcome {
+                    TerminalOutcome::Completed => {
+                        batch.completed = batch.completed.saturating_add(1);
+                    }
+                    TerminalOutcome::Conflict if batch.skip_conflicts => {
+                        batch.skipped = batch.skipped.saturating_add(1);
+                        self.resolved_conflicts.borrow_mut().insert(job_id);
+                    }
+                    TerminalOutcome::Conflict => batch.blocked_conflict = Some(job_id),
+                    TerminalOutcome::Cancelled => {
+                        batch.cancelled = batch.cancelled.saturating_add(1);
+                    }
+                    TerminalOutcome::PartialFailure | TerminalOutcome::Failed => {
+                        batch.failed = batch.failed.saturating_add(1);
+                    }
+                }
+            }
         }
         if let (Some(operation_id), Some(operation)) = (operation_id, operation.as_ref()) {
             let mut history = self.terminal_history.borrow_mut();
@@ -745,6 +1107,8 @@ impl ApplicationState {
                     self.resolved_conflicts
                         .borrow_mut()
                         .remove(&evicted.job_id());
+                    self.resolved_undos.borrow_mut().remove(&evicted.job_id());
+                    self.job_batches.borrow_mut().remove(&evicted.job_id());
                     lock(&self.jobs).forget_terminal(evicted.job_id());
                 }
             }
@@ -753,17 +1117,82 @@ impl ApplicationState {
                 operation_id,
                 outcome,
                 operation: operation.clone(),
+                batch_id,
+                undo,
             });
         }
         if self.batch_active.get() == Some(job_id) {
             self.batch_active.set(None);
-            self.pump_batch();
         }
+        self.pump_batch();
         operation
     }
 
     pub fn terminal_history(&self) -> Vec<TerminalOperation> {
         self.terminal_history.borrow().iter().cloned().collect()
+    }
+
+    pub fn can_undo(&self, job_id: JobId) -> bool {
+        !self.resolved_undos.borrow().contains(&job_id)
+            && self
+                .terminal_history
+                .borrow()
+                .iter()
+                .any(|entry| entry.job_id() == job_id && entry.undo().is_some())
+    }
+
+    pub fn clear_completed_history(&self) -> usize {
+        let removed = {
+            let mut history = self.terminal_history.borrow_mut();
+            let removed = history
+                .iter()
+                .filter(|entry| entry.outcome() == TerminalOutcome::Completed)
+                .cloned()
+                .collect::<Vec<_>>();
+            history.retain(|entry| entry.outcome() != TerminalOutcome::Completed);
+            removed
+        };
+        for entry in &removed {
+            self.resolved_conflicts.borrow_mut().remove(&entry.job_id());
+            self.resolved_undos.borrow_mut().remove(&entry.job_id());
+            self.job_batches.borrow_mut().remove(&entry.job_id());
+            lock(&self.jobs).forget_terminal(entry.job_id());
+        }
+        removed.len()
+    }
+
+    pub fn undo_operation(
+        &self,
+        original_job_id: JobId,
+    ) -> Result<MoveSubmission, CopyInteractionError> {
+        if self.resolved_undos.borrow().contains(&original_job_id) {
+            return Err(CopyInteractionError::UndoAlreadySubmitted(original_job_id));
+        }
+        let undo = self
+            .terminal_history
+            .borrow()
+            .iter()
+            .find(|entry| entry.job_id() == original_job_id)
+            .and_then(|entry| entry.undo().cloned())
+            .ok_or(CopyInteractionError::UndoNotAvailable(original_job_id))?;
+        let operation = TrackedOperation::UndoMove {
+            request: undo.request.clone(),
+            original_job_id,
+        };
+        let submission = match self.move_executor.submit_move(undo.request) {
+            Ok(submission) => {
+                self.track(submission.job_id(), operation);
+                submission
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.track(job_id, operation);
+                }
+                return Err(error.into());
+            }
+        };
+        self.resolved_undos.borrow_mut().insert(original_job_id);
+        Ok(submission)
     }
 
     pub fn retry_operation(
@@ -819,6 +1248,38 @@ impl ApplicationState {
                     Err(error) => {
                         if let Some(job_id) = error.job_id() {
                             self.track(job_id, TrackedOperation::Move(request));
+                        }
+                        Err(error.into())
+                    }
+                }
+            }
+            TrackedOperation::UndoMove {
+                request,
+                original_job_id,
+            } => {
+                match self
+                    .move_executor
+                    .submit_move_retry(failed_job_id, request.clone())
+                {
+                    Ok(submission) => {
+                        self.track(
+                            submission.job_id(),
+                            TrackedOperation::UndoMove {
+                                request,
+                                original_job_id,
+                            },
+                        );
+                        Ok(RetrySubmission::Move(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(
+                                job_id,
+                                TrackedOperation::UndoMove {
+                                    request,
+                                    original_job_id,
+                                },
+                            );
                         }
                         Err(error.into())
                     }
@@ -915,6 +1376,9 @@ impl ApplicationState {
                 return Err(CopyInteractionError::ConflictUnsupported(job_id));
             }
             TrackedOperation::Restore(request) => request.destination().to_path_buf(),
+            TrackedOperation::UndoMove { .. } => {
+                return Err(CopyInteractionError::ConflictUnsupported(job_id));
+            }
         };
 
         Ok(PendingConflict {
@@ -938,15 +1402,85 @@ impl ApplicationState {
         match decision {
             ConflictDecision::KeepExisting => {
                 self.resolved_conflicts.borrow_mut().insert(job_id);
+                self.complete_batch_conflict(job_id, None, true, false);
                 Ok(ConflictResolution::KeptExisting)
+            }
+            ConflictDecision::SkipAll => {
+                if self.batch_for_job(job_id).is_none() {
+                    return Err(CopyInteractionError::ConflictUnsupported(job_id));
+                }
+                self.resolved_conflicts.borrow_mut().insert(job_id);
+                self.complete_batch_conflict(job_id, None, true, true);
+                Ok(ConflictResolution::KeptExisting)
+            }
+            ConflictDecision::KeepBoth => {
+                let attempt = self
+                    .terminal_history
+                    .borrow()
+                    .iter()
+                    .filter(|entry| {
+                        entry.operation_id() == terminal.operation_id()
+                            && entry.outcome() == TerminalOutcome::Conflict
+                    })
+                    .count()
+                    .try_into()
+                    .unwrap_or(u32::MAX);
+                let base_name = self
+                    .terminal_history
+                    .borrow()
+                    .iter()
+                    .find(|entry| entry.operation_id() == terminal.operation_id())
+                    .and_then(|entry| conflict_destination(entry.operation()))
+                    .and_then(|path| path.file_name().map(OsStr::to_os_string))
+                    .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?;
+                let new_name = keep_both_name(&base_name, attempt)
+                    .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?;
+                let submission =
+                    self.submit_conflict_retry(job_id, terminal.operation(), new_name)?;
+                self.resolved_conflicts.borrow_mut().insert(job_id);
+                self.complete_batch_conflict(job_id, Some(submission.job_id()), false, false);
+                Ok(ConflictResolution::Retried(submission))
             }
             ConflictDecision::RetryWithName(new_name) => {
                 validate_rename_name(&new_name)?;
                 let submission =
                     self.submit_conflict_retry(job_id, terminal.operation(), new_name)?;
                 self.resolved_conflicts.borrow_mut().insert(job_id);
+                self.complete_batch_conflict(job_id, Some(submission.job_id()), false, false);
                 Ok(ConflictResolution::Retried(submission))
             }
+        }
+    }
+
+    fn complete_batch_conflict(
+        &self,
+        failed_job_id: JobId,
+        retry_job_id: Option<JobId>,
+        skipped: bool,
+        skip_all: bool,
+    ) {
+        let Some(batch_id) = self.batch_for_job(failed_job_id) else {
+            return;
+        };
+        if let Some(retry_job_id) = retry_job_id {
+            self.job_batches.borrow_mut().insert(retry_job_id, batch_id);
+            self.batch_active.set(Some(retry_job_id));
+        }
+        if let Some(batch) = self
+            .batches
+            .borrow_mut()
+            .iter_mut()
+            .find(|batch| batch.id == batch_id)
+        {
+            batch.blocked_conflict = None;
+            batch.skip_conflicts |= skip_all;
+            if skipped {
+                batch.skipped = batch.skipped.saturating_add(1);
+            }
+            batch.active_job = retry_job_id;
+        }
+        if retry_job_id.is_none() {
+            self.pump_batch();
         }
     }
 
@@ -1068,13 +1602,20 @@ impl ApplicationState {
             TrackedOperation::PermanentDelete(_) => {
                 Err(CopyInteractionError::ConflictUnsupported(failed_job_id))
             }
+            TrackedOperation::UndoMove { .. } => {
+                Err(CopyInteractionError::ConflictUnsupported(failed_job_id))
+            }
         }
     }
 
     pub fn cancel_operation(&self, job_id: JobId) -> Result<(), CopyInteractionError> {
         match self.operation_request(job_id) {
             Some(TrackedOperation::Copy(_)) => self.copy_executor.cancel(job_id)?,
-            Some(TrackedOperation::Move(_) | TrackedOperation::Rename(_)) => {
+            Some(
+                TrackedOperation::Move(_)
+                | TrackedOperation::Rename(_)
+                | TrackedOperation::UndoMove { .. },
+            ) => {
                 self.move_executor.cancel(job_id)?;
             }
             Some(TrackedOperation::Trash(_)) => self.trash_executor.cancel(job_id)?,
@@ -1118,8 +1659,12 @@ impl ApplicationState {
             operation_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
+            resolved_undos: RefCell::new(HashSet::new()),
             batch_pending: RefCell::new(VecDeque::new()),
             batch_active: Cell::new(None),
+            batches: RefCell::new(VecDeque::new()),
+            job_batches: RefCell::new(HashMap::new()),
+            next_batch_id: Cell::new(1),
         })
     }
 
@@ -1158,6 +1703,20 @@ fn retry_destination(
         .parent()
         .map(|parent| parent.join(new_name))
         .ok_or(CopyInteractionError::ConflictUnsupported(job_id))
+}
+
+fn conflict_destination(operation: &TrackedOperation) -> Option<PathBuf> {
+    match operation {
+        TrackedOperation::Copy(request) => Some(request.destination().to_path_buf()),
+        TrackedOperation::Move(request) => Some(request.destination().to_path_buf()),
+        TrackedOperation::Rename(request) => {
+            Some(request.source().parent()?.join(request.new_name()))
+        }
+        TrackedOperation::Restore(request) => Some(request.destination().to_path_buf()),
+        TrackedOperation::Trash(_)
+        | TrackedOperation::PermanentDelete(_)
+        | TrackedOperation::UndoMove { .. } => None,
+    }
 }
 
 fn transfer_destination(
@@ -2086,6 +2645,295 @@ mod tests {
             state.pending_conflict(conflict.job_id()),
             Err(CopyInteractionError::ConflictNotFound(job_id))
                 if job_id == conflict.job_id()
+        ));
+    }
+
+    #[test]
+    fn phase_6p_state_batch_pauses_at_item_boundaries_resumes_fifo_and_completes() {
+        let fixture = tempdir().expect("temporary fixture");
+        let source_directory = fixture.path().join("source");
+        let destination_directory = fixture.path().join("destination");
+        fs::create_dir(&source_directory).expect("source directory");
+        fs::create_dir(&destination_directory).expect("destination directory");
+        let sources = (0..3)
+            .map(|index| {
+                let path = source_directory.join(format!("item-{index}"));
+                fs::write(&path, format!("payload-{index}")).expect("source payload");
+                path
+            })
+            .collect::<Vec<_>>();
+        let state = ApplicationState::new().expect("application state");
+        state
+            .stage_copy_many(sources.clone())
+            .expect("copy batch should stage");
+        let batch = state
+            .submit_paste_batch(&destination_directory)
+            .expect("copy batch should submit");
+        state.pause_batch(batch.id()).expect("batch should pause");
+
+        let first = state
+            .batch_active
+            .get()
+            .expect("first item should be active");
+        assert_eq!(wait_for_terminal(&state, first), JobState::Completed);
+        state.finish_operation(first, TerminalOutcome::Completed);
+        let paused = state.batch_snapshot(batch.id()).expect("batch snapshot");
+        assert_eq!(paused.status(), BatchStatus::Paused);
+        assert_eq!(paused.completed(), 1);
+        assert_eq!(paused.remaining(), 2);
+        assert!(state.batch_active.get().is_none());
+
+        state.resume_batch(batch.id()).expect("batch should resume");
+        while let Some(job_id) = state.batch_active.get() {
+            assert_eq!(wait_for_terminal(&state, job_id), JobState::Completed);
+            state.finish_operation(job_id, TerminalOutcome::Completed);
+        }
+        let completed = state.batch_snapshot(batch.id()).expect("batch snapshot");
+        assert_eq!(completed.status(), BatchStatus::Completed);
+        assert_eq!(completed.completed(), sources.len());
+        let completed_sources = state
+            .terminal_history()
+            .into_iter()
+            .filter(|entry| entry.batch_id() == Some(batch.id()))
+            .map(|entry| entry.operation().source().to_path_buf())
+            .collect::<Vec<_>>();
+        assert_eq!(completed_sources, sources);
+    }
+
+    #[test]
+    fn phase_6p_conflict_keep_both_and_batch_skip_all_never_replace() {
+        let fixture = tempdir().expect("temporary fixture");
+        let destination = fixture.path().join("destination");
+        let first_source = fixture.path().join("first");
+        let second_source = fixture.path().join("second");
+        let third_source = fixture.path().join("third");
+        fs::create_dir(&destination).expect("destination directory");
+        fs::create_dir(&first_source).expect("first source directory");
+        fs::create_dir(&second_source).expect("second source directory");
+        fs::create_dir(&third_source).expect("third source directory");
+        let first = first_source.join("item.txt");
+        let second = second_source.join("item.txt");
+        let third = third_source.join("item.txt");
+        fs::write(&first, b"first").expect("first source");
+        fs::write(&second, b"second").expect("second source");
+        fs::write(&third, b"third").expect("third source");
+        fs::write(destination.join("item.txt"), b"existing").expect("existing destination");
+
+        let state = ApplicationState::new().expect("application state");
+        state
+            .stage_copy_many(vec![first, second, third])
+            .expect("batch should stage");
+        let batch = state
+            .submit_paste_batch(&destination)
+            .expect("batch should submit");
+        let first_conflict = state.batch_active.get().expect("first active job");
+        assert_eq!(wait_for_terminal(&state, first_conflict), JobState::Failed);
+        state.finish_operation(first_conflict, TerminalOutcome::Conflict);
+        let ConflictResolution::Retried(keep_both) = state
+            .resolve_conflict(first_conflict, ConflictDecision::KeepBoth)
+            .expect("Keep Both should retry safely")
+        else {
+            panic!("Keep Both must submit a new attempt");
+        };
+        assert_eq!(
+            wait_for_terminal(&state, keep_both.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(keep_both.job_id(), TerminalOutcome::Completed);
+
+        let second_conflict = state.batch_active.get().expect("second active job");
+        assert_eq!(wait_for_terminal(&state, second_conflict), JobState::Failed);
+        state.finish_operation(second_conflict, TerminalOutcome::Conflict);
+        assert_eq!(
+            state
+                .resolve_conflict(second_conflict, ConflictDecision::SkipAll)
+                .expect("Skip All should resolve the batch conflict"),
+            ConflictResolution::KeptExisting
+        );
+        let auto_skipped = state.batch_active.get().expect("third active job");
+        assert_eq!(wait_for_terminal(&state, auto_skipped), JobState::Failed);
+        state.finish_operation(auto_skipped, TerminalOutcome::Conflict);
+        assert!(matches!(
+            state.pending_conflict(auto_skipped),
+            Err(CopyInteractionError::ConflictAlreadyResolved(job_id)) if job_id == auto_skipped
+        ));
+        let snapshot = state.batch_snapshot(batch.id()).expect("batch snapshot");
+        assert_eq!(snapshot.status(), BatchStatus::CompletedWithIssues);
+        assert_eq!(snapshot.completed(), 1);
+        assert_eq!(snapshot.skipped(), 2);
+        assert_eq!(
+            fs::read(destination.join("item.txt")).expect("existing target should remain"),
+            b"existing"
+        );
+        assert_eq!(
+            fs::read(destination.join("item (copy).txt")).expect("Keep Both sibling should exist"),
+            b"first"
+        );
+    }
+
+    #[test]
+    fn phase_6p_batch_cancel_removes_queued_items_and_resolves_blocked_conflict() {
+        let fixture = tempdir().expect("temporary fixture");
+        let destination = fixture.path().join("destination");
+        let first_source = fixture.path().join("first");
+        let second_source = fixture.path().join("second");
+        fs::create_dir(&destination).expect("destination directory");
+        fs::create_dir(&first_source).expect("first source directory");
+        fs::create_dir(&second_source).expect("second source directory");
+        let first = first_source.join("item");
+        let second = second_source.join("item");
+        fs::write(&first, b"first").expect("first source");
+        fs::write(&second, b"second").expect("second source");
+        fs::write(destination.join("item"), b"existing").expect("existing target");
+        let state = ApplicationState::new().expect("application state");
+        state
+            .stage_copy_many(vec![first, second])
+            .expect("batch should stage");
+        let batch = state
+            .submit_paste_batch(&destination)
+            .expect("batch should submit");
+        let conflict = state.batch_active.get().expect("active conflict");
+        assert_eq!(wait_for_terminal(&state, conflict), JobState::Failed);
+        state.finish_operation(conflict, TerminalOutcome::Conflict);
+        state.cancel_batch(batch.id()).expect("batch should cancel");
+
+        let snapshot = state.batch_snapshot(batch.id()).expect("batch snapshot");
+        assert_eq!(snapshot.status(), BatchStatus::Cancelled);
+        assert_eq!(snapshot.cancelled(), 2);
+        assert_eq!(snapshot.remaining(), 0);
+        assert!(state.batch_active.get().is_none());
+        assert!(matches!(
+            state.pending_conflict(conflict),
+            Err(CopyInteractionError::ConflictAlreadyResolved(job_id)) if job_id == conflict
+        ));
+    }
+
+    #[test]
+    fn phase_6p_batch_cancel_accepts_current_item_that_already_committed() {
+        let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
+            .expect("application state");
+        let batch = state
+            .submit_trash_batch(vec![
+                PathBuf::from("/virtual/first"),
+                PathBuf::from("/virtual/second"),
+            ])
+            .expect("trash batch should submit");
+        let first = state
+            .batch_active
+            .get()
+            .expect("first job should be active");
+        assert_eq!(wait_for_terminal(&state, first), JobState::Completed);
+        state
+            .cancel_batch(batch.id())
+            .expect("already-committed current item should not reject queued cancellation");
+        state.finish_operation(first, TerminalOutcome::Completed);
+
+        let snapshot = state.batch_snapshot(batch.id()).expect("batch snapshot");
+        assert_eq!(snapshot.status(), BatchStatus::CompletedWithIssues);
+        assert_eq!(snapshot.completed(), 1);
+        assert_eq!(snapshot.cancelled(), 1);
+    }
+
+    #[test]
+    fn phase_6p_history_clear_completed_preserves_actionable_evidence() {
+        let fixture = tempdir().expect("temporary fixture");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("destination");
+        fs::create_dir(&source).expect("source directory");
+        fs::create_dir(&destination).expect("destination directory");
+        let state = ApplicationState::new().expect("application state");
+        let completed_source = source.join("completed");
+        fs::write(&completed_source, b"completed").expect("completed source");
+        state
+            .stage_copy(completed_source)
+            .expect("stage completed copy");
+        let completed = state.submit_paste(&destination).expect("completed copy");
+        assert_eq!(
+            wait_for_terminal(&state, completed.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(completed.job_id(), TerminalOutcome::Completed);
+
+        let conflict_source = source.join("conflict");
+        fs::write(&conflict_source, b"incoming").expect("conflict source");
+        fs::write(destination.join("conflict"), b"existing").expect("conflict target");
+        state
+            .stage_copy(conflict_source)
+            .expect("stage conflict copy");
+        let conflict = state.submit_paste(&destination).expect("conflict copy");
+        assert_eq!(
+            wait_for_terminal(&state, conflict.job_id()),
+            JobState::Failed
+        );
+        state.finish_operation(conflict.job_id(), TerminalOutcome::Conflict);
+
+        assert_eq!(state.clear_completed_history(), 1);
+        let history = state.terminal_history();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].job_id(), conflict.job_id());
+        assert_eq!(history[0].outcome(), TerminalOutcome::Conflict);
+    }
+
+    #[test]
+    fn phase_6p_undo_state_restores_completed_move_and_rejects_non_undoable_copy() {
+        let fixture = tempdir().expect("temporary fixture");
+        let source_directory = fixture.path().join("source");
+        let destination_directory = fixture.path().join("destination");
+        fs::create_dir(&source_directory).expect("source directory");
+        fs::create_dir(&destination_directory).expect("destination directory");
+        let source = source_directory.join(OsString::from_vec(b"undo-\xff".to_vec()));
+        fs::write(&source, b"payload").expect("move source");
+        let moved_path = destination_directory.join(
+            source
+                .file_name()
+                .expect("fixture source should retain its raw filename"),
+        );
+        let state = ApplicationState::new().expect("application state");
+        state.stage_move(source.clone()).expect("move should stage");
+        let moved = state
+            .submit_paste(&destination_directory)
+            .expect("move submit");
+        assert_eq!(
+            wait_for_terminal(&state, moved.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(moved.job_id(), TerminalOutcome::Completed);
+        assert!(state.can_undo(moved.job_id()));
+
+        let undo = state
+            .undo_operation(moved.job_id())
+            .expect("undo should submit");
+        assert_eq!(
+            wait_for_terminal(&state, undo.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(undo.job_id(), TerminalOutcome::Completed);
+        assert_eq!(
+            fs::read(&source).expect("undo should restore source payload"),
+            b"payload"
+        );
+        assert!(!moved_path.exists());
+        assert!(!state.can_undo(moved.job_id()));
+        assert!(matches!(
+            state.undo_operation(moved.job_id()),
+            Err(CopyInteractionError::UndoAlreadySubmitted(job_id)) if job_id == moved.job_id()
+        ));
+
+        let copy_source = source_directory.join("copy");
+        fs::write(&copy_source, b"copy").expect("copy source");
+        state.stage_copy(copy_source).expect("copy should stage");
+        let copy = state
+            .submit_paste(&destination_directory)
+            .expect("copy submit");
+        assert_eq!(
+            wait_for_terminal(&state, copy.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(copy.job_id(), TerminalOutcome::Completed);
+        assert!(!state.can_undo(copy.job_id()));
+        assert!(matches!(
+            state.undo_operation(copy.job_id()),
+            Err(CopyInteractionError::UndoNotAvailable(job_id)) if job_id == copy.job_id()
         ));
     }
 

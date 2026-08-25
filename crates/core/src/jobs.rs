@@ -34,6 +34,14 @@ impl JobId {
 pub struct JobProgress {
     completed: u64,
     total: Option<NonZeroU64>,
+    unit: ProgressUnit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProgressUnit {
+    Unknown,
+    Bytes,
+    Items,
 }
 
 impl JobProgress {
@@ -41,10 +49,27 @@ impl JobProgress {
         Self {
             completed: 0,
             total: None,
+            unit: ProgressUnit::Unknown,
         }
     }
 
     pub fn new(completed: u64, total: Option<u64>) -> Result<Self, InvalidJobProgress> {
+        Self::with_unit(completed, total, ProgressUnit::Unknown)
+    }
+
+    pub fn bytes(completed: u64, total: Option<u64>) -> Result<Self, InvalidJobProgress> {
+        Self::with_unit(completed, total, ProgressUnit::Bytes)
+    }
+
+    pub fn items(completed: u64, total: Option<u64>) -> Result<Self, InvalidJobProgress> {
+        Self::with_unit(completed, total, ProgressUnit::Items)
+    }
+
+    fn with_unit(
+        completed: u64,
+        total: Option<u64>,
+        unit: ProgressUnit,
+    ) -> Result<Self, InvalidJobProgress> {
         let total = match total {
             Some(0) => return Err(InvalidJobProgress::ZeroTotal),
             Some(value) if completed > value => {
@@ -56,7 +81,11 @@ impl JobProgress {
             Some(value) => NonZeroU64::new(value),
             None => None,
         };
-        Ok(Self { completed, total })
+        Ok(Self {
+            completed,
+            total,
+            unit,
+        })
     }
 
     pub const fn completed(self) -> u64 {
@@ -68,6 +97,10 @@ impl JobProgress {
             Some(total) => Some(total.get()),
             None => None,
         }
+    }
+
+    pub const fn unit(self) -> ProgressUnit {
+        self.unit
     }
 
     pub fn fraction(self) -> Option<f64> {
@@ -412,5 +445,17 @@ mod tests {
                 total: 10
             })
         );
+    }
+
+    #[test]
+    fn phase_6p_progress_retains_explicit_units() {
+        let bytes = JobProgress::bytes(512, Some(1024)).expect("byte progress should be valid");
+        let items = JobProgress::items(2, Some(4)).expect("item progress should be valid");
+        let unknown = JobProgress::new(1, Some(2)).expect("legacy progress should remain valid");
+
+        assert_eq!(bytes.unit(), ProgressUnit::Bytes);
+        assert_eq!(items.unit(), ProgressUnit::Items);
+        assert_eq!(unknown.unit(), ProgressUnit::Unknown);
+        assert_eq!(bytes.fraction(), Some(0.5));
     }
 }

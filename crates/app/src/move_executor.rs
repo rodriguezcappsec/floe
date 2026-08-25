@@ -10,7 +10,8 @@ use std::{
 
 use floe_core::{
     CopyProgress, JobCommand, JobFailure, JobFailureKind, JobId, JobProgress, MoveCancellation,
-    MoveError, MoveRequest, OperationId, RenameRequest, execute_move_with_progress, execute_rename,
+    MoveError, MoveOutcome, MoveRequest, OperationId, RenameRequest, execute_move_with_progress,
+    execute_rename,
 };
 use thiserror::Error;
 
@@ -95,6 +96,7 @@ enum MoveCommand {
 pub struct MoveExecutor {
     sender: Option<SyncSender<MoveCommand>>,
     cancellations: Arc<Mutex<HashMap<JobId, MoveCancellation>>>,
+    outcomes: Arc<Mutex<HashMap<JobId, MoveOutcome>>>,
     jobs: SharedJobManager,
     worker: Option<JoinHandle<()>>,
 }
@@ -114,20 +116,23 @@ impl MoveExecutor {
         }
         let (sender, receiver) = mpsc::sync_channel(capacity);
         let cancellations = Arc::new(Mutex::new(HashMap::new()));
+        let outcomes = Arc::new(Mutex::new(HashMap::new()));
         let worker_jobs = Arc::clone(&jobs);
         let worker_cancellations = Arc::clone(&cancellations);
+        let worker_outcomes = Arc::clone(&outcomes);
         let worker = thread::Builder::new()
             .name("floe-move-worker".to_owned())
             .spawn(move || {
                 if let Some(gate) = start_gate {
                     let _ = gate.recv();
                 }
-                run_worker(receiver, worker_jobs, worker_cancellations);
+                run_worker(receiver, worker_jobs, worker_cancellations, worker_outcomes);
             })
             .map_err(MoveExecutorSpawnError::Thread)?;
         Ok(Self {
             sender: Some(sender),
             cancellations,
+            outcomes,
             jobs,
             worker: Some(worker),
         })
@@ -164,6 +169,10 @@ impl MoveExecutor {
             .ok_or(MoveCancelError::NotActive(job_id))?;
         cancellation.cancel();
         Ok(())
+    }
+
+    pub fn take_outcome(&self, job_id: JobId) -> Option<MoveOutcome> {
+        lock(&self.outcomes).remove(&job_id)
     }
 
     pub fn shutdown(mut self) {
@@ -280,10 +289,11 @@ fn run_worker(
     receiver: Receiver<MoveCommand>,
     jobs: SharedJobManager,
     cancellations: Arc<Mutex<HashMap<JobId, MoveCancellation>>>,
+    outcomes: Arc<Mutex<HashMap<JobId, MoveOutcome>>>,
 ) {
     while let Ok(command) = receiver.recv() {
         match command {
-            MoveCommand::Execute(task) => execute_task(task, &jobs, &cancellations),
+            MoveCommand::Execute(task) => execute_task(task, &jobs, &cancellations, &outcomes),
             MoveCommand::Shutdown => break,
         }
     }
@@ -293,6 +303,7 @@ fn execute_task(
     task: MoveTask,
     jobs: &SharedJobManager,
     cancellations: &Arc<Mutex<HashMap<JobId, MoveCancellation>>>,
+    outcomes: &Arc<Mutex<HashMap<JobId, MoveOutcome>>>,
 ) {
     if transition(jobs, task.job_id, JobCommand::Start).is_err() {
         lock(cancellations).remove(&task.job_id);
@@ -310,7 +321,10 @@ fn execute_task(
         MoveOperation::Rename(request) => execute_rename(request, &task.cancellation),
     };
     let command = match result {
-        Ok(_) => JobCommand::Complete,
+        Ok(outcome) => {
+            lock(outcomes).insert(task.job_id, outcome);
+            JobCommand::Complete
+        }
         Err(MoveError::Cancelled) => JobCommand::Cancel,
         Err(error) => JobCommand::Fail(move_failure(&error)),
     };
@@ -320,9 +334,9 @@ fn execute_task(
 
 fn move_job_progress(progress: CopyProgress) -> Option<JobProgress> {
     if progress.total_bytes() > 0 {
-        JobProgress::new(progress.bytes_copied(), Some(progress.total_bytes())).ok()
+        JobProgress::bytes(progress.bytes_copied(), Some(progress.total_bytes())).ok()
     } else {
-        JobProgress::new(progress.entries_copied(), Some(progress.total_entries())).ok()
+        JobProgress::items(progress.entries_copied(), Some(progress.total_entries())).ok()
     }
 }
 
