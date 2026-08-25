@@ -1155,17 +1155,32 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated:
 
-`2026-08-24`
+`2026-08-25`
 
 Current phase:
 
 ```text
-Phase 6 — Browser filesystem foundations (Phase 6S complete)
+Phase 6 — Browser filesystem foundations (Phase 6T complete)
 ```
 
 Status:
 
 ```text
+Phase 6T completes the daily browser surface. Raw-extension sorting,
+folders-first/folders-last placement, and independent None/Type/Extension
+grouping remain GTK-independent and deterministic. Compact, Comfortable, and
+Spacious density plus nine optional/clamped list columns share the virtualized
+list/grid model. MIME, Created, Accessed, and Permissions load only for bound
+rows through a capacity-64 worker and 512-entry cache; recycled rows reject
+delayed prior bindings and metadata arrival never reorders entries.
+
+Version-2 preferences migrate legacy view/grid/sidebar values and persist the
+complete global policy. Opt-in per-folder memory stores at most 256 exact raw
+local paths as private hex-encoded records. Status text reports only known
+non-recursive bytes. A capacity-32 application worker queries GIO filesystem
+size/free/read-only facts for the current local location and mounted local
+devices, rejecting stale generation, device ID, and path results.
+
 Phase 6S adds one application-owned non-recursive GIO monitor for the active
 successful local listing. One cancellable 140 ms source deduplicates bursts with
 explicit caps of 16,384 events, 4,096 paths, and 1,024 rename pairs; overflow
@@ -1412,15 +1427,25 @@ Established product decisions:
 Currently working:
 
 ```text
-Phase 6S is complete. The one recommended next branch is
-`phase-6t-browser-completeness`, adding lazy metadata, richer sorting/grouping
-and columns, density/per-folder view behavior, and status/device detail without
-eager metadata storms.
+Phase 6T is complete. The one recommended next branch is
+`phase-7a-tabs-foundation`, adding only the GTK-independent serializable
+browser-session model. Do not add tab widgets, tab shortcuts, split view, or
+session persistence in Phase 7A.
 ```
 
 Verified:
 
 ```text
+Phase 6T passes formatting, workspace check, strict all-target/all-feature
+Clippy, and 294 tests: 66 core and 228 application. Focused coverage includes
+raw extension/grouping identity, metadata staleness/capacity/cache, column and
+density policy, legacy/raw-path preferences, honest byte/capacity wording, and
+bounded storage queries. Native Niri/Wayland smoke exported 73 actions,
+exercised and restored density/grouping/folder placement/optional columns/name
+width across two isolated launches, answered D-Bus Peer.Ping, quit cleanly, and
+released the application name twice. Spectacle produced no capture; action
+state, persistence, D-Bus health, and lifecycle are the runtime evidence.
+
 `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy, and all
 277 tests pass: sixty-three core and 214 application tests. Six focused Phase 6S
 tests cover monitor replacement/stop, bounded storm coalescing, common and raw
@@ -1586,6 +1611,14 @@ eviction. Formatting, strict Clippy, and native smoke status are in `GATES.md`.
 Known issues:
 
 ```text
+Phase 6T supports sorting by Extension and grouping by Type/Extension only.
+MIME/Created/Accessed/Permissions sorting, date/size grouping, natural-name
+sorting, column reorder/autosize, owner/group/path fields, and recursive folder
+sizes remain deferred. Per-folder memory intentionally persists exact local
+paths and is not Private Mode. The first live native width-adjustment smoke
+emitted transient one-pixel GTK measurement warnings; the restored second launch
+did not. Spectacle returned success without producing a capture on this host.
+
 No application correctness failures are known. Phase 6Q template creation
 selects one local template file at a time; template discovery, categories, and
 management remain deferred. Hard links remain local-filesystem/kernel dependent.
@@ -1650,6 +1683,15 @@ management, and privileged GFile browsing remain explicit later milestones.
 Completed this session:
 
 ```text
+* Completed Phase 6T browser completeness on `phase-6t-browser-completeness`.
+* Added exact extension sorting, independent Type/Extension grouping,
+  folder placement, shared density, optional/resizable columns, bounded lazy
+  metadata, versioned global/per-folder view preferences, honest known-byte
+  status, and bounded current/device GIO storage facts.
+* Verified 294 tests and a two-launch native Wayland action/persistence/health
+  smoke; updated roadmap, matrix, design, architecture, development, privacy,
+  phase plan, and gates with exactly Phase 7A next.
+
 * Completed Phase 6S file watching on `phase-6s-file-watching`.
 * Added one active GIO monitor, bounded aggregate-only event coalescing, stale
   generation rejection, and one existing worker enumeration per accepted batch.
@@ -1926,10 +1968,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-6t-browser-completeness` and add lazy metadata, richer
-sorting/grouping and columns, density/per-folder view behavior, and status/device
-detail. Do not eagerly enrich large directories or destabilize selection/order
-during asynchronous metadata arrival.
+Create `phase-7a-tabs-foundation` and implement only the GTK-independent,
+serializable browser-session model for exact path, navigation history,
+selection, scroll anchor, sort, and view state. Do not add tab widgets,
+shortcuts, split view, or persistence yet.
 ```
 
 ---

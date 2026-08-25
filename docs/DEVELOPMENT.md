@@ -335,6 +335,29 @@ burst without recording paths; D-Bus health, 42 actions, clean quit, and name
 release remain intact. After verified Phase 6S, continue only on
 `phase-6t-browser-completeness`.
 
+Phase 6T adds no dependency. Focused checks are:
+
+```bash
+cargo test -p floe-core phase_6t_sort_group -- --nocapture
+cargo test -p floe-app phase_6t_metadata -- --nocapture
+cargo test -p floe-app phase_6t_columns -- --nocapture
+cargo test -p floe-app phase_6t_density -- --nocapture
+cargo test -p floe-app phase_6t_preferences -- --nocapture
+cargo test -p floe-app phase_6t_status -- --nocapture
+```
+
+The full gate passes 294 tests: 228 application and 66 core. Native Niri/Wayland
+smoke used isolated HOME/XDG roots, exported 73 window actions, activated and
+restored Compact density, Extension grouping, folders-last, MIME/Permissions
+columns, and a widened Name column across two launches. Both instances answered
+`Peer.Ping`, exited through the application Quit action, and released
+`io.github.floe.FileManager`. Spectacle did not produce an image on this host;
+action state, persistence, D-Bus health, and clean process lifecycle are the
+runtime evidence. The first live resizing pass emitted transient one-pixel GTK
+measurement warnings plus the documented RADV `VK_SUBOPTIMAL_KHR` warning; the
+restored second launch emitted no warning. After verified Phase 6T, continue
+only on `phase-7a-tabs-foundation`.
+
 ## Wayland environments
 
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and

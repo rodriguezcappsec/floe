@@ -37,7 +37,9 @@ pub use permanent_delete::{
     PermanentDeleteError, PermanentDeleteOutcome, PermanentDeleteProgress, PermanentDeleteRequest,
     PermanentDeleteRequestError, execute_permanent_delete,
 };
-pub use sorting::{DirectorySort, SortColumn, SortDirection};
+pub use sorting::{
+    DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn, SortDirection,
+};
 pub use trash_lifecycle::{
     RestoreError, RestoreOutcome, RestoreRequest, RestoreRequestError, TrashEnumerateError,
     TrashRoot, enumerate_trash_with_cancel, execute_restore,

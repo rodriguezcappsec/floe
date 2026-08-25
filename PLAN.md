@@ -1,44 +1,61 @@
-# Plan: Floe Phase 6S File watching
+# Plan: Floe Phase 6T Browser completeness
 
-Mode: sequential solo phase, depth 4.
+Mode: sequential solo phase, depth 5.
 
 ## Contract
 
-- The application layer owns one GIO directory monitor for the active local browser location; the core filesystem crate remains GTK/GIO independent.
-- Monitor callbacks only normalize exact local paths into a bounded coalescer. They never enumerate, inspect, or mutate filesystem content on the GTK thread.
-- One cancellable coalescing timer collapses duplicate/burst events into a typed batch with capped changed paths and rename pairs; overflow requests one conservative reconciliation.
-- Each accepted batch submits at most one superseding enumeration through the existing `BrowserWorker`, never one model rebuild per low-level event.
-- A browser snapshot preserves exact selected paths and a stable scroll-anchor identity/index. Rename pairs translate identities; deleted items disappear cleanly; new items do not disturb surviving state.
-- Reconciliation remains linear and bounded for 100k-entry locations, ignores stale generations/old directories, and keeps inaccessible/deleted-directory failures recoverable.
-- Trash multi-root watching, recursive integrity monitoring, persistent baselines, and Phase 6T metadata/browser-completeness work remain out of scope.
+- Preserve the shared virtualized list/grid model, exact `PathBuf`/`OsString`
+  identity, 256-entry insertion batches, watcher reconciliation, selection,
+  scroll anchors, context menus, and drag/drop.
+- Add extension sorting, independent type/extension grouping, configurable
+  folder placement, Compact/Comfortable/Spacious density, optional list columns,
+  and clamped pointer plus keyboard/menu column resizing.
+- Request MIME, Created, Accessed, and Permissions only for bound rows through a
+  fixed-capacity worker and bounded presentation cache. Metadata arrival must
+  never reorder the directory.
+- Migrate legacy view preferences; persist complete global policy plus opt-in,
+  capped exact raw-path per-folder overrides outside GTK callbacks.
+- Report only known non-recursive bytes. Query current-location and mounted-local
+  device size/free/read-only facts asynchronously through bounded GIO work with
+  generation and identity rejection.
+- Exclude tabs, tab widgets, session restore, Inspector, recursive folder sizes,
+  owner-name lookup, media metadata, search, and future settings UI.
 
 ## Depth tree
 
-1. Monitor and coalescer
-   - Add one active GIO monitor with explicit lifecycle and structured start failures.
-   - Normalize event kinds, exact paths, rename pairs, caps, and one-shot debounce.
-2. Reconciliation policy
-   - Snapshot selection and scroll anchor before watcher refresh.
-   - Reconcile exact identities and rename mappings against the new listing in O(n).
-3. Browser integration
-   - Stop stale monitors on navigation and restart only after successful local listings.
-   - Submit one existing worker enumeration per coalesced batch and restore view state after batched model insertion.
-4. Verification and records
-   - Cover storms, duplicate events, create/delete/rename, stale generations, and 100k paths.
-   - Run formatting, check, strict Clippy, workspace tests, diff hygiene, and native Wayland external-change smoke.
-   - Update persistent docs to mark 6S complete and exactly 6T next.
+1. Core view policy
+   - Extension sort and raw identity.
+   - Directory first/last independent from sort direction.
+   - None/Type/Extension grouping independent from sorting.
+2. Bounded enrichment and presentation
+   - Capacity-64 metadata worker, 512-result cache, exact source identity.
+   - Nine stable columns, optional visibility, clamped widths, accessible sort
+     state, recycled-row-safe bindings.
+   - Shared list/grid density classes without density-only factory replacement.
+3. Preference scope
+   - Version-2 migration preserving legacy view/grid/sidebar values.
+   - Global policy plus opt-in 256-entry raw-path folder overrides.
+4. Status and storage
+   - Known selected/visible bytes without recursive directory size claims.
+   - Capacity-32 GIO storage worker for current location and mounted devices.
+5. Verification and handoff
+   - Focused and full Rust gates, diff audit, native two-launch Wayland smoke.
+   - Update architecture, design, privacy/security, roadmap, matrix, and status.
 
-## Status log
+## Evidence
 
-- 2026-08-24: Fast-forwarded verified Phase 6R commit `b6cc228` into `main` and pushed both branch and main.
-- 2026-08-24: Created `phase-6s-file-watching` from clean synchronized `main`.
-- 2026-08-24: Read the Phase 6S roadmap/matrix and inspected BrowserWorker supersession, listing/model batching, exact selection state, GTK scroll APIs, and existing GIO dependency.
-- 2026-08-24: Selected GIO directory monitoring over a new crate under the project's standards-first integration priority and defined executable gates before coding.
-- 2026-08-24: Implemented one active monitor, capped one-shot coalescing, exact event/rename mapping, stale-generation rejection, and one worker reload per accepted batch.
-- 2026-08-24: Added exact selection plus stable path/index scroll-anchor reconciliation for watcher, manual, and operation refresh, including bounded rename chains and a 100k-path test.
-- 2026-08-24: Formatting, workspace check, strict Clippy, 277 tests, diff hygiene, and isolated native Wayland create/rename/delete smoke passed.
-- 2026-08-24: Updated persistent records to mark Phase 6S complete and exactly Phase 6T next.
+- Focused Phase 6T suites: 3 core sorting/grouping tests and 17 application
+  metadata/column/density/preference/status tests passed.
+- Full workspace: 228 application plus 66 core tests passed (294 total).
+- `cargo fmt --all -- --check`, workspace check, strict all-target/all-feature
+  Clippy, and `git diff --check` passed.
+- Native Niri/Wayland smoke exported 73 actions, exercised density, grouping,
+  directory placement, optional columns, and width adjustment, restored their
+  state on a second isolated launch, answered D-Bus `Peer.Ping`, quit cleanly,
+  and released the application name twice.
+- Spectacle produced no capture on this host. Runtime action/persistence/health
+  evidence is recorded in `docs/DEVELOPMENT.md`.
 
 ## Status
 
-COMPLETE — next: `phase-6t-browser-completeness`
+COMPLETE — exactly one recommended next phase: `phase-7a-tabs-foundation`.

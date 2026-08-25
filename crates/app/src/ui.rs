@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::{HashMap, HashSet, VecDeque},
     path::PathBuf,
     rc::Rc,
@@ -7,7 +7,9 @@ use std::{
 };
 
 use adw::prelude::*;
-use floe_core::{DirectoryEntry, DirectorySort, EntryKind, SortColumn, SortDirection};
+use floe_core::{
+    DirectoryEntry, DirectoryGrouping, DirectorySort, EntryKind, SortColumn, SortDirection,
+};
 use gtk::{gio, glib};
 
 use crate::{
@@ -20,9 +22,10 @@ use crate::{
     iconography::{EntryIcon, LIST_ICON_EDGE, grid_icon_edge, icon_for_entry},
     launcher::OpenWithOptions,
     locations::Location,
+    metadata::{MetadataCache, MetadataDetails, MetadataError, MetadataKey},
     preferences::{SIDEBAR_WIDTH_MIN, SidebarDensity, ViewPreferences, clamp_sidebar_width},
     thumbnail::{LIST_THUMBNAIL_EDGE, ThumbnailError, ThumbnailKey, ThumbnailPixels},
-    view::{GRID_SIZES, GridSize, ViewMode},
+    view::{FileViewDensity, GRID_SIZES, GridSize, ListColumn, ListColumnLayout, ViewMode},
 };
 
 pub const SIDEBAR_COMPACT_MIN_WIDTH: i32 = 128;
@@ -274,16 +277,17 @@ fn context_selection_for_secondary(already_selected: bool) -> ContextSelection {
 }
 
 const CONFLICT_DECISION_LABELS: [&str; 2] = ["Keep Existing", "Retry with New Name"];
-const LIST_COLUMN_LABELS: [&str; 4] = ["Name", "Type", "Size", "Modified"];
+const LIST_COLUMN_LABELS: [&str; 5] = ["Name", "Type", "Size", "Modified", "Extension"];
 const TYPE_COLUMN_WIDTH: i32 = 11;
 const SIZE_COLUMN_WIDTH: i32 = 10;
 const MODIFIED_COLUMN_WIDTH: i32 = 18;
 const THUMBNAIL_CACHE_CAPACITY: usize = 256;
-pub const SORT_ACTIONS: [(&str, SortColumn); 4] = [
+pub const SORT_ACTIONS: [(&str, SortColumn); 5] = [
     ("sort-name", SortColumn::Name),
     ("sort-type", SortColumn::Type),
     ("sort-size", SortColumn::Size),
     ("sort-modified", SortColumn::Modified),
+    ("sort-extension", SortColumn::Extension),
 ];
 
 #[derive(Clone)]
@@ -457,10 +461,192 @@ fn texture_from_pixels(pixels: ThumbnailPixels) -> gtk::gdk::Texture {
 }
 
 #[derive(Clone)]
+struct MetadataLabels {
+    mime: glib::WeakRef<gtk::Label>,
+    created: glib::WeakRef<gtk::Label>,
+    accessed: glib::WeakRef<gtk::Label>,
+    permissions: glib::WeakRef<gtk::Label>,
+}
+
+impl MetadataLabels {
+    fn new(
+        mime: &gtk::Label,
+        created: &gtk::Label,
+        accessed: &gtk::Label,
+        permissions: &gtk::Label,
+    ) -> Self {
+        Self {
+            mime: mime.downgrade(),
+            created: created.downgrade(),
+            accessed: accessed.downgrade(),
+            permissions: permissions.downgrade(),
+        }
+    }
+
+    fn is_alive(&self) -> bool {
+        self.mime.upgrade().is_some()
+            && self.created.upgrade().is_some()
+            && self.accessed.upgrade().is_some()
+            && self.permissions.upgrade().is_some()
+    }
+
+    fn same_row(&self, other: &Self) -> bool {
+        self.mime
+            .upgrade()
+            .zip(other.mime.upgrade())
+            .is_some_and(|(left, right)| left == right)
+    }
+
+    fn clear(&self) {
+        for label in [
+            self.mime.upgrade(),
+            self.created.upgrade(),
+            self.accessed.upgrade(),
+            self.permissions.upgrade(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            label.set_label("");
+            label.set_tooltip_text(None);
+        }
+    }
+}
+
+struct MetadataBinding {
+    key: MetadataKey,
+    labels: MetadataLabels,
+}
+
+#[derive(Default)]
+struct MetadataPresentationState {
+    cache: MetadataCache,
+    bindings: Vec<MetadataBinding>,
+}
+
+#[derive(Clone, Default)]
+pub struct MetadataPresentation {
+    state: Rc<RefCell<MetadataPresentationState>>,
+}
+
+impl MetadataPresentation {
+    fn request(&self, entry: &DirectoryEntry, labels: MetadataLabels) {
+        labels.clear();
+        let key = MetadataKey::from_entry(entry);
+        let cached = {
+            let mut state = self.state.borrow_mut();
+            state
+                .bindings
+                .retain(|binding| !binding.labels.same_row(&labels));
+            state.cache.request(key.clone()).cloned()
+        };
+        if let Some(Ok(details)) = cached {
+            apply_metadata_details(&labels, &details);
+            return;
+        }
+        if cached.is_none() {
+            self.state
+                .borrow_mut()
+                .bindings
+                .push(MetadataBinding { key, labels });
+        }
+    }
+
+    pub fn take_request(&self) -> Option<MetadataKey> {
+        self.state.borrow_mut().cache.take_request()
+    }
+
+    pub fn retry(&self, key: MetadataKey) {
+        self.state.borrow_mut().cache.retry(key);
+    }
+
+    pub fn complete(&self, key: MetadataKey, result: Result<MetadataDetails, MetadataError>) {
+        let details = result.as_ref().ok().cloned();
+        let mut state = self.state.borrow_mut();
+        state.cache.complete(key.clone(), result);
+        state.bindings.retain(|binding| {
+            if !binding.labels.is_alive() {
+                return false;
+            }
+            if binding.key == key {
+                if let Some(details) = details.as_ref() {
+                    apply_metadata_details(&binding.labels, details);
+                }
+                return false;
+            }
+            true
+        });
+    }
+
+    pub fn begin_generation(&self) {
+        let mut state = self.state.borrow_mut();
+        state.cache.clear_pending();
+        state.bindings.clear();
+    }
+}
+
+fn apply_metadata_details(labels: &MetadataLabels, details: &MetadataDetails) {
+    if let Some(label) = labels.mime.upgrade() {
+        let text = details.mime_type.as_deref().unwrap_or_default();
+        label.set_label(text);
+        label.set_tooltip_text((!text.is_empty()).then_some(text));
+    }
+    if let Some(label) = labels.created.upgrade() {
+        let text = details
+            .created
+            .and_then(format_modified)
+            .unwrap_or_default();
+        label.set_label(&text);
+        label.set_tooltip_text((!text.is_empty()).then_some(text.as_str()));
+    }
+    if let Some(label) = labels.accessed.upgrade() {
+        let text = details
+            .accessed
+            .and_then(format_modified)
+            .unwrap_or_default();
+        label.set_label(&text);
+        label.set_tooltip_text((!text.is_empty()).then_some(text.as_str()));
+    }
+    if let Some(label) = labels.permissions.upgrade() {
+        let text = details
+            .unix_mode
+            .map(format_permissions)
+            .unwrap_or_default();
+        label.set_label(&text);
+        label.set_tooltip_text((!text.is_empty()).then_some(text.as_str()));
+    }
+}
+
+fn format_permissions(mode: u32) -> String {
+    let mut text = String::with_capacity(10);
+    text.push(match mode & 0o170000 {
+        0o040000 => 'd',
+        0o120000 => 'l',
+        _ => '-',
+    });
+    for (read, write, execute) in [
+        (0o400, 0o200, 0o100),
+        (0o040, 0o020, 0o010),
+        (0o004, 0o002, 0o001),
+    ] {
+        text.push(if mode & read != 0 { 'r' } else { '-' });
+        text.push(if mode & write != 0 { 'w' } else { '-' });
+        text.push(if mode & execute != 0 { 'x' } else { '-' });
+    }
+    text
+}
+
+#[derive(Clone)]
 pub struct SortHeaderWidgets {
     pub column: SortColumn,
     pub button: gtk::Button,
     label: gtk::Label,
+}
+
+#[derive(Clone)]
+pub struct ListColumnHeaderWidgets {
+    pub column: ListColumn,
+    pub widget: gtk::Widget,
 }
 
 pub struct OpenWithDialogWidgets {
@@ -553,7 +739,10 @@ pub struct BrowserWidgets {
     pub spinner: gtk::Spinner,
     pub status_label: gtk::Label,
     pub sort_headers: Vec<SortHeaderWidgets>,
+    pub column_headers: Vec<ListColumnHeaderWidgets>,
+    pub group_header_spacer: gtk::Widget,
     pub thumbnails: ThumbnailPresentation,
+    pub metadata: MetadataPresentation,
     pub location_buttons: Vec<gtk::Button>,
     pub bookmarks_box: gtk::Box,
     pub add_bookmark_button: gtk::Button,
@@ -564,6 +753,9 @@ pub struct BrowserWidgets {
     pub sidebar: gtk::Box,
     pub sidebar_default_width: i32,
     pub operations: OperationWidgets,
+    list_layout: Rc<Cell<ListColumnLayout>>,
+    list_grouping: Rc<Cell<DirectoryGrouping>>,
+    list_factory: gtk::SignalListItemFactory,
 }
 
 struct SidebarWidgets {
@@ -591,7 +783,13 @@ struct DirectoryPanelWidgets {
     spinner: gtk::Spinner,
     status_label: gtk::Label,
     sort_headers: Vec<SortHeaderWidgets>,
+    column_headers: Vec<ListColumnHeaderWidgets>,
+    group_header_spacer: gtk::Widget,
     thumbnails: ThumbnailPresentation,
+    metadata: MetadataPresentation,
+    list_layout: Rc<Cell<ListColumnLayout>>,
+    list_grouping: Rc<Cell<DirectoryGrouping>>,
+    list_factory: gtk::SignalListItemFactory,
 }
 
 impl BrowserWidgets {
@@ -607,6 +805,38 @@ impl BrowserWidgets {
         self.sidebar.set_margin_bottom(metrics.outer_margin);
         self.sidebar.set_margin_start(metrics.outer_margin);
         self.sidebar.set_margin_end(metrics.outer_margin);
+    }
+
+    pub fn apply_file_view_policy(
+        &self,
+        density: FileViewDensity,
+        layout: ListColumnLayout,
+        grouping: DirectoryGrouping,
+    ) {
+        let requires_rebind =
+            self.list_layout.get() != layout || self.list_grouping.get() != grouping;
+        self.list_layout.set(layout);
+        self.list_grouping.set(grouping);
+        self.group_header_spacer
+            .set_visible(grouping != DirectoryGrouping::None);
+        for class_name in ["view-compact", "view-comfortable", "view-spacious"] {
+            self.list_view.remove_css_class(class_name);
+            self.grid_view.remove_css_class(class_name);
+        }
+        let class_name = file_view_density_class(density);
+        self.list_view.add_css_class(class_name);
+        self.grid_view.add_css_class(class_name);
+        for header in &self.column_headers {
+            header.widget.set_visible(layout.is_visible(header.column));
+            header
+                .widget
+                .set_width_request(i32::from(layout.width(header.column)));
+        }
+        if requires_rebind {
+            self.list_view
+                .set_factory(None::<&gtk::SignalListItemFactory>);
+            self.list_view.set_factory(Some(&self.list_factory));
+        }
     }
 
     pub fn set_view_mode(&self, mode: ViewMode) {
@@ -712,6 +942,14 @@ impl BrowserWidgets {
             ViewMode::List => &self.list_background_menu,
             ViewMode::Grid => &self.grid_background_menu,
         }
+    }
+}
+
+const fn file_view_density_class(density: FileViewDensity) -> &'static str {
+    match density {
+        FileViewDensity::Compact => "view-compact",
+        FileViewDensity::Comfortable => "view-comfortable",
+        FileViewDensity::Spacious => "view-spacious",
     }
 }
 
@@ -843,6 +1081,59 @@ pub fn build(
         Some(RESET_SIDEBAR_WIDTH_MENU_ITEM.1),
     );
     file_actions_model.append_section(None, &sidebar_model);
+    let file_density_model = gio::Menu::new();
+    for (label, value) in [
+        ("Compact", "compact"),
+        ("Comfortable", "comfortable"),
+        ("Spacious", "spacious"),
+    ] {
+        file_density_model.append(Some(label), Some(&format!("win.file-density::{value}")));
+    }
+    let grouping_model = gio::Menu::new();
+    for (label, value) in [
+        ("None", "none"),
+        ("Type", "type"),
+        ("Extension", "extension"),
+    ] {
+        grouping_model.append(Some(label), Some(&format!("win.grouping::{value}")));
+    }
+    let directory_model = gio::Menu::new();
+    directory_model.append(
+        Some("Folders First"),
+        Some("win.directory-placement::first"),
+    );
+    directory_model.append(Some("Folders Last"), Some("win.directory-placement::last"));
+    let columns_model = gio::Menu::new();
+    let name_column_menu = gio::Menu::new();
+    name_column_menu.append(Some("Narrower"), Some("win.narrow-name"));
+    name_column_menu.append(Some("Wider"), Some("win.widen-name"));
+    columns_model.append_submenu(Some("Name"), &name_column_menu);
+    for column in ListColumn::OPTIONAL {
+        let column_menu = gio::Menu::new();
+        column_menu.append(
+            Some("Show Column"),
+            Some(&format!("win.column-{}", column.persisted())),
+        );
+        column_menu.append(
+            Some("Narrower"),
+            Some(&format!("win.narrow-{}", column.persisted())),
+        );
+        column_menu.append(
+            Some("Wider"),
+            Some(&format!("win.widen-{}", column.persisted())),
+        );
+        columns_model.append_submenu(Some(column.label()), &column_menu);
+    }
+    let browser_view_model = gio::Menu::new();
+    browser_view_model.append_submenu(Some("File Density"), &file_density_model);
+    browser_view_model.append_submenu(Some("Group By"), &grouping_model);
+    browser_view_model.append_submenu(Some("Folder Placement"), &directory_model);
+    browser_view_model.append_submenu(Some("Columns"), &columns_model);
+    browser_view_model.append(
+        Some("Remember View per Folder"),
+        Some("win.remember-folder-view"),
+    );
+    file_actions_model.append_section(Some("Browser View"), &browser_view_model);
     file_actions_model.append(
         Some(OPERATION_HISTORY_MENU_ITEM.0),
         Some(OPERATION_HISTORY_MENU_ITEM.1),
@@ -933,8 +1224,14 @@ pub fn build(
         spinner,
         status_label,
         sort_headers,
+        column_headers,
+        group_header_spacer,
         thumbnails,
-    } = build_directory_panel(preferences, &drop_dispatcher);
+        metadata,
+        list_layout,
+        list_grouping,
+        list_factory,
+    } = build_directory_panel(preferences.clone(), &drop_dispatcher);
 
     content.set_width_request(420);
     let restored_sidebar_width = initial_sidebar_width(preferences, appearance.sidebar_width());
@@ -1002,7 +1299,10 @@ pub fn build(
         spinner,
         status_label,
         sort_headers,
+        column_headers,
+        group_header_spacer,
         thumbnails,
+        metadata,
         location_buttons: sidebar.location_buttons,
         bookmarks_box: sidebar.bookmarks_box,
         add_bookmark_button: sidebar.add_bookmark_button,
@@ -1013,6 +1313,9 @@ pub fn build(
         sidebar: sidebar.sidebar,
         sidebar_default_width: appearance.sidebar_width(),
         operations,
+        list_layout,
+        list_grouping,
+        list_factory,
     }
 }
 
@@ -1146,7 +1449,7 @@ pub fn build_permanent_delete_dialog(target_labels: &[String]) -> PermanentDelet
         .min_content_height(76)
         .max_content_height(220)
         .propagate_natural_height(true)
-        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .hscrollbar_policy(gtk::PolicyType::Never)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .build();
 
@@ -1352,7 +1655,7 @@ pub fn build_operation_history_dialog(
     }
 
     let scroller = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .min_content_height(280)
         .child(&list)
@@ -1772,6 +2075,9 @@ fn build_directory_panel(
     grid_background_menu.set_has_arrow(false);
 
     let thumbnails = ThumbnailPresentation::new();
+    let metadata = MetadataPresentation::default();
+    let list_layout = Rc::new(Cell::new(preferences.columns));
+    let list_grouping = Rc::new(Cell::new(preferences.sort.grouping));
     let factory = gtk::SignalListItemFactory::new();
     let row_selection = selection.clone();
     let row_context_menu = list_context_menu.clone();
@@ -1785,6 +2091,15 @@ fn build_directory_panel(
             .spacing(12)
             .build();
         row.add_css_class("floe-list-row");
+        let group = gtk::Label::builder()
+            .halign(gtk::Align::Start)
+            .width_request(112)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .single_line_mode(true)
+            .visible(false)
+            .build();
+        group.add_css_class("heading");
+        group.add_css_class("floe-group-label");
         let icon = gtk::Image::builder().pixel_size(LIST_ICON_EDGE).build();
         icon.set_accessible_role(gtk::AccessibleRole::Presentation);
         let name = gtk::Label::builder()
@@ -1819,11 +2134,22 @@ fn build_directory_panel(
             .single_line_mode(true)
             .build();
         modified.add_css_class("floe-entry-modified");
+        let extension = list_column_label(ListColumn::Extension);
+        let mime = list_column_label(ListColumn::Mime);
+        let created = list_column_label(ListColumn::Created);
+        let accessed = list_column_label(ListColumn::Accessed);
+        let permissions = list_column_label(ListColumn::Permissions);
+        row.append(&group);
         row.append(&icon);
         row.append(&name);
         row.append(&entry_type);
         row.append(&size);
         row.append(&modified);
+        row.append(&extension);
+        row.append(&mime);
+        row.append(&created);
+        row.append(&accessed);
+        row.append(&permissions);
 
         let secondary_click = gtk::GestureClick::new();
         secondary_click.set_button(gtk::gdk::BUTTON_SECONDARY);
@@ -1876,6 +2202,10 @@ fn build_directory_panel(
         list_item.set_child(Some(&row));
     });
     let thumbnails_for_bind = thumbnails.clone();
+    let metadata_for_bind = metadata.clone();
+    let layout_for_bind = Rc::clone(&list_layout);
+    let grouping_for_bind = Rc::clone(&list_grouping);
+    let selection_for_bind = selection.clone();
     factory.connect_bind(move |_, object| {
         let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
             return;
@@ -1883,7 +2213,10 @@ fn build_directory_panel(
         let Some(row) = list_item.child().and_downcast::<gtk::Box>() else {
             return;
         };
-        let Some(icon) = row.first_child().and_downcast::<gtk::Image>() else {
+        let Some(group) = row.first_child().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(icon) = group.next_sibling().and_downcast::<gtk::Image>() else {
             return;
         };
         let Some(name) = icon.next_sibling().and_downcast::<gtk::Label>() else {
@@ -1898,10 +2231,40 @@ fn build_directory_panel(
         let Some(modified) = size.next_sibling().and_downcast::<gtk::Label>() else {
             return;
         };
+        let Some(extension) = modified.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(mime) = extension.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(created) = mime.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(accessed) = created.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(permissions) = accessed.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
         let Some(object) = list_item.item().and_downcast::<glib::BoxedAnyObject>() else {
             return;
         };
         let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
+        let grouping = grouping_for_bind.get();
+        let previous = list_item
+            .position()
+            .checked_sub(1)
+            .and_then(|position| selection_for_bind.item(position))
+            .and_downcast::<glib::BoxedAnyObject>()
+            .map(|object| object.borrow::<std::sync::Arc<DirectoryEntry>>().clone());
+        let starts_group = grouping.starts_group(&entry, previous.as_deref());
+        group.set_visible(grouping != DirectoryGrouping::None);
+        group.set_label(
+            &starts_group
+                .then(|| grouping.label(&entry))
+                .flatten()
+                .unwrap_or_default(),
+        );
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
         let tooltip = entry
@@ -1942,6 +2305,37 @@ fn build_directory_panel(
         );
         modified.set_label(&modified_text);
         modified.set_tooltip_text((!modified_text.is_empty()).then_some(modified_text.as_str()));
+        let extension_text = entry.display_name();
+        let extension_text = std::path::Path::new(extension_text)
+            .extension()
+            .map(|value| value.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        extension.set_label(&extension_text);
+        extension.set_tooltip_text((!extension_text.is_empty()).then_some(extension_text.as_str()));
+
+        let layout = layout_for_bind.get();
+        for (column, label) in [
+            (ListColumn::Name, &name),
+            (ListColumn::Type, &entry_type),
+            (ListColumn::Size, &size),
+            (ListColumn::Modified, &modified),
+            (ListColumn::Extension, &extension),
+            (ListColumn::Mime, &mime),
+            (ListColumn::Created, &created),
+            (ListColumn::Accessed, &accessed),
+            (ListColumn::Permissions, &permissions),
+        ] {
+            label.set_visible(layout.is_visible(column));
+            label.set_width_request(i32::from(layout.width(column)));
+        }
+        if layout.needs_lazy_metadata() {
+            metadata_for_bind.request(
+                &entry,
+                MetadataLabels::new(&mime, &created, &accessed, &permissions),
+            );
+        } else {
+            MetadataLabels::new(&mime, &created, &accessed, &permissions).clear();
+        }
     });
     let thumbnails_for_unbind = thumbnails.clone();
     factory.connect_unbind(move |_, object| {
@@ -1951,13 +2345,16 @@ fn build_directory_panel(
         let Some(row) = list_item.child().and_downcast::<gtk::Box>() else {
             return;
         };
-        let Some(icon) = row.first_child().and_downcast::<gtk::Image>() else {
+        let Some(group) = row.first_child().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(icon) = group.next_sibling().and_downcast::<gtk::Image>() else {
             return;
         };
         thumbnails_for_unbind.unbind(&icon);
     });
 
-    let list_view = gtk::ListView::new(Some(selection.clone()), Some(factory));
+    let list_view = gtk::ListView::new(Some(selection.clone()), Some(factory.clone()));
     list_view.add_css_class("floe-directory-list");
     list_view.set_single_click_activate(false);
     list_view.set_vexpand(true);
@@ -1971,7 +2368,7 @@ fn build_directory_panel(
     );
 
     let list_scroller = gtk::ScrolledWindow::builder()
-        .hscrollbar_policy(gtk::PolicyType::Never)
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
         .vscrollbar_policy(gtk::PolicyType::Automatic)
         .child(&list_view)
         .vexpand(true)
@@ -2059,7 +2456,8 @@ fn build_directory_panel(
         .vexpand(true)
         .build();
     panel.add_css_class("floe-panel");
-    let (list_header, sort_headers) = build_list_header();
+    let (list_header, sort_headers, column_headers, group_header_spacer) =
+        build_list_header(preferences.columns, preferences.sort.grouping);
     list_header.set_visible(preferences.mode == ViewMode::List);
     panel.append(&list_header);
     panel.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
@@ -2082,7 +2480,13 @@ fn build_directory_panel(
         spinner,
         status_label,
         sort_headers,
+        column_headers,
+        group_header_spacer,
         thumbnails,
+        metadata,
+        list_layout,
+        list_grouping,
+        list_factory: factory,
     }
 }
 
@@ -2412,13 +2816,24 @@ fn apply_thumbnail(image: &gtk::Image, texture: &gtk::gdk::Texture, edge: u16) {
     image.add_css_class("floe-thumbnail");
 }
 
-fn build_list_header() -> (gtk::Box, Vec<SortHeaderWidgets>) {
+fn build_list_header(
+    layout: ListColumnLayout,
+    grouping: DirectoryGrouping,
+) -> (
+    gtk::Box,
+    Vec<SortHeaderWidgets>,
+    Vec<ListColumnHeaderWidgets>,
+    gtk::Widget,
+) {
     let header = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .spacing(12)
         .build();
     header.add_css_class("floe-list-header");
 
+    let group_header_spacer = gtk::Box::builder().width_request(112).build();
+    group_header_spacer.set_visible(grouping != DirectoryGrouping::None);
+    header.append(&group_header_spacer);
     header.append(
         &gtk::Box::builder()
             .width_request(i32::from(LIST_THUMBNAIL_EDGE))
@@ -2433,6 +2848,7 @@ fn build_list_header() -> (gtk::Box, Vec<SortHeaderWidgets>) {
             Some(TYPE_COLUMN_WIDTH),
             Some(SIZE_COLUMN_WIDTH),
             Some(MODIFIED_COLUMN_WIDTH),
+            Some(TYPE_COLUMN_WIDTH),
         ])
         .enumerate()
     {
@@ -2457,8 +2873,18 @@ fn build_list_header() -> (gtk::Box, Vec<SortHeaderWidgets>) {
             .action_name(sort_action_name(column))
             .hexpand(index == 0)
             .build();
+        let list_column = match column {
+            SortColumn::Name => ListColumn::Name,
+            SortColumn::Type => ListColumn::Type,
+            SortColumn::Size => ListColumn::Size,
+            SortColumn::Modified => ListColumn::Modified,
+            SortColumn::Extension => ListColumn::Extension,
+        };
+        button.set_width_request(i32::from(layout.width(list_column)));
+        button.set_visible(layout.is_visible(list_column));
         button.add_css_class("flat");
         button.add_css_class("floe-sort-heading");
+        install_column_resize_gesture(&button, list_column);
         header.append(&button);
         widgets.push(SortHeaderWidgets {
             column,
@@ -2466,8 +2892,72 @@ fn build_list_header() -> (gtk::Box, Vec<SortHeaderWidgets>) {
             label: heading,
         });
     }
+    let mut column_headers = widgets
+        .iter()
+        .map(|header| ListColumnHeaderWidgets {
+            column: match header.column {
+                SortColumn::Name => ListColumn::Name,
+                SortColumn::Type => ListColumn::Type,
+                SortColumn::Size => ListColumn::Size,
+                SortColumn::Modified => ListColumn::Modified,
+                SortColumn::Extension => ListColumn::Extension,
+            },
+            widget: header.button.clone().upcast(),
+        })
+        .collect::<Vec<_>>();
+    for column in [
+        ListColumn::Mime,
+        ListColumn::Created,
+        ListColumn::Accessed,
+        ListColumn::Permissions,
+    ] {
+        let label = gtk::Label::builder()
+            .label(column.label())
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .single_line_mode(true)
+            .width_request(i32::from(layout.width(column)))
+            .visible(layout.is_visible(column))
+            .build();
+        label.add_css_class("floe-metadata-heading");
+        install_column_resize_gesture(&label, column);
+        header.append(&label);
+        column_headers.push(ListColumnHeaderWidgets {
+            column,
+            widget: label.upcast(),
+        });
+    }
 
-    (header, widgets)
+    (
+        header,
+        widgets,
+        column_headers,
+        group_header_spacer.upcast(),
+    )
+}
+
+fn install_column_resize_gesture(widget: &impl IsA<gtk::Widget>, column: ListColumn) {
+    let gesture = gtk::GestureDrag::new();
+    let widget_weak = widget.as_ref().downgrade();
+    gesture.connect_drag_end(move |_, offset_x, _| {
+        let Some(widget) = widget_weak.upgrade() else {
+            return;
+        };
+        let steps = (offset_x.abs() / 16.0).round().clamp(1.0, 8.0) as usize;
+        let action = column_resize_action(column, offset_x >= 0.0);
+        if offset_x.abs() < 4.0 {
+            return;
+        }
+        for _ in 0..steps {
+            let _ = widget.activate_action(&action, None);
+        }
+    });
+    widget.add_controller(gesture);
+}
+
+fn column_resize_action(column: ListColumn, wider: bool) -> String {
+    let direction = if wider { "widen" } else { "narrow" };
+    format!("win.{direction}-{}", column.persisted())
 }
 
 fn sort_action_name(column: SortColumn) -> &'static str {
@@ -2476,6 +2966,7 @@ fn sort_action_name(column: SortColumn) -> &'static str {
         SortColumn::Type => "win.sort-type",
         SortColumn::Size => "win.sort-size",
         SortColumn::Modified => "win.sort-modified",
+        SortColumn::Extension => "win.sort-extension",
     }
 }
 
@@ -2536,6 +3027,31 @@ fn entry_type_label(kind: EntryKind) -> &'static str {
         } => "File link",
         EntryKind::Other => "Special",
     }
+}
+
+fn list_column_label(column: ListColumn) -> gtk::Label {
+    let label = gtk::Label::builder()
+        .halign(if matches!(column, ListColumn::Size) {
+            gtk::Align::End
+        } else {
+            gtk::Align::Start
+        })
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .single_line_mode(true)
+        .xalign(if matches!(column, ListColumn::Size) {
+            1.0
+        } else {
+            0.0
+        })
+        .build();
+    label.add_css_class("floe-metadata-column");
+    if matches!(
+        column,
+        ListColumn::Size | ListColumn::Modified | ListColumn::Created | ListColumn::Accessed
+    ) {
+        label.add_css_class("numeric");
+    }
+    label
 }
 
 fn format_size(bytes: u64) -> String {
@@ -2666,25 +3182,18 @@ mod tests {
     #[test]
     fn phase_6k2_sidebar_width_restores_clamped_value_or_appearance_default() {
         let appearance_default = 168;
+        let with_width = |width| {
+            let mut preferences = ViewPreferences::default();
+            preferences.sidebar_width = Some(width);
+            preferences
+        };
 
         assert_eq!(
-            initial_sidebar_width(
-                ViewPreferences {
-                    sidebar_width: Some(312),
-                    ..ViewPreferences::default()
-                },
-                appearance_default,
-            ),
+            initial_sidebar_width(with_width(312), appearance_default),
             312
         );
         assert_eq!(
-            initial_sidebar_width(
-                ViewPreferences {
-                    sidebar_width: Some(1),
-                    ..ViewPreferences::default()
-                },
-                appearance_default,
-            ),
+            initial_sidebar_width(with_width(1), appearance_default),
             i32::from(SIDEBAR_WIDTH_MIN)
         );
         assert_eq!(
@@ -2696,7 +3205,10 @@ mod tests {
 
     #[test]
     fn phase_6a_columns_have_stable_scannable_semantics() {
-        assert_eq!(LIST_COLUMN_LABELS, ["Name", "Type", "Size", "Modified"]);
+        assert_eq!(
+            LIST_COLUMN_LABELS,
+            ["Name", "Type", "Size", "Modified", "Extension"]
+        );
     }
 
     #[test]
@@ -2967,6 +3479,44 @@ mod tests {
             None,
         );
         assert_eq!(unavailable.status, "Unavailable");
+    }
+
+    #[test]
+    fn phase_6t_density_maps_to_stable_shared_list_and_grid_classes() {
+        assert_eq!(
+            file_view_density_class(FileViewDensity::Compact),
+            "view-compact"
+        );
+        assert_eq!(
+            file_view_density_class(FileViewDensity::Comfortable),
+            "view-comfortable"
+        );
+        assert_eq!(
+            file_view_density_class(FileViewDensity::Spacious),
+            "view-spacious"
+        );
+    }
+
+    #[test]
+    fn phase_6t_columns_have_keyboard_action_parity_and_extension_sort_name() {
+        for column in ListColumn::ALL {
+            assert_eq!(
+                column_resize_action(column, false),
+                format!("win.narrow-{}", column.persisted())
+            );
+            assert_eq!(
+                column_resize_action(column, true),
+                format!("win.widen-{}", column.persisted())
+            );
+        }
+        assert_eq!(
+            sort_action_name(SortColumn::Extension),
+            "win.sort-extension"
+        );
+        assert_eq!(
+            sort_heading_text(SortColumn::Extension, Some(SortDirection::Ascending)),
+            "Extension ↑"
+        );
     }
 
     #[test]

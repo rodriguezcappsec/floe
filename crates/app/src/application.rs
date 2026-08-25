@@ -10,9 +10,11 @@ use crate::{
     browser::{BrowserController, BrowserServices},
     devices::DeviceMonitor,
     iconography, locations,
+    metadata::MetadataWorker,
     operations::OperationController,
     preferences::{PreferenceWorker, ViewPreferences},
     state::ApplicationState,
+    storage::StorageWorker,
     thumbnail::ThumbnailWorker,
     ui,
     worker::BrowserWorker,
@@ -41,7 +43,7 @@ pub fn run() -> glib::ExitCode {
     application.connect_activate(move |application| {
         build_window(
             application,
-            view_preferences,
+            view_preferences.clone(),
             &preference_worker_for_activate,
         );
     });
@@ -80,7 +82,7 @@ fn build_window(
         .first()
         .map(|place| place.path.clone())
         .unwrap_or_else(glib::home_dir);
-    let widgets = ui::build(application, &places, appearance, view_preferences);
+    let widgets = ui::build(application, &places, appearance, view_preferences.clone());
     let worker = match BrowserWorker::spawn() {
         Ok(worker) => worker,
         Err(error) => {
@@ -103,6 +105,20 @@ fn build_window(
         Ok(worker) => Some(worker),
         Err(error) => {
             tracing::warn!(%error, "could not start thumbnail worker; using generic icons");
+            None
+        }
+    };
+    let metadata_worker = match MetadataWorker::spawn() {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            tracing::warn!(%error, "could not start metadata worker; using basic details");
+            None
+        }
+    };
+    let storage_worker = match StorageWorker::spawn() {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            tracing::warn!(%error, "could not start storage facts worker");
             None
         }
     };
@@ -147,6 +163,8 @@ fn build_window(
         BrowserServices::new(
             worker,
             thumbnail_worker,
+            metadata_worker,
+            storage_worker,
             bookmark_worker,
             device_monitor,
             preference_worker.borrow_mut().take(),

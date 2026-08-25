@@ -63,7 +63,7 @@ phases add hostile-input, failure-path, cache-leak, and claim-accuracy tests.
 | 6L | COMPLETE | Supervised freedesktop system-thumbnailer providers with bounded cache integration. |
 | 6M | COMPLETE | Confirmed multi-target permanent deletion with mount/symlink safety and truthful partial failure. |
 
-The actual completed phase is **Phase 6O**.
+The actual completed phase is **Phase 6T**.
 
 ## Phase 6 — Finish browser and filesystem foundations
 
@@ -136,13 +136,13 @@ Goal: make standards-correct local Trash a first-class Floe location.
 | 6Q — Create/duplicate/links | COMPLETE | `phase-6q-create-duplicate-links` | New folder/file, native template selection, FIFO duplicate, symbolic/hard links, asynchronous reveal target, copy name/path/relative-path/local URI. | Verified bounded create executor, collision-safe `(copy N)` retries, broken/raw symbolic targets, regular-file-only hard links, exact clipboard identity, no shell, no privileged creation, and no overwrite. |
 | 6R — Drag and drop | COMPLETE | `phase-6r-drag-drop` | Internal/external local-file drag, list/grid folders, Places/bookmarks/devices/Trash, copy/move/link negotiation, hover-open, edge autoscroll, accessible highlighting. | Verified exact `PathBuf` payloads, no-overwrite FIFO jobs, rejected self-nesting/non-local targets, and keyboard/menu alternatives. |
 | 6S — File watching | COMPLETE | `phase-6s-file-watching` | One active GIO monitor, bounded 140 ms burst coalescing, exact rename reconciliation, refresh plus selection/scroll restoration. | Verified stale-generation rejection, event/path/rename caps, create/delete/rename, 100k-path O(n) reconciliation, and no integrity-monitoring claim. |
-| 6T — Browser completeness | NEXT | `phase-6t-browser-completeness` | Lazy metadata, sorting/grouping, columns, density, per-folder views, status/device detail. | 6S; no eager metadata storms; verify stable enrichment and preference migration. |
+| 6T — Browser completeness | COMPLETE | `phase-6t-browser-completeness` | Lazy metadata, sorting/grouping, columns, density, per-folder views, status/device detail. | Verified fixed-capacity visible-row enrichment, stable ordering, exact-path preference migration, bounded storage facts, and native restoration smoke. |
 
 ## Phase 7 — Tabs and split view
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 7A — Tab/session model | PLANNED | `phase-7a-tabs-foundation` | Serializable browser sessions: path, history, selection, scroll, sort, view. | 6S/6T; no widgets or duplicated workers; verify exact GTK-independent state. |
+| 7A — Tab/session model | NEXT | `phase-7a-tabs-foundation` | Serializable browser sessions: path, history, selection, scroll, sort, view. | 6S/6T; no widgets or duplicated workers; verify exact GTK-independent state. |
 | 7B — Tab interaction | PLANNED | `phase-7b-tabs-interaction` | New, close, switch, duplicate, reorder, foreground/background open, middle-click. | 7A; no restore/split; verify pointer, keyboard, focus and native smoke. |
 | 7C — Closed tabs/restore | PLANNED | `phase-7c-tab-session-restore` | Reopen closed, close variants, optional names/pins, startup session restore. | 7A/7B; suppress private state; verify atomic versioned persistence and Ctrl+Shift+T. |
 | 7D — Split state | PLANNED | `phase-7d-split-state` | Two independent contexts, active side, histories, ratio and view modes. | 7A; widgets are not source of truth; verify serialization and focus identity. |

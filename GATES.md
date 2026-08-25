@@ -1,58 +1,44 @@
-# Gates: Floe Phase 6S File watching
+# Gates: Floe Phase 6T Browser completeness
 
 Status: COMPLETE
 
-- [x] G1: Work is isolated on `phase-6s-file-watching`; Phase 6T browser completeness is not implemented.
-  CHECK: `git branch --show-current && git diff --check`
-  EXPECT: Phase 6S branch and clean bounded diff.
-  EVIDENCE: Branch is `phase-6s-file-watching`; diff hygiene passes and no Phase 6T metadata, grouping, column, or per-folder preference work exists.
+- [x] G1: Work stayed on `phase-6t-browser-completeness`; no Phase 7 code was
+  introduced. `git branch --show-current` and diff audit confirmed scope.
+- [x] G2: Extension sorting, directory placement, and independent Type/Extension
+  grouping are GTK-independent, deterministic, and exact-path-safe. Three
+  `phase_6t_sort_group` core tests passed, including non-UTF-8 identity.
+- [x] G3: Extended metadata is requested only by bound rows through a capacity-64
+  worker and 512-entry cache. Stale identity, saturation, deduplication, eviction,
+  and safe fallback tests passed; recycled row bindings reject delayed prior work.
+- [x] G4: Nine list columns have stable semantics, optional visibility, clamped
+  pointer widths, keyboard/menu parity, and accessible Extension sorting. Three
+  `phase_6t_columns` tests passed; the shared model and selection remain intact.
+- [x] G5: Compact, Comfortable, and Spacious apply to shared list/grid widgets;
+  density-only changes do not replace the factory and focus remains visible. Two
+  `phase_6t_density` tests passed.
+- [x] G6: Legacy preferences migrate; complete global state and opt-in exact
+  raw-path folder overrides persist atomically with a 256-record cap. Three
+  `phase_6t_preferences` tests passed.
+- [x] G7: Status text reports known non-recursive bytes honestly. A capacity-32
+  GIO worker supplies current-location and mounted-device total/free/read-only
+  facts with generation, device ID, and exact path checks. Five
+  six `phase_6t_status` tests passed.
+- [x] G8: Lazy metadata callbacks update presentation only. Deliberate sort/group
+  changes use the existing browser worker and preserve exact selection/anchors.
+- [x] G9: Source/dependency audit found no new shell, privilege, recursive walk,
+  eager directory enrichment, lossy path reconstruction, unbounded worker/cache,
+  filesystem mutation in GTK callbacks, or dependency addition.
+- [x] G10: `cargo fmt --all -- --check`, `cargo check --workspace`, strict Clippy,
+  `cargo test --workspace`, and `git diff --check` passed. Totals: 228 application
+  and 66 core tests, 294 overall.
+- [x] G11: Native Niri/Wayland smoke used isolated HOME/XDG roots, exported 73
+  actions, exercised/restored density, grouping, directory placement, columns,
+  and width across two launches, answered D-Bus health checks, exited cleanly,
+  and released `io.github.floe.FileManager` twice. Spectacle produced no image;
+  action state and lifecycle are the native evidence.
+- [x] G12: Roadmap, matrix, design, architecture, development, privacy/security,
+  plan, gates, and persistent status record verified Phase 6T and mark exactly
+  Phase 7A as `NEXT`.
 
-- [x] G2: Exactly one application-owned GIO monitor follows the active successful local directory and is cancelled on navigation, replacement, Trash mode, and shutdown.
-  CHECK: `cargo test -p floe-app phase_6s_monitor -- --nocapture`
-  EXPECT: Focused lifecycle, exact path, generation, replacement, and stop tests pass.
-  EVIDENCE: Focused monitor test passes exact directory replacement, generation change, and stop; browser starts only after successful local listing and stops before every navigation/reload, Trash, failure, and shutdown.
-
-- [x] G3: Duplicate and storm events are coalesced by one cancellable timer with explicit event/path/rename caps and conservative overflow behavior.
-  CHECK: `cargo test -p floe-app phase_6s_coalescer -- --nocapture`
-  EXPECT: Focused debounce, deduplication, caps, overflow, and reset tests pass.
-  EVIDENCE: Focused coalescer test deduplicates 100 same-path events, caps 16,384 events, 4,096 paths, and 1,024 renames, records overflow, emits once, and resets.
-
-- [x] G4: Create, delete, attribute, move-in/out, and exact rename pairs map to one typed watcher batch without lossy path reconstruction.
-  CHECK: `cargo test -p floe-app phase_6s_events -- --nocapture`
-  EXPECT: Focused event mapping and raw non-UTF-8 rename tests pass.
-  EVIDENCE: Focused event test passes create/delete/attribute/move-in/move-out mapping and preserves raw non-UTF-8 source/destination rename identities through GIO paths.
-
-- [x] G5: Each current coalesced batch submits at most one superseding `BrowserWorker` enumeration; GTK performs no directory enumeration, metadata scan, mutation, or per-event model rebuild.
-  CHECK: `cargo test -p floe-app phase_6s_dispatch -- --nocapture`
-  EXPECT: Focused current/stale batch dispatch policy tests pass.
-  EVIDENCE: Focused dispatch test rejects old generation/directory batches; handler logs aggregate batch counts then calls `load_current_inner` exactly once, which submits one existing superseding worker request.
-
-- [x] G6: Exact selection and stable scroll-anchor identity survive creates and renames, deleted identities disappear, and reconciliation is linear for 100k paths.
-  CHECK: `cargo test -p floe-app phase_6s_reconcile -- --nocapture`
-  EXPECT: Focused create/delete/rename/raw-path/100k selection and anchor tests pass.
-  EVIDENCE: Focused reconciliation test passes surviving/deleted selection, direct and chained rename translation, stable/fallback anchor, raw identity, scroll ratio, and 100,000 current paths.
-
-- [x] G7: Deleted/inaccessible directories and watcher failures show recoverable feedback, stale batches cannot replace newer navigation, and no integrity-monitoring claim is made.
-  CHECK: `cargo test -p floe-app phase_6s_failure -- --nocapture`
-  EXPECT: Focused failure wording and stale-generation tests pass.
-  EVIDENCE: Focused failure test rejects invalid watch locations and requires “use Refresh” recovery wording without integrity language; generation/path policy prevents stale application.
-
-- [x] G8: Formatting, workspace build, strict Clippy, tests, and diff hygiene pass.
-  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && git diff --check`
-  EXPECT: All commands exit zero with measured test totals.
-  EVIDENCE: Command exits zero; all 277 tests pass: 63 core and 214 application, with zero failures.
-
-- [x] G9: Native Wayland smoke observes a coalesced external create/rename/delete cycle, application ownership, healthy responsiveness, and clean quit/name release.
-  CHECK: native Wayland external-change smoke procedure recorded in `GATES.md`
-  EXPECT: One reconciliation per event burst and clean application lifecycle.
-  EVIDENCE: Isolated HOME/XDG native run coalesced two creates as events=4/paths=2, mapped rename as events=1/paths=2/renames=1, reconciled delete once, exported 42 actions, answered `Peer.Ping`, quit cleanly, released its name; temporary root was removed.
-
-- [x] G10: No new dependency, shell, privilege, path logging, recursive watch, or GTK-thread filesystem work is introduced.
-  CHECK: `git diff -- Cargo.toml crates/app/Cargo.toml && rg -n "std::fs|Command::new|pkexec|sudo|recursive" crates/app/src/file_watcher.rs crates/app/src/browser.rs`
-  EXPECT: Existing GIO dependency only and no forbidden Phase 6S path.
-  EVIDENCE: Cargo manifests are unchanged; source audit finds no shell, elevation, filesystem mutation/enumeration, recursive watch, or path-valued tracing in the watcher/GTK integration.
-
-- [x] G11: Persistent documentation records verified Phase 6S and exactly Phase 6T as `NEXT`.
-  CHECK: `node <unlazy-skill-dir>/scripts/gate-check.mjs --status GATES.md`
-  EXPECT: `ALL MET`.
-  EVIDENCE: `AGENTS.md`, `PLAN.md`, `GATES.md`, `DESIGN.md`, `docs/ROADMAP.md`, `docs/FEATURE_MATRIX.md`, `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`, and `docs/PRIVACY_SECURITY.md` record verified Phase 6S and only Phase 6T next.
+Recommended next phase: `phase-7a-tabs-foundation`. Stop before implementing it
+on this branch.

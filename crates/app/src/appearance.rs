@@ -182,6 +182,20 @@ impl Appearance {
                 border-radius: 8px;
             }}
 
+            .floe-directory-list.view-compact row {{
+                padding: 3px 8px;
+                border-radius: 6px;
+            }}
+
+            .floe-directory-list.view-comfortable row {{
+                padding: 7px 12px;
+            }}
+
+            .floe-directory-list.view-spacious row {{
+                padding: 11px 16px;
+                border-radius: 10px;
+            }}
+
             .floe-directory-list row:hover {{
                 background-color: alpha(@accent_bg_color, 0.08);
             }}
@@ -196,6 +210,14 @@ impl Appearance {
 
             .floe-directory-grid {{
                 padding: 8px;
+            }}
+
+            .floe-directory-grid.view-compact {{
+                padding: 4px;
+            }}
+
+            .floe-directory-grid.view-spacious {{
+                padding: 12px;
             }}
 
             .floe-directory-grid child {{
@@ -216,6 +238,14 @@ impl Appearance {
 
             .floe-grid-cell {{
                 padding: 6px;
+            }}
+
+            .floe-directory-grid.view-compact .floe-grid-cell {{
+                padding: 3px;
+            }}
+
+            .floe-directory-grid.view-spacious .floe-grid-cell {{
+                padding: 10px;
             }}
 
 .floe-grid-name {{
@@ -254,6 +284,26 @@ impl Appearance {
                 color: @dim_label_color;
                 font-size: 0.85em;
                 font-weight: 600;
+            }}
+
+            .floe-metadata-heading {{
+                padding: 0 6px;
+            }}
+
+            .floe-metadata-column {{
+                color: @dim_label_color;
+                padding: 0 6px;
+            }}
+
+            .floe-metadata-column.numeric {{
+                font-feature-settings: "tnum";
+            }}
+
+            .floe-group-label {{
+                color: @dim_label_color;
+                font-size: 0.82em;
+                font-weight: 600;
+                padding-right: 8px;
             }}
 
             .floe-sort-heading {{
