@@ -1,4 +1,6 @@
-use gtk::gdk;
+use std::cell::Cell;
+
+use gtk::{gdk, prelude::*};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AppearancePreset {
@@ -14,19 +16,21 @@ pub struct Appearance {
     pub preset: AppearancePreset,
     panel_radius: u16,
     window_gap: u16,
+    window_opacity: f32,
+    header_opacity: f32,
     panel_opacity: f32,
+    view_opacity: f32,
     row_padding: u16,
     shadow_opacity: f32,
-    floating_panels: bool,
     sidebar_width: u16,
 }
 
 impl Appearance {
-    pub fn from_environment() -> Self {
+    pub fn from_environment_or(fallback: AppearancePreset) -> Self {
         let preset = std::env::var("FLOE_APPEARANCE")
             .ok()
             .and_then(|value| AppearancePreset::parse(&value))
-            .unwrap_or(AppearancePreset::Frosted);
+            .unwrap_or(fallback);
         Self::for_preset(preset)
     }
 
@@ -36,76 +40,103 @@ impl Appearance {
                 preset,
                 panel_radius: 0,
                 window_gap: 0,
+                window_opacity: 1.0,
+                header_opacity: 1.0,
                 panel_opacity: 1.0,
+                view_opacity: 1.0,
                 row_padding: 8,
                 shadow_opacity: 0.0,
-                floating_panels: false,
                 sidebar_width: 176,
             },
             AppearancePreset::Glass => Self {
                 preset,
                 panel_radius: 18,
                 window_gap: 16,
+                window_opacity: 0.0,
+                header_opacity: 0.72,
                 panel_opacity: 0.78,
+                view_opacity: 0.0,
                 row_padding: 9,
                 shadow_opacity: 0.16,
-                floating_panels: true,
                 sidebar_width: 168,
             },
             AppearancePreset::Frosted => Self {
                 preset,
                 panel_radius: 16,
                 window_gap: 14,
+                window_opacity: 0.84,
+                header_opacity: 0.92,
                 panel_opacity: 0.94,
+                view_opacity: 0.20,
                 row_padding: 9,
                 shadow_opacity: 0.12,
-                floating_panels: true,
                 sidebar_width: 168,
             },
             AppearancePreset::Minimal => Self {
                 preset,
                 panel_radius: 8,
                 window_gap: 8,
+                window_opacity: 1.0,
+                header_opacity: 1.0,
                 panel_opacity: 1.0,
+                view_opacity: 1.0,
                 row_padding: 8,
                 shadow_opacity: 0.0,
-                floating_panels: true,
                 sidebar_width: 160,
             },
             AppearancePreset::Compact => Self {
                 preset,
                 panel_radius: 10,
                 window_gap: 8,
+                window_opacity: 1.0,
+                header_opacity: 1.0,
                 panel_opacity: 0.98,
+                view_opacity: 1.0,
                 row_padding: 4,
                 shadow_opacity: 0.08,
-                floating_panels: true,
                 sidebar_width: 152,
             },
         }
     }
 
     pub fn class_name(self) -> &'static str {
-        match self.preset {
-            AppearancePreset::Native => "appearance-native",
-            AppearancePreset::Glass => "appearance-glass",
-            AppearancePreset::Frosted => "appearance-frosted",
-            AppearancePreset::Minimal => "appearance-minimal",
-            AppearancePreset::Compact => "appearance-compact",
-        }
+        self.preset.class_name()
     }
 
-    pub fn floating_panels(self) -> bool {
-        self.floating_panels
+    pub fn translucent_window(self) -> bool {
+        self.window_opacity < 1.0
     }
 
     pub fn sidebar_width(self) -> i32 {
         i32::from(self.sidebar_width)
     }
 
-    pub fn install(self) {
-        let css = format!(
+    fn css(self) -> String {
+        format!(
             r#"
+            .floe-window.{preset_class} {{
+                background-color: alpha(@window_bg_color, {window_opacity});
+                background-image: none;
+            }}
+
+            .floe-window.{preset_class} headerbar {{
+                background-color: alpha(@headerbar_bg_color, {header_opacity});
+                border-bottom-color: alpha(@borders, 0.42);
+                box-shadow: inset 0 -1px alpha(@borders, 0.26);
+            }}
+
+            .{preset_class} .floe-workspace,
+            .{preset_class} .floe-tab-strip,
+            .{preset_class} .floe-tab-scroller {{
+                background-color: transparent;
+            }}
+
+            .{preset_class} .floe-directory-list,
+            .{preset_class} .floe-directory-grid,
+            .{preset_class} .floe-miller-column-list {{
+                background-color: alpha(@view_bg_color, {view_opacity});
+            }}
+
             .floe-workspace {{
                 padding: {gap}px;
             }}
@@ -424,8 +455,12 @@ impl Appearance {
             .appearance-native .floe-panel {{ border-width: 0; box-shadow: none; }}
             .appearance-minimal .floe-panel {{ box-shadow: none; }}
             "#,
+            preset_class = self.class_name(),
             gap = self.window_gap,
+            window_opacity = self.window_opacity,
+            header_opacity = self.header_opacity,
             opacity = self.panel_opacity,
+            view_opacity = self.view_opacity,
             radius = self.panel_radius,
             shadow = self.shadow_opacity,
             row_padding = self.row_padding,
@@ -433,10 +468,73 @@ impl Appearance {
             island_opacity = self.panel_opacity.max(0.92),
             island_radius = self.panel_radius.max(10),
             island_shadow = self.shadow_opacity.max(0.10),
-        );
+        )
+    }
+}
 
+impl AppearancePreset {
+    pub const ALL: [Self; 5] = [
+        Self::Native,
+        Self::Glass,
+        Self::Frosted,
+        Self::Minimal,
+        Self::Compact,
+    ];
+
+    pub const fn persisted(self) -> &'static str {
+        match self {
+            Self::Native => "native",
+            Self::Glass => "glass",
+            Self::Frosted => "frosted",
+            Self::Minimal => "minimal",
+            Self::Compact => "compact",
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Native => "Native",
+            Self::Glass => "Glass",
+            Self::Frosted => "Frosted",
+            Self::Minimal => "Minimal",
+            Self::Compact => "Compact",
+        }
+    }
+
+    pub fn from_persisted(value: &str) -> Option<Self> {
+        match value {
+            "native" => Some(Self::Native),
+            "glass" => Some(Self::Glass),
+            "frosted" => Some(Self::Frosted),
+            "minimal" => Some(Self::Minimal),
+            "compact" => Some(Self::Compact),
+            _ => None,
+        }
+    }
+
+    const fn class_name(self) -> &'static str {
+        match self {
+            Self::Native => "appearance-native",
+            Self::Glass => "appearance-glass",
+            Self::Frosted => "appearance-frosted",
+            Self::Minimal => "appearance-minimal",
+            Self::Compact => "appearance-compact",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        Self::from_persisted(value.trim().to_ascii_lowercase().as_str())
+    }
+}
+
+pub struct AppearanceManager {
+    provider: gtk::CssProvider,
+    preset: Cell<AppearancePreset>,
+}
+
+impl AppearanceManager {
+    pub fn new(window: &gtk::Widget, preset: AppearancePreset) -> Self {
         let provider = gtk::CssProvider::new();
-        provider.load_from_string(&css);
         if let Some(display) = gdk::Display::default() {
             gtk::style_context_add_provider_for_display(
                 &display,
@@ -444,18 +542,114 @@ impl Appearance {
                 gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
             );
         }
+        let manager = Self {
+            provider,
+            preset: Cell::new(preset),
+        };
+        manager.apply(window, preset);
+        manager
+    }
+
+    pub fn preset(&self) -> AppearancePreset {
+        self.preset.get()
+    }
+
+    pub fn apply(&self, window: &gtk::Widget, preset: AppearancePreset) {
+        let appearance = Appearance::for_preset(preset);
+        self.provider.load_from_string(&appearance.css());
+        for candidate in AppearancePreset::ALL {
+            window.remove_css_class(candidate.class_name());
+        }
+        window.add_css_class(preset.class_name());
+        if appearance.translucent_window() {
+            window.remove_css_class("background");
+        } else {
+            window.add_css_class("background");
+        }
+        self.preset.set(preset);
     }
 }
 
-impl AppearancePreset {
-    fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "native" => Some(Self::Native),
-            "glass" => Some(Self::Glass),
-            "frosted" => Some(Self::Frosted),
-            "minimal" => Some(Self::Minimal),
-            "compact" => Some(Self::Compact),
-            _ => None,
+#[cfg(test)]
+mod tests {
+    use super::{Appearance, AppearancePreset};
+
+    #[test]
+    fn phase_0_appearance_names_are_trimmed_and_case_insensitive() {
+        assert_eq!(
+            AppearancePreset::parse(" glass "),
+            Some(AppearancePreset::Glass)
+        );
+        assert_eq!(
+            AppearancePreset::parse("FROSTED"),
+            Some(AppearancePreset::Frosted)
+        );
+        assert_eq!(AppearancePreset::parse("unknown"), None);
+    }
+
+    #[test]
+    fn appearance_preset_ids_labels_and_menu_order_are_stable() {
+        assert_eq!(
+            AppearancePreset::ALL.map(|preset| (preset.persisted(), preset.label())),
+            [
+                ("native", "Native"),
+                ("glass", "Glass"),
+                ("frosted", "Frosted"),
+                ("minimal", "Minimal"),
+                ("compact", "Compact"),
+            ]
+        );
+        for preset in AppearancePreset::ALL {
+            assert_eq!(
+                AppearancePreset::from_persisted(preset.persisted()),
+                Some(preset)
+            );
+        }
+    }
+
+    #[test]
+    fn phase_0_glass_css_exposes_composited_layers() {
+        let css = Appearance::for_preset(AppearancePreset::Glass).css();
+
+        assert!(css.contains(".floe-window.appearance-glass"));
+        assert!(css.contains("background-color: alpha(@window_bg_color, 0);"));
+        assert!(css.contains("background-color: alpha(@headerbar_bg_color, 0.72);"));
+        assert!(css.contains(".appearance-glass .floe-directory-list"));
+        assert!(css.contains(".appearance-glass .floe-directory-grid"));
+        assert!(css.contains(".appearance-glass .floe-miller-column-list"));
+        assert!(css.contains("background-color: alpha(@view_bg_color, 0);"));
+    }
+
+    #[test]
+    fn phase_0_frosted_is_more_opaque_than_glass() {
+        let glass = Appearance::for_preset(AppearancePreset::Glass);
+        let frosted = Appearance::for_preset(AppearancePreset::Frosted);
+
+        assert!(glass.translucent_window());
+        assert!(frosted.translucent_window());
+        assert!(frosted.window_opacity > glass.window_opacity);
+        assert!(frosted.header_opacity > glass.header_opacity);
+        assert!(frosted.panel_opacity > glass.panel_opacity);
+        assert!(frosted.view_opacity > glass.view_opacity);
+
+        let css = frosted.css();
+        assert!(css.contains(".floe-window.appearance-frosted"));
+        assert!(css.contains("background-color: alpha(@window_bg_color, 0.84);"));
+        assert!(css.contains("background-color: alpha(@view_bg_color, 0.2);"));
+    }
+
+    #[test]
+    fn phase_0_non_translucent_presets_keep_opaque_window_and_views() {
+        for preset in [
+            AppearancePreset::Native,
+            AppearancePreset::Minimal,
+            AppearancePreset::Compact,
+        ] {
+            let appearance = Appearance::for_preset(preset);
+            assert!(!appearance.translucent_window());
+            assert_eq!(appearance.window_opacity, 1.0);
+            assert_eq!(appearance.header_opacity, 1.0);
+            assert_eq!(appearance.view_opacity, 1.0);
         }
     }
 }
