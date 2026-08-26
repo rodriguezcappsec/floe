@@ -382,6 +382,7 @@ pub struct BrowserController {
     widgets: BrowserWidgets,
     command_palette: crate::command_palette::CommandPalette,
     keyboard_shortcuts: crate::keyboard_shortcuts::KeyboardShortcuts,
+    context_menu_editor: crate::context_menu::ContextMenuEditor,
     terminal_chooser: crate::terminal_ui::TerminalChooser,
     tabs: Rc<RefCell<BrowserTabs>>,
     worker: RefCell<BrowserWorker>,
@@ -506,6 +507,7 @@ impl BrowserController {
         let initial_view = tabs.active().current().view();
         let command_palette = crate::command_palette::CommandPalette::new(&widgets.window);
         let keyboard_shortcuts = crate::keyboard_shortcuts::KeyboardShortcuts::new(&widgets.window);
+        let context_menu_editor = crate::context_menu::ContextMenuEditor::new(&widgets.window);
         let terminal_chooser = crate::terminal_ui::TerminalChooser::new(&widgets.window);
         let terminal_worker = match crate::terminal::TerminalWorker::spawn() {
             Ok(worker) => Some(worker),
@@ -526,6 +528,7 @@ impl BrowserController {
             widgets,
             command_palette,
             keyboard_shortcuts,
+            context_menu_editor,
             terminal_chooser,
             tabs: Rc::new(RefCell::new(tabs)),
             worker: RefCell::new(browser),
@@ -1559,6 +1562,17 @@ impl BrowserController {
                     }
                 });
         });
+        self.add_action("context-menu-settings", |controller| {
+            let current = controller.current_preferences.borrow().context_menu;
+            let weak = Rc::downgrade(controller);
+            controller
+                .context_menu_editor
+                .present(current, move |preferences| {
+                    if let Some(controller) = weak.upgrade() {
+                        controller.apply_context_menu_preferences(preferences);
+                    }
+                });
+        });
         let vim_enabled = self.current_preferences.borrow().vim_mode;
         let vim_action =
             gio::SimpleAction::new_stateful("vim-mode", None, &vim_enabled.to_variant());
@@ -2095,7 +2109,7 @@ impl BrowserController {
             .map(|snapshots| snapshots[split_side_index(active_side.opposite())].clone())
             .unwrap_or_default();
         self.ignore_split_position_signal.set(true);
-        self.widgets.set_split_presentation(
+        let restore_view_focus = self.widgets.set_split_presentation(
             is_split,
             active_side,
             ratio,
@@ -2104,6 +2118,9 @@ impl BrowserController {
             opposite_snapshot.total,
         );
         self.ignore_split_position_signal.set(false);
+        if restore_view_focus {
+            self.widgets.focus_view(self.view_mode.get());
+        }
         self.update_split_action_states();
     }
 
@@ -3389,6 +3406,20 @@ impl BrowserController {
             crate::keybindings::install_effective_window_shortcuts(&application, &keybindings);
         }
         self.queue_preferences();
+    }
+
+    fn apply_context_menu_preferences(
+        &self,
+        preferences: crate::context_menu::ContextMenuPreferences,
+    ) {
+        if self.current_preferences.borrow().context_menu == preferences {
+            self.show_toast("Context menus already use those groups", 3);
+            return;
+        }
+        self.current_preferences.borrow_mut().context_menu = preferences;
+        self.widgets.apply_context_menu_preferences(preferences);
+        self.queue_preferences();
+        self.show_toast("Context menus updated", 3);
     }
 
     fn change_vim_mode(&self, enabled: bool) {

@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::command_registry::{self, CommandDefinition, CommandRisk};
 
-pub const KEYBINDING_OVERRIDE_CAPACITY: usize = 64;
+pub const KEYBINDING_OVERRIDE_CAPACITY: usize = 96;
 pub const KEYBINDINGS_PER_COMMAND_CAPACITY: usize = 4;
 pub const KEYBINDING_TEXT_CAPACITY: usize = 64;
 
@@ -354,7 +354,7 @@ mod tests {
             .set_from_text("win.forward", "")
             .expect("disabled binding");
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=7\n"));
+        assert!(serialized.starts_with("version=8\n"));
         assert!(serialized.contains("keybinding=win.back\t<Control>b\n"));
         assert!(serialized.contains("keybinding=win.forward\t!\n"));
         assert_eq!(

@@ -67,7 +67,8 @@ required nor simulated.
  validated sibling filename; generic Retry cannot repeat a conflict
 - Focused non-blocking conflict dialog with inline filename validation and a
  persistent Operations Island Resolve Conflict action after dismissal
-- Native row context menu with Open, Copy, Cut, Rename, and Move to Trash
+- Shared list/grid/Miller context menus with selection-aware Open/edit/archive,
+  link, split, Trash/Delete, Properties, and bounded customizable groups
 - Asynchronous GIO Open With discovery, explicit app launching, and default
   association changes
 
