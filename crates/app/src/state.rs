@@ -8,13 +8,18 @@ use std::{
 };
 
 use floe_core::{
-    ChecksumRequest, ConflictPolicy, CopyRequest, CreateKind, CreateRequest, CreateRequestError,
-    JobEvent, JobId, MoveRequest, OperationId, PermanentDeleteRequest, PermanentDeleteRequestError,
-    PermissionRequest, RenameRequest, RestoreRequest, RestoreRequestError, SymlinkPolicy,
+    ArchiveOutcome, ArchiveRequest, ChecksumRequest, ConflictPolicy, CopyRequest, CreateKind,
+    CreateRequest, CreateRequestError, JobEvent, JobId, MoveRequest, OperationId,
+    PermanentDeleteRequest, PermanentDeleteRequestError, PermissionRequest, RenameRequest,
+    RestoreRequest, RestoreRequestError, SymlinkPolicy,
 };
 use thiserror::Error;
 
 use crate::{
+    archive_executor::{
+        ArchiveCancelError, ArchiveExecutor, ArchiveExecutorSpawnError, ArchiveSubmission,
+        ArchiveSubmitError,
+    },
     checksum_executor::{
         ChecksumCancelError, ChecksumExecutor, ChecksumExecutorSpawnError, ChecksumOutcome,
         ChecksumSubmission, ChecksumSubmitError,
@@ -521,6 +526,8 @@ pub enum CopyInteractionError {
 #[derive(Debug, Error)]
 pub enum ApplicationStateSpawnError {
     #[error(transparent)]
+    Archive(#[from] ArchiveExecutorSpawnError),
+    #[error(transparent)]
     Checksum(#[from] ChecksumExecutorSpawnError),
     #[error(transparent)]
     Copy(#[from] CopyExecutorSpawnError),
@@ -542,6 +549,7 @@ pub enum ApplicationStateSpawnError {
 #[derive(Debug)]
 pub struct ApplicationState {
     pub jobs: SharedJobManager,
+    archive_executor: ArchiveExecutor,
     copy_executor: CopyExecutor,
     create_executor: CreateExecutor,
     move_executor: MoveExecutor,
@@ -567,6 +575,7 @@ pub struct ApplicationState {
 impl ApplicationState {
     pub fn new() -> Result<Self, ApplicationStateSpawnError> {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
+        let archive_executor = ArchiveExecutor::spawn(Arc::clone(&jobs))?;
         let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
         let create_executor = CreateExecutor::spawn(Arc::clone(&jobs))?;
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
@@ -577,6 +586,7 @@ impl ApplicationState {
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
+            archive_executor,
             copy_executor,
             create_executor,
             move_executor,
@@ -992,6 +1002,21 @@ impl ApplicationState {
                 Err(error)
             }
         }
+    }
+
+    pub fn submit_archive(
+        &self,
+        request: ArchiveRequest,
+    ) -> Result<ArchiveSubmission, ArchiveSubmitError> {
+        self.archive_executor.submit(request)
+    }
+
+    pub fn cancel_archive(&self, job_id: JobId) -> Result<(), ArchiveCancelError> {
+        self.archive_executor.cancel(job_id)
+    }
+
+    pub fn finish_archive(&self, job_id: JobId) -> Option<ArchiveOutcome> {
+        self.archive_executor.take_result(job_id)
     }
 
     pub fn submit_restore(
@@ -1964,6 +1989,7 @@ impl ApplicationState {
         backend: Arc<dyn TrashBackend>,
     ) -> Result<Self, ApplicationStateSpawnError> {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
+        let archive_executor = ArchiveExecutor::spawn(Arc::clone(&jobs))?;
         let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
         let create_executor = CreateExecutor::spawn(Arc::clone(&jobs))?;
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
@@ -1974,6 +2000,7 @@ impl ApplicationState {
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
         Ok(Self {
             jobs,
+            archive_executor,
             copy_executor,
             create_executor,
             move_executor,

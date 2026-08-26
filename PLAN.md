@@ -1,34 +1,39 @@
-# Plan: Floe Phase 11E — Terminal Integration
+# Plan: Floe Phase 12A — Archive Engine
 
 ## Contract
 
-- Add a bounded application-owned terminal provider registry with deterministic availability and an explicit preferred provider.
-- Launch providers with native process APIs and reviewed argv templates only; never invoke a shell, interpolate a path into command text, or place credentials in argv/environment.
-- Resolve “Open Terminal Here” from one selected navigable local folder, otherwise the active local directory; reject Trash, remote, missing, non-directory, and stale targets truthfully.
-- Open the terminal with the exact directory as child working directory so spaces, metacharacters, and non-UTF-8 Unix paths are not reconstructed from display text.
-- Keep process discovery and launch off GTK callbacks through one bounded application worker and return generation-bound results.
-- Add registered command/context/header/palette access plus a native preferred-terminal chooser and accessible status.
-- Defer embedded terminals, shell sessions owned by Floe, command execution, repository detection, and future phases.
+- Add GTK-independent typed list, extract, and compress requests for ZIP, TAR,
+  TAR.GZ, TAR.XZ, and reviewed pure-Rust 7z backends.
+- Preserve exact source and destination `PathBuf` values; archive member names
+  are validated component-by-component and never reconstructed from display
+  text.
+- Preflight entry count, path size/depth, per-entry bytes, total expanded bytes,
+  compression ratio, duplicate/file-directory collisions, source identity, and
+  unsupported links before writing output.
+- Extract into a private hidden sibling staging directory, publish with Linux
+  no-replace semantics, and clean staging after cancellation or failure.
+- Compress from a bounded, no-follow, identity-revalidated source plan into a
+  hidden staging file and publish without replacing an existing archive.
+- Run archive work through a fixed-capacity application executor with structured
+  progress, cancellation, bounded listing results, job lifecycle, and no GTK
+  filesystem work.
+- Do not add Phase 12B context actions/dialogs, passwords, shell commands,
+  external helpers, automatic overwrite, or persistent archive history.
 
 ## Implementation leaves
 
-1. Implement reviewed terminal providers, exact target policy, bounded requests/results, and tests.
-2. Add an application-owned capacity-limited worker for executable discovery and direct no-shell launch.
-3. Persist preferred provider through versioned settings migration without storing paths or command history.
-4. Wire selection-aware action, chooser, menus/palette, feedback, and availability state.
-5. Run hostile-path, focused, workspace, native Wayland, documentation, and gate verification.
+1. Define archive formats, limits, member/request/outcome models, and path-safe
+   validation in `floe-core`.
+2. Implement bounded listing/extraction/compression for ZIP and TAR family with
+   staging, cancellation, conflict, bomb, traversal, and link defenses.
+3. Add reviewed pure-Rust 7z listing/extraction/compression under the same
+   validation and limits.
+4. Add a capacity-4 application archive executor integrated with shared job
+   progress, cancellation, terminal failures, and capacity-16 list results.
+5. Run focused hostile-archive tests, workspace gates, documentation updates,
+   native build, and sole-next-phase verification.
 
 ## Status
 
-COMPLETE on `phase-11e-terminal-integration`; all focused, workspace, native
-Wayland, documentation, and completion gates are verified in `GATES.md`.
-
-## Follow-up: Properties context-menu parity
-
-- Expose the existing selection-aware `win.properties` action in the concrete
-  file and Trash popover models, not only in their action metadata.
-- Place Properties in a separated final section, consistent with native file
-  manager context menus and without duplicating Properties logic.
-- Cover list, grid, Miller, and Trash menus through their shared menu builders.
-- Keep Phase 12A as the sole roadmap `NEXT`; this is a focused Phase 10C parity
-  correction, not a new roadmap phase.
+IMPLEMENTED on `phase-12a-archive-engine`; verification evidence is recorded in
+`GATES.md`. Phase 12B is the sole recommended next phase.

@@ -14,12 +14,17 @@ adw = { package = "libadwaita", version = "0.8", features = ["v1_5"] }
 image = { version = "=0.25.9", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "tiff", "webp"] }
 kamadak-exif = "=0.6.1"
 lofty = "=0.22.4"
+flate2 = { version = "=1.1.9", default-features = false, features = ["rust_backend"] }
 glib = "0.21"
 png = "0.18.1"
+sevenz-rust = { version = "=0.6.1", default-features = false, features = ["compress"] }
+tar = "=0.4.44"
 thiserror = "2.0"
 rustix = { version = "1.1", features = ["fs", "process"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+xz2 = { version = "=0.1.7", features = ["static"] }
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

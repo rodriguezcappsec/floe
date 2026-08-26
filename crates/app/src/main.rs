@@ -1,6 +1,7 @@
 mod advanced_metadata;
 mod appearance;
 mod application;
+mod archive_executor;
 mod bookmarks;
 mod browser;
 mod checksum_executor;

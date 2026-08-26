@@ -5,8 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+flate2.workspace = true
 rustix.workspace = true
+sevenz-rust.workspace = true
+tar.workspace = true
 thiserror.workspace = true
+xz2.workspace = true
+zip.workspace = true
 
 [dev-dependencies]
 tempfile = "3.20"

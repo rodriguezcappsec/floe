@@ -198,8 +198,8 @@ Miller mode is generic Wayland functionality and must never require Niri.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 12A — Archive engine | NEXT | `phase-12a-archive-engine` | ZIP, tar, tar.gz, tar.xz and reviewed 7z listing/extract/compress jobs. | 6P; no unsafe argv; verify traversal, bombs, links, conflicts and cleanup. |
-| 12B — Archive UX | PLANNED | `phase-12b-archive-ui` | Extract Here/To, compress, progress and safe backend password handoff. | 12A; verify destination preview, conflict, accessibility and native smoke. |
+| 12A — Archive engine | COMPLETE | `phase-12a-archive-engine` | ZIP, tar, tar.gz, tar.xz and reviewed 7z listing/extract/compress jobs. | Verified typed raw-path requests, no-follow sources, bounded member/byte/ratio/path plans, traversal/link/conflict rejection, private staging, Linux no-replace publication, cancellation/source revalidation, capacity-4 application executor, capacity-16 memory-only results, and hostile-format round trips. Passwords, overwrite, UI, and external helpers are excluded. |
+| 12B — Archive UX | NEXT | `phase-12b-archive-ui` | Extract Here/To, compress, progress and safe backend password handoff. | 12A; verify destination preview, conflict, accessibility and native smoke. |
 | 12C — Batch rename | PLANNED | `phase-12c-batch-rename` | Previewed transforms, regex, sequences, metadata templates and undo. | 6P; verify whole-batch validation, collisions and non-UTF-8 policy. |
 | 12D — Create/templates polish | PLANNED | `phase-12d-create-templates` | Template discovery/management and immediate rename. | 6Q; no executable surprise; verify safe names, permissions and migration. |
 | 12E — Links/duplicate polish | PLANNED | `phase-12e-link-duplicate-polish` | Relative/absolute links, hard-link eligibility and duplicate naming. | 6Q; verify cross-filesystem and broken-link behavior. |
