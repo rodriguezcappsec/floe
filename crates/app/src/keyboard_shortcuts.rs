@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub const SHORTCUT_SEARCH_CAPACITY: usize = 128;
-pub const SHORTCUT_ROW_CAPACITY: usize = 64;
+pub const SHORTCUT_ROW_CAPACITY: usize = 96;
 
 type ChangeCallback = Box<dyn Fn(KeybindingOverrides)>;
 

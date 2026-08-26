@@ -18,11 +18,11 @@ use std::{
 use floe_core::{DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn, SortDirection};
 use thiserror::Error;
 
-use crate::keybindings::KeybindingOverrides;
 use crate::terminal::TerminalProviderId;
 use crate::view::{
     FileViewDensity, FolderViewState, GridSize, ListColumnLayout, MillerColumnWidth, ViewMode,
 };
+use crate::{context_menu::ContextMenuPreferences, keybindings::KeybindingOverrides};
 
 const PREFERENCE_QUEUE_CAPACITY: usize = 1;
 const PREFERENCE_FILE_NAME: &str = "view-preferences.conf";
@@ -87,6 +87,7 @@ pub struct ViewPreferences {
     pub keybindings: KeybindingOverrides,
     pub vim_mode: bool,
     pub preferred_terminal: Option<TerminalProviderId>,
+    pub context_menu: ContextMenuPreferences,
     folder_views: Vec<FolderViewOverride>,
 }
 
@@ -107,6 +108,7 @@ impl Default for ViewPreferences {
             keybindings: KeybindingOverrides::default(),
             vim_mode: false,
             preferred_terminal: None,
+            context_menu: ContextMenuPreferences::default(),
             folder_views: Vec::new(),
         }
     }
@@ -245,6 +247,9 @@ impl ViewPreferences {
                 "preferred-terminal" => {
                     preferences.preferred_terminal = TerminalProviderId::from_persisted(value);
                 }
+                "context-menu-groups" => {
+                    preferences.context_menu = ContextMenuPreferences::parse(value);
+                }
                 "folder" => {
                     if let Some(folder) = parse_folder_override(value) {
                         preferences
@@ -264,7 +269,7 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=7\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\n",
+            "version=8\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\n",
             self.mode.persisted(),
             self.grid_size.edge(),
             self.sidebar_density.persisted(),
@@ -279,6 +284,7 @@ impl ViewPreferences {
             self.columns.widths_text(),
             self.remember_per_folder,
             self.vim_mode,
+            self.context_menu.persisted(),
         );
         if let Some(width) = self.sidebar_width {
             serialized.push_str(&format!("sidebar-width={}\n", clamp_sidebar_width(width)));
@@ -606,9 +612,32 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=7\n"));
+        assert!(serialized.starts_with("version=8\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
+    }
+
+    #[test]
+    fn phase_12f_context_preferences_migrate_round_trip_and_preserve_explicit_empty() {
+        let legacy = ViewPreferences::parse("version=7\nview=grid\n");
+        assert_eq!(
+            legacy.context_menu,
+            ContextMenuPreferences::default(),
+            "legacy files receive the reviewed compact defaults"
+        );
+
+        let customized = ViewPreferences::parse(
+            "version=8\ncontext-menu-groups=archives,checksums,archives,unknown\n",
+        );
+        assert_eq!(customized.context_menu.persisted(), "archives,checksums");
+        let serialized = customized.serialize();
+        assert!(serialized.starts_with("version=8\n"));
+        assert!(serialized.contains("context-menu-groups=archives,checksums\n"));
+        assert_eq!(ViewPreferences::parse(&serialized), customized);
+
+        let empty = ViewPreferences::parse("version=8\ncontext-menu-groups=\n");
+        assert_eq!(empty.context_menu, ContextMenuPreferences::empty());
+        assert_eq!(ViewPreferences::parse(&empty.serialize()), empty);
     }
 
     #[test]
@@ -625,7 +654,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=7\n"));
+        assert!(serialized.starts_with("version=8\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,

@@ -11,6 +11,7 @@ mod checksum_ui;
 mod clipboard;
 mod command_palette;
 mod command_registry;
+mod context_menu;
 pub mod copy_executor;
 pub mod create_executor;
 mod devices;

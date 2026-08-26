@@ -133,6 +133,15 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [H, W]
     ),
     command!(
+        "context-menu-settings",
+        "Customize Context Menus…",
+        "Choose optional command groups shown in file and folder context menus",
+        Operations,
+        ["right click", "popup", "menu", "actions", "configure"],
+        [],
+        [F, B, H]
+    ),
+    command!(
         "open",
         "Open",
         "Open the selected item",
@@ -187,12 +196,57 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [F, T, H]
     ),
     command!(
+        "extract-here",
+        "Extract Here",
+        "Extract one supported archive beside its source",
+        Operations,
+        ["archive", "unpack", "zip", "tar", "7z"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "extract-to",
+        "Extract To…",
+        "Choose a local destination for one supported archive",
+        Operations,
+        ["archive", "unpack", "destination", "zip", "tar", "7z"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "compress",
+        "Compress…",
+        "Create a supported archive from selected files and folders",
+        Operations,
+        ["archive", "pack", "zip", "tar", "7z"],
+        [],
+        [F, H]
+    ),
+    command!(
         "rename",
         "Rename…",
         "Rename the selected item",
         Files,
         ["filename", "edit name"],
         ["F2"],
+        [F, H]
+    ),
+    command!(
+        "batch-rename",
+        "Batch Rename…",
+        "Preview and rename multiple selected items as one bounded operation",
+        Files,
+        ["multiple", "bulk", "regex", "sequence"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "undo-batch-rename",
+        "Undo Last Batch Rename",
+        "Undo the latest completed in-session batch rename when still safe",
+        Files,
+        ["revert", "bulk", "multiple"],
+        [],
         [F, H]
     ),
     command!(
@@ -901,6 +955,26 @@ mod tests {
                 command(internal).is_none(),
                 "internal action leaked: {internal}"
             );
+        }
+    }
+
+    #[test]
+    fn phase_12f_action_integration_registers_productivity_and_customization_commands() {
+        for (action, placements) in [
+            ("win.extract-here", &[F, H][..]),
+            ("win.extract-to", &[F, H][..]),
+            ("win.compress", &[F, H][..]),
+            ("win.batch-rename", &[F, H][..]),
+            ("win.undo-batch-rename", &[F, H][..]),
+            ("win.context-menu-settings", &[F, B, H][..]),
+        ] {
+            let definition = command(action).unwrap_or_else(|| panic!("missing {action}"));
+            assert!(definition.searchable);
+            assert!(!definition.name.trim().is_empty());
+            assert!(!definition.description.trim().is_empty());
+            for placement in placements {
+                assert!(definition.placements.contains(placement));
+            }
         }
     }
 }
