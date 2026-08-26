@@ -32,6 +32,19 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 12A archive operations are local-only typed jobs over exact `PathBuf`
+  identities. ZIP, TAR-family, and reviewed pure-Rust 7z parsers enforce bounded
+  archive/member/path/depth/entry/expanded-byte/ratio limits before extraction,
+  reject absolute and traversal member paths, duplicate and file-directory
+  collisions, and all archive links/special entries. Extraction and compression
+  use private hidden sibling staging and Linux no-replace publication; sources
+  are opened no-follow and identity-revalidated. Results and member listings are
+  bounded and memory-only. Cancellation removes staging artifacts before any
+  publication boundary. Password/encrypted archives are rejected: no secret is
+  accepted, stored, logged, placed in argv/environment, or sent to a helper.
+  These in-process parsers are not sandboxed; Phase 18L remains authoritative
+  provider/isolation work and Floe makes no claim that archive content is safe.
+
 - Phase 9F adds an explicit Preview cache purge that advances cancellation,
   clears only the bounded memory-only success cache before the next request,
   closes the detail surface, and leaves persistent thumbnail storage untouched.

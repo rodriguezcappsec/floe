@@ -1176,10 +1176,25 @@ Last updated:
 Current phase:
 
 ```text
-Phase 11 — Commands, keyboard, and terminal (Phase 11E complete)
+Phase 12 — Productivity operations (Phase 12A complete)
 ```
 
 Status:
+
+```text
+Phase 12A adds a GTK-independent bounded archive engine for ZIP, TAR, TAR.GZ,
+TAR.XZ, and reviewed pure-Rust 7z listing, extraction, and compression. Typed
+requests preserve exact `PathBuf` identities. Member plans cap archive bytes,
+entries, member/total expanded bytes, expansion ratio, raw path bytes/depth,
+and reject traversal/absolute paths, duplicates, file-directory nesting
+conflicts, links, special entries, symbolic sources, and unsupported exact-name
+conversions. Extraction/compression use private hidden sibling staging and
+Linux no-replace publication; sources are opened no-follow and revalidated.
+The application-owned capacity-4 worker reports shared job progress and
+cancellation and retains at most 16 memory-only outcomes. Passwords, overwrite,
+external helpers, and GTK workflows are excluded. Phase 12B archive UX is the
+sole next phase.
+```
 
 ```text
 Phase 11E adds safe preferred-terminal integration. Nine reviewed providers are

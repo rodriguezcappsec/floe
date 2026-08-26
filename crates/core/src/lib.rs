@@ -1,5 +1,6 @@
 //! GTK-independent filesystem and navigation foundations for Floe.
 
+mod archive;
 mod checksum;
 mod copy;
 mod create_operation;
@@ -19,6 +20,12 @@ mod tabs;
 mod trash_lifecycle;
 mod view;
 
+pub use archive::{
+    ARCHIVE_LIST_RESULT_CAPACITY, ARCHIVE_MEMBER_DEPTH, ARCHIVE_MEMBER_PATH_BYTES,
+    ARCHIVE_SOURCE_CAPACITY, ArchiveCancellation, ArchiveError, ArchiveFormat, ArchiveLimits,
+    ArchiveMember, ArchiveMemberKind, ArchiveOutcome, ArchiveProgress, ArchiveRequest,
+    ArchiveRequestError, execute_archive,
+};
 pub use checksum::{
     CHECKSUM_TARGET_CAPACITY, ChecksumAlgorithm, ChecksumRequest, ChecksumRequestError,
     ExpectedDigest, encode_hex,
