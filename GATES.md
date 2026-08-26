@@ -1,33 +1,21 @@
-# Gates: Floe Phase 12C — Batch Rename
+# Gates: Floe Phase 12D — Create/Templates Polish
 
-Scope: Deliver previewed, collision-safe, bounded batch rename with exact in-session undo.
-
-- [x] G1: Dedicated Phase 12C branch is active.
-CHECK: git branch --show-current
-EXPECT: phase-12c-batch-rename
-EVIDENCE: Active branch is `phase-12c-batch-rename`.
-
-- [x] G2: Transform and preview model covers literal/regex/prefix/suffix/number/case/date, extension policy, raw-name rejection, capacity, and deterministic collisions.
-CHECK: cargo test -p floe-app phase_12c_batch_rename_model -- --nocapture
+- [x] G1: Bounded template policy tests pass on the dedicated branch.
+CHECK: cargo test -p floe-app phase_12d_templates -- --nocapture
 EXPECT: test result: ok
-EVIDENCE: Focused model test passed regex/templates, numbering, case, collision, and raw-name policy.
+EVIDENCE: 3 phase_12d_templates tests passed; bounded exact-path discovery, no-follow filtering, capacity/truncation, worker response, and unavailable state verified.
 
-- [x] G3: Whole-batch apply and undo validate every exact mapping before no-overwrite mutation, revalidate identities, and report cancellation/partial failure truthfully.
-CHECK: cargo test -p floe-app phase_12c_batch_rename_jobs -- --nocapture
+- [x] G2: Template copies are non-executable and exact-name safe.
+CHECK: cargo test -p floe-core phase_12d_template_create -- --nocapture
 EXPECT: test result: ok
-EVIDENCE: Core and app job tests passed cycle-safe apply, conflict preservation, cancellation, shared progress, result, and exact inverse mapping.
+EVIDENCE: phase_12d_template_create_strips_execute_bits_and_rejects_links passed; source mode/payload remained unchanged and destination execute bits were zero.
 
-- [x] G4: Native preview UI is accessible, selection-aware, deterministic, and delegates all mutation to application jobs.
-CHECK: cargo test -p floe-app phase_12c_batch_rename_ui -- --nocapture
-EXPECT: test result: ok
-EVIDENCE: Bounded preview test passed; native Wayland described selection-aware Batch Rename and Undo actions as disabled without eligible state.
+- [x] G3: Full workspace gates and native build pass.
+CHECK: sh -c 'cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check && echo phase-12d-full-gate-ok'
+EXPECT: phase-12d-full-gate-ok
+EVIDENCE: phase-12d-full-gate-ok; strict Clippy passed, 341 app and 99 core tests passed, native build passed. Active Wayland launch returned 0, D-Bus Peer.Ping and Quit both returned ().
 
-- [x] G5: Formatting, workspace check, strict Clippy, all tests, native build/smoke, and diff hygiene pass.
-CHECK: sh -c 'cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check && echo phase-12c-full-gate-ok'
-EXPECT: phase-12c-full-gate-ok
-EVIDENCE: Strict Clippy, 338 app tests, 98 core tests, native build, diff hygiene, Wayland D-Bus Ping, Quit, and exit 0 passed.
-
-- [x] G6: Persistent status records 12C complete and exactly 12D next.
-CHECK: sh -c 'test "$(rg -o "NEXT" docs/ROADMAP.md | wc -l)" -eq 1 && rg -q "12C.*COMPLETE" docs/ROADMAP.md && rg -q "12D.*NEXT" docs/ROADMAP.md && echo phase-12c-docs-ok'
-EXPECT: phase-12c-docs-ok
-EVIDENCE: Roadmap has exactly one NEXT at 12D; AGENTS, matrix, privacy/security, plan, and gates match verified scope.
+- [x] G4: Exactly 12E is NEXT.
+CHECK: sh -c 'test "$(rg -o "NEXT" docs/ROADMAP.md | wc -l)" -eq 1 && rg -q "12E.*NEXT" docs/ROADMAP.md && echo phase-12d-docs-ok'
+EXPECT: phase-12d-docs-ok
+EVIDENCE: docs/ROADMAP.md marks Phase 12D COMPLETE and exactly Phase 12E NEXT.

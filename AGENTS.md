@@ -1176,12 +1176,14 @@ Last updated:
 Current phase:
 
 ```text
-Phase 12 — Productivity operations (Phase 12C complete)
+Phase 12 — Productivity operations (Phase 12D complete)
 ```
 
 Status:
 
 ```text
+Phase 12D replaces arbitrary template picking with one bounded application worker that examines at most 4,096 direct XDG Templates entries and returns at most 256 no-follow regular files in stable raw-byte order. The native chooser exposes loaded, empty, truncated, and error states plus exact in-app Templates-folder management. Exact source paths feed the existing create executor; core creation rejects symbolic/non-regular sources, publishes without overwrite, revalidates the created no-follow descriptor, and removes every execute bit without modifying the source. Exact new folder/template destinations stay memory-only, are selected after refresh, and enter the existing rename workflow. No template contents, catalog, history, or lossy path reconstruction is persisted. Phase 12E links/duplicate polish is the sole next phase.
+
 Phase 12C adds preview-first batch rename for 2–4,096 selected local entries.
 Literal/regex find-replace, prefix/suffix, deterministic numbering/padding,
 case, metadata-date/name/extension templates, and explicit preserve-extension

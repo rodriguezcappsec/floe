@@ -39,7 +39,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Full association management | `PLANNED` | 19/20 | Needs inspect, set, clear, and user-added external-tool management without shell interpolation. |
 | Create folder | `COMPLETE` | 6Q | Validated explicit naming submits a no-overwrite directory request through the bounded create executor. |
 | Create empty file | `COMPLETE` | 6Q | Validated explicit naming uses atomic create-new semantics through the bounded create executor. |
-| Create New templates | `PARTIAL` | 6Q/12D | Native asynchronous selection starts at XDG Templates when available and copies through the create executor; discovery, categories, and template management remain Phase 12D. |
+| Create New templates | `COMPLETE` | 6Q/12D | Native asynchronous selection starts at XDG Templates when available and copies through the create executor; discovery, categories, and template management remain Phase 12D. || One bounded worker discovers up to 256 no-follow regular XDG template files with exact paths; native empty/error/truncated states and folder management feed no-overwrite creation, and created copies lose execute bits without source changes. |
 | Duplicate | `COMPLETE` | 6Q | Multi-selection duplicates run FIFO through bounded batches, preserve symlinks/raw names, and use deterministic no-overwrite `(copy N)` conflict retries. |
 | Inline rename | `PARTIAL` | 4D/12C | A validated modal rename dialog exists; in-place row/grid rename and its QoL contract do not. |
 | Rename | `COMPLETE` | 4C/4D | Same-parent exact-name rename uses atomic no-replace semantics and a bounded executor. |
@@ -616,7 +616,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Custom context actions | `PLANNED` | 19 | Capability-aware, failure-contained actions with safe executable/argument representation. |
 | Custom commands/scripts | `DEFERRED` | 19 | Never shell-interpolate filenames; security permissions are required before general scripting. |
 | File-type actions and external tools | `PLANNED` | 19 | User-added actions are separate from MIME default application choices. |
-| Templates | `PARTIAL` | 6Q/12D/19 | Safe native template selection and bounded no-overwrite creation are implemented; discovery, management, and broader extensibility remain planned. |
+| Templates | `PARTIAL` | 6Q/12D/19 | Safe native template selection and bounded no-overwrite creation are implemented; discovery, management, and broader extensibility remain planned. || Safe bounded XDG discovery, native selection/management, non-executable no-overwrite creation, and post-refresh naming are complete; user-defined categories and broader extensibility remain Phase 19. |
 | Share actions | `PLANNED` | 14/19 | Prefer standards/portals and integrate privacy warnings later. |
 | Plugin runtime | `DEFERRED` | 19 | Only after demonstrated demand and capability/isolation design; no automatic vault access. |
 | Git repository/status badges | `DEFERRED` | 19 | Must remain cheap when unused and respect ignored/private content. |
@@ -651,7 +651,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Escape cancels rename / Enter confirms | `COMPLETE` | 4D | Focused validated dialog follows conventional response behavior. |
 | Selected state survives rename | `COMPLETE` | 6S | Exact watcher rename pairs translate the selected identity before refreshed model installation. |
 | Renamed item remains visible | `COMPLETE` | 6S | Exact watcher rename pairs translate selected and anchored identities before the refreshed model is installed. |
-| New Folder enters rename | `PLANNED` | 6Q/12D | Creation succeeds first; the exact new directory is then selected for naming. |
+| New Folder enters rename | `COMPLETE` | 6Q/12D | Creation succeeds first; the exact new directory is then selected for naming. || The exact destination remains memory-only, is selected after asynchronous refresh, and enters the existing rename workflow only after it appears. |
 | Selection survives refresh | `COMPLETE` | 6S | Exact-path reconciliation preserves surviving items and drops disappeared identities. |
 | Scroll survives refresh | `COMPLETE` | 6S | Stable anchor identity is preferred with a clamped prior-index fallback when the anchor disappears. |
 | Back restores item and scroll | `PARTIAL` | 7A/7B | Complete exact selection and path/index anchor are stored per history entry; runtime tab/browser restoration is Phase 7B. |
