@@ -15,6 +15,7 @@ use gtk::{gio, glib};
 
 use crate::{
     appearance::Appearance,
+    context_menu::{ContextMenuGroup, ContextMenuPreferences},
     devices::{
         DeviceAction, DeviceActionStatus, DeviceActions, DeviceMountState, DeviceRootKind,
         DeviceSnapshot,
@@ -238,7 +239,8 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
     loaded && !save_in_flight
 }
 
-pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 18] = [
+#[cfg(test)]
+pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 24] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
@@ -257,6 +259,12 @@ pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 18] = [
     ("Delete Permanently…", "win.permanent-delete"),
     ("Properties", "win.properties"),
     ("Open Terminal Here", "win.open-terminal"),
+    ("Extract Here", "win.extract-here"),
+    ("Extract To…", "win.extract-to"),
+    ("Compress…", "win.compress"),
+    ("Batch Rename…", "win.batch-rename"),
+    ("Undo Last Batch Rename", "win.undo-batch-rename"),
+    ("Customize Context Menus…", "win.context-menu-settings"),
 ];
 pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Restore", "win.restore"),
@@ -264,7 +272,8 @@ pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Delete Permanently…", "win.permanent-delete"),
     ("Properties", "win.properties"),
 ];
-pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 8] = [
+#[cfg(test)]
+pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 9] = [
     ("New Folder…", "win.new-folder"),
     ("New Empty File…", "win.new-empty-file"),
     ("New From Template…", "win.new-from-template"),
@@ -273,6 +282,7 @@ pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 8] = [
     ("Refresh", "win.refresh"),
     ("Edit Location", "win.location"),
     ("Open Terminal Here", "win.open-terminal"),
+    ("Customize Context Menus…", "win.context-menu-settings"),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -884,6 +894,8 @@ pub struct BrowserWidgets {
     pub grid_context_menu: gtk::PopoverMenu,
     pub list_background_menu: gtk::PopoverMenu,
     pub grid_background_menu: gtk::PopoverMenu,
+    file_context_model: gio::Menu,
+    background_context_model: gio::Menu,
     pub list_view_button: gtk::ToggleButton,
     pub grid_view_button: gtk::ToggleButton,
     pub miller_view_button: gtk::ToggleButton,
@@ -943,6 +955,8 @@ struct DirectoryPanelWidgets {
     grid_context_menu: gtk::PopoverMenu,
     list_background_menu: gtk::PopoverMenu,
     grid_background_menu: gtk::PopoverMenu,
+    file_context_model: gio::Menu,
+    background_context_model: gio::Menu,
     empty_state: gtk::Box,
     spinner: gtk::Spinner,
     status_label: gtk::Label,
@@ -957,6 +971,48 @@ struct DirectoryPanelWidgets {
     grid_factory: RefCell<gtk::SignalListItemFactory>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SplitPaneLayout {
+    ActiveOnly,
+    ActiveThenInactive,
+    InactiveThenActive,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SplitPaneUpdate {
+    NoChange,
+    AddInactiveEnd,
+    RemoveInactiveEnd,
+    Rebuild,
+}
+
+fn split_pane_layout(is_split: bool, active_side: SplitSide) -> SplitPaneLayout {
+    if !is_split {
+        return SplitPaneLayout::ActiveOnly;
+    }
+
+    match active_side {
+        SplitSide::Primary => SplitPaneLayout::ActiveThenInactive,
+        SplitSide::Secondary => SplitPaneLayout::InactiveThenActive,
+    }
+}
+
+fn split_pane_update(
+    current: Option<SplitPaneLayout>,
+    desired: SplitPaneLayout,
+) -> SplitPaneUpdate {
+    match (current, desired) {
+        (Some(current), desired) if current == desired => SplitPaneUpdate::NoChange,
+        (Some(SplitPaneLayout::ActiveOnly), SplitPaneLayout::ActiveThenInactive) => {
+            SplitPaneUpdate::AddInactiveEnd
+        }
+        (Some(SplitPaneLayout::ActiveThenInactive), SplitPaneLayout::ActiveOnly) => {
+            SplitPaneUpdate::RemoveInactiveEnd
+        }
+        _ => SplitPaneUpdate::Rebuild,
+    }
+}
+
 impl BrowserWidgets {
     pub fn set_split_presentation(
         &self,
@@ -966,15 +1022,51 @@ impl BrowserWidgets {
         opposite_path: Option<&Path>,
         opposite_items: &[String],
         opposite_total: usize,
-    ) {
-        self.split_pane.set_start_child(None::<&gtk::Widget>);
-        self.split_pane.set_end_child(None::<&gtk::Widget>);
+    ) -> bool {
+        let desired_layout = split_pane_layout(is_split, active_side);
+        let current_layout = self.current_split_pane_layout();
+        let update = split_pane_update(current_layout, desired_layout);
+        let mut restore_view_focus = false;
+
+        if update != SplitPaneUpdate::NoChange {
+            restore_view_focus = gtk::prelude::GtkWindowExt::focus(&self.window)
+                .is_some_and(|focus| focus.is_ancestor(&self.split_pane));
+            if restore_view_focus {
+                self.back_button.grab_focus();
+            }
+        }
+
+        match update {
+            SplitPaneUpdate::NoChange => {}
+            SplitPaneUpdate::AddInactiveEnd => {
+                self.split_pane.set_end_child(Some(&self.inactive_pane));
+            }
+            SplitPaneUpdate::RemoveInactiveEnd => {
+                self.split_pane.set_end_child(None::<&gtk::Widget>);
+            }
+            SplitPaneUpdate::Rebuild => {
+                self.split_pane.set_start_child(None::<&gtk::Widget>);
+                self.split_pane.set_end_child(None::<&gtk::Widget>);
+                match desired_layout {
+                    SplitPaneLayout::ActiveOnly => self
+                        .split_pane
+                        .set_start_child(Some(&self.active_pane_shell)),
+                    SplitPaneLayout::ActiveThenInactive => {
+                        self.split_pane
+                            .set_start_child(Some(&self.active_pane_shell));
+                        self.split_pane.set_end_child(Some(&self.inactive_pane));
+                    }
+                    SplitPaneLayout::InactiveThenActive => {
+                        self.split_pane.set_start_child(Some(&self.inactive_pane));
+                        self.split_pane.set_end_child(Some(&self.active_pane_shell));
+                    }
+                }
+            }
+        }
 
         if !is_split {
             self.active_pane_label.set_visible(false);
-            self.split_pane
-                .set_start_child(Some(&self.active_pane_shell));
-            return;
+            return restore_view_focus;
         }
 
         self.active_pane_label.set_visible(true);
@@ -1003,20 +1095,28 @@ impl BrowserWidgets {
         self.inactive_pane_status
             .set_label(&split_snapshot_status(opposite_items.len(), opposite_total));
 
-        match active_side {
-            SplitSide::Primary => {
-                self.split_pane
-                    .set_start_child(Some(&self.active_pane_shell));
-                self.split_pane.set_end_child(Some(&self.inactive_pane));
-            }
-            SplitSide::Secondary => {
-                self.split_pane.set_start_child(Some(&self.inactive_pane));
-                self.split_pane.set_end_child(Some(&self.active_pane_shell));
-            }
-        }
         let width = self.split_pane.width().max(1);
         self.split_pane
             .set_position(split_primary_position(width, ratio));
+        restore_view_focus
+    }
+
+    fn current_split_pane_layout(&self) -> Option<SplitPaneLayout> {
+        let start = self.split_pane.start_child();
+        let end = self.split_pane.end_child();
+        let active = self.active_pane_shell.upcast_ref::<gtk::Widget>();
+        let inactive = self.inactive_pane.upcast_ref::<gtk::Widget>();
+
+        match (start.as_ref(), end.as_ref()) {
+            (Some(start), None) if start == active => Some(SplitPaneLayout::ActiveOnly),
+            (Some(start), Some(end)) if start == active && end == inactive => {
+                Some(SplitPaneLayout::ActiveThenInactive)
+            }
+            (Some(start), Some(end)) if start == inactive && end == active => {
+                Some(SplitPaneLayout::InactiveThenActive)
+            }
+            _ => None,
+        }
     }
 
     pub fn apply_sidebar_density(&self, density: SidebarDensity) {
@@ -1118,22 +1218,25 @@ impl BrowserWidgets {
     }
 
     pub fn set_trash_mode(&self, active: bool) {
-        let file_model = if active {
-            build_trash_context_menu_model()
+        if active {
+            let file_model = build_trash_context_menu_model();
+            let background_model = build_trash_background_context_menu_model();
+            self.list_context_menu.set_menu_model(Some(&file_model));
+            self.grid_context_menu.set_menu_model(Some(&file_model));
+            self.list_background_menu
+                .set_menu_model(Some(&background_model));
+            self.grid_background_menu
+                .set_menu_model(Some(&background_model));
         } else {
-            build_file_context_menu_model()
-        };
-        let background_model = if active {
-            build_trash_background_context_menu_model()
-        } else {
-            build_background_context_menu_model()
-        };
-        self.list_context_menu.set_menu_model(Some(&file_model));
-        self.grid_context_menu.set_menu_model(Some(&file_model));
-        self.list_background_menu
-            .set_menu_model(Some(&background_model));
-        self.grid_background_menu
-            .set_menu_model(Some(&background_model));
+            self.list_context_menu
+                .set_menu_model(Some(&self.file_context_model));
+            self.grid_context_menu
+                .set_menu_model(Some(&self.file_context_model));
+            self.list_background_menu
+                .set_menu_model(Some(&self.background_context_model));
+            self.grid_background_menu
+                .set_menu_model(Some(&self.background_context_model));
+        }
         self.hidden_button.set_sensitive(!active);
         self.add_bookmark_button.set_sensitive(!active);
         if let Some(icon) = self.empty_state.first_child().and_downcast::<gtk::Image>() {
@@ -1167,6 +1270,12 @@ impl BrowserWidgets {
         self.grid_context_menu.popdown();
         self.list_background_menu.popdown();
         self.grid_background_menu.popdown();
+    }
+
+    pub fn apply_context_menu_preferences(&self, preferences: ContextMenuPreferences) {
+        self.popdown_context_menus();
+        populate_file_context_menu_model(&self.file_context_model, preferences);
+        populate_background_context_menu_model(&self.background_context_model, preferences);
     }
 
     pub fn context_menu(&self, mode: ViewMode) -> &gtk::PopoverMenu {
@@ -1320,6 +1429,10 @@ pub fn build(
     archive_model.append(Some("Extract To…"), Some("win.extract-to"));
     archive_model.append(Some("Compress…"), Some("win.compress"));
     file_actions_model.append_submenu(Some("Archives"), &archive_model);
+    file_actions_model.append(
+        Some("Customize Context Menus…"),
+        Some("win.context-menu-settings"),
+    );
     file_actions_model.append(Some("Copy"), Some("win.copy"));
     file_actions_model.append(Some("Move"), Some("win.cut"));
     file_actions_model.append(Some("Duplicate"), Some("win.duplicate"));
@@ -1557,6 +1670,8 @@ pub fn build(
         grid_context_menu,
         list_background_menu,
         grid_background_menu,
+        file_context_model,
+        background_context_model,
         empty_state,
         spinner,
         status_label,
@@ -1770,6 +1885,8 @@ pub fn build(
         grid_context_menu,
         list_background_menu,
         grid_background_menu,
+        file_context_model,
+        background_context_model,
         list_view_button,
         grid_view_button,
         miller_view_button,
@@ -3001,15 +3118,16 @@ fn build_directory_panel(
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
     let selection = gtk::MultiSelection::new(Some(store));
 
-    let list_context_menu = gtk::PopoverMenu::from_model(Some(&build_file_context_menu_model()));
+    let file_context_model = build_configured_file_context_menu_model(preferences.context_menu);
+    let background_context_model =
+        build_configured_background_context_menu_model(preferences.context_menu);
+    let list_context_menu = gtk::PopoverMenu::from_model(Some(&file_context_model));
     list_context_menu.set_has_arrow(false);
-    let grid_context_menu = gtk::PopoverMenu::from_model(Some(&build_file_context_menu_model()));
+    let grid_context_menu = gtk::PopoverMenu::from_model(Some(&file_context_model));
     grid_context_menu.set_has_arrow(false);
-    let list_background_menu =
-        gtk::PopoverMenu::from_model(Some(&build_background_context_menu_model()));
+    let list_background_menu = gtk::PopoverMenu::from_model(Some(&background_context_model));
     list_background_menu.set_has_arrow(false);
-    let grid_background_menu =
-        gtk::PopoverMenu::from_model(Some(&build_background_context_menu_model()));
+    let grid_background_menu = gtk::PopoverMenu::from_model(Some(&background_context_model));
     grid_background_menu.set_has_arrow(false);
 
     let thumbnails = ThumbnailPresentation::new();
@@ -3407,8 +3525,8 @@ fn build_directory_panel(
         .child(&grid_view)
         .vexpand(true)
         .build();
-    let miller_file_context: gio::MenuModel = build_file_context_menu_model().upcast();
-    let miller_background_context: gio::MenuModel = build_background_context_menu_model().upcast();
+    let miller_file_context: gio::MenuModel = file_context_model.clone().upcast();
+    let miller_background_context: gio::MenuModel = background_context_model.clone().upcast();
     let miller_view = MillerView::new(
         &miller_file_context,
         &miller_background_context,
@@ -3493,6 +3611,8 @@ fn build_directory_panel(
         grid_context_menu,
         list_background_menu,
         grid_background_menu,
+        file_context_model,
+        background_context_model,
         empty_state,
         spinner,
         status_label,
@@ -3730,6 +3850,172 @@ fn build_grid_factory(
     factory
 }
 
+fn build_configured_file_context_menu_model(preferences: ContextMenuPreferences) -> gio::Menu {
+    let menu = gio::Menu::new();
+    populate_file_context_menu_model(&menu, preferences);
+    menu
+}
+
+fn populate_file_context_menu_model(menu: &gio::Menu, preferences: ContextMenuPreferences) {
+    menu.remove_all();
+
+    let primary = gio::Menu::new();
+    primary.append(Some("Open"), Some("win.open"));
+    primary.append(Some("Open With…"), Some("win.open-with"));
+    if preferences.is_visible(ContextMenuGroup::Terminal) {
+        primary.append(Some("Open Terminal Here"), Some("win.open-terminal"));
+    }
+    primary.append(Some("Open in New Tab"), Some("win.open-new-tab"));
+    primary.append(
+        Some("Open in New Background Tab"),
+        Some("win.open-background-tab"),
+    );
+    menu.append_section(None, &primary);
+
+    if preferences.is_visible(ContextMenuGroup::SplitView) {
+        let opposite = gio::Menu::new();
+        opposite.append(
+            Some("Open Folder in Other Pane"),
+            Some("win.open-opposite-pane"),
+        );
+        opposite.append(
+            Some("Copy to Other Pane"),
+            Some("win.copy-to-opposite-pane"),
+        );
+        opposite.append(
+            Some("Move to Other Pane"),
+            Some("win.move-to-opposite-pane"),
+        );
+        opposite.append(
+            Some("Create Links in Other Pane"),
+            Some("win.link-to-opposite-pane"),
+        );
+        menu.append_section(Some("Other Pane"), &opposite);
+    }
+
+    let editing = gio::Menu::new();
+    for (label, action) in [
+        ("Copy", "win.copy"),
+        ("Cut", "win.cut"),
+        ("Duplicate", "win.duplicate"),
+        ("Rename…", "win.rename"),
+    ] {
+        editing.append(Some(label), Some(action));
+    }
+    if preferences.is_visible(ContextMenuGroup::BatchRename) {
+        editing.append(Some("Batch Rename…"), Some("win.batch-rename"));
+        editing.append(
+            Some("Undo Last Batch Rename"),
+            Some("win.undo-batch-rename"),
+        );
+    }
+    menu.append_section(None, &editing);
+
+    if preferences.is_visible(ContextMenuGroup::Archives) {
+        let archives = gio::Menu::new();
+        archives.append(Some("Extract Here"), Some("win.extract-here"));
+        archives.append(Some("Extract To…"), Some("win.extract-to"));
+        archives.append(Some("Compress…"), Some("win.compress"));
+        let section = gio::Menu::new();
+        section.append_submenu(Some("Archives"), &archives);
+        menu.append_section(None, &section);
+    }
+
+    if preferences.is_visible(ContextMenuGroup::Links) {
+        let links = gio::Menu::new();
+        links.append(
+            Some("Create Symbolic Link…"),
+            Some("win.create-symbolic-link"),
+        );
+        links.append(Some("Create Hard Link…"), Some("win.create-hard-link"));
+        links.append(Some("Reveal Link Target"), Some("win.reveal-link-target"));
+        let section = gio::Menu::new();
+        section.append_submenu(Some("Links"), &links);
+        menu.append_section(None, &section);
+    }
+
+    if preferences.is_visible(ContextMenuGroup::CopyDetails) {
+        let copy_details = gio::Menu::new();
+        for (label, action) in [
+            ("Copy Name", "win.copy-name"),
+            ("Copy Path", "win.copy-path"),
+            ("Copy Relative Path", "win.copy-relative-path"),
+            ("Copy URI", "win.copy-uri"),
+        ] {
+            copy_details.append(Some(label), Some(action));
+        }
+        let section = gio::Menu::new();
+        section.append_submenu(Some("Copy Details"), &copy_details);
+        menu.append_section(None, &section);
+    }
+
+    if preferences.is_visible(ContextMenuGroup::Checksums) {
+        let checksums = gio::Menu::new();
+        checksums.append(Some("Calculate Checksums…"), Some("win.checksum"));
+        menu.append_section(None, &checksums);
+    }
+
+    let destructive = gio::Menu::new();
+    destructive.append(Some("Move to Trash"), Some("win.trash"));
+    destructive.append(Some("Delete Permanently…"), Some("win.permanent-delete"));
+    menu.append_section(None, &destructive);
+
+    let details = gio::Menu::new();
+    details.append(Some("Properties"), Some("win.properties"));
+    details.append(
+        Some("Customize Context Menus…"),
+        Some("win.context-menu-settings"),
+    );
+    menu.append_section(None, &details);
+}
+
+fn build_configured_background_context_menu_model(
+    preferences: ContextMenuPreferences,
+) -> gio::Menu {
+    let menu = gio::Menu::new();
+    populate_background_context_menu_model(&menu, preferences);
+    menu
+}
+
+fn populate_background_context_menu_model(menu: &gio::Menu, preferences: ContextMenuPreferences) {
+    menu.remove_all();
+
+    let create = gio::Menu::new();
+    create.append(Some("New Folder…"), Some("win.new-folder"));
+    create.append(Some("New Empty File…"), Some("win.new-empty-file"));
+    create.append(Some("New From Template…"), Some("win.new-from-template"));
+    create.append(Some("Paste"), Some("win.paste"));
+    menu.append_section(None, &create);
+
+    let view = gio::Menu::new();
+    view.append(Some("Select All"), Some("win.select-all"));
+    view.append(Some("Refresh"), Some("win.refresh"));
+    view.append(Some("Edit Location"), Some("win.location"));
+    if preferences.is_visible(ContextMenuGroup::Terminal) {
+        view.append(Some("Open Terminal Here"), Some("win.open-terminal"));
+    }
+    menu.append_section(None, &view);
+
+    if preferences.is_visible(ContextMenuGroup::SplitView) {
+        let split = gio::Menu::new();
+        split.append(Some("Toggle Split View"), Some("win.toggle-split"));
+        split.append(Some("Switch Active Pane"), Some("win.switch-split-side"));
+        split.append(Some("Swap Panes"), Some("win.swap-split-sides"));
+        split.append(Some("Close Split"), Some("win.close-split"));
+        split.append(Some("Narrow Primary Pane"), Some("win.narrow-primary-pane"));
+        split.append(Some("Widen Primary Pane"), Some("win.widen-primary-pane"));
+        menu.append_section(Some("Split View"), &split);
+    }
+
+    let settings = gio::Menu::new();
+    settings.append(
+        Some("Customize Context Menus…"),
+        Some("win.context-menu-settings"),
+    );
+    menu.append_section(None, &settings);
+}
+
+#[cfg(test)]
 fn build_file_context_menu_model() -> gio::Menu {
     let menu = gio::Menu::new();
 
@@ -3839,29 +4125,6 @@ fn build_trash_background_context_menu_model() -> gio::Menu {
     let menu = gio::Menu::new();
     menu.append(Some("Empty Trash…"), Some("win.empty-trash"));
     menu.append(Some("Refresh"), Some("win.refresh"));
-    menu
-}
-
-fn build_background_context_menu_model() -> gio::Menu {
-    let menu = gio::Menu::new();
-    for (_, action) in BACKGROUND_CONTEXT_ACTIONS {
-        let command = crate::command_registry::command(action)
-            .expect("background menu commands must be registered");
-        debug_assert!(
-            command
-                .placements
-                .contains(&crate::command_registry::CommandPlacement::BackgroundContext)
-        );
-        menu.append(Some(command.name), Some(command.action));
-    }
-    let split = gio::Menu::new();
-    split.append(Some("Toggle Split View"), Some("win.toggle-split"));
-    split.append(Some("Switch Active Pane"), Some("win.switch-split-side"));
-    split.append(Some("Swap Panes"), Some("win.swap-split-sides"));
-    split.append(Some("Close Split"), Some("win.close-split"));
-    split.append(Some("Narrow Primary Pane"), Some("win.narrow-primary-pane"));
-    split.append(Some("Widen Primary Pane"), Some("win.widen-primary-pane"));
-    menu.append_section(Some("Split View"), &split);
     menu
 }
 
@@ -4246,6 +4509,163 @@ mod tests {
 
     use super::*;
 
+    fn collect_menu_actions(model: &gio::MenuModel, actions: &mut Vec<String>) {
+        for index in 0..model.n_items() {
+            if let Some(action) = model
+                .item_attribute_value(index, "action", None)
+                .and_then(|value| value.str().map(str::to_owned))
+            {
+                actions.push(action);
+            }
+            for link in ["section", "submenu"] {
+                if let Some(child) = model.item_link(index, link) {
+                    collect_menu_actions(&child, actions);
+                }
+            }
+        }
+    }
+
+    fn menu_actions(model: &gio::MenuModel) -> Vec<String> {
+        let mut actions = Vec::new();
+        collect_menu_actions(model, &mut actions);
+        actions
+    }
+
+    #[test]
+    fn split_pane_updates_preserve_the_focused_active_child_when_opening_or_closing() {
+        assert_eq!(
+            split_pane_update(
+                Some(SplitPaneLayout::ActiveOnly),
+                SplitPaneLayout::ActiveThenInactive,
+            ),
+            SplitPaneUpdate::AddInactiveEnd
+        );
+        assert_eq!(
+            split_pane_update(
+                Some(SplitPaneLayout::ActiveThenInactive),
+                SplitPaneLayout::ActiveOnly,
+            ),
+            SplitPaneUpdate::RemoveInactiveEnd
+        );
+    }
+
+    #[test]
+    fn split_pane_updates_reparent_only_for_real_side_changes() {
+        assert_eq!(
+            split_pane_layout(false, SplitSide::Secondary),
+            SplitPaneLayout::ActiveOnly
+        );
+        assert_eq!(
+            split_pane_update(
+                Some(SplitPaneLayout::ActiveThenInactive),
+                SplitPaneLayout::InactiveThenActive,
+            ),
+            SplitPaneUpdate::Rebuild
+        );
+        assert_eq!(
+            split_pane_update(
+                Some(SplitPaneLayout::InactiveThenActive),
+                SplitPaneLayout::InactiveThenActive,
+            ),
+            SplitPaneUpdate::NoChange
+        );
+    }
+
+    #[test]
+    fn phase_12f_context_menu_defaults_expose_archives_without_a_menu_wall() {
+        let model = build_configured_file_context_menu_model(ContextMenuPreferences::default());
+        let actions = menu_actions(model.upcast_ref());
+
+        for action in [
+            "win.extract-here",
+            "win.extract-to",
+            "win.compress",
+            "win.batch-rename",
+            "win.context-menu-settings",
+        ] {
+            assert!(
+                actions.iter().any(|candidate| candidate == action),
+                "{action}"
+            );
+        }
+        assert!(!actions.iter().any(|action| action == "win.checksum"));
+        assert!(!actions.iter().any(|action| action == "win.copy-path"));
+        assert!(
+            model.n_items() <= 8,
+            "root stays grouped into compact sections"
+        );
+    }
+
+    #[test]
+    fn phase_12f_context_menu_fixed_actions_survive_empty_optional_preferences() {
+        let empty = ContextMenuPreferences::empty();
+        let file = build_configured_file_context_menu_model(empty);
+        let file_actions = menu_actions(file.upcast_ref());
+        for action in [
+            "win.open",
+            "win.copy",
+            "win.cut",
+            "win.rename",
+            "win.trash",
+            "win.permanent-delete",
+            "win.properties",
+            "win.context-menu-settings",
+        ] {
+            assert!(file_actions.iter().any(|candidate| candidate == action));
+        }
+        for action in [
+            "win.extract-here",
+            "win.checksum",
+            "win.open-terminal",
+            "win.open-opposite-pane",
+        ] {
+            assert!(!file_actions.iter().any(|candidate| candidate == action));
+        }
+
+        let background = build_configured_background_context_menu_model(empty);
+        let background_actions = menu_actions(background.upcast_ref());
+        assert!(
+            background_actions
+                .iter()
+                .any(|action| action == "win.new-folder")
+        );
+        assert!(
+            background_actions
+                .iter()
+                .any(|action| action == "win.context-menu-settings")
+        );
+        assert!(
+            !background_actions
+                .iter()
+                .any(|action| action == "win.open-terminal")
+        );
+        assert!(
+            !background_actions
+                .iter()
+                .any(|action| action == "win.toggle-split")
+        );
+    }
+
+    #[test]
+    fn phase_12f_context_menu_custom_groups_are_deterministic_and_deduplicated() {
+        let preferences =
+            ContextMenuPreferences::parse("checksums,copy-details,archives,checksums,unknown");
+        let first = build_configured_file_context_menu_model(preferences);
+        let second = build_configured_file_context_menu_model(preferences);
+        let first_actions = menu_actions(first.upcast_ref());
+        let second_actions = menu_actions(second.upcast_ref());
+        assert_eq!(first_actions, second_actions);
+        assert_eq!(
+            first_actions
+                .iter()
+                .filter(|action| action.as_str() == "win.checksum")
+                .count(),
+            1
+        );
+        assert!(first_actions.iter().any(|action| action == "win.copy-uri"));
+        assert!(first_actions.iter().any(|action| action == "win.compress"));
+    }
+
     #[test]
     fn phase_6n_actions_keep_restore_and_irreversible_trash_actions_distinct() {
         assert_eq!(
@@ -4495,6 +4915,7 @@ mod tests {
                 ("Refresh", "win.refresh"),
                 ("Edit Location", "win.location"),
                 ("Open Terminal Here", "win.open-terminal"),
+                ("Customize Context Menus…", "win.context-menu-settings"),
             ]
         );
         assert!(BACKGROUND_CONTEXT_ACTIONS.iter().all(|(_, action)| {
@@ -4528,6 +4949,12 @@ mod tests {
                 ("Delete Permanently…", "win.permanent-delete"),
                 ("Properties", "win.properties"),
                 ("Open Terminal Here", "win.open-terminal"),
+                ("Extract Here", "win.extract-here"),
+                ("Extract To…", "win.extract-to"),
+                ("Compress…", "win.compress"),
+                ("Batch Rename…", "win.batch-rename"),
+                ("Undo Last Batch Rename", "win.undo-batch-rename"),
+                ("Customize Context Menus…", "win.context-menu-settings"),
             ]
         );
     }

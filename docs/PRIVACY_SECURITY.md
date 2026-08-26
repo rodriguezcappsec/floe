@@ -2,7 +2,7 @@
 
 Status: authoritative design and threat model. Most capabilities in this document are **PLANNED**, not implemented. This document does not select a cryptographic format, cryptographic library, vault backend, or sandbox mechanism.
 
-Last reviewed against the repository: `2026-08-25`, after Phase 7A.
+Last reviewed against the repository: `2026-08-25`, after Phase 12F.
 
 ## Status vocabulary and claim discipline
 
@@ -32,6 +32,13 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 12F context-menu customization persists only a deterministic subset of
+  seven reviewed static group identifiers in version-8 view preferences through
+  the existing capacity-one private atomic preference worker. It does not store
+  menu usage, command recency, filenames, paths, archive destinations, queries,
+  contents, arbitrary commands, plugin identifiers, or per-MIME profiles. Menu
+  activation continues to delegate to existing live GActions and therefore does
+  not weaken archive, filesystem-operation, confirmation, or path-safety policy.
 - Phase 12C batch rename preserves exact source/destination `PathBuf` mappings,
   rejects non-UTF-8 names for Unicode/regex transforms rather than rebuilding
   from lossy labels, validates the entire bounded batch before mutation, and
