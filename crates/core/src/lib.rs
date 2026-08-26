@@ -22,6 +22,9 @@ mod tabs;
 mod trash_lifecycle;
 mod view;
 
+#[cfg(test)]
+mod property_tests;
+
 pub use archive::{
     ARCHIVE_LIST_RESULT_CAPACITY, ARCHIVE_MEMBER_DEPTH, ARCHIVE_MEMBER_PATH_BYTES,
     ARCHIVE_SOURCE_CAPACITY, ArchiveCancellation, ArchiveError, ArchiveFormat, ArchiveLimits,

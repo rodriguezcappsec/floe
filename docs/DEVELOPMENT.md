@@ -123,6 +123,130 @@ cargo check -p floe-core
 cargo tree -p floe-app --depth 1
 ```
 
+## Layered testing strategy
+
+The baseline on `main` before this testing-foundation pass was 469 passing Rust
+tests: 365 in `floe-app` and 104 in `floe-core`. The existing suite remains the
+foundation; the layers below add boundaries and commands rather than moving
+hundreds of tests.
+
+### Unit and temporary-filesystem tests
+
+Run deterministic crate tests with:
+
+```bash
+cargo test -p floe-core
+cargo test -p floe-app
+```
+
+Unit tests stay beside their modules. Real filesystem integration tests use
+`tempfile` roots only. A test must never fall back to the login user's HOME,
+Trash, Downloads, Documents, configuration, cache, data, mounts, or other user
+files. Trash tests construct/inject `Trash/files` and `Trash/info` below the
+temporary XDG data root. Non-UTF-8, symlink, hard-link, permission, conflict,
+cancellation, and mutation-race fixtures remain inside the disposable root.
+
+### Property-based tests
+
+`floe-core` uses `proptest 1.11` as a development-only dependency. It is justified
+for large input spaces and invariants, not test-count inflation and not E2E.
+Run the current properties with:
+
+```bash
+cargo test -p floe-core property_ -- --nocapture
+```
+
+The initial properties cover arbitrary valid Linux filename bytes without lossy
+identity reconstruction, deterministic sorting with multiset preservation,
+non-UTF-8 folder-filter behavior, and navigation Back/Forward round trips. On a
+failure, retain the seed/regression case printed by proptest so it reproduces.
+
+### GTK component and accessibility gate
+
+GTK component tests construct real Floe widgets. They are ignored by ordinary
+headless `cargo test` and must run in a disposable graphical session:
+
+```bash
+cargo test -p floe-app phase_testing_gtk -- --ignored --nocapture
+```
+
+The initial contract covers header navigation controls, location and folder
+filter roles/help/action wiring, and Operations Island progress/recovery
+controls. Extend this layer for real widget state, dialog focus/default actions,
+tab/sidebar/header presentation, keyboard actions, and accessible
+roles/names/descriptions. Do not use hidden test widgets, layout coordinates, or
+CSS selectors as identity.
+
+### Native Dogtail/AT-SPI E2E
+
+The `e2e/` suite is an opt-in native test of the built GTK executable. Required
+system capabilities are:
+
+- Python 3 with `dogtail` and `pyatspi` imports;
+- `at-spi2-core` and a functioning accessibility bus;
+- a Wayland graphical test session and D-Bus session bus;
+- a built `target/debug/floe-app` (or `FLOE_E2E_BINARY` pointing to one).
+
+Package names vary by distribution; verify the Python imports rather than
+assuming the Rust workspace installs these system components:
+
+```bash
+python3 -c 'import dogtail, pyatspi'
+cargo build -p floe-app
+dbus-run-session -- python3 -m unittest discover -s e2e -p 'test_*.py' -v
+```
+
+Prefer an isolated nested Mutter/GNOME Wayland session for the full semantic
+suite. Do not run it against a normal desktop containing important open Floe
+windows. The harness creates a private temporary HOME, XDG config/cache/data/
+state/runtime, and freedesktop Trash per process. It refuses paths outside that
+root. The relative Wayland socket is referenced from the temporary
+runtime while all Floe-owned data remains isolated. `GSETTINGS_BACKEND=memory`
+and `FLOE_SESSION_POLICY=private` prevent normal preference/session writes.
+
+The suite registers eight workflows:
+
+- E2E-01 launch/responsiveness/clean quit;
+- E2E-02 navigation Back/Forward/Parent;
+- E2E-03 create and rename;
+- E2E-04 copy and move;
+- E2E-05 the currently implemented current-folder search/filter;
+- E2E-06 isolated Trash and restore;
+- E2E-07 multi-selection batch copy;
+- E2E-08 Ctrl+L, Ctrl+F, Ctrl+T, Ctrl+W, Alt+Left, Alt+Right, Alt+Up, F2.
+
+Waits are tied to accessible, process, location, or filesystem conditions. The
+harness does not use coordinate clicks or fixed sleeps. When Dogtail, AT-SPI,
+the binary, or a suitable session is missing, discovery reports a skip; that is
+preflight evidence, not a passed native E2E run.
+
+### Compositor-specific smoke
+
+Keep graphical gates independent:
+
+- compositor-independent Dogtail/AT-SPI E2E runs in isolated Mutter/GNOME;
+- Niri smoke retains current D-Bus action, liveness, clean-quit, and supported
+  native interaction checks;
+- Plasma Wayland smoke validates the same generic GTK/GIO surface and later any
+  explicit Plasma integration.
+
+Do not make all GUI coverage depend on input injection under Niri. Wayland
+compositors may intentionally restrict synthetic pointer/keyboard input.
+
+### Regression, security, and CI policy
+
+Each reproduced bug fix gets a lowest-practical-layer regression test. Future
+security/privacy work also tests wrong passwords, corrupt/truncated/tampered
+data, authentication failure, interruption, cleanup, atomicity, permissions,
+symlink/path traversal, secret-free logs, and source preservation as applicable.
+
+No GitHub Actions workflow exists in the current repository, so this pass does
+not invent CI infrastructure. When ordinary CI is introduced, run formatting,
+check, strict Clippy, deterministic Rust tests, and property tests there. Keep
+GTK component, native E2E, Niri, and Plasma jobs opt-in/separate with explicit
+graphical environments. Never add Playwright, Selenium, Tauri/browser DOM
+testing, or label `proptest` as E2E.
+
 Use `cargo fmt --all` to apply formatting. Core tests use temporary directories
 and must never target real user data. Phase 6A presentation tests are
 locale-independent: they verify stable column semantics, kind text, size
