@@ -1176,12 +1176,14 @@ Last updated:
 Current phase:
 
 ```text
-Phase 12 — Productivity operations (Phase 12D complete)
+Phase 12 — Productivity operations (Phase 12E complete)
 ```
 
 Status:
 
 ```text
+Phase 12E separates duplicate operations from hardened templates and adds explicit relative/absolute symbolic-link planning. Relative targets are calculated lexically from exact absolute source/destination paths without canonicalization or following; absolute targets store the exact source path, and native guidance states either can become broken. Hard links preflight regular no-follow source and destination-parent device, preserve no-overwrite semantics, and revalidate linked inode identity after commit. Duplicate naming preserves extensions/non-UTF-8 bytes and advances existing `(copy)`/`(copy N)` suffixes within the 10,000-attempt bound. All work reuses the bounded create executor and shared Operations UI. Phase 12F action integration is the sole next phase.
+
 Phase 12D replaces arbitrary template picking with one bounded application worker that examines at most 4,096 direct XDG Templates entries and returns at most 256 no-follow regular files in stable raw-byte order. The native chooser exposes loaded, empty, truncated, and error states plus exact in-app Templates-folder management. Exact source paths feed the existing create executor; core creation rejects symbolic/non-regular sources, publishes without overwrite, revalidates the created no-follow descriptor, and removes every execute bit without modifying the source. Exact new folder/template destinations stay memory-only, are selected after refresh, and enter the existing rename workflow. No template contents, catalog, history, or lossy path reconstruction is persisted. Phase 12E links/duplicate polish is the sole next phase.
 
 Phase 12C adds preview-first batch rename for 2–4,096 selected local entries.

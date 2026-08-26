@@ -250,17 +250,51 @@ pub fn duplicate_name(original: &OsStr, attempt: u32) -> Option<OsString> {
     let path = Path::new(original);
     let stem = path.file_stem()?;
     let extension = path.extension();
-    let mut bytes = stem.as_bytes().to_vec();
-    if attempt == 1 {
+    let (base, existing_copy) = duplicate_stem(stem.as_bytes());
+    let ordinal = existing_copy.checked_add(attempt)?;
+    if ordinal > MAX_KEEP_BOTH_ATTEMPTS {
+        return None;
+    }
+    let mut bytes = base.to_vec();
+    if ordinal == 1 {
         bytes.extend_from_slice(b" (copy)");
     } else {
-        bytes.extend_from_slice(format!(" (copy {attempt})").as_bytes());
+        bytes.extend_from_slice(format!(" (copy {ordinal})").as_bytes());
     }
     if let Some(extension) = extension {
         bytes.push(b'.');
         bytes.extend_from_slice(extension.as_bytes());
     }
     Some(OsString::from_vec(bytes))
+}
+
+fn duplicate_stem(stem: &[u8]) -> (&[u8], u32) {
+    if let Some(base) = stem.strip_suffix(b" (copy)") {
+        return (base, 1);
+    }
+    let Some(without_close) = stem.strip_suffix(b")") else {
+        return (stem, 0);
+    };
+    let Some(marker) = without_close
+        .windows(b" (copy ".len())
+        .rposition(|window| window == b" (copy ")
+    else {
+        return (stem, 0);
+    };
+    let digits = &without_close[marker + b" (copy ".len()..];
+    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+        return (stem, 0);
+    }
+    let Ok(number) = std::str::from_utf8(digits)
+        .unwrap_or_default()
+        .parse::<u32>()
+    else {
+        return (stem, 0);
+    };
+    if !(2..=MAX_KEEP_BOTH_ATTEMPTS).contains(&number) {
+        return (stem, 0);
+    }
+    (&stem[..marker], number)
 }
 
 #[cfg(test)]
@@ -385,6 +419,28 @@ mod tests {
         );
         assert_eq!(duplicate_name(&original, 0), None);
         assert_eq!(duplicate_name(&original, MAX_KEEP_BOTH_ATTEMPTS + 1), None);
+    }
+
+    #[test]
+    fn phase_12e_duplicate_suffixes_progress_without_stacking_and_preserve_raw_extensions() {
+        assert_eq!(
+            duplicate_name(OsStr::new("report (copy).txt"), 1),
+            Some(OsString::from("report (copy 2).txt"))
+        );
+        assert_eq!(
+            duplicate_name(OsStr::new("report (copy 7).txt"), 2),
+            Some(OsString::from("report (copy 9).txt"))
+        );
+        assert_eq!(
+            duplicate_name(OsStr::new("report (copy nope).txt"), 1),
+            Some(OsString::from("report (copy nope) (copy).txt"))
+        );
+        let raw = OsString::from_vec(b"raw-\xff (copy 2).bin".to_vec());
+        assert_eq!(
+            duplicate_name(&raw, 1).expect("raw duplicate").as_bytes(),
+            b"raw-\xff (copy 3).bin"
+        );
+        assert_eq!(duplicate_name(OsStr::new("item (copy 10000)"), 1), None);
     }
 
     #[test]

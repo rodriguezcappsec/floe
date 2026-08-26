@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsStr,
     fs::{self, OpenOptions},
     io,
     os::unix::fs as unix_fs,
@@ -22,6 +23,12 @@ pub enum CreateKind {
     Duplicate { source: PathBuf },
     SymbolicLink { target: PathBuf },
     HardLink { source: PathBuf },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SymbolicLinkMode {
+    Relative,
+    Absolute,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -71,6 +78,28 @@ impl CreateRequest {
             },
             destination.into(),
         )
+    }
+
+    pub fn symbolic_link_from(
+        source: impl Into<PathBuf>,
+        destination: impl Into<PathBuf>,
+        mode: SymbolicLinkMode,
+    ) -> Result<Self, CreateRequestError> {
+        let source = source.into();
+        let destination = destination.into();
+        if !source.is_absolute() || !destination.is_absolute() {
+            return Err(CreateRequestError::LinkPathMustBeAbsolute);
+        }
+        let target = match mode {
+            SymbolicLinkMode::Relative => {
+                let parent = destination
+                    .parent()
+                    .ok_or_else(|| CreateRequestError::InvalidDestination(destination.clone()))?;
+                relative_link_target(&source, parent)?
+            }
+            SymbolicLinkMode::Absolute => source,
+        };
+        Self::symbolic_link(target, destination)
     }
 
     pub fn hard_link(
@@ -130,6 +159,49 @@ pub enum CreateRequestError {
     InvalidSource(PathBuf),
     #[error("creation destination has no usable final component: {}", .0.display())]
     InvalidDestination(PathBuf),
+    #[error("symbolic-link source and destination must be absolute paths")]
+    LinkPathMustBeAbsolute,
+    #[error("symbolic-link path contains unsupported lexical components: {}", .0.display())]
+    UnsupportedLinkPath(PathBuf),
+}
+
+fn relative_link_target(
+    source: &Path,
+    destination_parent: &Path,
+) -> Result<PathBuf, CreateRequestError> {
+    fn normal_components(path: &Path) -> Option<Vec<&OsStr>> {
+        let mut components = path.components();
+        if components.next() != Some(std::path::Component::RootDir) {
+            return None;
+        }
+        components
+            .map(|component| match component {
+                std::path::Component::Normal(value) => Some(value),
+                _ => None,
+            })
+            .collect()
+    }
+
+    let source_components = normal_components(source)
+        .ok_or_else(|| CreateRequestError::UnsupportedLinkPath(source.to_path_buf()))?;
+    let parent_components = normal_components(destination_parent)
+        .ok_or_else(|| CreateRequestError::UnsupportedLinkPath(destination_parent.to_path_buf()))?;
+    let shared = source_components
+        .iter()
+        .zip(&parent_components)
+        .take_while(|(left, right)| left == right)
+        .count();
+    let mut target = PathBuf::new();
+    for _ in shared..parent_components.len() {
+        target.push("..");
+    }
+    for component in &source_components[shared..] {
+        target.push(component);
+    }
+    if target.as_os_str().is_empty() {
+        target.push(".");
+    }
+    Ok(target)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -182,6 +254,8 @@ pub enum CreateError {
     TemplateOutputChanged(PathBuf),
     #[error("hard links require source and destination on the same filesystem")]
     CrossFilesystemHardLink,
+    #[error("hard-link source changed before commit: {}", .0.display())]
+    HardLinkSourceChanged(PathBuf),
     #[error(transparent)]
     Copy(#[from] CopyError),
     #[error("could not {action} at {}", path.display())]
@@ -309,6 +383,17 @@ where
             if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
                 return Err(CreateError::UnsupportedHardLinkSource(source.clone()));
             }
+            let parent = request.destination().parent().ok_or_else(|| {
+                CreateError::InvalidDestinationParent(request.destination().into())
+            })?;
+            let parent_metadata = fs::metadata(parent).map_err(|error| CreateError::Io {
+                action: "inspect hard-link destination filesystem",
+                path: parent.to_path_buf(),
+                source: error,
+            })?;
+            if metadata.dev() != parent_metadata.dev() {
+                return Err(CreateError::CrossFilesystemHardLink);
+            }
             fs::hard_link(source, request.destination()).map_err(|error| {
                 if error.raw_os_error() == Some(Errno::XDEV.raw_os_error()) {
                     CreateError::CrossFilesystemHardLink
@@ -316,6 +401,20 @@ where
                     map_destination_error("create hard link", request.destination(), error)
                 }
             })?;
+            let linked_metadata =
+                fs::symlink_metadata(request.destination()).map_err(|error| CreateError::Io {
+                    action: "revalidate hard link",
+                    path: request.destination().to_path_buf(),
+                    source: error,
+                })?;
+            if (metadata.dev(), metadata.ino()) != (linked_metadata.dev(), linked_metadata.ino()) {
+                fs::remove_file(request.destination()).map_err(|error| CreateError::Io {
+                    action: "remove changed hard link",
+                    path: request.destination().to_path_buf(),
+                    source: error,
+                })?;
+                return Err(CreateError::HardLinkSourceChanged(source.clone()));
+            }
             report_progress(CreateProgress::Item {
                 completed: 1,
                 total: 1,
@@ -584,5 +683,109 @@ mod tests {
             fs::read(destination).expect("existing survives"),
             b"existing"
         );
+    }
+
+    #[test]
+    fn phase_12e_symbolic_link_modes_preserve_exact_relative_absolute_and_broken_targets() {
+        let fixture = tempdir().expect("temporary fixture");
+        let source_directory = fixture.path().join("source");
+        let destination_directory = fixture.path().join("links");
+        fs::create_dir(&source_directory).expect("source directory");
+        fs::create_dir(&destination_directory).expect("link directory");
+        let raw_name = OsString::from_vec(b"target-\xff".to_vec());
+        let source = source_directory.join(&raw_name);
+        fs::write(&source, b"target").expect("source payload");
+
+        let relative_destination = destination_directory.join("relative");
+        let relative = CreateRequest::symbolic_link_from(
+            &source,
+            &relative_destination,
+            SymbolicLinkMode::Relative,
+        )
+        .expect("relative request");
+        assert_eq!(
+            relative.source(),
+            Some(Path::new("../source").join(&raw_name).as_path())
+        );
+        execute_create(&relative, &CreateCancellation::new(), |_| {})
+            .expect("relative link creation");
+
+        let absolute_destination = destination_directory.join("absolute");
+        let absolute = CreateRequest::symbolic_link_from(
+            &source,
+            &absolute_destination,
+            SymbolicLinkMode::Absolute,
+        )
+        .expect("absolute request");
+        assert_eq!(absolute.source(), Some(source.as_path()));
+        execute_create(&absolute, &CreateCancellation::new(), |_| {})
+            .expect("absolute link creation");
+
+        fs::remove_file(&source).expect("remove source to break links");
+        assert_eq!(
+            fs::read_link(&relative_destination).expect("stored relative target"),
+            Path::new("../source").join(&raw_name)
+        );
+        assert_eq!(
+            fs::read_link(&absolute_destination).expect("stored absolute target"),
+            source
+        );
+        assert!(fs::metadata(relative_destination).is_err());
+        assert!(fs::metadata(absolute_destination).is_err());
+        assert!(matches!(
+            CreateRequest::symbolic_link_from(
+                Path::new("relative-source"),
+                fixture.path().join("invalid-link"),
+                SymbolicLinkMode::Relative,
+            ),
+            Err(CreateRequestError::LinkPathMustBeAbsolute)
+        ));
+    }
+
+    #[test]
+    fn phase_12e_hard_link_preflight_accepts_regular_identity_and_rejects_symlink() {
+        let fixture = tempdir().expect("temporary fixture");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("hard-link");
+        fs::write(&source, b"payload").expect("source payload");
+        execute_create(
+            &CreateRequest::hard_link(&source, &destination).expect("hard-link request"),
+            &CreateCancellation::new(),
+            |_| {},
+        )
+        .expect("same-filesystem hard link");
+        let source_metadata = fs::metadata(&source).expect("source metadata");
+        let destination_metadata = fs::metadata(&destination).expect("destination metadata");
+        assert_eq!(source_metadata.dev(), destination_metadata.dev());
+        assert_eq!(source_metadata.ino(), destination_metadata.ino());
+
+        let source_link = fixture.path().join("source-link");
+        unix_fs::symlink(&source, &source_link).expect("source symlink");
+        assert!(matches!(
+            execute_create(
+                &CreateRequest::hard_link(&source_link, fixture.path().join("rejected"))
+                    .expect("linked-source request"),
+                &CreateCancellation::new(),
+                |_| {},
+            ),
+            Err(CreateError::UnsupportedHardLinkSource(path)) if path == source_link
+        ));
+
+        if let Ok(other_filesystem) = tempfile::tempdir_in("/dev/shm")
+            && fs::metadata(other_filesystem.path())
+                .is_ok_and(|metadata| metadata.dev() != source_metadata.dev())
+        {
+            let cross_destination = other_filesystem.path().join("cross-filesystem-link");
+            assert!(matches!(
+                execute_create(
+                    &CreateRequest::hard_link(&source, &cross_destination)
+                        .expect("cross-filesystem request"),
+                    &CreateCancellation::new(),
+                    |_| {},
+                ),
+                Err(CreateError::CrossFilesystemHardLink)
+            ));
+            assert!(!cross_destination.exists());
+        }
     }
 }

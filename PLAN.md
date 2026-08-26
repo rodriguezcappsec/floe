@@ -1,13 +1,14 @@
-# Plan: Floe Phase 12D — Create/Templates Polish
+# Plan: Floe Phase 12E — Links/Duplicate Polish
 
 ## Contract
 
-- Discover at most 256 regular no-follow files from the XDG Templates directory on a bounded worker.
-- Present stable exact template identities and safe explicit destination names; never execute templates or preserve executable surprise.
-- Create through the existing executor, strip output execute bits, and focus immediate rename after refresh.
-- Provide native empty/error states and an Open Templates Folder management path.
-- Exclude Phase 12E links and Phase 12F broad action integration.
+- Offer explicit relative and absolute symbolic-link target modes without following targets.
+- Keep broken-link creation truthful and preserve exact raw path identity.
+- Preflight hard-link regular-file and same-filesystem eligibility with explicit failures.
+- Normalize bounded duplicate suffix progression while preserving extensions and non-UTF-8 bytes.
+- Reuse the bounded create executor and existing Operations feedback; keep GTK free of filesystem work.
+- Exclude Phase 12F action/menu/shortcut expansion.
 
 ## Status
 
-COMPLETE on `phase-12d-create-templates`; verified evidence is recorded in `GATES.md`.
+COMPLETE on `phase-12e-link-duplicate-polish`; verified evidence is recorded in `GATES.md`.
