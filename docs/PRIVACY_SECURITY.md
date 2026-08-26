@@ -32,6 +32,15 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 12B exposes native Extract Here/To and Compress controls over the Phase
+  12A typed executor. GTK receives exact selected paths from application state,
+  displays lossy destination text only as preview, and never parses archive
+  bytes or performs filesystem mutation. The UI has no password field: encrypted
+  archive failures explain that no password was requested, stored, logged, put
+  in argv/environment, or passed to another process. Existing destinations
+  produce explicit no-overwrite conflict guidance. Archive queries, destinations,
+  outcomes, and recent usage are not persisted by this phase.
+
 - Phase 12A archive operations are local-only typed jobs over exact `PathBuf`
   identities. ZIP, TAR-family, and reviewed pure-Rust 7z parsers enforce bounded
   archive/member/path/depth/entry/expanded-byte/ratio limits before extraction,
