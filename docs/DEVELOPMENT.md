@@ -672,6 +672,20 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+Phase 13C rebuilt Floe and launched it with isolated HOME/XDG config, data,
+cache, and state roots in the active Plasma Wayland session. The live window
+exported and accepted `folder-filter`, `filename-search`,
+`start-filename-search`, `stop-filename-search`, and `close-search-surface`;
+`org.freedesktop.DBus.Peer.Ping` remained responsive and the exported
+application `quit` action exited with status 0. The opt-in real GTK component
+gate constructed the native search surface and verified advanced toggle,
+dropdown, entry, Match Case, Apply, and Clear Filters roles/labels. Focused
+tests cover combined predicates, predicate-only hidden search, invalid MIME and
+ranges, unknown-metadata exclusion, lazy owner/MIME resolution, raw non-UTF-8
+case behavior, and generation-safe capacity-one workers. Dogtail/AT-SPI native
+E2E remains unavailable because the host does not provide the Python `dogtail`
+module.
+
 Phase 13B rebuilt Floe and launched it with isolated HOME/XDG config, data,
 cache, and state roots in the active Wayland session. The live window exported
 enabled `folder-filter`, `filename-search`, `start-filename-search`,

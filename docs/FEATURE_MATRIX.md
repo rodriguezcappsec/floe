@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 13B. Phase 13C is the only
+The implementation baseline for this matrix is Phase 13C. Phase 13D is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -307,10 +307,11 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 
 ## Current-folder filtering and search
 
-Phase 13A and Phase 13B share one search row: `Ctrl+F` opens Quick Filter, the
+Phases 13A–13C share one search row: `Ctrl+F` opens Quick Filter, the
 visible mode selector switches to Search Files, and `Ctrl+Shift+F` opens Search
 Files directly. Quick Filter narrows loaded entries; Search Files uses the
-bounded filename traversal worker.
+bounded filename traversal worker. Both modes share the optional Phase 13C
+advanced predicates and explicit Match Case control.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
@@ -322,13 +323,13 @@ bounded filename traversal worker.
 | Wider-location search | `PLANNED` | 13B/17 | Depends on generic location architecture and privacy policy. |
 | Search cancellation | `COMPLETE` | 13B | Visible Stop cancels by generation, stale events are ignored, and partial results remain with truthful stopped/skipped/truncated feedback. |
 | Content search | `PLANNED` | 13D | Bounded, cancellable, type-aware, and privacy-safe by default. |
-| Type/extension/MIME filters | `PLANNED` | 13C | Reuse metadata providers and support unknown values. |
-| Size/date/owner/hidden filters | `PLANNED` | 13C | Lazy metadata and explicit hidden policy. |
+| Type/extension/MIME filters | `COMPLETE` | 13C | Structured bounded predicates run cheap checks first; GIO guesses MIME from the exact filename without content bytes, and unknown MIME explicitly excludes the candidate. |
+| Size/date/owner/hidden filters | `COMPLETE` | 13C | Size/date use enumerated no-follow facts, owner UID is resolved lazily with no-follow metadata, and temporary Include Hidden/Hidden Only never mutates global Show Hidden. |
 | Tag filters | `DEFERRED` | 19 | No tag model exists. |
-| Glob/regex/case sensitivity | `PLANNED` | 13C | Shared query model should serve filter and search where semantics match. |
+| Glob/regex/case sensitivity | `COMPLETE` | 13C | Text, Glob, and Regex plus explicit Match Case share one query model across Quick Filter and Search Files, including deterministic raw-name fallback. |
 | Search history | `PLANNED` | 13E | Must obey Sensitive Folder and Private Mode history suppression. |
 | Saved searches | `PLANNED` | 13E | Versioned query representation with clear scope. |
-| Search sorting/grouping | `PLANNED` | 13C/13E | Reuse view policy rather create separate filesystem actions. |
+| Search sorting/grouping | `PLANNED` | 13E | Reuse view policy rather than create separate filesystem actions. |
 | Reveal/search-result context actions | `COMPLETE` | 13B | Dedicated filename/containing-folder rows reuse normal exact-path actions; Reveal navigates to the exact parent and selects the exact result. |
 | Optional indexed backend | `DEFERRED` | 13F | Must have non-indexed fallback and exclude private/sensitive content safely. |
 | Locked-vault search leakage prevention | `PLANNED` | 18J | Locked names/content must not enter global or Floe indexes. |

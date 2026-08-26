@@ -1,6 +1,66 @@
-# Gates: Floe Phase 13B — Filename Search
+# Gates: Floe Phase 13C — Advanced Filters
 
-- [x] S1: Core traversal is bounded, cancellable, and path-safe.
+Scope: Combined, bounded advanced predicates in both existing search modes with
+lazy worker-owned metadata and exact Linux path identity.
+
+- [x] C1: Core predicates are bounded, composable, case-aware, and path-safe.
+  CHECK: cargo test -p floe-core phase_13c -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Five focused core tests pass combined
+  type/extension/size/date/hidden, lazy MIME/owner facts with unknown exclusion,
+  invalid ranges/MIME, raw non-UTF-8 extension identity, case-aware glob search,
+  predicate-only hidden search, and cheap-before-MIME resolution. Existing raw-
+  name matcher regression also passes.
+
+- [x] C2: Both application workers remain capacity-one and generation-safe.
+  CHECK: cargo test -p floe-app phase_13c -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Three focused application/UI tests pass combined lazy owner
+  filtering, predicate-only hidden traversal, generation-tagged result delivery,
+  and bounded plain-language control policy. Existing queue-pressure/latest-
+  generation tests remain green in the full workspace suite.
+
+- [x] C3: Unified native UI exposes accessible, truthful advanced controls.
+  CHECK: cargo test -p floe-app advanced_filter -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Deterministic control contract passes visible bounded presets and
+  Match Case help. The opt-in graphical GTK component gate passes real roles and
+  labels for Filters, five dropdowns, extension/MIME entries, Match Case, Apply,
+  and Clear Filters.
+
+- [x] C4: Existing Phase 13 behavior and strict workspace gates remain green.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: `cargo fmt --all -- --check`, workspace check, strict all-target/all-
+  feature Clippy with `-D warnings`, native app build, and `git diff --check`
+  pass. Final serial workspace suite passes 374 application tests with one
+  intentional graphical ignore, 117 core tests, and zero doctest failures. The
+  one split-drop fixture failure from the first full run passed focused and on
+  the complete rerun; no Phase 13 regression remained.
+
+- [x] C5: Native Wayland smoke verifies controls, mode/action lifecycle,
+    responsive D-Bus health, and clean Quit.
+  EVIDENCE: Isolated HOME/XDG launch in the active Plasma Wayland session
+  exported and accepted folder-filter, filename-search, start/stop, and close-
+  search actions; D-Bus Peer.Ping returned `()`, and the application `quit`
+  action exited status 0. The graphical GTK gate independently constructed and
+  verified the shared advanced controls. Host Python lacks `dogtail`, so AT-SPI
+  E2E is not claimed.
+
+- [x] C6: Persistent documents mark only verified Phase 13C complete and set
+    exactly Phase 13D NEXT without claiming tags or later phases.
+  CHECK: rg -n '\| .*NEXT' docs/ROADMAP.md
+  EXPECT: 13D — Content search | NEXT
+  EVIDENCE: AGENTS, DESIGN, ROADMAP, FEATURE_MATRIX, PRIVACY_SECURITY,
+  DEVELOPMENT, PLAN, and this ledger describe the verified Phase 13C boundary;
+  ROADMAP has exactly one NEXT row, Phase 13D. Tags, persistence, content
+  search, indexing, remote roots, and result ordering remain excluded.
+
+---
+
+# Archived gates: Floe Phase 13B — Filename Search
+
+* [x] S1: Core traversal is bounded, cancellable, and path-safe.
   CHECK: cargo test -p floe-core phase_13b_filename_search -- --nocapture
   EXPECT: test result: ok
   EVIDENCE: Four focused core tests pass for folder/subtree scope, raw
@@ -8,14 +68,14 @@
     128-result batches, caps/truncation, query/root validation, and device
     boundary policy.
 
-- [x] S2: Application streaming worker has bounded generation-safe lifecycle.
+* [x] S2: Application streaming worker has bounded generation-safe lifecycle.
   CHECK: cargo test -p floe-app phase_13b_filename_search -- --nocapture
   EXPECT: test result: ok
   EVIDENCE: Three focused application tests pass for capacity-1 requests,
     capacity-32 responses, 128/128/44 streaming, generation supersession,
     bounded backpressure, and clean worker shutdown.
 
-- [x] S3: Unified native search UX and exact result actions are verified.
+* [x] S3: Unified native search UX and exact result actions are verified.
   CHECK: cargo test -p floe-app phase_13b_search_ui -- --nocapture
   EXPECT: test result: ok
   EVIDENCE: Three focused UI/registry/feedback tests pass. Native Wayland D-Bus
@@ -25,21 +85,21 @@
     the surface, restored them on Close, retained Peer.Ping liveness, and Quit
     cleanly.
 
-- [x] S4: Supplied Floe application icon is embedded and selected safely.
+* [x] S4: Supplied Floe application icon is embedded and selected safely.
   CHECK: cargo test -p floe-app phase_13b_application_icon -- --nocapture
   EXPECT: test result: ok
   EVIDENCE: Focused resource test passes the PNG signature under stable
     `io.github.floe.FileManager`; GTK default and application-window icon names
     use that same resource alias.
 
-- [x] S5: Privacy, design, roadmap, matrix, and persistent status are exact.
+* [x] S5: Privacy, design, roadmap, matrix, and persistent status are exact.
   CHECK: rg -n '13B.*COMPLETE|13C.*NEXT|Filename search|Search Files' AGENTS.md DESIGN.md docs/ROADMAP.md docs/FEATURE_MATRIX.md docs/PRIVACY_SECURITY.md docs/DEVELOPMENT.md
   EXPECT: Phase 13B
   EVIDENCE: ROADMAP marks Phase 13B COMPLETE and exactly Phase 13C NEXT; matrix,
     privacy, design, development, plan, gates, and AGENTS describe the verified
     memory-only filename boundary and keep Phase 13C/later work excluded.
 
-- [x] S6: Full deterministic and applicable native gates pass.
+* [x] S6: Full deterministic and applicable native gates pass.
   CHECK: git diff --check
   EXPECT: /^$/
   EVIDENCE: Formatting, workspace check, strict all-target Clippy, 371 app plus

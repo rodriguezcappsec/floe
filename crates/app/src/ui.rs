@@ -48,13 +48,27 @@ const KEYBOARD_SHORTCUTS_MENU_ITEM: (&str, &str) =
     ("Keyboard Shortcuts…", "win.keyboard-shortcuts");
 pub const VIM_MODE_ON_LABEL: &str = "Vim On";
 const FOLDER_FILTER_MODES: [&str; 3] = ["Text", "Glob", "Regex"];
+const ADVANCED_TYPE_FILTERS: [&str; 5] =
+    ["Any type", "Files", "Folders", "Symbolic links", "Other"];
+const ADVANCED_SIZE_FILTERS: [&str; 5] =
+    ["Any size", "Empty", "Under 1 MB", "1–100 MB", "Over 100 MB"];
+const ADVANCED_DATE_FILTERS: [&str; 5] = [
+    "Any date",
+    "Last 24 hours",
+    "Last 7 days",
+    "Last 30 days",
+    "Last year",
+];
+const ADVANCED_OWNER_FILTERS: [&str; 2] = ["Anyone", "Me"];
+const ADVANCED_HIDDEN_FILTERS: [&str; 3] =
+    ["Current hidden setting", "Include hidden", "Hidden only"];
 pub(crate) const SEARCH_SURFACE_MODES: [&str; 2] = ["Quick Filter", "Search Files"];
 pub(crate) const SEARCH_SURFACE_MODE_HELP: [&str; 2] = [
     "Quick Filter narrows the items already shown in this folder. It does not search subfolders or read the filesystem again.",
     "Search Files finds filenames on disk in this folder or its subfolders. It never reads file contents.",
 ];
 const FOLDER_FILTER_MODE_HELP: [&str; 3] = [
-    "Contains these characters, ignoring letter case. Example: vacation finds My Vacation.jpg",
+    "Contains these characters. Letter case is ignored unless Match case is enabled. Example: vacation finds My Vacation.jpg",
     "Uses wildcard patterns: * matches any characters and ? matches one character. Examples: *.pdf or photo-??.jpg",
     "Uses advanced regular-expression patterns. Example: ^invoice-[0-9]+\\.pdf$",
 ];
@@ -927,6 +941,18 @@ pub struct BrowserWidgets {
     pub filter_entry: gtk::SearchEntry,
     pub filter_mode: gtk::DropDown,
     pub filter_feedback: gtk::Label,
+    pub advanced_filter_toggle: gtk::ToggleButton,
+    pub advanced_filter_box: gtk::Box,
+    pub advanced_type: gtk::DropDown,
+    pub advanced_extension: gtk::Entry,
+    pub advanced_mime: gtk::Entry,
+    pub advanced_size: gtk::DropDown,
+    pub advanced_date: gtk::DropDown,
+    pub advanced_owner: gtk::DropDown,
+    pub advanced_hidden: gtk::DropDown,
+    pub advanced_match_case: gtk::CheckButton,
+    pub advanced_apply: gtk::Button,
+    pub advanced_clear: gtk::Button,
     pub search_scope: gtk::DropDown,
     pub search_button: gtk::Button,
     pub search_stop_button: gtk::Button,
@@ -995,6 +1021,18 @@ struct DirectoryPanelWidgets {
     filter_entry: gtk::SearchEntry,
     filter_mode: gtk::DropDown,
     filter_feedback: gtk::Label,
+    advanced_filter_toggle: gtk::ToggleButton,
+    advanced_filter_box: gtk::Box,
+    advanced_type: gtk::DropDown,
+    advanced_extension: gtk::Entry,
+    advanced_mime: gtk::Entry,
+    advanced_size: gtk::DropDown,
+    advanced_date: gtk::DropDown,
+    advanced_owner: gtk::DropDown,
+    advanced_hidden: gtk::DropDown,
+    advanced_match_case: gtk::CheckButton,
+    advanced_apply: gtk::Button,
+    advanced_clear: gtk::Button,
     search_scope: gtk::DropDown,
     search_button: gtk::Button,
     search_stop_button: gtk::Button,
@@ -1753,6 +1791,18 @@ pub fn build(
         filter_entry,
         filter_mode,
         filter_feedback,
+        advanced_filter_toggle,
+        advanced_filter_box,
+        advanced_type,
+        advanced_extension,
+        advanced_mime,
+        advanced_size,
+        advanced_date,
+        advanced_owner,
+        advanced_hidden,
+        advanced_match_case,
+        advanced_apply,
+        advanced_clear,
         search_scope,
         search_button,
         search_stop_button,
@@ -1982,6 +2032,18 @@ pub fn build(
         filter_entry,
         filter_mode,
         filter_feedback,
+        advanced_filter_toggle,
+        advanced_filter_box,
+        advanced_type,
+        advanced_extension,
+        advanced_mime,
+        advanced_size,
+        advanced_date,
+        advanced_owner,
+        advanced_hidden,
+        advanced_match_case,
+        advanced_apply,
+        advanced_clear,
         search_scope,
         search_button,
         search_stop_button,
@@ -3716,6 +3778,80 @@ fn build_directory_panel(
     filter_feedback.set_accessible_role(gtk::AccessibleRole::Alert);
     filter_feedback.add_css_class("caption");
     filter_feedback.add_css_class("dim-label");
+    let advanced_filter_toggle = gtk::ToggleButton::with_label("Filters");
+    advanced_filter_toggle.set_tooltip_text(Some(
+        "Show type, extension, MIME, size, date, owner, hidden, and case filters",
+    ));
+    set_accessible_label(&advanced_filter_toggle, "Show advanced filters");
+
+    let advanced_type = gtk::DropDown::from_strings(&ADVANCED_TYPE_FILTERS);
+    advanced_type.set_tooltip_text(Some("Limit results by filesystem entry type"));
+    set_accessible_label(&advanced_type, "File type filter");
+    let advanced_extension = gtk::Entry::builder()
+        .placeholder_text("Extension")
+        .width_chars(10)
+        .max_length(64)
+        .build();
+    advanced_extension.set_tooltip_text(Some(
+        "Match one filename extension, with or without a leading dot (for example: pdf)",
+    ));
+    set_accessible_label(&advanced_extension, "Filename extension filter");
+    let advanced_mime = gtk::Entry::builder()
+        .placeholder_text("MIME, e.g. image/*")
+        .width_chars(16)
+        .max_length(128)
+        .build();
+    advanced_mime.set_tooltip_text(Some(
+        "Match an exact MIME type or a family such as image/*. MIME is guessed from the name without reading file contents.",
+    ));
+    set_accessible_label(&advanced_mime, "MIME type filter");
+    let advanced_size = gtk::DropDown::from_strings(&ADVANCED_SIZE_FILTERS);
+    advanced_size.set_tooltip_text(Some("Limit regular files by byte size"));
+    set_accessible_label(&advanced_size, "File size filter");
+    let advanced_date = gtk::DropDown::from_strings(&ADVANCED_DATE_FILTERS);
+    advanced_date.set_tooltip_text(Some("Limit results by modification time"));
+    set_accessible_label(&advanced_date, "Modified date filter");
+    let advanced_owner = gtk::DropDown::from_strings(&ADVANCED_OWNER_FILTERS);
+    advanced_owner.set_tooltip_text(Some("Limit results to files owned by your Unix user ID"));
+    set_accessible_label(&advanced_owner, "Owner filter");
+    let advanced_hidden = gtk::DropDown::from_strings(&ADVANCED_HIDDEN_FILTERS);
+    advanced_hidden.set_tooltip_text(Some(
+        "Use Show Hidden, include both hidden and visible items, or show hidden items only",
+    ));
+    set_accessible_label(&advanced_hidden, "Hidden files filter");
+    let advanced_match_case = gtk::CheckButton::with_label("Match case");
+    advanced_match_case.set_tooltip_text(Some(
+        "Make filename, extension, and MIME text matching case-sensitive",
+    ));
+    let advanced_apply = gtk::Button::with_label("Apply");
+    advanced_apply.set_tooltip_text(Some("Apply all advanced filters together"));
+    let advanced_clear = gtk::Button::with_label("Clear filters");
+    advanced_clear.set_tooltip_text(Some("Reset advanced filters but keep the search text"));
+
+    let advanced_filter_flow = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .column_spacing(8)
+        .row_spacing(6)
+        .max_children_per_line(6)
+        .min_children_per_line(1)
+        .homogeneous(false)
+        .build();
+    advanced_filter_flow.insert(&advanced_type, -1);
+    advanced_filter_flow.insert(&advanced_extension, -1);
+    advanced_filter_flow.insert(&advanced_mime, -1);
+    advanced_filter_flow.insert(&advanced_size, -1);
+    advanced_filter_flow.insert(&advanced_date, -1);
+    advanced_filter_flow.insert(&advanced_owner, -1);
+    advanced_filter_flow.insert(&advanced_hidden, -1);
+    advanced_filter_flow.insert(&advanced_match_case, -1);
+    advanced_filter_flow.insert(&advanced_apply, -1);
+    advanced_filter_flow.insert(&advanced_clear, -1);
+    let advanced_filter_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .visible(false)
+        .build();
+    advanced_filter_box.append(&advanced_filter_flow);
     let search_close_button = icon_button(
         "window-close-symbolic",
         "Clear and close search (Escape)",
@@ -3752,6 +3888,7 @@ fn build_directory_panel(
         .spacing(8)
         .build();
     search_options_row.append(&filter_mode);
+    search_options_row.append(&advanced_filter_toggle);
     search_options_row.append(&filter_feedback);
 
     let search_scope = gtk::DropDown::from_strings(&["This Folder", "Include Subfolders"]);
@@ -3790,6 +3927,7 @@ fn build_directory_panel(
     search_options_row.append(&search_feedback);
     filter_bar.append(&search_query_row);
     filter_bar.append(&search_options_row);
+    filter_bar.append(&advanced_filter_box);
 
     let spinner = gtk::Spinner::new();
     let status_label = gtk::Label::builder()
@@ -3847,6 +3985,18 @@ fn build_directory_panel(
         filter_entry,
         filter_mode,
         filter_feedback,
+        advanced_filter_toggle,
+        advanced_filter_box,
+        advanced_type,
+        advanced_extension,
+        advanced_mime,
+        advanced_size,
+        advanced_date,
+        advanced_owner,
+        advanced_hidden,
+        advanced_match_case,
+        advanced_apply,
+        advanced_clear,
         search_scope,
         search_button,
         search_stop_button,
@@ -5045,6 +5195,40 @@ mod tests {
             widgets.filter_feedback.accessible_role(),
             gtk::AccessibleRole::Alert
         );
+        assert_eq!(
+            widgets.advanced_filter_toggle.accessible_role(),
+            gtk::AccessibleRole::ToggleButton
+        );
+        for dropdown in [
+            &widgets.advanced_type,
+            &widgets.advanced_size,
+            &widgets.advanced_date,
+            &widgets.advanced_owner,
+            &widgets.advanced_hidden,
+        ] {
+            assert_eq!(dropdown.accessible_role(), gtk::AccessibleRole::ComboBox);
+        }
+        assert_eq!(
+            widgets.advanced_extension.accessible_role(),
+            gtk::AccessibleRole::TextBox
+        );
+        assert_eq!(
+            widgets.advanced_mime.accessible_role(),
+            gtk::AccessibleRole::TextBox
+        );
+        assert_eq!(
+            widgets.advanced_match_case.accessible_role(),
+            gtk::AccessibleRole::Checkbox
+        );
+        assert_eq!(
+            widgets.advanced_match_case.label().as_deref(),
+            Some("Match case")
+        );
+        assert_eq!(widgets.advanced_apply.label().as_deref(), Some("Apply"));
+        assert_eq!(
+            widgets.advanced_clear.label().as_deref(),
+            Some("Clear filters")
+        );
 
         assert_eq!(
             widgets.operations.operation_progress.accessible_role(),
@@ -5082,13 +5266,31 @@ mod tests {
             FOLDER_FILTER_MODE_SUMMARIES.len(),
             FOLDER_FILTER_MODES.len()
         );
-        assert!(FOLDER_FILTER_MODE_HELP[0].contains("ignoring letter case"));
+        assert!(FOLDER_FILTER_MODE_HELP[0].contains("Match case"));
         assert!(FOLDER_FILTER_MODE_HELP[1].contains("* matches any characters"));
         assert!(FOLDER_FILTER_MODE_HELP[1].contains("*.pdf"));
         assert!(FOLDER_FILTER_MODE_HELP[1].contains("? matches one character"));
         assert!(FOLDER_FILTER_MODE_HELP[2].contains("regular-expression"));
         assert_eq!(folder_filter_mode_index("Glob"), Some(1));
         assert_eq!(folder_filter_mode_index("Unknown"), None);
+    }
+
+    #[test]
+    fn phase_13c_advanced_filter_controls_are_plain_language_and_bounded() {
+        assert_eq!(
+            ADVANCED_TYPE_FILTERS,
+            ["Any type", "Files", "Folders", "Symbolic links", "Other"]
+        );
+        assert_eq!(ADVANCED_OWNER_FILTERS, ["Anyone", "Me"]);
+        assert_eq!(
+            ADVANCED_HIDDEN_FILTERS,
+            ["Current hidden setting", "Include hidden", "Hidden only"]
+        );
+        assert!(ADVANCED_SIZE_FILTERS.contains(&"Empty"));
+        assert!(ADVANCED_SIZE_FILTERS.contains(&"Over 100 MB"));
+        assert!(ADVANCED_DATE_FILTERS.contains(&"Last 24 hours"));
+        assert!(ADVANCED_DATE_FILTERS.contains(&"Last 7 days"));
+        assert!(FOLDER_FILTER_MODE_HELP[0].contains("Match case"));
     }
 
     fn collect_menu_actions(model: &gio::MenuModel, actions: &mut Vec<String>) {

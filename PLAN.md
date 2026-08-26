@@ -1,4 +1,52 @@
-# Plan: Floe Phase 13B — Filename Search
+# Plan: Floe Phase 13C — Advanced Filters
+
+## Contract
+
+- Add one optional advanced-filter section inside the existing unified search
+  surface. It must serve Quick Filter and Search Files without creating a third
+  search pipeline.
+- Support combined filename, entry-type, extension, MIME, size, modified-date,
+  Unix owner, and hidden predicates. Filename matching retains Text, Glob, and
+  Regex and gains one explicit Match Case control.
+- Own the predicate model and bounded validation in `floe-core`. Evaluate cheap
+  facts first, define missing/unknown metadata semantics explicitly, and leave a
+  tag-ready boundary without implementing tags.
+- Preserve exact `PathBuf`/`OsStr` identity. Display text must never become a
+  filesystem path.
+- Keep both existing capacity-one application workers responsive and
+  generation-safe. Resolve MIME and owner metadata lazily on workers only when
+  active predicates require them; MIME guessing must not read file contents.
+- Let Quick Filter temporarily include or isolate hidden loaded entries without
+  mutating the global Show Hidden preference. Search Files supports Current
+  Setting, Include Hidden, and Hidden Only under its existing traversal bounds.
+- Allow an empty filename query only when at least one advanced predicate is
+  active. Preserve cancellation, stale-result rejection, exact Reveal,
+  memory-only privacy, and all Phase 13A/13B limits.
+- Expose compact wrapping native controls with visible labels, plain-language
+  descriptions, Apply, and Clear Filters. Exclude tags, content search, saved
+  searches/history, indexing, remote roots, persistence, and search-specific
+  sorting/grouping.
+
+## Applicable testing layers
+
+- Deterministic core predicate tests for combinations, case, raw names,
+  validation, missing metadata, and hidden policy.
+- Application worker tests for lazy MIME/owner resolution, fixed capacity,
+  generation supersession, and both filter/search engines.
+- GTK/accessibility contracts and isolated native Wayland action/liveness/Quit
+  smoke for the shared wrapping controls and mode transitions.
+
+## Status
+
+COMPLETE. Structured core predicates, both bounded application workers, the
+shared accessible native controls, strict workspace gates, real GTK component
+coverage, and isolated Plasma Wayland D-Bus/lifecycle smoke are verified in
+`GATES.md`. Exactly Phase 13D content search is next; later phases remain
+excluded.
+
+---
+
+# Archived plan: Floe Phase 13B — Filename Search
 
 ## Contract
 

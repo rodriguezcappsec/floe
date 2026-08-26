@@ -1318,8 +1318,24 @@ Last updated:
 Current phase:
 
 ```text
-Phase 13 — Filter and search (Phase 13B complete)
+Phase 13 — Filter and search (Phase 13C complete)
 ```
+
+Phase 13C adds one structured bounded advanced-filter model shared by Quick
+Filter and Search Files. Entry type, extension, MIME, size, modification date,
+Unix owner, hidden policy, and explicit Match Case combine with Text/Glob/Regex
+filename matching; an empty filename is valid only with a real predicate.
+Cheap facts run first. Capacity-one application workers resolve only requested
+lazy facts: owner uses no-follow metadata and GIO guesses MIME from the filename
+without content bytes. Unknown requested metadata excludes the candidate and
+recursive feedback counts it. Quick Filter can temporarily include or isolate
+hidden loaded entries without changing global Show Hidden. Exact paths, queries,
+results, and counters remain memory-only. Accessible wrapping native controls,
+raw-name/case/validation tests, strict workspace gates, real GTK accessibility,
+and isolated native Wayland D-Bus/lifecycle smoke are recorded in `GATES.md`.
+Tags, content reads, persistence/history, indexing, remote roots, and
+search-result ordering remain excluded. Phase 13D content search is the sole
+recommended next phase.
 
 Phase 13B adds case-insensitive filename-only search rooted at the active local
 folder with explicit This Folder and Include Subfolders scopes. One capacity-1
@@ -1339,7 +1355,7 @@ search-result ordering remain excluded. The supplied `icon_floe.png` is embedded
 under the stable application ID and used as the GTK application/window icon.
 
 Focused core/application/UI/icon tests and strict workspace gates are recorded
-in `GATES.md`. Phase 13C advanced filters is the sole recommended next phase.
+in `GATES.md`. Phase 13C advanced filters followed this work.
 
 Phase 13A adds a current-folder-only Text/Glob/Regex filter over entries already
 returned by the directory worker. Queries are capped at 256 Unicode scalar

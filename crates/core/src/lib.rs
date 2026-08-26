@@ -1,5 +1,6 @@
 //! GTK-independent filesystem and navigation foundations for Floe.
 
+mod advanced_filter;
 mod archive;
 mod batch_rename;
 mod checksum;
@@ -26,6 +27,11 @@ mod view;
 #[cfg(test)]
 mod property_tests;
 
+pub use advanced_filter::{
+    ADVANCED_FILTER_EXTENSION_CAPACITY, ADVANCED_FILTER_MIME_CAPACITY, AdvancedFilter,
+    AdvancedFilterDecision, AdvancedFilterError, AdvancedMetadata, AdvancedMetadataNeeds,
+    EntryTypeFilter, HiddenFilter, OwnerFilter,
+};
 pub use archive::{
     ARCHIVE_LIST_RESULT_CAPACITY, ARCHIVE_MEMBER_DEPTH, ARCHIVE_MEMBER_PATH_BYTES,
     ARCHIVE_SOURCE_CAPACITY, ArchiveCancellation, ArchiveError, ArchiveFormat, ArchiveLimits,
@@ -55,6 +61,7 @@ pub use filename_search::{
     FILENAME_SEARCH_DIRECTORY_CAPACITY, FILENAME_SEARCH_ENTRY_CAPACITY,
     FILENAME_SEARCH_RESULT_CAPACITY, FilenameSearchError, FilenameSearchLimits,
     FilenameSearchRequest, FilenameSearchScope, FilenameSearchSummary, search_filenames,
+    search_filenames_with_mime,
 };
 pub use filter::{
     FOLDER_FILTER_QUERY_CAPACITY, FolderFilterError, FolderFilterMode, FolderFilterPattern,

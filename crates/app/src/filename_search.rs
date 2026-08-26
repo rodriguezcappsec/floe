@@ -12,8 +12,9 @@ use std::{
 
 use floe_core::{
     DirectoryEntry, FilenameSearchError, FilenameSearchLimits, FilenameSearchRequest,
-    FilenameSearchSummary, search_filenames,
+    FilenameSearchSummary, search_filenames_with_mime,
 };
+use gtk::gio;
 
 const SEARCH_REQUEST_CAPACITY: usize = 1;
 const SEARCH_RESPONSE_CAPACITY: usize = 32;
@@ -67,10 +68,15 @@ impl FilenameSearchWorker {
                         continue;
                     }
                     let generation = request.generation;
-                    let result = search_filenames(
+                    let result = search_filenames_with_mime(
                         &request.request,
                         FilenameSearchLimits::default(),
                         || worker_generation.load(Ordering::Acquire) != generation,
+                        |path| {
+                            let (content_type, _) =
+                                gio::content_type_guess(Some(path), None::<&[u8]>);
+                            (!content_type.is_empty()).then(|| content_type.to_string())
+                        },
                         |entries, summary| {
                             send_event(
                                 &response_sender,
@@ -177,7 +183,7 @@ fn send_event(
 mod tests {
     use std::{fs, time::Duration};
 
-    use floe_core::FilenameSearchScope;
+    use floe_core::{AdvancedFilter, FilenameSearchScope, FolderFilterMode, HiddenFilter};
 
     use super::*;
 
@@ -286,5 +292,38 @@ mod tests {
             .submit(100, request(root.path(), "missing"))
             .expect("submit request");
         assert_eq!(worker.latest_generation.load(Ordering::Acquire), 100);
+    }
+
+    #[test]
+    fn phase_13c_filename_search_worker_accepts_predicate_only_hidden_search() {
+        let root = tempfile::tempdir().expect("advanced search fixture");
+        fs::write(root.path().join("visible.txt"), b"visible").expect("visible");
+        fs::write(root.path().join(".hidden.txt"), b"hidden").expect("hidden");
+        let request = FilenameSearchRequest::new_with_filter(
+            root.path().to_path_buf(),
+            String::new(),
+            FilenameSearchScope::Subtree,
+            false,
+            FolderFilterMode::Text,
+            AdvancedFilter {
+                hidden: HiddenFilter::Only,
+                ..AdvancedFilter::default()
+            },
+        )
+        .expect("predicate-only request");
+        let worker = FilenameSearchWorker::spawn().expect("search worker");
+        worker.submit(120, request).expect("submit advanced search");
+        let events = events_until_finished(&worker);
+        let names = events
+            .iter()
+            .filter_map(|event| match &event.kind {
+                FilenameSearchEventKind::Batch { entries, .. } => Some(entries),
+                _ => None,
+            })
+            .flatten()
+            .map(|entry| entry.display_name_lossy())
+            .collect::<Vec<_>>();
+        assert_eq!(names, [".hidden.txt"]);
+        assert!(events.iter().all(|event| event.generation == 120));
     }
 }
