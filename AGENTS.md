@@ -1176,8 +1176,24 @@ Last updated:
 Current phase:
 
 ```text
-Phase 12 — Productivity operations (Phase 12E complete)
+Phase 12 — Productivity operations (Phase 12F complete)
 ```
+
+Phase 12F exposes selection-aware Extract Here, Extract To, and Compress in a
+default Archives submenu shared by list, grid, and Miller context surfaces.
+Seven reviewed optional groups have deterministic order/defaults and a native
+keyboard-accessible editor; fixed Open/edit/Trash/Delete/Properties/customize
+actions cannot be hidden. Only stable group IDs persist in version-8 preferences
+through the existing worker. Archive, batch rename, and customization commands
+are now registered for header, palette, and shortcut discovery; live GAction
+eligibility remains authoritative. Arbitrary commands, plugins, per-MIME rules,
+and later privacy actions remain excluded. Phase 13A folder filter is the sole
+next phase.
+
+Post-12E split-pane maintenance preserves the focused active `GtkPaned` child
+when opening or closing the other pane. Real side swaps hand focus to a stable
+header control before reparenting and restore it to the active file view
+afterward.
 
 Status:
 

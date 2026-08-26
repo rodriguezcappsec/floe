@@ -283,6 +283,17 @@ while deleted identities disappear normally. Manual Refresh and operation-driven
 refresh use the same preservation policy. Monitor failure leaves browsing usable
 and gives a clear “use Refresh” recovery message.
 
+### Context menu customization
+
+Phase 12F keeps the secondary-click surface compact through progressive
+disclosure. List, grid, and Miller share one normal file/background menu model;
+Archives, Links, and Copy Details are submenus while fixed common and safety
+actions remain direct. A native keyboard-accessible editor controls seven
+reviewed optional groups with deterministic defaults and explicit reset/apply.
+Open/edit/Trash/Delete/Properties/customization actions cannot be hidden, and
+disabled command state continues to come from live GActions rather than color or
+menu-specific eligibility logic.
+
 ### Trash job foundation
 
 Phase 4E adds the application-owned backend contract for moving one original
