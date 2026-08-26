@@ -432,7 +432,7 @@ Phase 6H implements this surface.
 
 ### Unified search surface
 
-Phase 13A and Phase 13B share one compact search surface. The header button and
+Phases 13A–13C share one compact search surface. The header button and
 `Ctrl+F` open **Quick Filter**; `Ctrl+Shift+F` opens **Search Files** in the same
 surface. A visible selector and accessible help explain that Quick Filter
 narrows items already shown while Search Files traverses filenames on disk.
@@ -446,6 +446,25 @@ Phase 13A adds a compact filter row inside the active directory panel. The heade
 Bare Space is scoped to list, grid, and Miller file views instead of being a global application accelerator. Editable controls therefore receive ordinary Space key events directly, including the filter search entry's internal text widget, while file-view focus still exposes Quick Preview.
 
 Filtering narrows the existing ordered list/grid/Miller backing entries; it is not a search-results page. Entries that remain visible retain exact-path selection, an active zero-match state says “No matching items,” refresh/sort/hidden/watcher updates reapply the query, and navigating elsewhere clears it. Pattern compilation and matching happen on the bounded application worker, never in GTK row binding callbacks.
+
+#### Advanced filters
+
+Phase 13C adds one optional **Filters** disclosure shared by Quick Filter and
+Search Files. Its wrapping native controls use plain-language choices for entry
+type, size, modified date, owner, and hidden policy; extension and MIME remain
+bounded editable fields. Text, Glob, and Regex remain visible in both search
+modes and an explicit **Match case** control changes filename, extension, and
+MIME matching together. **Apply** runs the active mode; **Clear filters** resets
+only advanced predicates and preserves the filename text.
+
+The section combines every active predicate rather than silently choosing one.
+An advanced predicate can run with an empty filename field. Quick Filter may
+temporarily include or isolate hidden loaded entries, but never rewrites the
+global Show Hidden preference. MIME and owner facts are resolved lazily on the
+application worker after cheap predicates. Unknown requested metadata excludes
+the candidate and recursive search reports that limitation. Tags, persistence,
+content search, remote roots, and search-result ordering are not implied by the
+disclosure.
 
 #### Search Files
 
@@ -465,8 +484,7 @@ boundaries, streams at most 128 results per batch, and has explicit result,
 entry, directory, and depth limits. Queries, roots, results, and usage remain
 memory-only. Same-location refresh and hidden-visibility changes rerun an active
 search; navigation cancels and clears it. Content search, saved searches,
-indexing, remote roots, advanced predicates, and search-specific ordering remain
-later phases.
+indexing, remote roots, and search-specific ordering remain later phases.
 
 ### Tabs
 

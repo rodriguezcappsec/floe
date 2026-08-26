@@ -6,18 +6,19 @@ use std::{
     path::{Component, Path, PathBuf},
     rc::Rc,
     sync::Arc,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use adw::prelude::*;
 use floe_core::SymbolicLinkMode;
 use floe_core::{
-    BrowserSession, BrowserSessionId, BrowserTabs, ChecksumAlgorithm, CreateRequest,
-    DirectoryEntry, DirectoryError, DirectoryGrouping, DirectoryPlacement, DirectorySort,
-    EntryKind, FilenameSearchRequest, FilenameSearchScope, FilenameSearchSummary, FolderFilterMode,
-    MillerChildKind, MillerColumnModel, MillerSelectionTransition, RestoreRequest, SPLIT_RATIO_MAX,
-    SPLIT_RATIO_MIN, SessionScrollAnchor, SortColumn, SplitRatio, SplitSide, TabActivation,
-    TabError, TrashEnumerateError, TrashRoot,
+    AdvancedFilter, BrowserSession, BrowserSessionId, BrowserTabs, ChecksumAlgorithm,
+    CreateRequest, DirectoryEntry, DirectoryError, DirectoryGrouping, DirectoryPlacement,
+    DirectorySort, EntryKind, EntryTypeFilter, FilenameSearchRequest, FilenameSearchScope,
+    FilenameSearchSummary, FolderFilterMode, HiddenFilter, MillerChildKind, MillerColumnModel,
+    MillerSelectionTransition, OwnerFilter, RestoreRequest, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN,
+    SessionScrollAnchor, SortColumn, SplitRatio, SplitSide, TabActivation, TabError,
+    TrashEnumerateError, TrashRoot,
 };
 
 fn tab_title(path: &Path) -> String {
@@ -54,6 +55,7 @@ const SPLIT_SNAPSHOT_CAPACITY: usize = 512;
 struct FolderFilterState {
     mode: FolderFilterMode,
     query: String,
+    advanced: AdvancedFilter,
 }
 
 impl Default for FolderFilterState {
@@ -61,6 +63,7 @@ impl Default for FolderFilterState {
         Self {
             mode: FolderFilterMode::Text,
             query: String::new(),
+            advanced: AdvancedFilter::default(),
         }
     }
 }
@@ -87,6 +90,12 @@ fn filename_search_feedback(
     };
     if skipped > 0 {
         message.push_str(&format!(" · {skipped} skipped"));
+    }
+    if summary.metadata_unavailable > 0 {
+        message.push_str(&format!(
+            " · {} metadata unavailable",
+            summary.metadata_unavailable
+        ));
     }
     if summary.truncated {
         message.push_str(" · incomplete (search limit reached)");
@@ -455,6 +464,7 @@ pub struct BrowserController {
     show_hidden: Cell<bool>,
     trash_active: Cell<bool>,
     trash_root: TrashRoot,
+    all_listed_entries: RefCell<Arc<[Arc<DirectoryEntry>]>>,
     listed_entries: RefCell<Arc<[Arc<DirectoryEntry>]>>,
     visible_entries: RefCell<Vec<Arc<DirectoryEntry>>>,
     filter_worker: RefCell<Option<crate::folder_filter::FolderFilterWorker>>,
@@ -631,6 +641,7 @@ impl BrowserController {
             show_hidden: Cell::new(false),
             trash_active: Cell::new(false),
             trash_root: TrashRoot::for_data_home(glib::user_data_dir()),
+            all_listed_entries: RefCell::new(Arc::from([])),
             listed_entries: RefCell::new(Arc::from([])),
             visible_entries: RefCell::new(Vec::new()),
             filter_worker: RefCell::new(filter_worker),
@@ -1686,6 +1697,31 @@ impl BrowserController {
                 }
             }
         });
+        let advanced_box = self.widgets.advanced_filter_box.clone();
+        self.widgets
+            .advanced_filter_toggle
+            .connect_toggled(move |button| advanced_box.set_visible(button.is_active()));
+        let controller = Rc::downgrade(self);
+        self.widgets.advanced_apply.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                if controller.widgets.search_mode.selected() == 0 {
+                    controller.update_folder_filter_from_widgets();
+                } else {
+                    controller.start_filename_search();
+                }
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.advanced_clear.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.reset_advanced_filter_widgets();
+                if controller.widgets.search_mode.selected() == 0 {
+                    controller.update_folder_filter_from_widgets();
+                } else if controller.filename_search_active.get() {
+                    controller.start_filename_search();
+                }
+            }
+        });
         let controller = Rc::downgrade(self);
         self.widgets.filter_entry.connect_stop_search(move |_| {
             if let Some(controller) = controller.upgrade() {
@@ -1724,6 +1760,7 @@ impl BrowserController {
         }
         self.filter_state.replace(FolderFilterState::default());
         self.widgets.filter_mode.set_selected(0);
+        self.reset_advanced_filter_widgets();
         self.widgets.filter_entry.set_text("");
         self.widgets.search_bar.set_visible(false);
         self.filter_generation
@@ -1748,6 +1785,62 @@ impl BrowserController {
         self.set_filter_feedback(None, self.listed_entries.borrow().len());
     }
 
+    fn reset_advanced_filter_widgets(&self) {
+        self.widgets.advanced_type.set_selected(0);
+        self.widgets.advanced_extension.set_text("");
+        self.widgets.advanced_mime.set_text("");
+        self.widgets.advanced_size.set_selected(0);
+        self.widgets.advanced_date.set_selected(0);
+        self.widgets.advanced_owner.set_selected(0);
+        self.widgets.advanced_hidden.set_selected(0);
+        self.widgets.advanced_match_case.set_active(false);
+    }
+
+    fn advanced_filter_from_widgets(&self) -> AdvancedFilter {
+        let entry_type = match self.widgets.advanced_type.selected() {
+            1 => EntryTypeFilter::File,
+            2 => EntryTypeFilter::Folder,
+            3 => EntryTypeFilter::SymbolicLink,
+            4 => EntryTypeFilter::Other,
+            _ => EntryTypeFilter::Any,
+        };
+        let extension = non_empty_trimmed(self.widgets.advanced_extension.text().as_str());
+        let mime = non_empty_trimmed(self.widgets.advanced_mime.text().as_str());
+        let (minimum_size, maximum_size) = match self.widgets.advanced_size.selected() {
+            1 => (Some(0), Some(0)),
+            2 => (None, Some(999_999)),
+            3 => (Some(1_000_000), Some(100_000_000)),
+            4 => (Some(100_000_001), None),
+            _ => (None, None),
+        };
+        let modified_after = match self.widgets.advanced_date.selected() {
+            1 => SystemTime::now().checked_sub(Duration::from_secs(24 * 60 * 60)),
+            2 => SystemTime::now().checked_sub(Duration::from_secs(7 * 24 * 60 * 60)),
+            3 => SystemTime::now().checked_sub(Duration::from_secs(30 * 24 * 60 * 60)),
+            4 => SystemTime::now().checked_sub(Duration::from_secs(365 * 24 * 60 * 60)),
+            _ => None,
+        };
+        let owner = (self.widgets.advanced_owner.selected() == 1)
+            .then(|| OwnerFilter::Uid(rustix::process::getuid().as_raw()));
+        let hidden = match self.widgets.advanced_hidden.selected() {
+            1 => HiddenFilter::Include,
+            2 => HiddenFilter::Only,
+            _ => HiddenFilter::CurrentSetting,
+        };
+        AdvancedFilter {
+            entry_type,
+            extension,
+            mime,
+            minimum_size,
+            maximum_size,
+            modified_after,
+            modified_before: None,
+            owner,
+            hidden,
+            match_case: self.widgets.advanced_match_case.is_active(),
+        }
+    }
+
     fn update_folder_filter_from_widgets(&self) {
         let mode = match self.widgets.filter_mode.selected() {
             1 => FolderFilterMode::Glob,
@@ -1755,7 +1848,12 @@ impl BrowserController {
             _ => FolderFilterMode::Text,
         };
         let query = self.widgets.filter_entry.text().to_string();
-        self.filter_state.replace(FolderFilterState { mode, query });
+        let advanced = self.advanced_filter_from_widgets();
+        self.filter_state.replace(FolderFilterState {
+            mode,
+            query,
+            advanced,
+        });
         let selected_paths = self.selected_paths();
         self.apply_folder_filter(selected_paths, false);
     }
@@ -1767,8 +1865,15 @@ impl BrowserController {
         self.pending_filter.borrow_mut().take();
 
         let state = self.filter_state.borrow().clone();
-        let entries = self.listed_entries.borrow().clone();
-        if state.query.is_empty() {
+        let entries = if matches!(
+            state.advanced.hidden,
+            HiddenFilter::Include | HiddenFilter::Only
+        ) {
+            self.all_listed_entries.borrow().clone()
+        } else {
+            self.listed_entries.borrow().clone()
+        };
+        if state.query.is_empty() && !state.advanced.is_active() {
             self.install_entries(entries.to_vec(), &selected_paths, focus_list);
             self.set_filter_feedback(None, self.listed_entries.borrow().len());
             return;
@@ -1794,7 +1899,15 @@ impl BrowserController {
         let state = self.filter_state.borrow().clone();
         let result = self.filter_worker.borrow().as_ref().map_or(
             Err(crate::folder_filter::FilterSubmitError::Stopped),
-            |worker| worker.submit(pending.generation, state.mode, state.query, pending.entries),
+            |worker| {
+                worker.submit(
+                    pending.generation,
+                    state.mode,
+                    state.query,
+                    state.advanced,
+                    pending.entries,
+                )
+            },
         );
         match result {
             Ok(()) => {}
@@ -1847,8 +1960,16 @@ impl BrowserController {
 
         self.widgets.filter_feedback.remove_css_class("error");
         self.widgets.filter_feedback.add_css_class("dim-label");
-        let total = self.listed_entries.borrow().len();
-        let active = !self.filter_state.borrow().query.is_empty();
+        let state = self.filter_state.borrow();
+        let total = if matches!(
+            state.advanced.hidden,
+            HiddenFilter::Include | HiddenFilter::Only
+        ) {
+            self.all_listed_entries.borrow().len()
+        } else {
+            self.listed_entries.borrow().len()
+        };
+        let active = !state.query.is_empty() || state.advanced.is_active();
         if active {
             self.widgets
                 .filter_feedback
@@ -1880,7 +2001,8 @@ impl BrowserController {
     }
 
     fn configure_search_surface(&self, file_search: bool) {
-        let help = crate::ui::SEARCH_SURFACE_MODE_HELP[usize::from(file_search)];
+        let help_index = usize::from(file_search);
+        let help = crate::ui::SEARCH_SURFACE_MODE_HELP[help_index];
         self.widgets.search_mode.set_tooltip_text(Some(help));
         self.widgets
             .search_mode
@@ -1893,7 +2015,7 @@ impl BrowserController {
             } else {
                 "Filter shown items"
             }));
-        self.widgets.filter_mode.set_visible(!file_search);
+        self.widgets.filter_mode.set_visible(true);
         self.widgets.filter_feedback.set_visible(!file_search);
         self.widgets.search_scope.set_visible(file_search);
         self.widgets.search_button.set_visible(file_search);
@@ -1984,7 +2106,7 @@ impl BrowserController {
         self.set_view_controls_sensitive(false);
         self.set_sort_controls_sensitive(false);
         self.set_filename_search_running(false);
-        self.set_search_feedback("Enter a filename to search", false);
+        self.set_search_feedback("Enter a filename or choose filters", false);
         self.set_open_enabled(false);
         self.set_open_with_enabled(false);
         self.set_properties_enabled(false);
@@ -2008,15 +2130,27 @@ impl BrowserController {
             FilenameSearchScope::Subtree
         };
         let root = self.tabs.borrow().active().current().path().to_path_buf();
-        let request =
-            match FilenameSearchRequest::new(root.clone(), query, scope, self.show_hidden.get()) {
-                Ok(request) => request,
-                Err(error) => {
-                    self.set_filename_search_running(false);
-                    self.set_search_feedback(&error.to_string(), true);
-                    return;
-                }
-            };
+        let mode = match self.widgets.filter_mode.selected() {
+            1 => FolderFilterMode::Glob,
+            2 => FolderFilterMode::Regex,
+            _ => FolderFilterMode::Text,
+        };
+        let advanced = self.advanced_filter_from_widgets();
+        let request = match FilenameSearchRequest::new_with_filter(
+            root.clone(),
+            query,
+            scope,
+            self.show_hidden.get(),
+            mode,
+            advanced,
+        ) {
+            Ok(request) => request,
+            Err(error) => {
+                self.set_filename_search_running(false);
+                self.set_search_feedback(&error.to_string(), true);
+                return;
+            }
+        };
         let generation = self.filename_search_generation.get().wrapping_add(1).max(1);
         self.filename_search_generation.set(generation);
         self.filename_search_root.replace(Some(root));
@@ -2127,6 +2261,7 @@ impl BrowserController {
 
     fn clear_filename_search(&self) {
         self.widgets.filter_entry.set_text("");
+        self.reset_advanced_filter_widgets();
         self.deactivate_filename_search(true);
     }
 
@@ -4384,7 +4519,7 @@ impl BrowserController {
             sort.grouping,
         );
         self.queue_preferences();
-        let entries = self.listed_entries.borrow().to_vec();
+        let entries = self.all_listed_entries.borrow().to_vec();
         if entries.len() < 2 {
             self.refresh_status();
             return;
@@ -4832,6 +4967,7 @@ impl BrowserController {
         if thumbnail_generation == 0 {
             self.widgets.thumbnails.disable();
         }
+        self.all_listed_entries.replace(Arc::from([]));
         self.listed_entries.replace(Arc::from([]));
         self.visible_entries.borrow_mut().clear();
         self.pending_entries.borrow_mut().clear();
@@ -4897,6 +5033,7 @@ impl BrowserController {
             self.pending_filter.borrow_mut().take();
             self.widgets.filter_entry.set_text("");
             self.widgets.filter_mode.set_selected(0);
+            self.reset_advanced_filter_widgets();
             self.widgets.search_bar.set_visible(false);
             self.set_filter_feedback(None, 0);
         }
@@ -5014,6 +5151,13 @@ impl BrowserController {
                         continue;
                     }
                     let selected_paths = self.sort_selection_paths.take();
+                    self.all_listed_entries.replace(Arc::from(entries.clone()));
+                    let entries = entries
+                        .into_iter()
+                        .filter(|entry| {
+                            self.trash_active.get() || self.show_hidden.get() || !entry.is_hidden()
+                        })
+                        .collect::<Vec<_>>();
                     self.listed_entries.replace(Arc::from(entries));
                     self.apply_folder_filter(selected_paths, false);
                 }
@@ -5044,10 +5188,12 @@ impl BrowserController {
 
     fn show_listing(&self, entries: Vec<DirectoryEntry>) {
         let show_hidden = self.show_hidden.get();
-        let entries: Vec<Arc<DirectoryEntry>> = entries
+        let all_entries: Vec<Arc<DirectoryEntry>> = entries.into_iter().map(Arc::new).collect();
+        self.all_listed_entries
+            .replace(Arc::from(all_entries.clone()));
+        let entries: Vec<Arc<DirectoryEntry>> = all_entries
             .into_iter()
             .filter(|entry| self.trash_active.get() || show_hidden || !entry.is_hidden())
-            .map(Arc::new)
             .collect();
         let pending_reconciliation = self.pending_reconciliation.borrow_mut().take();
         let mut selected_paths = if let Some(pending) = pending_reconciliation {
@@ -6929,6 +7075,11 @@ fn folder_filter_response_is_current(active_generation: u64, response_generation
     active_generation == response_generation
 }
 
+fn non_empty_trimmed(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
 fn selected_entries_for_selection(selection: &gtk::MultiSelection) -> Vec<Arc<DirectoryEntry>> {
     let Some(model) = selection.model() else {
         return Vec::new();
@@ -7439,11 +7590,13 @@ mod tests {
             skipped_directories: 1,
             skipped_mounts: 1,
             depth_limited: 1,
+            metadata_unavailable: 2,
             truncated: true,
         };
         let progress = filename_search_feedback(summary, true, false);
         assert!(progress.contains("Searching… 12 matches from 90 items"));
         assert!(progress.contains("5 skipped"));
+        assert!(progress.contains("2 metadata unavailable"));
         assert!(progress.contains("incomplete"));
 
         let stopped = filename_search_feedback(summary, false, true);

@@ -377,8 +377,26 @@ Queries, roots, exact results, counters, and usage remain memory-only and clear
 on location exit or process exit. Floe does not persist or log search queries,
 result paths, history, or an index. Search results deliberately remain visible
 to the user and ordinary applications they explicitly open; normal OS,
-filesystem, and desktop observation boundaries still apply. Advanced filters,
-content search, saved searches, remote search, and indexing remain later phases.
+filesystem, and desktop observation boundaries still apply. Content search,
+saved searches, remote search, and indexing remain later phases.
+
+## Advanced search filters
+
+Phase 13C adds a structured in-memory predicate model shared by Quick Filter
+and Search Files. Type, extension, size, modification date, hidden status, and
+the filename matcher use facts already held by the bounded worker request.
+Unix owner is resolved only when requested with no-follow metadata. MIME is
+guessed by GIO from the exact filename with no content bytes; Floe does not open
+or sample a file to satisfy this filter. A missing UID or MIME value excludes
+the candidate and is never treated as a match. Recursive search reports the
+number of candidates excluded because requested metadata was unavailable.
+
+Advanced queries, predicates, roots, exact matches, and counters remain
+memory-only and clear under the existing search/location lifecycle. Include
+Hidden and Hidden Only are temporary query policy and do not rewrite the global
+Show Hidden preference. Exact `PathBuf`/`OsStr` identity remains authoritative;
+lossy labels are presentation only. Tags, content reads, saved searches,
+history, persistence, indexing, remote roots, and uploads remain excluded.
 
 ## Command history
 

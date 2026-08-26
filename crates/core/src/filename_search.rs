@@ -10,7 +10,8 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    DirectoryEntry, EntryKind, FolderFilterError, FolderFilterMode, FolderFilterPattern,
+    AdvancedFilter, AdvancedFilterDecision, AdvancedFilterError, AdvancedMetadata, DirectoryEntry,
+    EntryKind, FolderFilterError, FolderFilterMode, FolderFilterPattern, HiddenFilter,
     ThumbnailState,
 };
 
@@ -32,6 +33,8 @@ pub struct FilenameSearchRequest {
     query: String,
     scope: FilenameSearchScope,
     include_hidden: bool,
+    mode: FolderFilterMode,
+    advanced: AdvancedFilter,
 }
 
 impl FilenameSearchRequest {
@@ -41,18 +44,41 @@ impl FilenameSearchRequest {
         scope: FilenameSearchScope,
         include_hidden: bool,
     ) -> Result<Self, FilenameSearchError> {
+        Self::new_with_filter(
+            root,
+            query,
+            scope,
+            include_hidden,
+            FolderFilterMode::Text,
+            AdvancedFilter::default(),
+        )
+    }
+
+    pub fn new_with_filter(
+        root: PathBuf,
+        query: String,
+        scope: FilenameSearchScope,
+        show_hidden: bool,
+        mode: FolderFilterMode,
+        advanced: AdvancedFilter,
+    ) -> Result<Self, FilenameSearchError> {
         if !root.is_absolute() {
             return Err(FilenameSearchError::RelativeRoot);
         }
-        if query.is_empty() {
+        if query.is_empty() && !advanced.is_active() {
             return Err(FilenameSearchError::EmptyQuery);
         }
-        FolderFilterPattern::compile(FolderFilterMode::Text, &query)?;
+        advanced.validate()?;
+        FolderFilterPattern::compile_with_case(mode, &query, advanced.match_case)?;
+        let include_hidden =
+            show_hidden || matches!(advanced.hidden, HiddenFilter::Include | HiddenFilter::Only);
         Ok(Self {
             root,
             query,
             scope,
             include_hidden,
+            mode,
+            advanced,
         })
     }
 
@@ -70,6 +96,14 @@ impl FilenameSearchRequest {
 
     pub const fn include_hidden(&self) -> bool {
         self.include_hidden
+    }
+
+    pub const fn mode(&self) -> FolderFilterMode {
+        self.mode
+    }
+
+    pub const fn advanced(&self) -> &AdvancedFilter {
+        &self.advanced
     }
 }
 
@@ -110,6 +144,7 @@ pub struct FilenameSearchSummary {
     pub skipped_directories: usize,
     pub skipped_mounts: usize,
     pub depth_limited: usize,
+    pub metadata_unavailable: usize,
     pub truncated: bool,
 }
 
@@ -121,6 +156,8 @@ pub enum FilenameSearchError {
     EmptyQuery,
     #[error(transparent)]
     Pattern(#[from] FolderFilterError),
+    #[error(transparent)]
+    Advanced(#[from] AdvancedFilterError),
     #[error("search limits must retain at least one result, entry, and directory")]
     InvalidLimits,
     #[error("could not inspect search root: {0}")]
@@ -144,11 +181,27 @@ pub enum FilenameSearchError {
 pub fn search_filenames(
     request: &FilenameSearchRequest,
     limits: FilenameSearchLimits,
+    is_cancelled: impl FnMut() -> bool,
+    on_batch: impl FnMut(Vec<DirectoryEntry>, FilenameSearchSummary) -> bool,
+) -> Result<FilenameSearchSummary, FilenameSearchError> {
+    search_filenames_with_mime(request, limits, is_cancelled, |_| None, on_batch)
+}
+
+/// Application-worker variant that resolves MIME lazily without making core
+/// depend on GIO. The resolver runs only after cheap predicates and name match.
+pub fn search_filenames_with_mime(
+    request: &FilenameSearchRequest,
+    limits: FilenameSearchLimits,
     mut is_cancelled: impl FnMut() -> bool,
+    mut resolve_mime: impl FnMut(&Path) -> Option<String>,
     mut on_batch: impl FnMut(Vec<DirectoryEntry>, FilenameSearchSummary) -> bool,
 ) -> Result<FilenameSearchSummary, FilenameSearchError> {
     let limits = limits.validate()?;
-    let matcher = FolderFilterPattern::compile(FolderFilterMode::Text, request.query())?;
+    let matcher = FolderFilterPattern::compile_with_case(
+        request.mode(),
+        request.query(),
+        request.advanced().match_case,
+    )?;
     let root_metadata =
         fs::symlink_metadata(request.root()).map_err(FilenameSearchError::RootMetadata)?;
     if root_metadata.file_type().is_symlink() {
@@ -219,12 +272,35 @@ pub fn search_filenames(
                 EntryKind::Other
             };
 
-            if matcher.matches(&name) {
+            let entry = directory_entry(path.clone(), name.clone(), kind, &metadata);
+            let advanced_match = if matcher.matches(&name) {
+                match request.advanced().evaluate(&entry, None) {
+                    AdvancedFilterDecision::Match => true,
+                    AdvancedFilterDecision::NoMatch => false,
+                    AdvancedFilterDecision::NeedsMetadata(needs) => {
+                        let facts = AdvancedMetadata {
+                            mime: needs.mime.then(|| resolve_mime(&path)).flatten(),
+                            owner_uid: needs.owner.then(|| metadata.uid()),
+                        };
+                        if (needs.mime && facts.mime.is_none())
+                            || (needs.owner && facts.owner_uid.is_none())
+                        {
+                            summary.metadata_unavailable =
+                                summary.metadata_unavailable.saturating_add(1);
+                        }
+                        request.advanced().evaluate(&entry, Some(&facts))
+                            == AdvancedFilterDecision::Match
+                    }
+                }
+            } else {
+                false
+            };
+            if advanced_match {
                 if summary.matched >= limits.results {
                     summary.truncated = true;
                     break 'walk;
                 }
-                batch.push(directory_entry(path.clone(), name, kind, &metadata));
+                batch.push(entry);
                 summary.matched = summary.matched.saturating_add(1);
                 if batch.len() == FILENAME_SEARCH_BATCH_CAPACITY {
                     if !on_batch(batch, summary) {
@@ -507,5 +583,86 @@ mod tests {
         ));
         assert!(!crosses_filesystem(42, 42));
         assert!(crosses_filesystem(42, 43));
+    }
+
+    #[test]
+    fn phase_13c_filename_search_combines_case_glob_hidden_and_extension() {
+        let root = tempdir().expect("advanced search fixture");
+        fs::write(root.path().join("Report.TXT"), b"large enough").expect("report");
+        fs::write(root.path().join("report.txt"), b"large enough").expect("report lower");
+        fs::write(root.path().join(".secret.TXT"), b"large enough").expect("hidden");
+
+        let request = FilenameSearchRequest::new_with_filter(
+            root.path().to_path_buf(),
+            "*.TXT".to_owned(),
+            FilenameSearchScope::CurrentFolder,
+            false,
+            FolderFilterMode::Glob,
+            AdvancedFilter {
+                extension: Some("TXT".to_owned()),
+                minimum_size: Some(5),
+                match_case: true,
+                ..AdvancedFilter::default()
+            },
+        )
+        .expect("advanced request");
+        let (entries, _) = collect(&request, FilenameSearchLimits::default()).expect("search");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].display_name(), OsStr::new("Report.TXT"));
+
+        let hidden_only = FilenameSearchRequest::new_with_filter(
+            root.path().to_path_buf(),
+            String::new(),
+            FilenameSearchScope::CurrentFolder,
+            false,
+            FolderFilterMode::Text,
+            AdvancedFilter {
+                hidden: HiddenFilter::Only,
+                ..AdvancedFilter::default()
+            },
+        )
+        .expect("predicate-only request");
+        let (entries, _) = collect(&hidden_only, FilenameSearchLimits::default()).expect("search");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].display_name(), OsStr::new(".secret.TXT"));
+    }
+
+    #[test]
+    fn phase_13c_filename_search_resolves_mime_only_after_cheap_predicates() {
+        let root = tempdir().expect("MIME search fixture");
+        fs::write(root.path().join("photo.png"), b"png").expect("photo");
+        fs::write(root.path().join("notes.txt"), b"text").expect("notes");
+        let request = FilenameSearchRequest::new_with_filter(
+            root.path().to_path_buf(),
+            String::new(),
+            FilenameSearchScope::CurrentFolder,
+            false,
+            FolderFilterMode::Text,
+            AdvancedFilter {
+                extension: Some("png".to_owned()),
+                mime: Some("image/*".to_owned()),
+                ..AdvancedFilter::default()
+            },
+        )
+        .expect("MIME request");
+        let mut resolver_calls = 0;
+        let mut entries = Vec::new();
+        let summary = search_filenames_with_mime(
+            &request,
+            FilenameSearchLimits::default(),
+            || false,
+            |_| {
+                resolver_calls += 1;
+                Some("image/png".to_owned())
+            },
+            |mut batch, _| {
+                entries.append(&mut batch);
+                true
+            },
+        )
+        .expect("MIME search");
+        assert_eq!(resolver_calls, 1);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(summary.metadata_unavailable, 0);
     }
 }
