@@ -10,6 +10,7 @@ use crate::command_registry::{self, CommandDefinition, CommandRisk};
 pub const KEYBINDING_OVERRIDE_CAPACITY: usize = 96;
 pub const KEYBINDINGS_PER_COMMAND_CAPACITY: usize = 4;
 pub const KEYBINDING_TEXT_CAPACITY: usize = 64;
+const LOCAL_FILE_VIEW_SHORTCUTS: [(&str, &str); 1] = [("win.quick-preview", "space")];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct KeybindingOverride {
@@ -179,10 +180,42 @@ pub fn install_effective_window_shortcuts(
     overrides: &KeybindingOverrides,
 ) {
     for definition in command_registry::COMMANDS {
-        let shortcuts = overrides.effective(definition);
+        let shortcuts = application_shortcuts(overrides, definition);
         let borrowed = shortcuts.iter().map(String::as_str).collect::<Vec<_>>();
         application.set_accels_for_action(definition.action, &borrowed);
     }
+}
+
+pub fn local_file_view_shortcut_enabled(
+    overrides: &KeybindingOverrides,
+    action: &str,
+    accelerator: &str,
+) -> bool {
+    let Some(definition) = command_registry::command(action) else {
+        return false;
+    };
+    is_local_file_view_shortcut(action, accelerator)
+        && overrides
+            .effective(definition)
+            .iter()
+            .any(|effective| effective == accelerator)
+}
+
+fn application_shortcuts(
+    overrides: &KeybindingOverrides,
+    definition: &CommandDefinition,
+) -> Vec<String> {
+    overrides
+        .effective(definition)
+        .into_iter()
+        .filter(|accelerator| !is_local_file_view_shortcut(definition.action, accelerator))
+        .collect()
+}
+
+fn is_local_file_view_shortcut(action: &str, accelerator: &str) -> bool {
+    LOCAL_FILE_VIEW_SHORTCUTS
+        .iter()
+        .any(|local| local == &(action, accelerator))
 }
 
 fn canonicalize_accelerator(value: &str) -> Result<String, KeybindingError> {
@@ -337,6 +370,52 @@ mod tests {
             overrides.effective(command_registry::command("win.refresh").expect("refresh")),
             ["F5", "<Control>r"]
         );
+    }
+
+    #[test]
+    fn phase_9f_bare_space_is_scoped_to_file_views_not_application_text_input() {
+        let quick_preview =
+            command_registry::command("win.quick-preview").expect("quick preview command");
+        let defaults = KeybindingOverrides::default();
+        assert!(local_file_view_shortcut_enabled(
+            &defaults,
+            "win.quick-preview",
+            "space"
+        ));
+        assert!(application_shortcuts(&defaults, quick_preview).is_empty());
+        let application = adw::Application::builder()
+            .application_id("io.github.floe.ShortcutTest")
+            .build();
+        install_effective_window_shortcuts(&application, &defaults);
+        assert!(
+            application
+                .accels_for_action("win.quick-preview")
+                .is_empty()
+        );
+
+        let mut customized = KeybindingOverrides::default();
+        customized
+            .set_from_text("win.quick-preview", "<Control>p")
+            .expect("modified quick preview binding");
+        assert!(!local_file_view_shortcut_enabled(
+            &customized,
+            "win.quick-preview",
+            "space"
+        ));
+        assert_eq!(
+            application_shortcuts(&customized, quick_preview),
+            ["<Control>p"]
+        );
+        install_effective_window_shortcuts(&application, &customized);
+        assert_eq!(
+            application.accels_for_action("win.quick-preview"),
+            ["<Control>p"]
+        );
+
+        customized
+            .set_from_text("win.quick-preview", "")
+            .expect("disabled quick preview binding");
+        assert!(application_shortcuts(&customized, quick_preview).is_empty());
     }
 
     #[test]

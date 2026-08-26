@@ -461,6 +461,15 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [B, W, H]
     ),
     command!(
+        "folder-filter",
+        "Filter This Folder",
+        "Filter filenames already loaded in the current folder",
+        Navigation,
+        ["find", "text", "glob", "regex", "current folder"],
+        ["<Control>f"],
+        [W, H]
+    ),
+    command!(
         "cancel-location",
         "Cancel Location Editing",
         "Close location editing without navigating",
@@ -861,6 +870,15 @@ pub fn validate_contract() -> Result<(), &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phase_13a_filter_is_discoverable_with_ctrl_f() {
+        let filter = command("win.folder-filter").expect("folder filter command");
+        assert_eq!(filter.name, "Filter This Folder");
+        assert_eq!(filter.default_shortcuts, ["<Control>f"]);
+        assert!(filter.placements.contains(&CommandPlacement::Toolbar));
+        assert!(filter.placements.contains(&CommandPlacement::HeaderMenu));
+    }
 
     #[test]
     fn phase_11a_registry_contract_is_unique_human_named_and_bounded() {

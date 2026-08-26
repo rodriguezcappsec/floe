@@ -1,4 +1,51 @@
-# Gates: Floe Phase 12F — Productivity Action Integration
+# Gates: Floe Phase 13A — Current-Folder Filter
+
+- [x] G1: Exact-name filter semantics are bounded and path-safe.
+  - CHECK: `cargo test -p floe-core phase_13a_filter -- --nocapture`
+  - EXPECT: empty/text/glob/regex behavior, invalid patterns, 256-character
+    limit, preserved input order, and raw non-UTF-8 matching are deterministic.
+  - EVIDENCE: Three focused core tests passed for all modes, invalid syntax,
+    256-scalar rejection, Unicode names, and raw non-UTF-8 matching.
+- [x] G2: Application filtering is responsive and generation-safe.
+  - CHECK: `cargo test -p floe-app phase_13a_filter -- --nocapture`
+  - EXPECT: one bounded worker rejects capacity overflow, stale generations do
+    not replace newer results, 100,000 loaded entries remain bounded, and
+    retained exact-path selection is restored only for visible matches.
+  - EVIDENCE: Six focused application tests passed for capacity pressure,
+    latest-generation replacement, stale rejection, 100,000 entries, stable
+    order, and exact visible-only selection restoration.
+- [x] G3: Native UI is discoverable, accessible, and truthful.
+  - CHECK: focused UI/action contract tests plus native Wayland smoke.
+  - EXPECT: header control and `Ctrl+F` expose the filter; Text/Glob/Regex have
+    visible labels; count and invalid-pattern text are non-color-only; Escape
+    clears and closes; list/grid/Miller reuse one filtered backing view.
+  - EVIDENCE: Registry/UI tests verified Ctrl+F and the three visible modes.
+    Native Wayland rendered the row, activated both filter actions, answered
+    D-Bus Ping, and Quit cleanly. Post-phase shortcut tests verify bare Space
+    is excluded from application accelerators, retained by list/grid/Miller
+    file views, and disabled or replaced consistently with the user's effective
+    Quick Preview binding. Filter-mode contract tests verify three visible popup
+    summaries and mode-specific accessible hover help, including concrete Glob
+    wildcard examples.
+- [x] G4: Full repository quality gates pass.
+  - CHECK: `cargo fmt --all -- --check`
+  - CHECK: `cargo check --workspace`
+  - CHECK: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+  - CHECK: `cargo test --workspace`
+  - CHECK: `cargo build -p floe-app`
+  - EVIDENCE: Formatting, workspace check, strict Clippy, 365 application tests,
+    104 core tests, and the native application build passed.
+- [x] G5: Documentation and roadmap status are exact.
+  - CHECK: `git diff --check`
+  - CHECK: `rg -n '\| .*NEXT' docs/ROADMAP.md`
+  - EXPECT: Phase 13A is COMPLETE only with G1-G4 evidence; exactly Phase 13B
+    is NEXT; Phase 13C and later remain unimplemented.
+  - EVIDENCE: Phase documents record the verified boundary with exactly Phase
+    13B NEXT.
+
+---
+
+# Archived gates: Floe Phase 12F — Productivity Action Integration
 
 - [x] G1: Context-menu policy is compact, bounded, and archive-aware.
   - CHECK: `cargo test -p floe-app phase_12f_context_menu -- --nocapture`

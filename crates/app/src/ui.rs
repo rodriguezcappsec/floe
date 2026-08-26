@@ -47,6 +47,17 @@ const OPERATION_HISTORY_MENU_ITEM: (&str, &str) = ("Operation History", "win.ope
 const KEYBOARD_SHORTCUTS_MENU_ITEM: (&str, &str) =
     ("Keyboard Shortcuts…", "win.keyboard-shortcuts");
 pub const VIM_MODE_ON_LABEL: &str = "Vim On";
+const FOLDER_FILTER_MODES: [&str; 3] = ["Text", "Glob", "Regex"];
+const FOLDER_FILTER_MODE_HELP: [&str; 3] = [
+    "Contains these characters, ignoring letter case. Example: vacation finds My Vacation.jpg",
+    "Uses wildcard patterns: * matches any characters and ? matches one character. Examples: *.pdf or photo-??.jpg",
+    "Uses advanced regular-expression patterns. Example: ^invoice-[0-9]+\\.pdf$",
+];
+const FOLDER_FILTER_MODE_SUMMARIES: [&str; 3] = [
+    "Contains text (case-insensitive)",
+    "Wildcards such as *.pdf or photo-??.jpg",
+    "Advanced regular-expression pattern",
+];
 pub const VIM_MODE_OFF_LABEL: &str = "Vim Off";
 pub const VIM_MODE_TOOLTIP: &str = "Vim navigation mode: h/j/k/l, g/G, o";
 
@@ -904,6 +915,11 @@ pub struct BrowserWidgets {
     pub grid_size_controls: gtk::Box,
     pub grid_size_scale: gtk::Scale,
     pub empty_state: gtk::Box,
+    pub empty_label: gtk::Label,
+    pub filter_bar: gtk::Box,
+    pub filter_entry: gtk::SearchEntry,
+    pub filter_mode: gtk::DropDown,
+    pub filter_feedback: gtk::Label,
     pub spinner: gtk::Spinner,
     pub status_label: gtk::Label,
     pub sort_headers: Vec<SortHeaderWidgets>,
@@ -959,6 +975,11 @@ struct DirectoryPanelWidgets {
     file_context_model: gio::Menu,
     background_context_model: gio::Menu,
     empty_state: gtk::Box,
+    empty_label: gtk::Label,
+    filter_bar: gtk::Box,
+    filter_entry: gtk::SearchEntry,
+    filter_mode: gtk::DropDown,
+    filter_feedback: gtk::Label,
     spinner: gtk::Spinner,
     status_label: gtk::Label,
     sort_headers: Vec<SortHeaderWidgets>,
@@ -1355,6 +1376,12 @@ pub fn build(
         .action_name("win.hidden")
         .build();
     set_accessible_label(&hidden_button, "Show hidden files");
+    let filter_button = icon_button(
+        "system-search-symbolic",
+        "Filter this folder (Ctrl+F)",
+        "win.folder-filter",
+    );
+    set_accessible_label(&filter_button, "Filter this folder");
     let open_button = icon_button(
         "document-open-symbolic",
         "Open selected item (Enter)",
@@ -1666,6 +1693,7 @@ pub fn build(
     );
 
     header.pack_end(&hidden_button);
+    header.pack_end(&filter_button);
     header.pack_end(&open_button);
     header.pack_end(&file_actions);
     header.pack_end(&vim_mode_button);
@@ -1693,6 +1721,11 @@ pub fn build(
         file_context_model,
         background_context_model,
         empty_state,
+        empty_label,
+        filter_bar,
+        filter_entry,
+        filter_mode,
+        filter_feedback,
         spinner,
         status_label,
         sort_headers,
@@ -1909,6 +1942,11 @@ pub fn build(
         grid_size_controls,
         grid_size_scale,
         empty_state,
+        empty_label,
+        filter_bar,
+        filter_entry,
+        filter_mode,
+        filter_feedback,
         spinner,
         status_label,
         sort_headers,
@@ -3580,6 +3618,57 @@ fn build_directory_panel(
     overlay.add_overlay(&empty_state);
     overlay.set_vexpand(true);
 
+    let filter_entry = gtk::SearchEntry::builder()
+        .placeholder_text("Filter filenames")
+        .hexpand(true)
+        .build();
+    filter_entry.set_search_delay(120);
+    filter_entry.set_tooltip_text(Some(
+        "Filter entries already loaded from this folder; press Escape to close",
+    ));
+    set_accessible_label(&filter_entry, "Filename filter");
+    let filter_mode = gtk::DropDown::from_strings(&FOLDER_FILTER_MODES);
+    let filter_mode_factory = build_folder_filter_mode_factory();
+    filter_mode.set_list_factory(Some(&filter_mode_factory));
+    update_folder_filter_mode_help(&filter_mode);
+    filter_mode.connect_selected_notify(update_folder_filter_mode_help);
+    set_accessible_label(&filter_mode, "Filter matching mode");
+    let filter_feedback = gtk::Label::builder()
+        .label("All items")
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .wrap(true)
+        .build();
+    filter_feedback.set_accessible_role(gtk::AccessibleRole::Alert);
+    filter_feedback.add_css_class("caption");
+    filter_feedback.add_css_class("dim-label");
+    let filter_close_button = icon_button(
+        "window-close-symbolic",
+        "Clear and close filter (Escape)",
+        "win.clear-folder-filter",
+    );
+    set_accessible_label(&filter_close_button, "Clear and close filter");
+    let filter_label = gtk::Label::builder()
+        .label("Filter")
+        .halign(gtk::Align::Start)
+        .build();
+    filter_label.add_css_class("heading");
+    let filter_bar = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .margin_start(12)
+        .margin_end(12)
+        .margin_top(8)
+        .margin_bottom(8)
+        .visible(false)
+        .build();
+    filter_bar.add_css_class("floe-filter-bar");
+    filter_bar.append(&filter_label);
+    filter_bar.append(&filter_entry);
+    filter_bar.append(&filter_mode);
+    filter_bar.append(&filter_feedback);
+    filter_bar.append(&filter_close_button);
+
     let spinner = gtk::Spinner::new();
     let status_label = gtk::Label::builder()
         .label("Ready")
@@ -3608,6 +3697,7 @@ fn build_directory_panel(
     let (list_header, sort_headers, column_headers, group_header_spacer) =
         build_list_header(preferences.columns, preferences.sort.grouping);
     list_header.set_visible(preferences.mode == ViewMode::List);
+    panel.append(&filter_bar);
     panel.append(&list_header);
     panel.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
     panel.append(&overlay);
@@ -3629,6 +3719,11 @@ fn build_directory_panel(
         file_context_model,
         background_context_model,
         empty_state,
+        empty_label,
+        filter_bar,
+        filter_entry,
+        filter_mode,
+        filter_feedback,
         spinner,
         status_label,
         sort_headers,
@@ -3863,6 +3958,92 @@ fn build_grid_factory(
         thumbnails_for_unbind.unbind(&icon);
     });
     factory
+}
+
+fn build_folder_filter_mode_factory() -> gtk::SignalListItemFactory {
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(|_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let title = gtk::Label::builder()
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .build();
+        title.add_css_class("heading");
+        let summary = gtk::Label::builder()
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .wrap(true)
+            .max_width_chars(44)
+            .build();
+        summary.add_css_class("caption");
+        summary.add_css_class("dim-label");
+        let row = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(2)
+            .margin_top(4)
+            .margin_bottom(4)
+            .margin_start(4)
+            .margin_end(4)
+            .build();
+        row.append(&title);
+        row.append(&summary);
+        list_item.set_child(Some(&row));
+    });
+    factory.connect_bind(|_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let Some(mode) = list_item.item().and_downcast::<gtk::StringObject>() else {
+            return;
+        };
+        let Some(index) = folder_filter_mode_index(mode.string().as_str()) else {
+            return;
+        };
+        let Some(row) = list_item.child().and_downcast::<gtk::Box>() else {
+            return;
+        };
+        let Some(title) = row.first_child().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(summary) = title.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        title.set_label(FOLDER_FILTER_MODES[index]);
+        summary.set_label(FOLDER_FILTER_MODE_SUMMARIES[index]);
+        row.set_tooltip_text(Some(FOLDER_FILTER_MODE_HELP[index]));
+        row.update_property(&[gtk::accessible::Property::Description(
+            FOLDER_FILTER_MODE_HELP[index],
+        )]);
+    });
+    factory.connect_unbind(|_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let Some(row) = list_item.child().and_downcast::<gtk::Box>() else {
+            return;
+        };
+        row.set_tooltip_text(None);
+    });
+    factory
+}
+
+fn update_folder_filter_mode_help(filter_mode: &gtk::DropDown) {
+    let index = usize::try_from(filter_mode.selected())
+        .ok()
+        .filter(|index| *index < FOLDER_FILTER_MODE_HELP.len())
+        .unwrap_or(0);
+    filter_mode.set_tooltip_text(Some(FOLDER_FILTER_MODE_HELP[index]));
+    filter_mode.update_property(&[gtk::accessible::Property::Description(
+        FOLDER_FILTER_MODE_HELP[index],
+    )]);
+}
+
+fn folder_filter_mode_index(mode: &str) -> Option<usize> {
+    FOLDER_FILTER_MODES
+        .iter()
+        .position(|candidate| candidate == &mode)
 }
 
 fn build_configured_file_context_menu_model(preferences: ContextMenuPreferences) -> gio::Menu {
@@ -4523,6 +4704,23 @@ mod tests {
     use std::{fs, path::PathBuf, time::Duration};
 
     use super::*;
+
+    #[test]
+    fn phase_13a_filter_exposes_three_visible_matching_modes() {
+        assert_eq!(FOLDER_FILTER_MODES, ["Text", "Glob", "Regex"]);
+        assert_eq!(FOLDER_FILTER_MODE_HELP.len(), FOLDER_FILTER_MODES.len());
+        assert_eq!(
+            FOLDER_FILTER_MODE_SUMMARIES.len(),
+            FOLDER_FILTER_MODES.len()
+        );
+        assert!(FOLDER_FILTER_MODE_HELP[0].contains("ignoring letter case"));
+        assert!(FOLDER_FILTER_MODE_HELP[1].contains("* matches any characters"));
+        assert!(FOLDER_FILTER_MODE_HELP[1].contains("*.pdf"));
+        assert!(FOLDER_FILTER_MODE_HELP[1].contains("? matches one character"));
+        assert!(FOLDER_FILTER_MODE_HELP[2].contains("regular-expression"));
+        assert_eq!(folder_filter_mode_index("Glob"), Some(1));
+        assert_eq!(folder_filter_mode_index("Unknown"), None);
+    }
 
     fn collect_menu_actions(model: &gio::MenuModel, actions: &mut Vec<String>) {
         for index in 0..model.n_items() {
