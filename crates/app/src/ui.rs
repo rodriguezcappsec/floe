@@ -238,7 +238,7 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
     loaded && !save_in_flight
 }
 
-pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 17] = [
+pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 18] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
@@ -256,6 +256,7 @@ pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 17] = [
     ("Move to Trash", "win.trash"),
     ("Delete Permanently…", "win.permanent-delete"),
     ("Properties", "win.properties"),
+    ("Open Terminal Here", "win.open-terminal"),
 ];
 pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Restore", "win.restore"),
@@ -263,7 +264,7 @@ pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Delete Permanently…", "win.permanent-delete"),
     ("Properties", "win.properties"),
 ];
-pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 7] = [
+pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 8] = [
     ("New Folder…", "win.new-folder"),
     ("New Empty File…", "win.new-empty-file"),
     ("New From Template…", "win.new-from-template"),
@@ -271,6 +272,7 @@ pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 7] = [
     ("Select All", "win.select-all"),
     ("Refresh", "win.refresh"),
     ("Edit Location", "win.location"),
+    ("Open Terminal Here", "win.open-terminal"),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1306,6 +1308,11 @@ pub fn build(
     file_actions_model.append(Some("New Empty File…"), Some("win.new-empty-file"));
     file_actions_model.append(Some("New From Template…"), Some("win.new-from-template"));
     file_actions_model.append(Some("Open With…"), Some("win.open-with"));
+    file_actions_model.append(Some("Open Terminal Here"), Some("win.open-terminal"));
+    file_actions_model.append(
+        Some("Preferred Terminal…"),
+        Some("win.terminal-preferences"),
+    );
     file_actions_model.append(Some("Properties"), Some("win.properties"));
     file_actions_model.append(Some("Calculate Checksums…"), Some("win.checksum"));
     file_actions_model.append(Some("Copy"), Some("win.copy"));
@@ -3725,6 +3732,10 @@ fn build_file_context_menu_model() -> gio::Menu {
         Some(FILE_CONTEXT_ACTIONS[1].0),
         Some(FILE_CONTEXT_ACTIONS[1].1),
     );
+    primary.append(
+        Some(FILE_CONTEXT_ACTIONS[17].0),
+        Some(FILE_CONTEXT_ACTIONS[17].1),
+    );
     primary.append(Some("Open in New Tab"), Some("win.open-new-tab"));
     primary.append(
         Some("Open in New Background Tab"),
@@ -4440,6 +4451,7 @@ mod tests {
                 ("Select All", "win.select-all"),
                 ("Refresh", "win.refresh"),
                 ("Edit Location", "win.location"),
+                ("Open Terminal Here", "win.open-terminal"),
             ]
         );
         assert!(BACKGROUND_CONTEXT_ACTIONS.iter().all(|(_, action)| {
@@ -4472,6 +4484,7 @@ mod tests {
                 ("Move to Trash", "win.trash"),
                 ("Delete Permanently…", "win.permanent-delete"),
                 ("Properties", "win.properties"),
+                ("Open Terminal Here", "win.open-terminal"),
             ]
         );
     }

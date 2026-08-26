@@ -19,6 +19,7 @@ use floe_core::{DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn
 use thiserror::Error;
 
 use crate::keybindings::KeybindingOverrides;
+use crate::terminal::TerminalProviderId;
 use crate::view::{
     FileViewDensity, FolderViewState, GridSize, ListColumnLayout, MillerColumnWidth, ViewMode,
 };
@@ -85,6 +86,7 @@ pub struct ViewPreferences {
     pub remember_per_folder: bool,
     pub keybindings: KeybindingOverrides,
     pub vim_mode: bool,
+    pub preferred_terminal: Option<TerminalProviderId>,
     folder_views: Vec<FolderViewOverride>,
 }
 
@@ -104,6 +106,7 @@ impl Default for ViewPreferences {
             remember_per_folder: false,
             keybindings: KeybindingOverrides::default(),
             vim_mode: false,
+            preferred_terminal: None,
             folder_views: Vec::new(),
         }
     }
@@ -239,6 +242,9 @@ impl ViewPreferences {
                     preferences.keybindings.apply_record(value);
                 }
                 "vim-mode" => preferences.vim_mode = value == "true",
+                "preferred-terminal" => {
+                    preferences.preferred_terminal = TerminalProviderId::from_persisted(value);
+                }
                 "folder" => {
                     if let Some(folder) = parse_folder_override(value) {
                         preferences
@@ -258,7 +264,7 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=6\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\n",
+            "version=7\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\n",
             self.mode.persisted(),
             self.grid_size.edge(),
             self.sidebar_density.persisted(),
@@ -276,6 +282,11 @@ impl ViewPreferences {
         );
         if let Some(width) = self.sidebar_width {
             serialized.push_str(&format!("sidebar-width={}\n", clamp_sidebar_width(width)));
+        }
+        if let Some(provider) = self.preferred_terminal {
+            serialized.push_str("preferred-terminal=");
+            serialized.push_str(provider.persisted());
+            serialized.push('\n');
         }
         for record in self.keybindings.serialize_records() {
             serialized.push_str("keybinding=");
@@ -595,7 +606,7 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=6\n"));
+        assert!(serialized.starts_with("version=7\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
     }
@@ -614,7 +625,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=6\n"));
+        assert!(serialized.starts_with("version=7\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,

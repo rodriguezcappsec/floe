@@ -37,6 +37,8 @@ mod session_store;
 pub mod state;
 mod storage;
 mod system_thumbnailer;
+mod terminal;
+mod terminal_ui;
 mod thumbnail;
 mod thumbnail_cache;
 pub mod trash_executor;

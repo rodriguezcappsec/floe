@@ -1176,10 +1176,29 @@ Last updated:
 Current phase:
 
 ```text
-Phase 11 — Commands, keyboard, and terminal (Phase 11D complete)
+Phase 11 — Commands, keyboard, and terminal (Phase 11E complete)
 ```
 
 Status:
+
+```text
+Phase 11E adds safe preferred-terminal integration. Nine reviewed providers are
+discovered from at most 256 absolute PATH components on one capacity-4
+application worker; resolved executable paths remain memory-only. Open Terminal
+Here targets one selected navigable local directory or otherwise the active
+local directory, and rejects Trash, relative, over-limit, missing, and
+non-directory targets. Launch uses `std::process::Command` with the resolved
+absolute executable, no additional arguments, and the exact raw
+`PathBuf` as child working directory; no shell command, lossy display-path
+reconstruction, password argv/environment injection, or GTK filesystem work is
+used. Up to 32 child handles are reaped by the same worker. Automatic selection
+is deterministic; an unavailable explicit preference falls back with named
+feedback. The native chooser persists only one reviewed provider ID in
+version-7 preferences and exposes available/unavailable state. File,
+background, header, palette, and chooser actions reuse live GAction eligibility.
+Embedded terminals, arbitrary commands, repository detection, and terminal
+history remain deferred. Phase 12A archive engine is the sole next phase.
+```
 
 ```text
 Phase 11D adds an optional Vim-style browser navigation layer that is disabled

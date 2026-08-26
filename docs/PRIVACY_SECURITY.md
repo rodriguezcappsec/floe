@@ -326,6 +326,15 @@ keys, navigation sequences, focus history, or mode usage. Key capture is
 installed only on file-view controllers and is inactive by default; editable
 widgets and dialogs retain native input behavior.
 
+Phase 11E persists only an optional reviewed terminal-provider ID. Provider
+discovery and launch remain local and do not store terminal use, working
+directories, selections, commands, or process history. Floe resolves an absolute
+reviewed executable and starts it directly with no additional arguments and the
+exact raw directory as child working directory. It never invokes a shell,
+interpolates a filename/path into command text, or injects passwords or other
+credentials into argv or environment. The child inherits the ordinary desktop
+session environment required for Wayland and D-Bus; Floe adds no secret values.
+
 ## Sensitive Folder, Private Mode, and Protected Folder
 
 These terms are deliberately distinct and all are **PLANNED**.
