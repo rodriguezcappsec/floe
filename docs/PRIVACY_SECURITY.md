@@ -345,6 +345,12 @@ Locking clears Floe-owned selections, previews, decrypted metadata, search resul
 
 Auto-lock on timeout, app exit, session lock, suspend, or device removal ships only after each signal and failure path is verified. Closing a view must not hide active vault or administrator jobs.
 
+## Current-folder filter
+
+Phase 13A examines only filenames already returned for the active local folder. A query is capped at 256 Unicode scalar values and is sent with a bounded in-memory entry snapshot to one capacity-1 application worker. The worker retains at most one queued request and one latest generation-tagged result. It performs no recursive enumeration, metadata/content reads, network access, indexing, or helper-process execution.
+
+Queries, selected mode, match results, and usage remain memory-only and are cleared when the active location changes or Floe exits. Floe does not persist or log filter text, filenames, results, or history. Valid UTF-8 names use Unicode matching; non-UTF-8 names retain exact raw identity and use the documented ASCII-insensitive text/raw-byte glob-regex fallback. Display text is never reconstructed into a path. Recursive search, saved search, content search, and privacy-aware search history remain later phases.
+
 ## Command history
 
 Phase 11B command-palette search examines only static command metadata. It does

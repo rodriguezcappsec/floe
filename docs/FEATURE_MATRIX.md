@@ -214,7 +214,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Close pane | `COMPLETE` | 7E | Closes the inactive pane and retains the active session. |
 | Persistent split ratio | `COMPLETE` | 7D/7E | Pointer resizing and 5% keyboard steps are clamped to 20–80% and persist through workspace v2. |
 | Different view modes per pane | `COMPLETE` | 7D/7E | Each session retains independent view policy and restores it when activated. |
-| Active-pane filter/search | `PLANNED` | 13A-13B | Search ownership must follow active pane. |
+| Active-pane filter/search | `PARTIAL` | 13A-13B | Current-folder filtering follows the active pane and clears on location change; recursive search ownership remains 13B. |
 | Optional synchronized navigation | `DEFERRED` | 7F | Only after independent behavior is reliable and understandable. |
 | Drag between panes | `COMPLETE` | 7F | Standard local file-list drops reuse exact no-overwrite copy/move/link requests; action, destination, and commit wording supplement dashed highlighting. |
 
@@ -309,10 +309,10 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Instant text filter | `PLANNED` | 13A | Separate from recursive search; preserve normal sort and exact backing selection. |
-| Glob filter | `PLANNED` | 13A | Must handle non-UTF-8 names with a documented match policy. |
-| Regex filter | `PLANNED` | 13A | Compile off hot interaction paths and report invalid expressions inline. |
-| Filter match count/clear/Escape | `PLANNED` | 13A | Mode must remain visually obvious and keyboard-first. |
+| Instant text filter | `COMPLETE` | 13A | Case-insensitive current-folder matching runs on already-listed entries; normal order and exact still-visible selection are preserved. |
+| Glob filter | `COMPLETE` | 13A | Compile-once filename glob uses Unicode for valid names and deterministic raw-byte matching for non-UTF-8 names. |
+| Regex filter | `COMPLETE` | 13A | Compile-once regex runs on the bounded application worker; invalid expressions are reported inline without replacing the current view. |
+| Filter match count/clear/Escape | `COMPLETE` | 13A | Header action, Ctrl+F, visible Text/Glob/Regex selector with plain-language popup summaries, hover examples and accessible descriptions, alert feedback, count and clear/Escape behavior share list/grid/Miller backing state. |
 | Filename search current folder/subtree | `PLANNED` | 13B | Stream cancellable results from bounded workers. |
 | Wider-location search | `PLANNED` | 13B/17 | Depends on generic location architecture and privacy policy. |
 | Search cancellation | `PLANNED` | 13B | Required before recursive traversal ships. |
@@ -356,7 +356,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | Preview provider architecture | `COMPLETE` | 9A | Fixed-capacity typed registry/worker uses exact source identity, explicit limits, cooperative generation cancellation, stale rejection, memory-only cache, deterministic fallback, and bounded GTK draining. No renderer or sandbox claim. |
-| Space toggles Quick Preview | `COMPLETE` | 9F | Miller Preview uses a stable Space action that yields to Entry/SearchEntry/SpinButton/TextView focus. |
+| Space toggles Quick Preview | `COMPLETE` | 9F | Bare Space is handled only by list, grid, and Miller file views; application-wide editable controls receive ordinary text input, while customized non-typing accelerators remain application scoped. |
 | Raster/animated image preview | `COMPLETE` | 9B | Exact no-follow identity and decoder allocation limits produce owned RGBA; animated GIF/WebP is explicitly presented as first-frame-only. |
 | Text/Markdown/source/JSON/XML preview | `COMPLETE` | 9B | Bounded UTF-8/BOM UTF-16 source is selectable and inert; binary, HTML, SVG, malformed encodings, scripts and external-resource rendering are rejected. |
 | PDF/document preview | `COMPLETE` | 9C | Reviewed installed freedesktop providers return a bounded PNG first-page/document rendition through supervised argv-only execution; helpers retain normal user authority until 18L. |
@@ -674,7 +674,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Browsing during operations | `COMPLETE` | 4B | Non-modal Operations Island and background workers keep the browser available. |
 | Non-blocking error feedback | `COMPLETE` | 1-6K2 | Toasts/dialog recovery preserve application usability. |
 | Detailed errors available | `PARTIAL` | 1-6K2/20 | Structured failures and logs exist; a user-facing details surface is incomplete. |
-| Hidden/filter/search mode obvious | `PARTIAL` | 1/13A/20 | Hidden toggle has state; filter/search modes are not implemented. |
+| Hidden/filter/search mode obvious | `PARTIAL` | 1/13A/20 | Hidden toggle and visible Text/Glob/Regex filter bar have explicit state; recursive search and final mode audit remain. |
 | Active pane/tab obvious | `PLANNED` | 7B/7E | Non-color-only state and predictable focus. |
 | Private/vault/sandbox status obvious | `PLANNED` | 18H/18K/18M | Text/icon/accessibility state, never color alone. |
 | Watcher storms coalesced | `COMPLETE` | 6S | One 140 ms cancellable timer deduplicates paths and caps 16,384 events, 4,096 paths, and 1,024 rename pairs before conservative overflow reconciliation. |
@@ -701,7 +701,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Inspector | `COMPLETE` | 10A-10F | Shared bounded lazy metadata providers; no eager whole-directory enrichment, persistent metadata cache, privacy finding, or authenticity claim. |
 | Command palette | `COMPLETE` | 11A-11B | Central command registry and metadata-only palette delegate execution and eligibility to existing GActions. |
 | Archives | `COMPLETE` | 12A-12B | Engine/job lifecycle, native workflows, conflict handling, cancellation, and traversal/bomb/link defenses are complete for reviewed local formats. |
-| Search/indexing and duplicate discovery | `PLANNED` | 13A-13G | Bounded workers, privacy-safe exclusion/history policy, exact-path duplicate review, and a complete non-indexed duplicate path. |
+| Search/indexing and duplicate discovery | `PARTIAL` | 13A-13G | Current-folder filtering uses a bounded memory-only worker; recursive search, indexing and duplicate discovery remain later bounded phases. |
 | Niri/Plasma integrations | `PLANNED` | 15-16 | Generic desktop capability boundary in Phase 14. |
 | Remote locations | `PLANNED` | 17 | GFile/URI identity separate from local `PathBuf`; credential and cache policy. |
 | Portable encryption | `PLANNED` | 18B-18C | Phase 18A threat model plus existing progress/cancellation/conflict jobs. |
