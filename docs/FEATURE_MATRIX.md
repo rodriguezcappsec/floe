@@ -429,9 +429,9 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Device label and free space | `COMPLETE` | 6K/6T | Device labels come from GIO; mounted local roots receive bounded generation-checked capacity/free/read-only details. |
 | Sidebar width persistence/reset | `COMPLETE` | 6K2 | 128-480 px, 320 ms debounce, startup restore, appearance-default reset. |
 | Sidebar collapsed mode | `PLANNED` | 20 | Must retain accessible destinations and restore width predictably. |
-| Selection-aware file context menu | `COMPLETE` | 5C/6J | Open, Open With, Copy, Cut, Rename, and Trash reuse window actions. |
+| Selection-aware file context menu | `COMPLETE` | 5C/6J/10C | List, grid, Miller, and Trash popovers reuse selection-aware window actions; Properties is exposed in a separated final section. |
 | Directory-background context menu | `COMPLETE` | 6J | Paste, Select All, Refresh, and Edit Location are separate from file actions. |
-| Expanded context actions | `PLANNED` | 10-19 | Preview, Properties, paths, links, archives, checksum, privacy, safe-open, and custom actions arrive with owning features. |
+| Expanded context actions | `PLANNED` | 12-19 | Archive, privacy, safe-open, and custom actions arrive with their owning features; existing paths, links, checksums, terminal, and Properties actions are wired. |
 | Avoid giant context-menu wall | `PLANNED` | 11A/20 | Central command metadata should prioritize common actions and coherent submenus. |
 | Central command registry | `COMPLETE` | 11A/11C-11E | 63 bounded human-readable commands map to existing GActions; live enabled state remains authoritative, effective accelerators and menu metadata are centralized, and internal parameterized plumbing is excluded. |
 | Command palette / Ctrl+Shift+P | `COMPLETE` | 11B | Native bounded metadata-only search delegates to live GActions, exposes disabled context, keyboard/accessibility semantics, and 16-entry memory-only recents. |

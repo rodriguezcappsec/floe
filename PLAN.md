@@ -22,3 +22,13 @@
 
 COMPLETE on `phase-11e-terminal-integration`; all focused, workspace, native
 Wayland, documentation, and completion gates are verified in `GATES.md`.
+
+## Follow-up: Properties context-menu parity
+
+- Expose the existing selection-aware `win.properties` action in the concrete
+  file and Trash popover models, not only in their action metadata.
+- Place Properties in a separated final section, consistent with native file
+  manager context menus and without duplicating Properties logic.
+- Cover list, grid, Miller, and Trash menus through their shared menu builders.
+- Keep Phase 12A as the sole roadmap `NEXT`; this is a focused Phase 10C parity
+  correction, not a new roadmap phase.

@@ -1197,7 +1197,11 @@ feedback. The native chooser persists only one reviewed provider ID in
 version-7 preferences and exposes available/unavailable state. File,
 background, header, palette, and chooser actions reuse live GAction eligibility.
 Embedded terminals, arbitrary commands, repository detection, and terminal
-history remain deferred. Phase 12A archive engine is the sole next phase.
+history remain deferred. A post-11E Phase 10C parity correction places the
+existing selection-aware Properties action in a separated final section of the
+concrete list, grid, Miller, and Trash context menus; the GTK popover builders
+still delegate to the existing application action and perform no filesystem
+work. Phase 12A archive engine is the sole next phase.
 ```
 
 ```text

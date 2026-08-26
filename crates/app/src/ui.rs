@@ -3790,6 +3790,13 @@ fn build_file_context_menu_model() -> gio::Menu {
     );
     menu.append_section(None, &destructive);
 
+    let details = gio::Menu::new();
+    details.append(
+        Some(FILE_CONTEXT_ACTIONS[16].0),
+        Some(FILE_CONTEXT_ACTIONS[16].1),
+    );
+    menu.append_section(None, &details);
+
     menu
 }
 
@@ -3807,6 +3814,14 @@ fn build_trash_context_menu_model() -> gio::Menu {
         Some(TRASH_CONTEXT_ACTIONS[1].1),
     );
     menu.append_section(None, &destructive);
+
+    let details = gio::Menu::new();
+    details.append(
+        Some(TRASH_CONTEXT_ACTIONS[3].0),
+        Some(TRASH_CONTEXT_ACTIONS[3].1),
+    );
+    menu.append_section(None, &details);
+
     menu
 }
 
@@ -4238,6 +4253,24 @@ mod tests {
                 .iter()
                 .all(|(label, _)| !label.to_ascii_lowercase().contains("secure"))
         );
+    }
+
+    #[test]
+    fn properties_context_menu_models_expose_actual_action_in_final_section() {
+        for menu in [
+            build_file_context_menu_model(),
+            build_trash_context_menu_model(),
+        ] {
+            let final_section = menu
+                .item_link(menu.n_items() - 1, "section")
+                .expect("Properties should be in a separated final section");
+            assert_eq!(final_section.n_items(), 1);
+
+            let action = final_section
+                .item_attribute_value(0, "action", None)
+                .and_then(|value| value.str().map(str::to_owned));
+            assert_eq!(action.as_deref(), Some("win.properties"));
+        }
     }
 
     #[test]

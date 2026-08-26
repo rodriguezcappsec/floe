@@ -39,3 +39,23 @@ Scope: Deliver safe, preferred-provider Open Terminal Here for exact local direc
   CHECK: test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "11E.*COMPLETE|12A.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
   EXPECT: 12A
   EVIDENCE: ROADMAP has exactly one NEXT at 12A; AGENTS, matrix, privacy/security, plan, and gates record Phase 11E completion, exact raw working-directory use, no shell/credential injection, and no terminal history persistence.
+
+## Follow-up gates: Properties context-menu parity
+
+- [x] F1: Concrete file and Trash menu models expose `win.properties` in a
+  separated final section while reusing the existing action.
+  CHECK: cargo test -p floe-app properties_context_menu -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: The focused concrete-model test passed for both builders and verifies the final section contains exactly one item with action `win.properties`.
+
+- [x] F2: List, grid, and Miller file views continue to share the corrected
+  file menu model; Properties remains selection-aware and keyboard reachable.
+  CHECK: cargo test -p floe-app phase_10c_properties_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: The Phase 10C discoverability/selection test passed; code inspection confirms list, grid, and Miller all consume `build_file_context_menu_model`, and keyboard context-menu dispatch opens the active view's same model.
+
+- [x] F3: Formatting, strict lint, tests, build, diff hygiene, documentation,
+  and the sole Phase 12A `NEXT` remain verified.
+  CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check && test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1
+  EXPECT: all commands exit 0
+  EVIDENCE: All commands exited 0; 424 tests passed (330 application plus 94 core), strict Clippy, native build, formatting, workspace check, diff hygiene, documentation, and exactly one NEXT at Phase 12A passed.
