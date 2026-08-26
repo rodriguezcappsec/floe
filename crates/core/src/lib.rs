@@ -7,6 +7,7 @@ mod copy;
 mod create_operation;
 mod directory;
 mod error;
+mod filename_search;
 mod filter;
 mod jobs;
 mod miller;
@@ -49,6 +50,12 @@ pub use create_operation::{
 };
 pub use directory::{enumerate_directory, enumerate_directory_with_cancel};
 pub use error::DirectoryError;
+pub use filename_search::{
+    FILENAME_SEARCH_BATCH_CAPACITY, FILENAME_SEARCH_DEPTH_CAPACITY,
+    FILENAME_SEARCH_DIRECTORY_CAPACITY, FILENAME_SEARCH_ENTRY_CAPACITY,
+    FILENAME_SEARCH_RESULT_CAPACITY, FilenameSearchError, FilenameSearchLimits,
+    FilenameSearchRequest, FilenameSearchScope, FilenameSearchSummary, search_filenames,
+};
 pub use filter::{
     FOLDER_FILTER_QUERY_CAPACITY, FolderFilterError, FolderFilterMode, FolderFilterPattern,
 };

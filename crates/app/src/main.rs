@@ -17,6 +17,7 @@ pub mod create_executor;
 mod devices;
 mod drag_drop;
 mod file_watcher;
+mod filename_search;
 mod folder_filter;
 mod iconography;
 mod inspector;

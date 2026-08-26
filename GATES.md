@@ -1,6 +1,58 @@
-# Gates: Permanent Layered Testing Foundation
+# Gates: Floe Phase 13B — Filename Search
 
-- [x] T1: Baseline audit is measured and preserved.
+- [x] S1: Core traversal is bounded, cancellable, and path-safe.
+  CHECK: cargo test -p floe-core phase_13b_filename_search -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Four focused core tests pass for folder/subtree scope, raw
+    non-UTF-8 identity, symlink non-descent/root rejection, cancellation,
+    128-result batches, caps/truncation, query/root validation, and device
+    boundary policy.
+
+- [x] S2: Application streaming worker has bounded generation-safe lifecycle.
+  CHECK: cargo test -p floe-app phase_13b_filename_search -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Three focused application tests pass for capacity-1 requests,
+    capacity-32 responses, 128/128/44 streaming, generation supersession,
+    bounded backpressure, and clean worker shutdown.
+
+- [x] S3: Unified native search UX and exact result actions are verified.
+  CHECK: cargo test -p floe-app phase_13b_search_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Three focused UI/registry/feedback tests pass. Native Wayland D-Bus
+    described enabled Quick Filter, Search Files, Start, Stop, and Close actions,
+    disabled Reveal without selection, activated all non-destructive search
+    lifecycle actions, disabled view/zoom actions only while search results owned
+    the surface, restored them on Close, retained Peer.Ping liveness, and Quit
+    cleanly.
+
+- [x] S4: Supplied Floe application icon is embedded and selected safely.
+  CHECK: cargo test -p floe-app phase_13b_application_icon -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused resource test passes the PNG signature under stable
+    `io.github.floe.FileManager`; GTK default and application-window icon names
+    use that same resource alias.
+
+- [x] S5: Privacy, design, roadmap, matrix, and persistent status are exact.
+  CHECK: rg -n '13B.*COMPLETE|13C.*NEXT|Filename search|Search Files' AGENTS.md DESIGN.md docs/ROADMAP.md docs/FEATURE_MATRIX.md docs/PRIVACY_SECURITY.md docs/DEVELOPMENT.md
+  EXPECT: Phase 13B
+  EVIDENCE: ROADMAP marks Phase 13B COMPLETE and exactly Phase 13C NEXT; matrix,
+    privacy, design, development, plan, gates, and AGENTS describe the verified
+    memory-only filename boundary and keep Phase 13C/later work excluded.
+
+- [x] S6: Full deterministic and applicable native gates pass.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: Formatting, workspace check, strict all-target Clippy, 371 app plus
+    112 core tests, native build, diff hygiene, and the opt-in real GTK
+    component/accessibility test pass. Isolated Wayland
+    action/health/clean-Quit smoke passes; Dogtail/pyatspi remain unavailable
+    and are not claimed.
+
+---
+
+# Archived gates: Permanent Layered Testing Foundation
+
+* [x] T1: Baseline audit is measured and preserved.
   - CHECK: `cargo test --workspace`
   - EXPECT: the pre-change 365 application and 104 core tests remain passing;
     existing test/native-smoke infrastructure is not deleted or rewritten.
@@ -9,7 +61,7 @@
     core properties; the one new graphical GTK test remains explicitly ignored
     in the headless suite.
 
-- [x] T2: Selective `floe-core` property tests enforce useful invariants.
+* [x] T2: Selective `floe-core` property tests enforce useful invariants.
   - CHECK: `cargo test -p floe-core property_ -- --nocapture`
   - EXPECT: deterministic sort/set preservation, exact arbitrary Linux filename
     identity, bounded filter behavior, and navigation-history invariants pass;
@@ -18,7 +70,7 @@
     Linux filename identity, deterministic sort/multiset preservation,
     non-UTF-8 text filtering, and Back/Forward navigation round trips.
 
-- [x] T3: GTK component/accessibility tests are a real separate graphical gate.
+* [x] T3: GTK component/accessibility tests are a real separate graphical gate.
   - CHECK: `cargo test -p floe-app phase_testing_gtk -- --ignored --nocapture`
   - EXPECT: real Floe controls expose stable roles, visible/accessible names or
     descriptions, and action wiring; ordinary headless workspace tests remain
@@ -28,7 +80,7 @@
     feedback, progress, cancel, retry, and pause roles/action/help contracts.
     Only the pre-existing host libadwaita GtkSettings warning appeared.
 
-- [x] T4: Native E2E harness is safe, semantic, and explicitly opt-in.
+* [x] T4: Native E2E harness is safe, semantic, and explicitly opt-in.
   - CHECK: `python3 -m unittest discover -s e2e -p 'test_*.py'`
   - EXPECT: preflight fails/skips truthfully when Dogtail/AT-SPI/session support
     is unavailable; E2E-01 through E2E-08 are discoverable; every launch uses
@@ -39,7 +91,7 @@
     The native workflow class skips truthfully because this host lacks Python
     Dogtail and `pyatspi`; no native E2E execution is claimed.
 
-- [x] T5: Permanent policy and developer instructions cover every layer.
+* [x] T5: Permanent policy and developer instructions cover every layer.
   - CHECK: `rg -n 'Property-based|GTK component|Dogtail|E2E-08|Niri smoke|Plasma smoke|Regression test|Security and privacy testing' AGENTS.md docs/DEVELOPMENT.md`
   - EXPECT: future feature leaves select applicable layers, add failure/regression
     coverage during implementation, run exact gates, preserve isolation, and
@@ -48,7 +100,7 @@
     filesystem, proptest, GTK/accessibility, Dogtail E2E, isolated Mutter,
     Niri, Plasma, security/privacy, regression, reporting, and CI boundaries.
 
-- [x] T6: Full deterministic repository gates pass.
+* [x] T6: Full deterministic repository gates pass.
   - CHECK: `cargo fmt --all -- --check`
   - CHECK: `cargo check --workspace`
   - CHECK: `cargo clippy --workspace --all-targets -- -D warnings`
@@ -60,7 +112,7 @@
     Rust tests with one expected ignored graphical test, and diff hygiene all
     pass. Cargo manifests contain no web E2E dependency.
 
-- [x] T7: Final status is truthful and measured.
+* [x] T7: Final status is truthful and measured.
   - EXPECT: all active T1-T7 gates are checked with concrete evidence, or any
     genuinely unavailable native run is recorded explicitly without a false
     pass claim. `AGENTS.md` names this testing foundation without changing the

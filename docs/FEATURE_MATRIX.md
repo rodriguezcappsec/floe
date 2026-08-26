@@ -5,8 +5,8 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 11E. Phase 12A is the only `NEXT`
-phase. Every other future capability remains `PLANNED` or `DEFERRED`.
+The implementation baseline for this matrix is Phase 13B. Phase 13C is the only
+`NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
 
@@ -214,7 +214,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Close pane | `COMPLETE` | 7E | Closes the inactive pane and retains the active session. |
 | Persistent split ratio | `COMPLETE` | 7D/7E | Pointer resizing and 5% keyboard steps are clamped to 20–80% and persist through workspace v2. |
 | Different view modes per pane | `COMPLETE` | 7D/7E | Each session retains independent view policy and restores it when activated. |
-| Active-pane filter/search | `PARTIAL` | 13A-13B | Current-folder filtering follows the active pane and clears on location change; recursive search ownership remains 13B. |
+| Active-pane filter/search | `COMPLETE` | 13A-13B | Current-folder filtering and bounded filename search follow the active pane; location changes clear search and same-location refreshes rerun it. |
 | Optional synchronized navigation | `DEFERRED` | 7F | Only after independent behavior is reliable and understandable. |
 | Drag between panes | `COMPLETE` | 7F | Standard local file-list drops reuse exact no-overwrite copy/move/link requests; action, destination, and commit wording supplement dashed highlighting. |
 
@@ -307,15 +307,20 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 
 ## Current-folder filtering and search
 
+Phase 13A and Phase 13B share one search row: `Ctrl+F` opens Quick Filter, the
+visible mode selector switches to Search Files, and `Ctrl+Shift+F` opens Search
+Files directly. Quick Filter narrows loaded entries; Search Files uses the
+bounded filename traversal worker.
+
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | Instant text filter | `COMPLETE` | 13A | Case-insensitive current-folder matching runs on already-listed entries; normal order and exact still-visible selection are preserved. |
 | Glob filter | `COMPLETE` | 13A | Compile-once filename glob uses Unicode for valid names and deterministic raw-byte matching for non-UTF-8 names. |
 | Regex filter | `COMPLETE` | 13A | Compile-once regex runs on the bounded application worker; invalid expressions are reported inline without replacing the current view. |
 | Filter match count/clear/Escape | `COMPLETE` | 13A | Header action, Ctrl+F, visible Text/Glob/Regex selector with plain-language popup summaries, hover examples and accessible descriptions, alert feedback, count and clear/Escape behavior share list/grid/Miller backing state. |
-| Filename search current folder/subtree | `PLANNED` | 13B | Stream cancellable results from bounded workers. |
+| Filename search in current folder/subtree | `COMPLETE` | 13B | Case-insensitive filename-only results stream in batches of 128 through a capacity-1 generation-safe worker with exact path identity. |
 | Wider-location search | `PLANNED` | 13B/17 | Depends on generic location architecture and privacy policy. |
-| Search cancellation | `PLANNED` | 13B | Required before recursive traversal ships. |
+| Search cancellation | `COMPLETE` | 13B | Visible Stop cancels by generation, stale events are ignored, and partial results remain with truthful stopped/skipped/truncated feedback. |
 | Content search | `PLANNED` | 13D | Bounded, cancellable, type-aware, and privacy-safe by default. |
 | Type/extension/MIME filters | `PLANNED` | 13C | Reuse metadata providers and support unknown values. |
 | Size/date/owner/hidden filters | `PLANNED` | 13C | Lazy metadata and explicit hidden policy. |
@@ -324,7 +329,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Search history | `PLANNED` | 13E | Must obey Sensitive Folder and Private Mode history suppression. |
 | Saved searches | `PLANNED` | 13E | Versioned query representation with clear scope. |
 | Search sorting/grouping | `PLANNED` | 13C/13E | Reuse view policy rather create separate filesystem actions. |
-| Reveal/search-result context actions | `PLANNED` | 13B | Reuse normal actions with exact source identity. |
+| Reveal/search-result context actions | `COMPLETE` | 13B | Dedicated filename/containing-folder rows reuse normal exact-path actions; Reveal navigates to the exact parent and selects the exact result. |
 | Optional indexed backend | `DEFERRED` | 13F | Must have non-indexed fallback and exclude private/sensitive content safely. |
 | Locked-vault search leakage prevention | `PLANNED` | 18J | Locked names/content must not enter global or Floe indexes. |
 | Check for Duplicates / duplicate finder | `PLANNED` | 13G | Explicit selected files/roots; group by exact size, stream candidate hashes, then confirm byte-for-byte before calling files identical. Results distinguish hard-link aliases and never delete automatically. |
@@ -674,7 +679,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Browsing during operations | `COMPLETE` | 4B | Non-modal Operations Island and background workers keep the browser available. |
 | Non-blocking error feedback | `COMPLETE` | 1-6K2 | Toasts/dialog recovery preserve application usability. |
 | Detailed errors available | `PARTIAL` | 1-6K2/20 | Structured failures and logs exist; a user-facing details surface is incomplete. |
-| Hidden/filter/search mode obvious | `PARTIAL` | 1/13A/20 | Hidden toggle and visible Text/Glob/Regex filter bar have explicit state; recursive search and final mode audit remain. |
+| Hidden/filter/search mode obvious | `COMPLETE` | 1/13A/13B | Hidden toggle, Text/Glob/Regex filter mode, and distinct filename-search mode expose visible scope, Search, Stop, Close, progress, and result state. |
 | Active pane/tab obvious | `PLANNED` | 7B/7E | Non-color-only state and predictable focus. |
 | Private/vault/sandbox status obvious | `PLANNED` | 18H/18K/18M | Text/icon/accessibility state, never color alone. |
 | Watcher storms coalesced | `COMPLETE` | 6S | One 140 ms cancellable timer deduplicates paths and caps 16,384 events, 4,096 paths, and 1,024 rename pairs before conservative overflow reconciliation. |
@@ -701,7 +706,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Inspector | `COMPLETE` | 10A-10F | Shared bounded lazy metadata providers; no eager whole-directory enrichment, persistent metadata cache, privacy finding, or authenticity claim. |
 | Command palette | `COMPLETE` | 11A-11B | Central command registry and metadata-only palette delegate execution and eligibility to existing GActions. |
 | Archives | `COMPLETE` | 12A-12B | Engine/job lifecycle, native workflows, conflict handling, cancellation, and traversal/bomb/link defenses are complete for reviewed local formats. |
-| Search/indexing and duplicate discovery | `PARTIAL` | 13A-13G | Current-folder filtering uses a bounded memory-only worker; recursive search, indexing and duplicate discovery remain later bounded phases. |
+| Search/indexing and duplicate discovery | `PARTIAL` | 13A-13G | Current-folder filtering and bounded non-indexed filename subtree search are complete; advanced/content/saved/indexed search and duplicate discovery remain later phases. |
 | Niri/Plasma integrations | `PLANNED` | 15-16 | Generic desktop capability boundary in Phase 14. |
 | Remote locations | `PLANNED` | 17 | GFile/URI identity separate from local `PathBuf`; credential and cache policy. |
 | Portable encryption | `PLANNED` | 18B-18C | Phase 18A threat model plus existing progress/cancellation/conflict jobs. |

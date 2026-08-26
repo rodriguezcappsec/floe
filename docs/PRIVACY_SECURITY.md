@@ -347,9 +347,38 @@ Auto-lock on timeout, app exit, session lock, suspend, or device removal ships o
 
 ## Current-folder filter
 
+Quick Filter and Search Files share one visible surface and query entry. This is
+presentation-only consolidation: switching modes cancels incompatible work,
+and neither engine gains persistence, logging, indexing, content reads, broader
+roots, or weaker path handling.
+
 Phase 13A examines only filenames already returned for the active local folder. A query is capped at 256 Unicode scalar values and is sent with a bounded in-memory entry snapshot to one capacity-1 application worker. The worker retains at most one queued request and one latest generation-tagged result. It performs no recursive enumeration, metadata/content reads, network access, indexing, or helper-process execution.
 
 Queries, selected mode, match results, and usage remain memory-only and are cleared when the active location changes or Floe exits. Floe does not persist or log filter text, filenames, results, or history. Valid UTF-8 names use Unicode matching; non-UTF-8 names retain exact raw identity and use the documented ASCII-insensitive text/raw-byte glob-regex fallback. Display text is never reconstructed into a path. Recursive search, saved search, content search, and privacy-aware search history remain later phases.
+
+## Filename search
+
+Phase 13B examines filenames and no-follow metadata only beneath the explicit
+active local folder. It never reads file contents, descends through symbolic
+links, crosses the root filesystem device, searches remote roots, executes a
+helper, uploads data, or creates an index. This Folder and Include Subfolders
+share Phase 13A's case-insensitive 256-scalar text matcher while preserving
+exact `PathBuf`/`OsStr` identities. Lossy filename and containing-folder labels
+are presentation only.
+
+One capacity-1 application worker streams at most 128 exact results per bounded
+response. A search stops at 100,000 matches, 1,000,000 examined entries, 100,000
+directories, or depth 128 and reports incomplete traversal. Inaccessible
+entries/directories, skipped mount points, and depth limits are counted without
+retaining path lists. Generation cancellation rejects stale events; Stop may
+retain displayed partial results but never claims completion.
+
+Queries, roots, exact results, counters, and usage remain memory-only and clear
+on location exit or process exit. Floe does not persist or log search queries,
+result paths, history, or an index. Search results deliberately remain visible
+to the user and ordinary applications they explicitly open; normal OS,
+filesystem, and desktop observation boundaries still apply. Advanced filters,
+content search, saved searches, remote search, and indexing remain later phases.
 
 ## Command history
 

@@ -430,13 +430,43 @@ The header location is both orientation and navigation. Its resting state is a p
 
 Phase 6H implements this surface.
 
-### Current-folder filter
+### Unified search surface
+
+Phase 13A and Phase 13B share one compact search surface. The header button and
+`Ctrl+F` open **Quick Filter**; `Ctrl+Shift+F` opens **Search Files** in the same
+surface. A visible selector and accessible help explain that Quick Filter
+narrows items already shown while Search Files traverses filenames on disk.
+Both modes use one query entry and one close control. Mode changes preserve the
+query and focus, cancel incompatible work, and reject stale worker results.
+
+#### Quick Filter
 
 Phase 13A adds a compact filter row inside the active directory panel. The header search control and `Ctrl+F` reveal and focus a native search entry. A visible selector names the three modes—Text, Glob, and Regex—while its popup gives each mode a plain-language summary and hover description with examples. Glob explicitly explains `*` and `?`; Regex is identified as advanced. Adjacent feedback reports the visible/total match count or an inline alert with the invalid-pattern reason. Escape or the labelled close control clears the query and closes the row.
 
 Bare Space is scoped to list, grid, and Miller file views instead of being a global application accelerator. Editable controls therefore receive ordinary Space key events directly, including the filter search entry's internal text widget, while file-view focus still exposes Quick Preview.
 
 Filtering narrows the existing ordered list/grid/Miller backing entries; it is not a search-results page. Entries that remain visible retain exact-path selection, an active zero-match state says “No matching items,” refresh/sort/hidden/watcher updates reapply the query, and navigating elsewhere clears it. Pattern compilation and matching happen on the bounded application worker, never in GTK row binding callbacks.
+
+#### Search Files
+
+Search Files exposes a visible This Folder or Include Subfolders scope plus
+labelled Search and Stop controls. Enter starts the search. Results stream into
+a dedicated list showing a semantic entry icon, filename, and containing
+folder. Exact-path multi-selection and ordinary Open/Open With/file actions are
+reused; Reveal in Folder navigates to the exact parent and selects the exact
+result. View, sorting, grouping, and grid-size controls are disabled while the
+dedicated result list is active because Phase 13B does not define search-result
+ordering semantics.
+
+Search feedback names running, stopped, skipped, truncated, empty, and failed
+states without relying on color. Traversal is application-worker owned, never
+occurs in GTK callbacks, does not descend through symbolic links or cross mount
+boundaries, streams at most 128 results per batch, and has explicit result,
+entry, directory, and depth limits. Queries, roots, results, and usage remain
+memory-only. Same-location refresh and hidden-visibility changes rerun an active
+search; navigation cancels and clears it. Content search, saved searches,
+indexing, remote roots, advanced predicates, and search-specific ordering remain
+later phases.
 
 ### Tabs
 

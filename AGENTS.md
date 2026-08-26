@@ -1318,8 +1318,28 @@ Last updated:
 Current phase:
 
 ```text
-Phase 13 — Filter and search (Phase 13A complete)
+Phase 13 — Filter and search (Phase 13B complete)
 ```
+
+Phase 13B adds case-insensitive filename-only search rooted at the active local
+folder with explicit This Folder and Include Subfolders scopes. One capacity-1
+application worker streams batches of at most 128 exact `PathBuf` results while
+generation cancellation rejects stale work. Traversal uses no-follow metadata,
+does not descend symbolic links or cross the root filesystem device, and caps
+results at 100,000, entries at 1,000,000, directories at 100,000, and depth at
+128. Skipped, stopped, truncated, empty, and failed states remain explicit.
+
+Quick Filter and Search Files now share one native surface: `Ctrl+F` opens Quick
+Filter, `Ctrl+Shift+F` opens Search Files, and a visible mode selector explains
+the distinction. The dedicated result list shows filename and containing folder,
+reuses exact-path selection and ordinary file actions, and adds Reveal in Folder.
+Queries, roots, results, counters, and use remain memory-only. File contents,
+remote roots, history, persistence, indexing, advanced predicates, and
+search-result ordering remain excluded. The supplied `icon_floe.png` is embedded
+under the stable application ID and used as the GTK application/window icon.
+
+Focused core/application/UI/icon tests and strict workspace gates are recorded
+in `GATES.md`. Phase 13C advanced filters is the sole recommended next phase.
 
 Phase 13A adds a current-folder-only Text/Glob/Regex filter over entries already
 returned by the directory worker. Queries are capped at 256 Unicode scalar
@@ -1333,8 +1353,8 @@ reapply the query, and location changes clear it. Header/Ctrl+F discovery,
 visible modes, count/error alert, Escape/close, 100,000-entry tests, strict
 workspace gates, and native Wayland lifecycle are verified. Query, mode,
 results, and usage are memory-only; recursion, content/metadata reads, indexing,
-history, and persistence remain excluded. Phase 13B filename search is the sole
-next phase.
+history, and persistence remain excluded. Phase 13B filename search followed
+this work.
 
 A testing-foundation pass on `testing-foundation` preserves the Phase 13B next
 recommendation while formalizing permanent test layers. The baseline 469 Rust
