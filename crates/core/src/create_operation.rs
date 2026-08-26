@@ -2,6 +2,7 @@ use std::{
     fs::{self, OpenOptions},
     io,
     os::unix::fs as unix_fs,
+    os::unix::fs::{MetadataExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 
@@ -18,6 +19,7 @@ pub enum CreateKind {
     Directory,
     EmptyFile,
     Template { source: PathBuf },
+    Duplicate { source: PathBuf },
     SymbolicLink { target: PathBuf },
     HardLink { source: PathBuf },
 }
@@ -46,6 +48,17 @@ impl CreateRequest {
             return Err(CreateRequestError::InvalidSource(source));
         }
         Self::new(CreateKind::Template { source }, destination.into())
+    }
+
+    pub fn duplicate(
+        source: impl Into<PathBuf>,
+        destination: impl Into<PathBuf>,
+    ) -> Result<Self, CreateRequestError> {
+        let source = source.into();
+        if source.file_name().is_none() {
+            return Err(CreateRequestError::InvalidSource(source));
+        }
+        Self::new(CreateKind::Duplicate { source }, destination.into())
     }
 
     pub fn symbolic_link(
@@ -93,7 +106,9 @@ impl CreateRequest {
 
     pub fn source(&self) -> Option<&Path> {
         match &self.kind {
-            CreateKind::Template { source } | CreateKind::HardLink { source } => Some(source),
+            CreateKind::Template { source }
+            | CreateKind::Duplicate { source }
+            | CreateKind::HardLink { source } => Some(source),
             CreateKind::SymbolicLink { target } => Some(target),
             CreateKind::Directory | CreateKind::EmptyFile => None,
         }
@@ -161,6 +176,10 @@ pub enum CreateError {
     DestinationExists(PathBuf),
     #[error("hard-link source is not a regular non-symbolic file: {}", .0.display())]
     UnsupportedHardLinkSource(PathBuf),
+    #[error("template source is not a regular non-symbolic file: {}", .0.display())]
+    UnsupportedTemplateSource(PathBuf),
+    #[error("template output changed before permissions could be secured: {}", .0.display())]
+    TemplateOutputChanged(PathBuf),
     #[error("hard links require source and destination on the same filesystem")]
     CrossFilesystemHardLink,
     #[error(transparent)]
@@ -193,7 +212,9 @@ impl CreateError {
 
     pub const fn is_unsupported(&self) -> bool {
         match self {
-            Self::UnsupportedHardLinkSource(_) | Self::CrossFilesystemHardLink => true,
+            Self::UnsupportedHardLinkSource(_)
+            | Self::UnsupportedTemplateSource(_)
+            | Self::CrossFilesystemHardLink => true,
             Self::Copy(error) => error.is_unsupported(),
             _ => false,
         }
@@ -237,6 +258,28 @@ where
             });
         }
         CreateKind::Template { source } => {
+            let source_metadata =
+                fs::symlink_metadata(source).map_err(|error| CreateError::Io {
+                    action: "inspect template source",
+                    path: source.clone(),
+                    source: error,
+                })?;
+            if !source_metadata.file_type().is_file() || source_metadata.file_type().is_symlink() {
+                return Err(CreateError::UnsupportedTemplateSource(source.clone()));
+            }
+            execute_copy(
+                &CopyRequest::new(
+                    source,
+                    request.destination(),
+                    ConflictPolicy::FailIfExists,
+                    SymlinkPolicy::Preserve,
+                ),
+                &cancellation.0,
+                |progress| report_progress(CreateProgress::Copy(progress)),
+            )?;
+            secure_template_output(request.destination())?;
+        }
+        CreateKind::Duplicate { source } => {
             execute_copy(
                 &CopyRequest::new(
                     source,
@@ -283,6 +326,55 @@ where
     Ok(CreateOutcome {
         destination: request.destination().to_path_buf(),
     })
+}
+
+fn secure_template_output(destination: &Path) -> Result<(), CreateError> {
+    let before = fs::symlink_metadata(destination).map_err(|error| CreateError::Io {
+        action: "inspect created template",
+        path: destination.to_path_buf(),
+        source: error,
+    })?;
+    if !before.file_type().is_file() || before.file_type().is_symlink() {
+        return Err(CreateError::TemplateOutputChanged(
+            destination.to_path_buf(),
+        ));
+    }
+
+    let descriptor = rustix::fs::open(
+        destination,
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC | rustix::fs::OFlags::NOFOLLOW,
+        rustix::fs::Mode::empty(),
+    )
+    .map_err(|error| CreateError::Io {
+        action: "open created template safely",
+        path: destination.to_path_buf(),
+        source: io::Error::from_raw_os_error(error.raw_os_error()),
+    })?;
+    let opened = fs::File::from(descriptor);
+    let current = opened.metadata().map_err(|error| CreateError::Io {
+        action: "revalidate created template",
+        path: destination.to_path_buf(),
+        source: error,
+    })?;
+    if (before.dev(), before.ino()) != (current.dev(), current.ino()) || !current.is_file() {
+        return Err(CreateError::TemplateOutputChanged(
+            destination.to_path_buf(),
+        ));
+    }
+
+    let safe_mode = current.permissions().mode() & !0o111;
+    let descriptor_path = PathBuf::from(format!(
+        "/proc/self/fd/{}",
+        std::os::fd::AsRawFd::as_raw_fd(&opened)
+    ));
+    rustix::fs::chmod(&descriptor_path, rustix::fs::Mode::from_raw_mode(safe_mode)).map_err(
+        |error| CreateError::Io {
+            action: "remove execute permissions from created template",
+            path: destination.to_path_buf(),
+            source: io::Error::from_raw_os_error(error.raw_os_error()),
+        },
+    )?;
+    Ok(())
 }
 
 fn validate_parent(destination: &Path) -> Result<(), CreateError> {
@@ -369,6 +461,48 @@ mod tests {
             fs::read(created).expect("created payload"),
             b"template payload"
         );
+    }
+
+    #[test]
+    fn phase_12d_template_create_strips_execute_bits_and_rejects_links() {
+        let fixture = tempdir().expect("temporary fixture");
+        let source = fixture.path().join("executable-template");
+        fs::write(&source, b"#!/bin/false\n").expect("template payload");
+        fs::set_permissions(&source, fs::Permissions::from_mode(0o775))
+            .expect("executable template permissions");
+
+        let destination = fixture.path().join("safe-copy");
+        execute_create(
+            &CreateRequest::template(&source, &destination).expect("template request"),
+            &CreateCancellation::new(),
+            |_| {},
+        )
+        .expect("safe template creation");
+
+        let source_mode = fs::metadata(&source).expect("source metadata").mode() & 0o777;
+        let destination_mode = fs::metadata(&destination)
+            .expect("destination metadata")
+            .mode()
+            & 0o777;
+        assert_eq!(source_mode, 0o775, "source template must not be modified");
+        assert_eq!(destination_mode & 0o111, 0);
+        assert_eq!(
+            fs::read(&destination).expect("destination payload"),
+            b"#!/bin/false\n"
+        );
+
+        let link = fixture.path().join("template-link");
+        unix_fs::symlink(&source, &link).expect("template symlink");
+        let linked_destination = fixture.path().join("linked-copy");
+        assert!(matches!(
+            execute_create(
+                &CreateRequest::template(&link, &linked_destination).expect("linked request"),
+                &CreateCancellation::new(),
+                |_| {},
+            ),
+            Err(CreateError::UnsupportedTemplateSource(path)) if path == link
+        ));
+        assert!(!linked_destination.exists());
     }
 
     #[test]

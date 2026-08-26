@@ -445,6 +445,9 @@ pub struct BrowserController {
     terminal_worker: RefCell<Option<crate::terminal::TerminalWorker>>,
     terminal_availability: RefCell<Vec<crate::terminal::TerminalAvailability>>,
     terminal_request_id: Cell<u64>,
+    template_worker: RefCell<Option<crate::templates::TemplateWorker>>,
+    template_request_id: Cell<u64>,
+    pending_create_rename: RefCell<Option<PathBuf>>,
 }
 
 impl Drop for BrowserController {
@@ -505,6 +508,13 @@ impl BrowserController {
             Ok(worker) => Some(worker),
             Err(error) => {
                 tracing::warn!(%error, "could not start terminal integration worker");
+                None
+            }
+        };
+        let template_worker = match crate::templates::TemplateWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start template discovery worker");
                 None
             }
         };
@@ -579,6 +589,9 @@ impl BrowserController {
             terminal_worker: RefCell::new(terminal_worker),
             terminal_availability: RefCell::new(Vec::new()),
             terminal_request_id: Cell::new(0),
+            template_worker: RefCell::new(template_worker),
+            template_request_id: Cell::new(0),
+            pending_create_rename: RefCell::new(None),
         })
     }
 
@@ -4238,7 +4251,7 @@ impl BrowserController {
             .map(Arc::new)
             .collect();
         let pending_reconciliation = self.pending_reconciliation.borrow_mut().take();
-        let selected_paths = if let Some(pending) = pending_reconciliation {
+        let mut selected_paths = if let Some(pending) = pending_reconciliation {
             let current_paths = entries
                 .iter()
                 .map(|entry| entry.path().to_path_buf())
@@ -4263,6 +4276,12 @@ impl BrowserController {
             }
             reveal_path.into_iter().collect::<Vec<_>>()
         };
+        if let Some(created) = self.pending_create_rename.borrow().as_ref()
+            && entries.iter().any(|entry| entry.path() == created)
+            && !selected_paths.contains(created)
+        {
+            selected_paths.push(created.clone());
+        }
         self.install_entries(entries, &selected_paths, true);
         self.request_current_storage_facts();
         self.start_current_watcher();
@@ -4331,6 +4350,20 @@ impl BrowserController {
         self.update_loading_status(loaded, total);
         if loaded == total {
             self.restore_scroll_anchor();
+            let rename_ready = self
+                .pending_create_rename
+                .borrow()
+                .as_ref()
+                .is_some_and(|target| {
+                    self.visible_entries
+                        .borrow()
+                        .iter()
+                        .any(|entry| entry.path() == target)
+                });
+            if rename_ready {
+                self.pending_create_rename.borrow_mut().take();
+                self.show_rename();
+            }
         }
     }
 
@@ -5450,12 +5483,122 @@ impl BrowserController {
         confirmation.cancel_button.grab_focus();
     }
 
-    fn show_new_folder(&self) {
+    fn show_new_folder(self: &Rc<Self>) {
         self.show_create_name_dialog(CreateDialogKind::Directory, "New Folder");
     }
 
-    fn show_new_empty_file(&self) {
+    fn show_new_empty_file(self: &Rc<Self>) {
         self.show_create_name_dialog(CreateDialogKind::EmptyFile, "New File");
+    }
+
+    fn present_template_catalog(self: &Rc<Self>) -> bool {
+        let Some(root) = glib::user_special_dir(glib::UserDirectory::Templates) else {
+            self.show_toast("No XDG Templates folder is configured", 5);
+            return true;
+        };
+        let root = root.to_path_buf();
+        let widgets = crate::templates::build_template_dialog();
+
+        let controller = Rc::downgrade(self);
+        let dialog = widgets.dialog.downgrade();
+        let management_root = root.clone();
+        widgets.open_folder_button.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.navigate_to(management_root.clone());
+            }
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+
+        let request_id = self.template_request_id.get().wrapping_add(1).max(1);
+        self.template_request_id.set(request_id);
+        let request_result = self.template_worker.borrow().as_ref().map_or(
+            Err(crate::templates::TemplateSubmitError::Stopped),
+            |worker| worker.request(request_id, root),
+        );
+        if let Err(error) = request_result {
+            widgets.spinner.stop();
+            widgets.spinner.set_visible(false);
+            widgets.status.set_label(&error.to_string());
+        } else {
+            let controller = Rc::downgrade(self);
+            let response_widgets = widgets.clone();
+            glib::timeout_add_local(Duration::from_millis(25), move || {
+                let Some(controller) = controller.upgrade() else {
+                    return glib::ControlFlow::Break;
+                };
+                let response = controller
+                    .template_worker
+                    .borrow()
+                    .as_ref()
+                    .and_then(crate::templates::TemplateWorker::try_response);
+                let Some(response) = response else {
+                    return glib::ControlFlow::Continue;
+                };
+                if response.id != request_id {
+                    return glib::ControlFlow::Continue;
+                }
+                controller.populate_template_dialog(&response_widgets, response.result);
+                glib::ControlFlow::Break
+            });
+        }
+        widgets.dialog.present(Some(&self.widgets.window));
+        true
+    }
+
+    fn populate_template_dialog(
+        self: &Rc<Self>,
+        widgets: &crate::templates::TemplateDialogWidgets,
+        result: Result<crate::templates::TemplateCatalog, crate::templates::TemplateDiscoveryError>,
+    ) {
+        widgets.spinner.stop();
+        widgets.spinner.set_visible(false);
+        match result {
+            Ok(catalog) if catalog.entries().is_empty() => widgets.status.set_label(
+                "No templates found. Add regular files to your Templates folder to use them here.",
+            ),
+            Ok(catalog) => {
+                widgets.status.set_label(if catalog.truncated() {
+                    "Showing the first 256 templates. Remove unused files to see the rest."
+                } else {
+                    "Choose a template"
+                });
+                widgets.list.set_visible(true);
+                for entry in catalog.entries() {
+                    let display_name = entry.display_name();
+                    let row = adw::ActionRow::builder()
+                        .title(&display_name)
+                        .subtitle("Creates a non-executable copy")
+                        .activatable(true)
+                        .build();
+                    row.update_property(&[gtk::accessible::Property::Label(&display_name)]);
+                    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+                    let source = entry.path().to_path_buf();
+                    let initial_name = entry
+                        .name()
+                        .to_str()
+                        .map_or_else(|| "Untitled".to_owned(), ToOwned::to_owned);
+                    let controller = Rc::downgrade(self);
+                    let dialog = widgets.dialog.downgrade();
+                    row.connect_activated(move |_| {
+                        if let Some(dialog) = dialog.upgrade() {
+                            dialog.close();
+                        }
+                        if let Some(controller) = controller.upgrade() {
+                            controller.show_create_name_dialog(
+                                CreateDialogKind::Template(source.clone()),
+                                &initial_name,
+                            );
+                        }
+                    });
+                    widgets.list.append(&row);
+                }
+            }
+            Err(error) => widgets.status.set_label(&format!(
+                "{error}. Use Open Templates Folder to review the location."
+            )),
+        }
     }
 
     fn choose_template(self: &Rc<Self>) {
@@ -5464,45 +5607,7 @@ impl BrowserController {
             return;
         }
 
-        let chooser = gtk::FileDialog::builder()
-            .title("Choose a Template")
-            .modal(true)
-            .build();
-        if let Some(templates) = glib::user_special_dir(glib::UserDirectory::Templates) {
-            chooser.set_initial_folder(Some(&gio::File::for_path(templates)));
-        }
-
-        let window = self.widgets.window.clone();
-        let controller = Rc::downgrade(self);
-        glib::spawn_future_local(async move {
-            match chooser.open_future(Some(&window)).await {
-                Ok(file) => {
-                    let Some(source) = file.path() else {
-                        if let Some(controller) = controller.upgrade() {
-                            controller.show_toast("Only local template files are supported", 5);
-                        }
-                        return;
-                    };
-                    let initial_name = source
-                        .file_name()
-                        .and_then(OsStr::to_str)
-                        .unwrap_or("Untitled")
-                        .to_owned();
-                    if let Some(controller) = controller.upgrade() {
-                        controller.show_create_name_dialog(
-                            CreateDialogKind::Template(source),
-                            &initial_name,
-                        );
-                    }
-                }
-                Err(error) if error.matches(gio::IOErrorEnum::Cancelled) => {}
-                Err(error) => {
-                    if let Some(controller) = controller.upgrade() {
-                        controller.show_toast(&format!("Could not choose a template: {error}"), 6);
-                    }
-                }
-            }
-        });
+        self.present_template_catalog();
     }
 
     fn duplicate_selected(&self) {
@@ -5521,7 +5626,7 @@ impl BrowserController {
         }
     }
 
-    fn show_create_symbolic_link(&self) {
+    fn show_create_symbolic_link(self: &Rc<Self>) {
         let Some(entry) = self.selected_entry() else {
             self.show_toast("Select one item to link", 4);
             return;
@@ -5537,7 +5642,7 @@ impl BrowserController {
         );
     }
 
-    fn show_create_hard_link(&self) {
+    fn show_create_hard_link(self: &Rc<Self>) {
         let Some(entry) = self.selected_entry() else {
             self.show_toast("Select one regular file to hard link", 4);
             return;
@@ -5557,7 +5662,7 @@ impl BrowserController {
         );
     }
 
-    fn show_create_name_dialog(&self, kind: CreateDialogKind, initial_name: &str) {
+    fn show_create_name_dialog(self: &Rc<Self>, kind: CreateDialogKind, initial_name: &str) {
         if self.trash_active.get() {
             self.show_toast("Creation is unavailable while browsing Trash", 4);
             return;
@@ -5585,6 +5690,7 @@ impl BrowserController {
         let name_entry = dialog.rename_entry.clone();
         let name_error = dialog.rename_error.clone();
         let weak_dialog = dialog.dialog.downgrade();
+        let controller = Rc::downgrade(self);
         dialog.rename_button.connect_clicked(move |_| {
             let new_name = name_entry.text();
             let new_name_os = OsString::from(new_name.as_str());
@@ -5600,7 +5706,12 @@ impl BrowserController {
                 return;
             }
 
-            let request = match kind.request(destination_directory.join(new_name_os)) {
+            let destination = destination_directory.join(new_name_os);
+            let rename_after_create = matches!(
+                &kind,
+                CreateDialogKind::Directory | CreateDialogKind::Template(_)
+            );
+            let request = match kind.request(destination.clone()) {
                 Ok(request) => request,
                 Err(error) => {
                     name_error.set_label(&format!("Invalid creation request: {error}"));
@@ -5612,6 +5723,11 @@ impl BrowserController {
             match application_state.submit_create(request) {
                 Ok(_) => {
                     status_label.set_label("Creation queued…");
+                    if rename_after_create && let Some(controller) = controller.upgrade() {
+                        controller
+                            .pending_create_rename
+                            .replace(Some(destination.clone()));
+                    }
                     if let Some(dialog) = weak_dialog.upgrade() {
                         dialog.close();
                     }

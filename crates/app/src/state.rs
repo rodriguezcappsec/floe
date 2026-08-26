@@ -807,7 +807,7 @@ impl ApplicationState {
             let parent = source
                 .parent()
                 .ok_or_else(|| CopyInteractionError::InvalidSource(source.clone()))?;
-            let request = CreateRequest::template(&source, parent.join(duplicate))?;
+            let request = CreateRequest::duplicate(&source, parent.join(duplicate))?;
             operations.push(TrackedOperation::Create(request));
         }
 
@@ -1833,7 +1833,7 @@ impl ApplicationState {
                     .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?;
                 let new_name = match terminal.operation() {
                     TrackedOperation::Create(request)
-                        if matches!(request.kind(), CreateKind::Template { .. }) =>
+                        if matches!(request.kind(), CreateKind::Duplicate { .. }) =>
                     {
                         let source_name = request
                             .source()

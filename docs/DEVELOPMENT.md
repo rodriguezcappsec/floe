@@ -532,6 +532,8 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+Phase 12D built the native app, launched it in the active Wayland session, answered `org.freedesktop.DBus.Peer.Ping`, and exited through the exported Quit action. Focused tests cover the chooser policy; template filesystem work remains on the bounded worker/create executor rather than GTK callbacks.
+
 Phase 12B native Wayland smoke built the local app, launched with isolated XDG
 config/cache/data roots, verified the live window exported `extract-here`,
 `extract-to`, and `compress`, confirmed Extract Here was disabled with no archive
