@@ -290,6 +290,29 @@ impl ArchiveRequest {
         }
     }
 
+    pub fn source(&self) -> Option<&Path> {
+        match self {
+            Self::List { source, .. } | Self::Extract { source, .. } => Some(source),
+            Self::Compress { .. } => None,
+        }
+    }
+
+    pub fn sources(&self) -> &[PathBuf] {
+        match self {
+            Self::Compress { sources, .. } => sources,
+            Self::List { .. } | Self::Extract { .. } => &[],
+        }
+    }
+
+    pub fn destination(&self) -> Option<&Path> {
+        match self {
+            Self::Extract { destination, .. } | Self::Compress { destination, .. } => {
+                Some(destination)
+            }
+            Self::List { .. } => None,
+        }
+    }
+
     pub const fn limits(&self) -> ArchiveLimits {
         match self {
             Self::List { limits, .. }

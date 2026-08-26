@@ -1,39 +1,24 @@
-# Plan: Floe Phase 12A — Archive Engine
+# Plan: Floe Phase 12B — Archive UX
 
 ## Contract
 
-- Add GTK-independent typed list, extract, and compress requests for ZIP, TAR,
-  TAR.GZ, TAR.XZ, and reviewed pure-Rust 7z backends.
-- Preserve exact source and destination `PathBuf` values; archive member names
-  are validated component-by-component and never reconstructed from display
-  text.
-- Preflight entry count, path size/depth, per-entry bytes, total expanded bytes,
-  compression ratio, duplicate/file-directory collisions, source identity, and
-  unsupported links before writing output.
-- Extract into a private hidden sibling staging directory, publish with Linux
-  no-replace semantics, and clean staging after cancellation or failure.
-- Compress from a bounded, no-follow, identity-revalidated source plan into a
-  hidden staging file and publish without replacing an existing archive.
-- Run archive work through a fixed-capacity application executor with structured
-  progress, cancellation, bounded listing results, job lifecycle, and no GTK
-  filesystem work.
-- Do not add Phase 12B context actions/dialogs, passwords, shell commands,
-  external helpers, automatic overwrite, or persistent archive history.
+- Add native application-layer workflows for Extract Here, Extract To, and Compress using only the verified Phase 12A executor.
+- Resolve exact selected `PathBuf` sources and deterministic proposed destinations without reconstructing identity from lossy labels.
+- Present destination, format, conflict, unsupported/password, progress, cancellation, completion, and failure states with native GTK controls and accessible text.
+- Keep archive parsing and filesystem mutation off GTK; dialogs only validate bounded names/options and submit typed jobs.
+- Preserve no-overwrite semantics. Existing destinations produce explicit conflict feedback and no hidden retry/replace behavior.
+- Keep password/encrypted archives unsupported until a reviewed secret-capable backend exists; show truthful unsupported guidance and accept no secret.
+- Do not add Phase 12C rename, Phase 12D templates, Phase 12E link polish, or Phase 12F broad context/palette/shortcut integration.
 
 ## Implementation leaves
 
-1. Define archive formats, limits, member/request/outcome models, and path-safe
-   validation in `floe-core`.
-2. Implement bounded listing/extraction/compression for ZIP and TAR family with
-   staging, cancellation, conflict, bomb, traversal, and link defenses.
-3. Add reviewed pure-Rust 7z listing/extraction/compression under the same
-   validation and limits.
-4. Add a capacity-4 application archive executor integrated with shared job
-   progress, cancellation, terminal failures, and capacity-16 list results.
-5. Run focused hostile-archive tests, workspace gates, documentation updates,
-   native build, and sole-next-phase verification.
+1. Define deterministic archive UX planning for selection eligibility, archive format, Extract Here/To destinations, and collision-safe default compression names.
+2. Build native accessible Extract/Compress dialogs and selection-aware application actions that submit exact typed requests.
+3. Observe archive jobs through the existing shared Operations lifecycle, support cancellation, refresh affected directories, and show bounded results/failures.
+4. Add focused model/UI/state tests for raw paths, destination preview, conflicts, password-required truthfulness, action eligibility, and progress handling.
+5. Run formatting, strict Clippy, workspace tests, native Wayland smoke, documentation updates, and sole-next-phase verification.
 
 ## Status
 
-IMPLEMENTED on `phase-12a-archive-engine`; verification evidence is recorded in
-`GATES.md`. Phase 12B is the sole recommended next phase.
+IMPLEMENTED on `phase-12b-archive-ui`; verification evidence is recorded in
+`GATES.md`. Phase 12C is the sole recommended next phase.

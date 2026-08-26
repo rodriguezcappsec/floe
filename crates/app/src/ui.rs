@@ -1315,6 +1315,11 @@ pub fn build(
     );
     file_actions_model.append(Some("Properties"), Some("win.properties"));
     file_actions_model.append(Some("Calculate Checksums…"), Some("win.checksum"));
+    let archive_model = gio::Menu::new();
+    archive_model.append(Some("Extract Here"), Some("win.extract-here"));
+    archive_model.append(Some("Extract To…"), Some("win.extract-to"));
+    archive_model.append(Some("Compress…"), Some("win.compress"));
+    file_actions_model.append_submenu(Some("Archives"), &archive_model);
     file_actions_model.append(Some("Copy"), Some("win.copy"));
     file_actions_model.append(Some("Move"), Some("win.cut"));
     file_actions_model.append(Some("Duplicate"), Some("win.duplicate"));

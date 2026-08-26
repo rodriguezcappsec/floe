@@ -1176,10 +1176,24 @@ Last updated:
 Current phase:
 
 ```text
-Phase 12 — Productivity operations (Phase 12A complete)
+Phase 12 — Productivity operations (Phase 12B complete)
 ```
 
 Status:
+
+```text
+Phase 12B adds native Extract Here, Extract To, and Compress workflows over the
+Phase 12A executor. Exact selected paths remain application state; raw archive
+stems and default compression names are preserved independently from lossy
+destination previews. One compact Archives submenu exposes live selection-aware
+GActions. The accessible Compress dialog uses visible labels, reviewed formats,
+editable explicit naming, destination preview, and clear no-overwrite/password
+limitations; Extract To uses the native local-folder chooser. Archive jobs reuse
+the shared Operations Island for byte/item progress and cancellation, refresh
+affected directories, and present truthful conflict/password failures. No
+password field, secret handoff, overwrite, helper process, or persisted archive
+history was added. Phase 12C batch rename is the sole next phase.
+```
 
 ```text
 Phase 12A adds a GTK-independent bounded archive engine for ZIP, TAR, TAR.GZ,

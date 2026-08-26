@@ -9,11 +9,13 @@ use std::{
 
 use adw::prelude::*;
 use floe_core::{
-    JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId, JobProgress, ProgressUnit,
+    ArchiveOutcome, JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId, JobProgress,
+    ProgressUnit,
 };
 use gtk::{gio, glib};
 
 use crate::{
+    archive_ui::archive_failure_text,
     checksum_executor::ChecksumOutcome,
     checksum_ui::present_checksum,
     operation_control::{BatchId, BatchSnapshot, BatchStatus, TransferEstimate, TransferTelemetry},
@@ -299,10 +301,13 @@ impl OperationController {
         let request = self.request(job_id);
         let permission_operation = self.state.is_permission_operation(job_id);
         let checksum_operation = self.state.is_checksum_operation(job_id);
+        let archive_operation = self.state.is_archive_operation(job_id);
         let title = if checksum_operation {
             "Calculating checksums".to_owned()
         } else if permission_operation {
             "Changing permissions".to_owned()
+        } else if archive_operation {
+            "Archive operation".to_owned()
         } else {
             operation_title(request.as_ref())
         };
@@ -312,6 +317,8 @@ impl OperationController {
             "Cancel checksum calculation".to_owned()
         } else if permission_operation {
             "Cancel permission change".to_owned()
+        } else if archive_operation {
+            "Cancel archive operation".to_owned()
         } else {
             format!("Cancel {}", operation_verb(request.as_ref()).to_lowercase())
         };
@@ -347,10 +354,17 @@ impl OperationController {
         ));
         let permission_operation = self.state.is_permission_operation(job_id);
         let checksum_operation = self.state.is_checksum_operation(job_id);
+        let archive_operation = self.state.is_archive_operation(job_id);
         let permission_directories = self.state.permission_affected_directories(job_id);
+        let archive_directories = self.state.archive_affected_directories(job_id);
         let request = self.state.finish_operation(job_id, outcome);
         let checksum_outcome = if checksum_operation {
             self.state.finish_checksum(job_id)
+        } else {
+            None
+        };
+        let archive_outcome = if archive_operation {
+            self.state.finish_archive(job_id)
         } else {
             None
         };
@@ -365,6 +379,9 @@ impl OperationController {
                 for directory in &permission_directories {
                     (self.on_operation_completed)(directory);
                 }
+                for directory in &archive_directories {
+                    (self.on_operation_completed)(directory);
+                }
                 if let Some(request) = request.as_ref() {
                     for directory in request.affected_directories() {
                         (self.on_operation_completed)(&directory);
@@ -376,6 +393,8 @@ impl OperationController {
                         "Checksums calculated"
                     } else if permission_operation {
                         "Permissions updated"
+                    } else if archive_operation {
+                        archive_completed_title(archive_outcome.as_ref())
                     } else {
                         completed_title(request.as_ref())
                     },
@@ -383,6 +402,8 @@ impl OperationController {
                         "Checksum results are ready"
                     } else if permission_operation {
                         "Selected permission changes completed"
+                    } else if archive_operation {
+                        archive_completed_detail(archive_outcome.as_ref())
                     } else {
                         completed_detail(request.as_ref())
                     },
@@ -392,6 +413,8 @@ impl OperationController {
                     "Checksums calculated".to_owned()
                 } else if permission_operation {
                     "Permissions updated".to_owned()
+                } else if archive_operation {
+                    archive_completed_title(archive_outcome.as_ref()).to_owned()
                 } else {
                     completed_toast(request.as_ref())
                 };
@@ -409,6 +432,8 @@ impl OperationController {
                         "Checksum calculation cancelled"
                     } else if permission_operation {
                         "Permission change cancelled"
+                    } else if archive_operation {
+                        "Archive operation cancelled"
                     } else if permanent_delete {
                         "Cancelled before deletion"
                     } else {
@@ -418,6 +443,8 @@ impl OperationController {
                         "No checksum result was kept"
                     } else if permission_operation {
                         "No permission change was committed"
+                    } else if archive_operation {
+                        "No archive result was published"
                     } else if permanent_delete {
                         "No selected item was deleted"
                     } else {
@@ -430,6 +457,8 @@ impl OperationController {
                         "Checksum calculation cancelled"
                     } else if permission_operation {
                         "Permission change cancelled before it started"
+                    } else if archive_operation {
+                        "Archive operation cancelled"
                     } else if permanent_delete {
                         "Permanent deletion cancelled before it started"
                     } else {
@@ -449,8 +478,12 @@ impl OperationController {
                         }
                     }
                 }
+                let archive_failure = archive_operation
+                    .then(|| archive_failure_text(failure.kind(), failure.message()));
                 let title = if checksum_operation {
                     "Checksum calculation failed"
+                } else if let Some((title, _)) = archive_failure.as_ref() {
+                    title
                 } else {
                     match failure.kind() {
                         JobFailureKind::Conflict => "Destination conflict",
@@ -463,13 +496,16 @@ impl OperationController {
                         _ => "Operation failed",
                     }
                 };
-                self.show_terminal(
-                    request.as_ref(),
-                    title,
-                    failure_summary(request.as_ref(), failure),
-                    false,
+                let detail = archive_failure.as_ref().map_or_else(
+                    || failure_summary(request.as_ref(), failure).to_owned(),
+                    |(_, detail)| detail.clone(),
                 );
-                self.show_toast(&failure_recovery(request.as_ref(), failure), 7);
+                self.show_terminal(request.as_ref(), title, &detail, false);
+                if let Some((_, detail)) = archive_failure {
+                    self.show_toast(&detail, 7);
+                } else {
+                    self.show_toast(&failure_recovery(request.as_ref(), failure), 7);
+                }
             }
         }
         self.state.finish_permission(job_id);
@@ -1335,6 +1371,24 @@ fn failure_recovery(request: Option<&TrackedOperation>, failure: &JobFailure) ->
         JobFailureKind::Io | JobFailureKind::Internal => {
             format!("Could not change {name}. Check the destination and try again.")
         }
+    }
+}
+
+fn archive_completed_title(outcome: Option<&ArchiveOutcome>) -> &'static str {
+    match outcome {
+        Some(ArchiveOutcome::Extracted { .. }) => "Archive extracted",
+        Some(ArchiveOutcome::Compressed { .. }) => "Archive created",
+        Some(ArchiveOutcome::Listed { .. }) => "Archive listed",
+        None => "Archive operation completed",
+    }
+}
+
+fn archive_completed_detail(outcome: Option<&ArchiveOutcome>) -> &'static str {
+    match outcome {
+        Some(ArchiveOutcome::Extracted { .. }) => "Extracted files are ready",
+        Some(ArchiveOutcome::Compressed { .. }) => "The archive was published without overwriting",
+        Some(ArchiveOutcome::Listed { .. }) => "Archive contents are ready",
+        None => "Archive work completed",
     }
 }
 

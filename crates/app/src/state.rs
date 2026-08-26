@@ -495,6 +495,8 @@ pub enum CopyInteractionError {
     PermissionCancel(String),
     #[error(transparent)]
     ChecksumCancel(#[from] ChecksumCancelError),
+    #[error(transparent)]
+    ArchiveCancel(#[from] ArchiveCancelError),
     #[error("terminal operation history does not contain job {0:?}")]
     RetryNotFound(JobId),
     #[error("completed job {0:?} cannot be retried")]
@@ -562,6 +564,7 @@ pub struct ApplicationState {
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
     permission_requests: RefCell<HashMap<JobId, PermissionRequest>>,
     checksum_requests: RefCell<HashMap<JobId, ChecksumRequest>>,
+    archive_requests: RefCell<HashMap<JobId, ArchiveRequest>>,
     terminal_history: RefCell<VecDeque<TerminalOperation>>,
     resolved_conflicts: RefCell<HashSet<JobId>>,
     resolved_undos: RefCell<HashSet<JobId>>,
@@ -599,6 +602,7 @@ impl ApplicationState {
             operation_requests: RefCell::new(HashMap::new()),
             permission_requests: RefCell::new(HashMap::new()),
             checksum_requests: RefCell::new(HashMap::new()),
+            archive_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
             resolved_undos: RefCell::new(HashSet::new()),
@@ -1008,7 +1012,20 @@ impl ApplicationState {
         &self,
         request: ArchiveRequest,
     ) -> Result<ArchiveSubmission, ArchiveSubmitError> {
-        self.archive_executor.submit(request)
+        match self.archive_executor.submit(request.clone()) {
+            Ok(submission) => {
+                self.archive_requests
+                    .borrow_mut()
+                    .insert(submission.job_id(), request);
+                Ok(submission)
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.archive_requests.borrow_mut().insert(job_id, request);
+                }
+                Err(error)
+            }
+        }
     }
 
     pub fn cancel_archive(&self, job_id: JobId) -> Result<(), ArchiveCancelError> {
@@ -1016,7 +1033,26 @@ impl ApplicationState {
     }
 
     pub fn finish_archive(&self, job_id: JobId) -> Option<ArchiveOutcome> {
+        self.archive_requests.borrow_mut().remove(&job_id);
         self.archive_executor.take_result(job_id)
+    }
+
+    pub fn is_archive_operation(&self, job_id: JobId) -> bool {
+        self.archive_requests.borrow().contains_key(&job_id)
+    }
+
+    pub fn archive_request(&self, job_id: JobId) -> Option<ArchiveRequest> {
+        self.archive_requests.borrow().get(&job_id).cloned()
+    }
+
+    pub fn archive_affected_directories(&self, job_id: JobId) -> Vec<PathBuf> {
+        self.archive_requests
+            .borrow()
+            .get(&job_id)
+            .and_then(ArchiveRequest::destination)
+            .and_then(Path::parent)
+            .map(|path| vec![path.to_path_buf()])
+            .unwrap_or_default()
     }
 
     pub fn submit_restore(
@@ -1944,6 +1980,10 @@ impl ApplicationState {
     }
 
     pub fn cancel_operation(&self, job_id: JobId) -> Result<(), CopyInteractionError> {
+        if self.archive_requests.borrow().contains_key(&job_id) {
+            self.archive_executor.cancel(job_id)?;
+            return Ok(());
+        }
         if self.checksum_requests.borrow().contains_key(&job_id) {
             self.checksum_executor.cancel(job_id)?;
             return Ok(());
@@ -2013,6 +2053,7 @@ impl ApplicationState {
             operation_requests: RefCell::new(HashMap::new()),
             permission_requests: RefCell::new(HashMap::new()),
             checksum_requests: RefCell::new(HashMap::new()),
+            archive_requests: RefCell::new(HashMap::new()),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
             resolved_undos: RefCell::new(HashSet::new()),

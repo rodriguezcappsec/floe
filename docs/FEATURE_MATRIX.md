@@ -152,7 +152,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Pane-to-pane drag | `COMPLETE` | 7F | Inactive pane resolves the live exact opposite path and reuses copy/move/link job commands. |
 | Miller column-to-column drag | `COMPLETE` | 8E | Active/retained exact selections publish standard local file lists; folder and column-background targets resolve exact paths and reuse copy/move/link no-overwrite jobs. Typed hover targets revalidate Miller depth/child identity. |
 | Batch rename | `PLANNED` | 12C | Preview, find/replace, regex, numbering, collision validation, and undo are one bounded operation family. |
-| Archive compress/extract | `PARTIAL` | 12A-12B | Phase 12A provides the bounded no-overwrite application job engine; user-facing Extract/Compress workflows remain 12B. |
+| Archive compress/extract | `COMPLETE` | 12A-12B | Bounded engine plus native Extract Here/To and Compress workflows reuse shared progress/cancellation and never overwrite existing destinations. |
 
 ## Navigation fundamentals
 
@@ -402,9 +402,9 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | ZIP and tar family | `COMPLETE` | 12A | ZIP, tar, tar.gz, and tar.xz share bounded path, entry, byte, ratio, duplicate, nesting, link, source-identity, and conflict policy. TAR preserves raw non-UTF-8 member names; ZIP rejects names its reviewed writer cannot represent exactly. |
 | 7z | `COMPLETE` | 12A | Reviewed pure-Rust `sevenz-rust` listing/extract/compress uses the same member plan and staging policy; encryption/password support is deliberately disabled. |
 | Archive listing/preview | `COMPLETE` | 9E/12A | Engine listing is bounded and validates all members without extraction or execution; Phase 9E remains the lightweight UI preview path. |
-| Extract Here/To/into folder | `PLANNED` | 12B | Reuse job and conflict infrastructure; reject traversal and unsafe links. |
-| Compress | `PLANNED` | 12B | Exact multi-selection source set and safe atomic destination. |
-| Archive password handling | `DEFERRED` | 12B | Phase 12A rejects password/encrypted archives; later secret handoff requires a reviewed in-process/backend API and must never use argv, environment, persistence, or logs. |
+| Extract Here/To/into folder | `COMPLETE` | 12B | One exact supported archive resolves a raw-name sibling folder or a chosen local parent plus raw archive stem; engine traversal/link/conflict policy remains authoritative. |
+| Compress | `COMPLETE` | 12B | Exact bounded file/folder selection, reviewed format chooser, editable explicit name, destination preview, atomic no-replace publication, and Operations Island cancellation. |
+| Archive password handling | `DEFERRED` | 12B | UI truthfully explains the reviewed backend cannot accept passwords and exposes no secret field; no argv, environment, persistence, logs, or helper handoff occurs. |
 | Batch rename preview | `PLANNED` | 12C | Whole-batch validation before mutation. |
 | Prefix/suffix/find-replace/regex | `PLANNED` | 12C | Collision-safe preview and explicit extension policy. |
 | Sequence numbering/padding/case/date | `PLANNED` | 12C | Deterministic templates with locale/time semantics shown before apply. |
@@ -699,7 +699,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Quick Preview | `PLANNED` | 9A-9F | Existing thumbnails plus cancellable provider boundary designed for Phase 18L sandboxing. |
 | Inspector | `COMPLETE` | 10A-10F | Shared bounded lazy metadata providers; no eager whole-directory enrichment, persistent metadata cache, privacy finding, or authenticity claim. |
 | Command palette | `COMPLETE` | 11A-11B | Central command registry and metadata-only palette delegate execution and eligibility to existing GActions. |
-| Archives | `PARTIAL` | 12A-12B | Engine/job lifecycle, conflict handling, cancellation, traversal/bomb/link defenses are complete; native workflows remain 12B. |
+| Archives | `COMPLETE` | 12A-12B | Engine/job lifecycle, native workflows, conflict handling, cancellation, and traversal/bomb/link defenses are complete for reviewed local formats. |
 | Search/indexing and duplicate discovery | `PLANNED` | 13A-13G | Bounded workers, privacy-safe exclusion/history policy, exact-path duplicate review, and a complete non-indexed duplicate path. |
 | Niri/Plasma integrations | `PLANNED` | 15-16 | Generic desktop capability boundary in Phase 14. |
 | Remote locations | `PLANNED` | 17 | GFile/URI identity separate from local `PathBuf`; credential and cache policy. |

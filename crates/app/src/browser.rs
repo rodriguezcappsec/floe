@@ -179,6 +179,11 @@ const TAB_CLOSE_VARIANT_ACTIONS: [&str; 3] = [
 use gtk::{gdk, gio, glib};
 
 use crate::{
+    archive_ui::{
+        ArchiveActionEligibility, build_compress_dialog, compression_request,
+        default_compression_name, destination_preview, extraction_request, selected_format,
+        with_archive_extension,
+    },
     bookmarks::{BookmarkWorker, BookmarkWorkerEvent},
     checksum_ui::{ChecksumDialogInput, build_checksum_request},
     clipboard::{self, ClipboardTransfer},
@@ -1885,6 +1890,16 @@ impl BrowserController {
         let checksum_action =
             self.add_action("checksum", |controller| controller.show_checksum_dialog());
         checksum_action.set_enabled(false);
+        let extract_here_action =
+            self.add_action("extract-here", |controller| controller.extract_here());
+        extract_here_action.set_enabled(false);
+        let extract_to_action = self.add_action("extract-to", |controller| {
+            controller.choose_extract_destination()
+        });
+        extract_to_action.set_enabled(false);
+        let compress_action =
+            self.add_action("compress", |controller| controller.show_compress_dialog());
+        compress_action.set_enabled(false);
         let copy_action = self.add_action("copy", |controller| controller.stage_selected_copy());
         copy_action.set_enabled(false);
         let cut_action = self.add_action("cut", |controller| controller.stage_selected_move());
@@ -4409,6 +4424,7 @@ impl BrowserController {
         self.set_open_with_enabled(state.open_with);
         self.set_properties_enabled(!self.selected_entries.borrow().is_empty());
         self.set_checksum_enabled(state.checksum);
+        self.set_archive_actions_enabled();
         self.set_selection_actions_enabled(state.transfer, state.rename, state.trash);
         for name in ["open-new-tab", "open-background-tab"] {
             if let Some(action) = self
@@ -4545,6 +4561,35 @@ impl BrowserController {
             .and_downcast::<gio::SimpleAction>()
         {
             action.set_enabled(enabled);
+        }
+    }
+
+    fn set_archive_actions_enabled(&self) {
+        let selected = self.selected_entries.borrow();
+        let paths = selected
+            .iter()
+            .map(|entry| entry.path().to_path_buf())
+            .collect::<Vec<_>>();
+        let eligible = ArchiveActionEligibility::new(
+            &paths,
+            selected
+                .iter()
+                .all(|entry| matches!(entry.kind(), EntryKind::RegularFile | EntryKind::Directory)),
+            self.trash_active.get(),
+        );
+        for (name, enabled) in [
+            ("extract-here", eligible.extract),
+            ("extract-to", eligible.extract),
+            ("compress", eligible.compress),
+        ] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(enabled);
+            }
         }
     }
 
@@ -4897,6 +4942,150 @@ impl BrowserController {
             && (self.application_state.staged_transfers().is_some()
                 || clipboard::contains_transfer(&self.widgets.window.clipboard()));
         self.set_paste_enabled(available);
+    }
+
+    fn extract_here(&self) {
+        let Some(source) = self.selected_paths().into_iter().next() else {
+            self.show_toast("Select one supported archive to extract", 4);
+            return;
+        };
+        let Some(parent) = source.parent().map(Path::to_path_buf) else {
+            self.show_toast("The archive has no local parent folder", 5);
+            return;
+        };
+        match extraction_request(source, &parent) {
+            Ok(request) => self.submit_archive_request(request, "Extracting archive…"),
+            Err(error) => self.show_toast(&format!("Could not prepare extraction: {error}"), 6),
+        }
+    }
+
+    fn choose_extract_destination(self: &Rc<Self>) {
+        let Some(source) = self.selected_paths().into_iter().next() else {
+            self.show_toast("Select one supported archive to extract", 4);
+            return;
+        };
+        let chooser = gtk::FileDialog::builder()
+            .title("Choose Extraction Folder")
+            .modal(true)
+            .build();
+        if let Some(parent) = source.parent() {
+            chooser.set_initial_folder(Some(&gio::File::for_path(parent)));
+        }
+        let window = self.widgets.window.clone();
+        let controller = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            match chooser.select_folder_future(Some(&window)).await {
+                Ok(folder) => {
+                    let Some(parent) = folder.path() else {
+                        if let Some(controller) = controller.upgrade() {
+                            controller.show_toast("Only local extraction folders are supported", 5);
+                        }
+                        return;
+                    };
+                    if let Some(controller) = controller.upgrade() {
+                        match extraction_request(source, &parent) {
+                            Ok(request) => {
+                                controller.submit_archive_request(request, "Extracting archive…");
+                            }
+                            Err(error) => controller
+                                .show_toast(&format!("Could not prepare extraction: {error}"), 6),
+                        }
+                    }
+                }
+                Err(error) if error.matches(gio::IOErrorEnum::Cancelled) => {}
+                Err(error) => {
+                    if let Some(controller) = controller.upgrade() {
+                        controller
+                            .show_toast(&format!("Could not choose extraction folder: {error}"), 6);
+                    }
+                }
+            }
+        });
+    }
+
+    fn show_compress_dialog(self: &Rc<Self>) {
+        let sources: Arc<[PathBuf]> = self.selected_paths().into();
+        if sources.is_empty() {
+            self.show_toast("Select one or more files or folders to compress", 4);
+            return;
+        }
+        let destination_parent = self.action_directory();
+        let raw_default = default_compression_name(&sources, floe_core::ArchiveFormat::Zip);
+        let default_name = raw_default.to_str().unwrap_or("Archive.zip");
+        let widgets = build_compress_dialog(
+            sources.len(),
+            default_name,
+            &destination_preview(&destination_parent, OsStr::new(default_name)),
+        );
+
+        let preview = widgets.preview_label.clone();
+        let parent = destination_parent.clone();
+        let dropdown = widgets.format_dropdown.clone();
+        widgets.name_entry.connect_changed(move |entry| {
+            let name = with_archive_extension(entry.text().as_str(), selected_format(&dropdown));
+            preview.set_label(&destination_preview(&parent, name.as_os_str()));
+        });
+        let preview = widgets.preview_label.clone();
+        let parent = destination_parent.clone();
+        let entry = widgets.name_entry.clone();
+        widgets
+            .format_dropdown
+            .connect_selected_notify(move |dropdown| {
+                let name = with_archive_extension(entry.text().as_str(), selected_format(dropdown));
+                preview.set_label(&destination_preview(&parent, name.as_os_str()));
+            });
+
+        let dialog = widgets.dialog.downgrade();
+        widgets.cancel_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        let dialog = widgets.dialog.downgrade();
+        let name_entry = widgets.name_entry.clone();
+        let format_dropdown = widgets.format_dropdown.clone();
+        let error_label = widgets.error_label.clone();
+        widgets.compress_button.connect_clicked(move |button| {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let format = selected_format(&format_dropdown);
+            let name = with_archive_extension(name_entry.text().as_str(), format);
+            match compression_request(Arc::clone(&sources), &destination_parent, name.as_os_str()) {
+                Ok(request) => match controller.application_state.submit_archive(request) {
+                    Ok(_) => {
+                        controller
+                            .widgets
+                            .status_label
+                            .set_label("Compressing selection…");
+                        if let Some(dialog) = dialog.upgrade() {
+                            dialog.close();
+                        }
+                    }
+                    Err(error) => {
+                        error_label.set_label(&format!("Could not queue compression: {error}"));
+                        button.set_sensitive(true);
+                    }
+                },
+                Err(error) => {
+                    error_label.set_label(&error.to_string());
+                    button.set_sensitive(true);
+                    name_entry.grab_focus();
+                }
+            }
+        });
+        widgets.dialog.present(Some(&self.widgets.window));
+        widgets.name_entry.grab_focus();
+    }
+
+    fn submit_archive_request(&self, request: floe_core::ArchiveRequest, status: &str) {
+        match self.application_state.submit_archive(request) {
+            Ok(_) => self.widgets.status_label.set_label(status),
+            Err(error) => {
+                self.show_toast(&format!("Could not start archive operation: {error}"), 7)
+            }
+        }
     }
 
     fn stage_selected_copy(&self) {

@@ -532,6 +532,14 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+Phase 12B native Wayland smoke built the local app, launched with isolated XDG
+config/cache/data roots, verified the live window exported `extract-here`,
+`extract-to`, and `compress`, confirmed Extract Here was disabled with no archive
+selection, answered `org.freedesktop.DBus.Peer.Ping`, and exited 0 through the
+application Quit action. The host emitted its documented RADV warning and an
+existing GtkPaned focus warning during shutdown; neither affected lifecycle or
+action state.
+
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and
 `XDG_RUNTIME_DIR` set. The current native smoke tests run under Niri.
 
