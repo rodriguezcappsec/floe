@@ -1,4 +1,53 @@
-# Plan: Floe Phase 13A — Current-Folder Filter
+# Plan: Permanent Layered Testing Foundation
+
+## Contract
+
+- Preserve the existing 469-test Rust suite, `tempfile` filesystem isolation,
+  and native Wayland smoke practice without reorganizing unrelated tests.
+- Define permanent, distinct unit, filesystem-integration, property, GTK
+  component/accessibility, native E2E, Niri smoke, and Plasma smoke layers.
+- Add `proptest` only to `floe-core` dev dependencies and use it selectively
+  for exact Linux filename identity, deterministic sorting, navigation-history,
+  and folder-filter invariants that benefit from generated input.
+- Add graphical GTK component/accessibility contract tests as an explicit
+  opt-in gate. They must exercise real Floe widget/action metadata and must not
+  make headless `cargo test --workspace` depend on a display server.
+- Add a native Dogtail/AT-SPI E2E layer under `e2e/` with dependency and
+  environment preflight, semantic accessible-node interaction, deterministic
+  condition waits, and eight named workflow scenarios.
+- Every E2E launch must create private temporary HOME/XDG roots and an isolated
+  freedesktop Trash. Never touch the developer's real user directories, Trash,
+  mounts, preferences, cache, or data.
+- Keep compositor-independent E2E separate from Niri and Plasma smoke policy.
+  Do not claim graphical execution when Dogtail, AT-SPI, a suitable session, or
+  compositor support is unavailable.
+- Permanently document regression, future security/privacy, CI, test-layer
+  selection, commands, dependencies, limitations, and evidence requirements in
+  `AGENTS.md` and `docs/DEVELOPMENT.md`.
+- Do not add Playwright, Selenium, Tauri/browser testing, hidden test-only UI,
+  timing-only sleeps, or unrelated application features/refactors.
+
+## Audit baseline
+
+- Clean `main` baseline: `ecf2fc2` on isolated branch `testing-foundation`.
+- `cargo test --workspace`: 365 `floe-app` + 104 `floe-core` = 469 passing.
+- Existing source contains 233 `tempfile` references and extensive exact-path,
+  non-UTF-8, bounded-worker, operation, persistence, and lifecycle coverage.
+- No `.github` CI workflow, property-test dependency, dedicated GTK test
+  target, or `e2e/` directory exists.
+- Dogtail and `pyatspi` are unavailable on this host; no isolated Mutter,
+  Weston, or Cage runner is installed. Native E2E execution cannot be claimed.
+
+## Status
+
+COMPLETE. All seven active gates contain measured evidence; the repository-wide
+gate checker reports all 57 current and historical gates met. This
+testing-foundation pass does not advance Phase 13, and Phase 13B remains the
+sole recommended next roadmap phase.
+
+---
+
+# Previous completed plan: Floe Phase 13A — Current-Folder Filter
 
 ## Contract
 

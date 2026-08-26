@@ -4705,6 +4705,103 @@ mod tests {
 
     use super::*;
 
+    /// Graphical GTK contract tests are deliberately a separate opt-in layer.
+    /// They construct real Floe widgets and therefore require a working GTK
+    /// display; ordinary `cargo test --workspace` must stay headless-safe.
+    #[test]
+    #[ignore = "requires a graphical GTK session; run the documented GTK component gate"]
+    fn phase_testing_gtk_header_filter_and_operations_accessibility_contract() {
+        gtk::init().expect("GTK component gate requires an available display");
+        adw::init().expect("libadwaita must initialize in the GTK component gate");
+
+        let application = adw::Application::builder()
+            .application_id("io.github.floe.FileManager.ComponentTest")
+            .build();
+        application
+            .register(None::<&gio::Cancellable>)
+            .expect("component-test application must register before creating a window");
+        let widgets = build(
+            &application,
+            &[],
+            Appearance::for_preset(AppearancePreset::Native),
+            ViewPreferences::default(),
+        );
+
+        for (button, action, tooltip) in [
+            (&widgets.back_button, "win.back", "Back (Alt+Left)"),
+            (
+                &widgets.forward_button,
+                "win.forward",
+                "Forward (Alt+Right)",
+            ),
+            (
+                &widgets.parent_button,
+                "win.parent",
+                "Parent folder (Alt+Up)",
+            ),
+        ] {
+            assert_eq!(button.accessible_role(), gtk::AccessibleRole::Button);
+            assert_eq!(button.action_name().as_deref(), Some(action));
+            assert_eq!(button.tooltip_text().as_deref(), Some(tooltip));
+        }
+
+        assert_eq!(
+            widgets.hidden_button.accessible_role(),
+            gtk::AccessibleRole::ToggleButton
+        );
+        assert_eq!(
+            widgets.hidden_button.action_name().as_deref(),
+            Some("win.hidden")
+        );
+        assert_eq!(
+            widgets.location_entry.accessible_role(),
+            gtk::AccessibleRole::TextBox
+        );
+        assert_eq!(
+            widgets.filter_entry.accessible_role(),
+            gtk::AccessibleRole::SearchBox
+        );
+        assert_eq!(
+            widgets.filter_entry.placeholder_text().as_deref(),
+            Some("Filter filenames")
+        );
+        assert_eq!(
+            widgets.filter_entry.tooltip_text().as_deref(),
+            Some("Filter entries already loaded from this folder; press Escape to close")
+        );
+        assert_eq!(
+            widgets.filter_feedback.accessible_role(),
+            gtk::AccessibleRole::Alert
+        );
+
+        assert_eq!(
+            widgets.operations.operation_progress.accessible_role(),
+            gtk::AccessibleRole::ProgressBar
+        );
+        assert_eq!(
+            widgets.operations.operation_cancel.accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert_eq!(
+            widgets
+                .operations
+                .operation_cancel
+                .tooltip_text()
+                .as_deref(),
+            Some("Cancel file operation")
+        );
+        assert_eq!(
+            widgets.operations.operation_retry.label().as_deref(),
+            Some("Retry")
+        );
+        assert_eq!(
+            widgets.operations.operation_pause.label().as_deref(),
+            Some("Pause after current")
+        );
+
+        widgets.window.close();
+    }
+
     #[test]
     fn phase_13a_filter_exposes_three_visible_matching_modes() {
         assert_eq!(FOLDER_FILTER_MODES, ["Text", "Glob", "Regex"]);
