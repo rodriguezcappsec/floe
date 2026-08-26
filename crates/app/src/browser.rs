@@ -373,6 +373,7 @@ pub struct BrowserController {
     widgets: BrowserWidgets,
     command_palette: crate::command_palette::CommandPalette,
     keyboard_shortcuts: crate::keyboard_shortcuts::KeyboardShortcuts,
+    terminal_chooser: crate::terminal_ui::TerminalChooser,
     tabs: Rc<RefCell<BrowserTabs>>,
     worker: RefCell<BrowserWorker>,
     thumbnail_worker: RefCell<Option<ThumbnailWorker>>,
@@ -435,6 +436,9 @@ pub struct BrowserController {
     watch_generation: Cell<u64>,
     pending_reconciliation: RefCell<Option<PendingReconciliation>>,
     pending_scroll_index: Cell<Option<u32>>,
+    terminal_worker: RefCell<Option<crate::terminal::TerminalWorker>>,
+    terminal_availability: RefCell<Vec<crate::terminal::TerminalAvailability>>,
+    terminal_request_id: Cell<u64>,
 }
 
 impl Drop for BrowserController {
@@ -490,11 +494,20 @@ impl BrowserController {
         let initial_view = tabs.active().current().view();
         let command_palette = crate::command_palette::CommandPalette::new(&widgets.window);
         let keyboard_shortcuts = crate::keyboard_shortcuts::KeyboardShortcuts::new(&widgets.window);
+        let terminal_chooser = crate::terminal_ui::TerminalChooser::new(&widgets.window);
+        let terminal_worker = match crate::terminal::TerminalWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start terminal integration worker");
+                None
+            }
+        };
         widgets.miller_view.set_vim_mode(view_preferences.vim_mode);
         Rc::new(Self {
             widgets,
             command_palette,
             keyboard_shortcuts,
+            terminal_chooser,
             tabs: Rc::new(RefCell::new(tabs)),
             worker: RefCell::new(browser),
             thumbnail_worker: RefCell::new(thumbnails),
@@ -557,6 +570,9 @@ impl BrowserController {
             watch_generation: Cell::new(0),
             pending_reconciliation: RefCell::new(None),
             pending_scroll_index: Cell::new(None),
+            terminal_worker: RefCell::new(terminal_worker),
+            terminal_availability: RefCell::new(Vec::new()),
+            terminal_request_id: Cell::new(0),
         })
     }
 
@@ -1384,6 +1400,7 @@ impl BrowserController {
     pub fn present_and_start(self: &Rc<Self>) {
         self.widgets.window.present();
         self.arm_sidebar_width_persistence();
+        self.discover_terminals();
         self.load_current();
 
         let controller = Rc::clone(self);
@@ -1402,6 +1419,7 @@ impl BrowserController {
             controller.drain_preview_worker();
             controller.drain_properties_worker();
             controller.drain_storage_worker();
+            controller.drain_terminal_worker();
             controller.flush_pending_preferences();
             glib::ControlFlow::Continue
         });
@@ -1534,6 +1552,13 @@ impl BrowserController {
             }
         });
         self.widgets.window.add_action(&vim_action);
+        let open_terminal = self.add_action("open-terminal", |controller| {
+            controller.open_terminal_here();
+        });
+        open_terminal.set_enabled(false);
+        self.add_action("terminal-preferences", |controller| {
+            controller.show_terminal_preferences();
+        });
         self.add_action("back", |controller| controller.go_back());
         self.add_action("forward", |controller| controller.go_forward());
         self.add_action("parent", |controller| controller.go_parent());
@@ -3356,6 +3381,138 @@ impl BrowserController {
         self.queue_preferences();
     }
 
+    fn discover_terminals(&self) {
+        let result = self
+            .terminal_worker
+            .borrow()
+            .as_ref()
+            .map(crate::terminal::TerminalWorker::try_discover);
+        if matches!(
+            result,
+            Some(Err(crate::terminal::TerminalSubmitError::Disconnected))
+        ) {
+            tracing::warn!("terminal discovery worker disconnected");
+        }
+    }
+
+    fn show_terminal_preferences(self: &Rc<Self>) {
+        let preferred = self.current_preferences.borrow().preferred_terminal;
+        let availability = self.terminal_availability.borrow().clone();
+        let weak = Rc::downgrade(self);
+        self.terminal_chooser
+            .present(preferred, availability, move |preferred| {
+                if let Some(controller) = weak.upgrade() {
+                    controller.set_preferred_terminal(preferred);
+                }
+            });
+    }
+
+    fn set_preferred_terminal(&self, preferred: Option<crate::terminal::TerminalProviderId>) {
+        if self.current_preferences.borrow().preferred_terminal == preferred {
+            return;
+        }
+        self.current_preferences.borrow_mut().preferred_terminal = preferred;
+        self.queue_preferences();
+        self.show_toast(
+            preferred.map_or("Automatic terminal selection enabled", |provider| {
+                provider.definition().name
+            }),
+            3,
+        );
+    }
+
+    fn open_terminal_here(&self) {
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
+        let target = crate::terminal::terminal_target(
+            &current,
+            &self.selected_entries.borrow(),
+            self.trash_active.get(),
+        );
+        let target = match target {
+            Ok(target) => target,
+            Err(error) => {
+                self.show_toast(&error.to_string(), 5);
+                return;
+            }
+        };
+        let id = self.terminal_request_id.get().wrapping_add(1).max(1);
+        self.terminal_request_id.set(id);
+        let request = crate::terminal::TerminalLaunchRequest {
+            id,
+            target,
+            preferred: self.current_preferences.borrow().preferred_terminal,
+        };
+        let result = self.terminal_worker.borrow().as_ref().map_or(
+            Err(crate::terminal::TerminalSubmitError::Disconnected),
+            |worker| worker.try_launch(request),
+        );
+        match result {
+            Ok(()) => self.show_toast("Opening terminal…", 3),
+            Err(crate::terminal::TerminalSubmitError::Full) => {
+                self.show_toast("Terminal launch queue is busy. Try again.", 5);
+            }
+            Err(crate::terminal::TerminalSubmitError::Disconnected) => {
+                self.show_toast("Terminal integration is unavailable.", 5);
+            }
+        }
+    }
+
+    fn drain_terminal_worker(&self) {
+        for _ in 0..crate::terminal::TERMINAL_RESULT_CAPACITY {
+            let event = self
+                .terminal_worker
+                .borrow()
+                .as_ref()
+                .and_then(crate::terminal::TerminalWorker::try_event);
+            let Some(event) = event else {
+                break;
+            };
+            match event {
+                crate::terminal::TerminalEvent::Discovery(availability) => {
+                    *self.terminal_availability.borrow_mut() = availability;
+                    self.update_terminal_action_enabled();
+                }
+                crate::terminal::TerminalEvent::Launch(Ok(success)) => {
+                    let name = success.provider.definition().name;
+                    self.show_toast(
+                        &if success.preferred_unavailable {
+                            format!("Preferred terminal unavailable; opened {name}")
+                        } else {
+                            format!("Opened {name}")
+                        },
+                        4,
+                    );
+                }
+                crate::terminal::TerminalEvent::Launch(Err(error)) => {
+                    self.show_toast(&error.to_string(), 6);
+                }
+            }
+        }
+    }
+
+    fn update_terminal_action_enabled(&self) {
+        let provider_available = self
+            .terminal_availability
+            .borrow()
+            .iter()
+            .any(|provider| provider.available);
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
+        let target_available = crate::terminal::terminal_target(
+            &current,
+            &self.selected_entries.borrow(),
+            self.trash_active.get(),
+        )
+        .is_ok();
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("open-terminal")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(provider_available && target_available);
+        }
+    }
+
     fn queue_preferences(&self) {
         let mut preferences = self.current_preferences.borrow().clone();
         let state = self.active_view_state();
@@ -4264,6 +4421,7 @@ impl BrowserController {
             }
         }
         self.update_split_action_states();
+        self.update_terminal_action_enabled();
         self.refresh_status();
     }
 

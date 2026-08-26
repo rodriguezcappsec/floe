@@ -151,6 +151,24 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [F, H]
     ),
     command!(
+        "open-terminal",
+        "Open Terminal Here",
+        "Open the preferred terminal in the selected or current folder",
+        Files,
+        ["shell", "console", "folder", "working directory"],
+        [],
+        [F, B, H]
+    ),
+    command!(
+        "terminal-preferences",
+        "Preferred Terminal…",
+        "Choose the reviewed terminal application Floe should launch",
+        Operations,
+        ["shell", "console", "settings", "application"],
+        [],
+        [H]
+    ),
+    command!(
         "properties",
         "Properties",
         "Show properties for the selection",

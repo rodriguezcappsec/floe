@@ -1,22 +1,24 @@
-# Plan: Floe Phase 11D — Optional Vim Mode
+# Plan: Floe Phase 11E — Terminal Integration
 
 ## Contract
 
-- Add one explicit persisted Vim-navigation preference layered on the Phase 11C keybinding architecture; default remains off.
-- Handle unmodified `h`, `j`, `k`, `l`, `g`, `G`, and reviewed selection/open keys only while a browser list, grid, or Miller file view owns focus.
-- Preserve ordinary text input: entries, search entries, spin buttons, text views, dialogs, location editing, command palette, shortcut editor, and other editable controls keep native keys.
-- Reuse existing navigation, selection, activation, parent/child, and focus commands; do not duplicate filesystem or navigation business logic.
-- Expose a registered toggle action in the command palette/header and a visible non-color-only mode indicator.
-- Keep custom shortcut conflict behavior stable and do not add terminal integration or future phases.
+- Add a bounded application-owned terminal provider registry with deterministic availability and an explicit preferred provider.
+- Launch providers with native process APIs and reviewed argv templates only; never invoke a shell, interpolate a path into command text, or place credentials in argv/environment.
+- Resolve “Open Terminal Here” from one selected navigable local folder, otherwise the active local directory; reject Trash, remote, missing, non-directory, and stale targets truthfully.
+- Open the terminal with the exact directory as child working directory so spaces, metacharacters, and non-UTF-8 Unix paths are not reconstructed from display text.
+- Keep process discovery and launch off GTK callbacks through one bounded application worker and return generation-bound results.
+- Add registered command/context/header/palette access plus a native preferred-terminal chooser and accessible status.
+- Defer embedded terminals, shell sessions owned by Floe, command execution, repository detection, and future phases.
 
 ## Implementation leaves
 
-1. Add GTK-independent Vim key policy/state with bounds and focus-context tests.
-2. Persist the opt-in preference through versioned settings migration.
-3. Wire one capture controller at the browser boundary to existing actions and view-specific movement.
-4. Add registered toggle/discoverability, visible mode state, and accessibility semantics.
-5. Run focused, workspace, native Wayland, documentation, and gate verification.
+1. Implement reviewed terminal providers, exact target policy, bounded requests/results, and tests.
+2. Add an application-owned capacity-limited worker for executable discovery and direct no-shell launch.
+3. Persist preferred provider through versioned settings migration without storing paths or command history.
+4. Wire selection-aware action, chooser, menus/palette, feedback, and availability state.
+5. Run hostile-path, focused, workspace, native Wayland, documentation, and gate verification.
 
 ## Status
 
-COMPLETE on `phase-11d-vim-mode`; verified gates are recorded in `GATES.md`.
+COMPLETE on `phase-11e-terminal-integration`; all focused, workspace, native
+Wayland, documentation, and completion gates are verified in `GATES.md`.

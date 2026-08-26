@@ -102,7 +102,7 @@ mod tests {
         let mut enabled = legacy;
         enabled.vim_mode = true;
         let serialized = enabled.serialize();
-        assert!(serialized.starts_with("version=6\n"));
+        assert!(serialized.starts_with("version=7\n"));
         assert!(serialized.contains("vim-mode=true\n"));
         assert!(crate::preferences::ViewPreferences::parse(&serialized).vim_mode);
         assert!(!crate::preferences::ViewPreferences::parse("vim-mode=invalid\n").vim_mode);

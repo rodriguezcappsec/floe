@@ -1,41 +1,41 @@
-# Gates: Floe Phase 11D — Optional Vim Mode
+# Gates: Floe Phase 11E — Terminal Integration
 
-Scope: Deliver an off-by-default, focus-safe Vim navigation layer for list/grid/Miller views without intercepting text entry or adding terminal behavior.
+Scope: Deliver safe, preferred-provider Open Terminal Here for exact local directories without shells, password argv, GTK filesystem work, or an embedded terminal.
 
-- [x] G1: The active branch and diff contain only Phase 11D work.
+- [x] G1: The active branch and diff contain only Phase 11E work.
   CHECK: git branch --show-current
-  EXPECT: phase-11d-vim-mode
-  EVIDENCE: Confirmed `phase-11d-vim-mode`; changes are limited to Vim policy, preference/state/action/view wiring, indicator/menu, tests, and phase ledgers.
+  EXPECT: phase-11e-terminal-integration
+  EVIDENCE: Confirmed `phase-11e-terminal-integration`; the diff is limited to the reviewed terminal provider/worker/UI integration, preference and command wiring, tests, and Phase 11E ledgers.
 
-- [x] G2: Vim key policy maps reviewed navigation keys, preserves modifiers/native fallthrough, and rejects every editable or dialog focus context.
-  CHECK: cargo test -p floe-app phase_11d_vim_policy -- --nocapture
+- [x] G2: Reviewed providers and target policy are bounded, deterministic, selection-aware, exact-path safe, and reject Trash/remote/stale/non-directory contexts.
+  CHECK: cargo test -p floe-app phase_11e_terminal_policy -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Two focused policy tests passed for h/j/k/l/g/G/o, disabled mode, modifier fallthrough, and non-file-view focus; runtime controllers exist only on list/grid/Miller file views.
+  EVIDENCE: Two focused policy tests passed for nine reviewed providers, stable persisted IDs, deterministic fallback, selected-folder/current-folder resolution, absolute/local/bounded targets, and rejected Trash, relative, missing, and non-directory contexts.
 
-- [x] G3: Vim mode is disabled by default and versioned preference migration/round-trip preserve explicit opt-in only.
-  CHECK: cargo test -p floe-app phase_11d_vim_preferences -- --nocapture
+- [x] G3: Worker discovery/launch uses direct argv plus exact working directory, is bounded/non-blocking, and handles hostile/non-UTF-8 paths without shell interpolation.
+  CHECK: cargo test -p floe-app phase_11e_terminal_worker -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused test passed version-5 migration to disabled, explicit version-6 true round-trip, and invalid-value fallback; native two-launch restoration retained true in a 0600 preference file.
+  EVIDENCE: Two focused worker tests passed capacity-4 non-blocking submission and direct process spawning in an exact hostile, metacharacter-bearing, non-UTF-8 working directory; no shell or path argument is used.
 
-- [x] G4: Existing list/grid/Miller selection, activation, and parent/child action paths own execution; GTK key handling adds no filesystem work.
-  CHECK: cargo test -p floe-app phase_11d_vim_dispatch -- --nocapture
+- [x] G4: Preferred provider is explicit, migrates safely, round-trips through the existing preference worker, and falls back truthfully when unavailable.
+  CHECK: cargo test -p floe-app phase_11e_terminal_preferences -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: Focused dispatch test passed selection clamping/empty handling and existing parent/open/Miller-child paths; list/grid select shared model and Miller uses its established dispatchers.
+  EVIDENCE: The focused preferences test passed version-6 migration to Automatic, version-7 reviewed-provider round-trip, invalid-ID fallback, and preservation of existing settings; only the provider ID is persisted.
 
-- [x] G5: Registered toggle, header/palette discoverability, visible text indicator, and accessible enabled/disabled state are verified.
-  CHECK: cargo test -p floe-app phase_11d_vim_ui -- --nocapture
+- [x] G5: Registered selection-aware action, context/header/palette access, chooser, availability, and accessible feedback are verified.
+  CHECK: cargo test -p floe-app phase_11e_terminal_ui -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: UI test passed registered searchable `win.vim-mode`, no forced shortcut, hjkl search metadata, explicit `Vim On`/`Vim Off` text, tooltip, header menu and accessible label wiring.
+  EVIDENCE: The focused UI test passed both registered commands, 63-command registry count, file/background/header/palette placements, chooser bounds and labels, live availability, and accessible status wiring.
 
-- [x] G6: Native Wayland smoke verifies opt-in toggle/action state, indicator accessibility, input-safe health, D-Bus ping, clean quit, and name release.
-  EVIDENCE: Isolated Niri/Wayland action changed exported boolean state false to true; 0600 version-6 preference recorded true; a second launch restored true. Indicator has code/tested accessible On/Off text. Both launches answered Ping, exited 0, and released the application name; only known RADV warning appeared.
+- [x] G6: Native Wayland smoke verifies exported action/chooser, safe launch or truthful unavailable result, D-Bus health, clean quit, and name release.
+  EVIDENCE: Isolated Wayland launch with `PATH=/nonexistent` exported disabled `open-terminal` and enabled `terminal-preferences`; the chooser exposed `Preferred Terminal` and `Automatic (first available)` through AT-SPI, D-Bus Ping succeeded, Quit exited 0, and application-name ownership was released. Only the known host RADV/Vulkan warning appeared.
 
 - [x] G7: Formatting, workspace check, strict Clippy, all tests, native build, and diff hygiene pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check
   EXPECT: Finished
-  EVIDENCE: All commands exited 0; 417 tests passed (323 application plus 94 core), zero failed, native application build and diff hygiene passed.
+  EVIDENCE: All commands exited 0; 423 tests passed (329 application plus 94 core), zero failed, strict Clippy, native application build, formatting, workspace check, and diff hygiene passed.
 
-- [x] G8: Documentation marks 11D complete, selects exactly 11E next, and truthfully records opt-in/focus exclusions.
-  CHECK: test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "11D.*COMPLETE|11E.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
-  EXPECT: 11E
-  EVIDENCE: ROADMAP has exactly one NEXT at 11E; AGENTS, matrix, privacy/security, plan, and gates record default-off state, file-view capture boundary, native input fallthrough, and no key history.
+- [x] G8: Documentation marks 11E complete, selects exactly 12A next, and records no-shell/exact-path/credential limits truthfully.
+  CHECK: test "$(rg -o '\| NEXT \|' docs/ROADMAP.md | wc -l)" -eq 1 && rg -n "11E.*COMPLETE|12A.*NEXT" docs/ROADMAP.md docs/FEATURE_MATRIX.md AGENTS.md
+  EXPECT: 12A
+  EVIDENCE: ROADMAP has exactly one NEXT at 12A; AGENTS, matrix, privacy/security, plan, and gates record Phase 11E completion, exact raw working-directory use, no shell/credential injection, and no terminal history persistence.
