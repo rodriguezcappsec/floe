@@ -1,4 +1,58 @@
-# Plan: Permanent Layered Testing Foundation
+# Plan: Floe Phase 13B — Filename Search
+
+## Contract
+
+- Add explicit case-insensitive filename-only search rooted at the active local
+  folder with fixed `This Folder` and `Include Subfolders` scopes. It must never
+  read file contents or search remote/non-local roots.
+- Preserve exact `PathBuf`/`OsStr` identity and reuse Phase 13A's reviewed
+  Unicode text plus raw-byte non-UTF-8 matching semantics. Cap queries at 256
+  Unicode scalar values.
+- Run traversal on one capacity-one application worker. Stream batches of at
+  most 128 exact results through bounded response state; support generation
+  cancellation, explicit Stop, and stale-event rejection.
+- Cap one search at 100,000 matches, 1,000,000 examined entries, 100,000
+  directories, and depth 128. Report incomplete/skipped states truthfully.
+- Traverse with no-follow metadata, never descend symbolic links, and never
+  cross the root filesystem device. Continue past inaccessible child entries or
+  directories while counting skips; root failures remain explicit.
+- Consolidate Quick Filter and Search Files into one native search surface:
+  `Ctrl+F` opens Quick Filter, `Ctrl+Shift+F` opens Search Files, and a visible
+  mode selector explains their different scope. Preserve typing focus and Space.
+- Present streamed results in a dedicated exact-entry multi-selection list with
+  filename and containing folder. Reuse ordinary exact-path file actions and add
+  selection-aware `Reveal in Folder` that navigates to the exact parent and
+  restores exact result selection.
+- Clear/cancel on location exit. Keep query, root, results, counters, and usage
+  memory-only; do not persist or log them.
+- Embed the user-provided `icon_floe.png` under the stable application ID and
+  use it as Floe's application/window icon without changing entry iconography.
+- Exclude Phase 13C advanced predicates, MIME/owner/date/size filters, Phase 13D
+  content search, arbitrary roots, remote search, history, saved searches,
+  indexing, tags, duplicate finding, and unrelated refactors.
+
+## Applicable testing layers
+
+- Deterministic core unit and `tempfile` filesystem integration tests for scope,
+  raw paths, links, mount boundaries, caps, skips, and cancellation.
+- Application worker tests for bounded streaming, cancellation, stale generations,
+  and backpressure.
+- GTK/action/accessibility contract tests plus an isolated native Wayland
+  action/liveness/clean-quit smoke. Full Dogtail E2E remains conditional on its
+  external dependencies.
+- No new property test is planned: fixed filesystem trees and injected limits
+  express these traversal invariants more clearly than generated cases.
+
+## Status
+
+COMPLETE. Core traversal, the bounded streaming worker, unified native search
+surface, exact result actions, supplied icon, strict workspace gates, and an
+isolated native Wayland action/liveness/clean-Quit smoke are verified in
+`GATES.md`. Exactly Phase 13C is next; later phases remain excluded.
+
+---
+
+# Archived plan: Permanent Layered Testing Foundation
 
 ## Contract
 

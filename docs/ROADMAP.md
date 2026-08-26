@@ -207,11 +207,15 @@ Miller mode is generic Wayland functionality and must never require Niri.
 
 ## Phase 13 — Filter and search
 
+Quick Filter and Search Files share one compact surface and query entry:
+`Ctrl+F` opens Quick Filter and `Ctrl+Shift+F` opens Search Files directly. The
+two modes retain separate bounded engines and truthful scope descriptions.
+
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
 | 13A — Folder filter | COMPLETE | `phase-13a-folder-filter` | Instant text/glob/regex filtering, count and Escape clear. | Verified 256-scalar queries, Unicode/raw-byte policy, compile-once patterns, capacity-1 generation-superseding worker/latest-result mailbox, stable order, exact visible selection, refresh/sort/watch reapplication, location clearing, accessible native controls, 100,000-entry test and Wayland lifecycle. No recursion, filesystem/content reads, persistence or history. |
-| 13B — Filename search | NEXT | `phase-13b-filename-search` | Streaming cancellable folder/subtree/location name search and reveal. | Worker boundary; no content scan; verify symlinks, permission and huge trees. |
-| 13C — Advanced filters | PLANNED | `phase-13c-search-filters` | Type, MIME, extension, size, date, owner, hidden and tag-ready filters. | 13B/10B; verify combined predicates and lazy metadata. |
+| 13B — Filename search | COMPLETE | `phase-13b-filename-search` | Streaming cancellable current-folder/subtree filename search and reveal. | Verified exact raw-path results, case-insensitive Unicode/raw-byte matching, no symlink descent or mount crossing, explicit skipped/depth/cap feedback, 100,000-result/1,000,000-entry bounds, capacity-1 generation-safe worker, 128-result batches, unified native controls, exact-path result actions, Reveal in Folder, and supplied app icon. No contents, remote roots, history, persistence, indexing, advanced predicates, or search ordering. |
+| 13C — Advanced filters | NEXT | `phase-13c-search-filters` | Type, MIME, extension, size, date, owner, hidden and tag-ready filters. | 13B/10B; verify combined predicates and lazy metadata. |
 | 13D — Content search | PLANNED | `phase-13d-content-search` | Opt-in bounded text search with glob/regex/case controls. | 13B; no binary/secret upload; verify encodings, permission and cancellation. |
 | 13E — Saved searches | PLANNED | `phase-13e-saved-searches` | Versioned saved queries and privacy-aware history. | 13C/13D; verify migration, corruption and private suppression. |
 | 13F — Optional indexing | PLANNED | `phase-13f-search-indexing` | Capability-reviewed index with complete non-indexed fallback. | 13E/18J/18K; exclude locked/sensitive content by default; verify stale/fallback. |

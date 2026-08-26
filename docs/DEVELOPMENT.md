@@ -672,6 +672,22 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+Phase 13B rebuilt Floe and launched it with isolated HOME/XDG config, data,
+cache, and state roots in the active Wayland session. The live window exported
+enabled `folder-filter`, `filename-search`, `start-filename-search`,
+`stop-filename-search`, and `close-search-surface` actions; `reveal-in-folder`
+was correctly disabled without a selected result. Search, Start, Stop, and Close
+activated successfully. View and zoom actions changed from enabled to disabled
+while the dedicated result surface was active and returned to enabled on Close.
+`org.freedesktop.DBus.Peer.Ping` responded, and the application exited cleanly
+through its exported Quit action. The host emitted only its known RADV and
+unavailable accessibility-bus warnings. Focused tests
+cover both scopes, raw non-UTF-8 names, symlink non-descent, mount-boundary
+policy, cancellation, explicit truncation, bounded streaming/supersession,
+unified UI feedback/actions, exact Reveal mapping, and the supplied icon
+resource. Dogtail/AT-SPI native E2E is not claimed because those dependencies
+remain unavailable on this host.
+
 Phase 13A built the local application and launched it with isolated HOME/XDG config/data/cache roots in the active Wayland session. The rendered window exposed the visible Text/Glob/Regex filter row; native D-Bus described enabled `folder-filter` and `clear-folder-filter` actions, activating each succeeded, `org.freedesktop.DBus.Peer.Ping` responded, and application Quit exited cleanly. The host emitted only its documented RADV warning. Focused tests additionally cover invalid patterns, raw non-UTF-8 names, exact visible-selection restoration, latest-generation supersession, bounded queue pressure, and 100,000 loaded entries.
 
 Phase 12E rebuilt the native app and repeated the active Wayland D-Bus lifecycle smoke after adding the accessible relative/absolute symbolic-link choice. Filesystem planning/execution remains in the typed core and bounded create executor.
