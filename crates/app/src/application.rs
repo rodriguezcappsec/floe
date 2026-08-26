@@ -92,8 +92,7 @@ fn build_window(
         return;
     }
 
-    let appearance = Appearance::from_environment();
-    appearance.install();
+    let appearance = Appearance::from_environment_or(view_preferences.appearance);
     if let Some(display) = gtk::gdk::Display::default() {
         iconography::register(&display);
     }

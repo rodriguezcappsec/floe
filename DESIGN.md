@@ -341,26 +341,30 @@ erase. Cancel remains initial focus.
 ## Implemented appearance system
 
 `crates/app/src/appearance.rs` defines `AppearancePreset` and one shared token
-structure. The preset is selected through `FLOE_APPEARANCE`; Frosted is the
-default. Colors come from libadwaita semantic colors rather than a hard-coded
-light or dark palette.
+structure. Users select Native, Glass, Frosted, Minimal, or Compact from the
+header menu's radio-style Appearance submenu. The choice applies immediately
+and persists across launches; Frosted is the default for migrated preferences.
+`FLOE_APPEARANCE` remains a launch-time override. Colors come from libadwaita
+semantic colors rather than a hard-coded light or dark palette.
 
-| Preset | Radius | Gap | Opacity | Row padding | Shadow | Floating | Sidebar default/min |
-| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |
-| Native | 0 | 0 | 1.00 | 8 | 0.00 | No | 176 / 136 |
-| Glass | 18 | 16 | 0.78 | 9 | 0.16 | Yes | 168 / 136 |
-| Frosted | 16 | 14 | 0.94 | 9 | 0.12 | Yes | 168 / 136 |
-| Minimal | 8 | 8 | 1.00 | 8 | 0.00 | Yes | 160 / 128 |
-| Compact | 10 | 8 | 0.98 | 4 | 0.08 | Yes | 152 / 124 |
+| Preset | Radius | Gap | Window | Header | Panel | View | Row padding | Shadow | Floating | Sidebar default/min |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: |
+| Native | 0 | 0 | 1.00 | 1.00 | 1.00 | 1.00 | 8 | 0.00 | No | 176 / 136 |
+| Glass | 18 | 16 | 0.00 | 0.72 | 0.78 | 0.00 | 9 | 0.16 | Yes | 168 / 136 |
+| Frosted | 16 | 14 | 0.84 | 0.92 | 0.94 | 0.20 | 9 | 0.12 | Yes | 168 / 136 |
+| Minimal | 8 | 8 | 1.00 | 1.00 | 1.00 | 1.00 | 8 | 0.00 | Yes | 160 / 128 |
+| Compact | 10 | 8 | 1.00 | 1.00 | 0.98 | 1.00 | 4 | 0.08 | Yes | 152 / 124 |
 
 These are current code values, not universal design constants. The system still
 contains local widget spacing and margin values; moving all of those into a
 coherent token scale remains architectural work.
 
-Native removes floating-panel borders and shadows. Glass lowers panel opacity
-but does not simulate blur. Frosted is more opaque and remains readable without
-compositor support. Minimal removes panel shadow. Compact reduces row and
-sidebar density.
+Native removes floating-panel borders and shadows. Glass removes libadwaita's
+opaque top-level background and composites its semantic-color header and panels
+over the desktop; file-view backgrounds remain transparent so they do not hide
+the panel treatment. Frosted uses the same real alpha path with a stronger
+window, header, panel, and view tint. Neither preset simulates blur. Minimal
+removes panel shadow. Compact reduces row and sidebar density.
 
 ## Interaction principles
 

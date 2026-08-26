@@ -1171,7 +1171,7 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated:
 
-`2026-08-25`
+`2026-08-26`
 
 Current phase:
 
@@ -1183,8 +1183,8 @@ Phase 12F exposes selection-aware Extract Here, Extract To, and Compress in a
 default Archives submenu shared by list, grid, and Miller context surfaces.
 Seven reviewed optional groups have deterministic order/defaults and a native
 keyboard-accessible editor; fixed Open/edit/Trash/Delete/Properties/customize
-actions cannot be hidden. Only stable group IDs persist in version-8 preferences
-through the existing worker. Archive, batch rename, and customization commands
+actions cannot be hidden. Only stable group IDs persist in preferences through
+the existing worker. Archive, batch rename, and customization commands
 are now registered for header, palette, and shortcut discovery; live GAction
 eligibility remains authoritative. Arbitrary commands, plugins, per-MIME rules,
 and later privacy actions remain excluded. Phase 13A folder filter is the sole
@@ -1194,6 +1194,25 @@ Post-12E split-pane maintenance preserves the focused active `GtkPaned` child
 when opening or closing the other pane. Real side swaps hand focus to a stable
 header control before reparenting and restore it to the active file view
 afterward.
+
+A post-12F appearance correction makes Glass and Frosted use real top-level
+Wayland alpha composition instead of blending only against Floe's opaque
+libadwaita background. The application removes the default `background` class
+only for those two presets, then applies distinct semantic-color opacity to the
+window, header, panels, and list/grid/Miller views. Native, Minimal, and Compact
+remain opaque. Focused CSS tests and native dark/bright-backdrop captures verify
+that wallpaper pixels affect Glass while text, selection, and focus treatment
+remain visible. Floe still makes no generic compositor-blur claim.
+
+A post-12F appearance chooser exposes all five presets as a radio-style
+Appearance submenu in the three-dot header menu. Selection updates the shared
+CSS provider immediately and persists one stable preset ID through the bounded
+preference worker; version-9 migration defaults legacy or invalid values to
+Frosted. `FLOE_APPEARANCE` remains a non-mutating launch override. Broader
+light/dark/system, token editing, font, and reset controls remain Phase 20.
+Native Wayland smoke verified live Frosted-to-Glass action state, a clean
+two-launch Glass restore, D-Bus health and clean Quit, plus a Frosted environment
+override over stored Glass without rewriting the stored preference.
 
 Status:
 

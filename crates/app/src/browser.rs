@@ -180,6 +180,7 @@ const TAB_CLOSE_VARIANT_ACTIONS: [&str; 3] = [
 use gtk::{gdk, gio, glib};
 
 use crate::{
+    appearance::AppearancePreset,
     archive_ui::{
         ArchiveActionEligibility, build_compress_dialog, compression_request,
         default_compression_name, destination_preview, extraction_request, selected_format,
@@ -1765,6 +1766,27 @@ impl BrowserController {
             controller.set_inspector_width(width);
         });
 
+        let appearance = self.widgets.appearance_preset();
+        let appearance_action = gio::SimpleAction::new_stateful(
+            "appearance",
+            Some(&String::static_variant_type()),
+            &appearance.persisted().to_variant(),
+        );
+        let controller = Rc::downgrade(self);
+        appearance_action.connect_activate(move |action, parameter| {
+            let Some(preset) = parameter
+                .and_then(glib::Variant::str)
+                .and_then(AppearancePreset::from_persisted)
+            else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                controller.change_appearance(preset);
+                action.set_state(&preset.persisted().to_variant());
+            }
+        });
+        self.widgets.window.add_action(&appearance_action);
+
         let density = self.current_preferences.borrow().sidebar_density;
         let density_action = gio::SimpleAction::new_stateful(
             "sidebar-density",
@@ -2826,6 +2848,16 @@ impl BrowserController {
         self.current_preferences.borrow_mut().inspector_width = width;
         self.queue_preferences();
         self.show_toast(&format!("Inspector width: {} pixels", width.get()), 3);
+    }
+
+    fn change_appearance(&self, preset: AppearancePreset) {
+        if self.widgets.appearance_preset() == preset {
+            return;
+        }
+        self.widgets.apply_appearance(preset);
+        self.current_preferences.borrow_mut().appearance = preset;
+        self.queue_preferences();
+        self.show_toast(&format!("Appearance: {}", preset.label()), 3);
     }
 
     fn prepare_miller_for_current(&self) {

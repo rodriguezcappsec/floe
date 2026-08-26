@@ -14,7 +14,7 @@ use floe_core::{
 use gtk::{gio, glib};
 
 use crate::{
-    appearance::Appearance,
+    appearance::{Appearance, AppearanceManager, AppearancePreset},
     context_menu::{ContextMenuGroup, ContextMenuPreferences},
     devices::{
         DeviceAction, DeviceActionStatus, DeviceActions, DeviceMountState, DeviceRootKind,
@@ -874,6 +874,7 @@ pub struct PermanentDeleteDialogWidgets {
 
 pub struct BrowserWidgets {
     pub window: adw::ApplicationWindow,
+    appearance_manager: AppearanceManager,
     pub toast_overlay: adw::ToastOverlay,
     pub back_button: gtk::Button,
     pub forward_button: gtk::Button,
@@ -1014,6 +1015,15 @@ fn split_pane_update(
 }
 
 impl BrowserWidgets {
+    pub fn appearance_preset(&self) -> AppearancePreset {
+        self.appearance_manager.preset()
+    }
+
+    pub fn apply_appearance(&self, preset: AppearancePreset) {
+        self.appearance_manager
+            .apply(self.window.upcast_ref(), preset);
+    }
+
     pub fn set_split_presentation(
         &self,
         is_split: bool,
@@ -1334,7 +1344,7 @@ pub fn build(
         .height_request(480)
         .build();
     window.add_css_class("floe-window");
-    window.add_css_class(appearance.class_name());
+    let appearance_manager = AppearanceManager::new(window.upcast_ref(), appearance.preset);
 
     let back_button = icon_button("go-previous-symbolic", "Back (Alt+Left)", "win.back");
     let forward_button = icon_button("go-next-symbolic", "Forward (Alt+Right)", "win.forward");
@@ -1468,6 +1478,16 @@ pub fn build(
         Some(RESET_SIDEBAR_WIDTH_MENU_ITEM.1),
     );
     file_actions_model.append_section(None, &sidebar_model);
+    let appearance_model = gio::Menu::new();
+    for preset in AppearancePreset::ALL {
+        appearance_model.append(
+            Some(preset.label()),
+            Some(&format!("win.appearance::{}", preset.persisted())),
+        );
+    }
+    let appearance_section = gio::Menu::new();
+    appearance_section.append_submenu(Some("Appearance"), &appearance_model);
+    file_actions_model.append_section(None, &appearance_section);
     let file_density_model = gio::Menu::new();
     for (label, value) in [
         ("Compact", "compact"),
@@ -1819,12 +1839,6 @@ pub fn build(
     workspace.set_start_child(Some(&sidebar.content));
     workspace.set_end_child(Some(&split_pane));
 
-    if !appearance.floating_panels() {
-        sidebar.content.remove_css_class("floe-panel");
-        content.remove_css_class("floe-panel");
-        inactive_pane.remove_css_class("floe-panel");
-    }
-
     let root = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
         .build();
@@ -1865,6 +1879,7 @@ pub fn build(
 
     BrowserWidgets {
         window,
+        appearance_manager,
         toast_overlay,
         back_button,
         forward_button,

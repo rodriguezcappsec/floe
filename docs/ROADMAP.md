@@ -321,6 +321,10 @@ density, motion, views, previews, operations, shortcuts, applications, privacy,
 desktop settings, focus, Orca, high contrast, localization, RTL, HiDPI,
 fractional scaling, persistence, errors, and recorded daily-driver QoL.
 
+Foundation already complete: the five appearance presets can be selected live
+from a persistent radio-style header submenu. Phase 20 retains only the broader
+appearance controls and audit work recorded in the feature matrix.
+
 - Excludes: weakening secure defaults or exposing unnecessary crypto knobs.
 - Dependencies: all preceding user-facing families.
 - Acceptance: measured matrix audit, no accessibility-critical finding,
