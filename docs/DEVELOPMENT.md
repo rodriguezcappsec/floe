@@ -532,6 +532,8 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+Phase 12E rebuilt the native app and repeated the active Wayland D-Bus lifecycle smoke after adding the accessible relative/absolute symbolic-link choice. Filesystem planning/execution remains in the typed core and bounded create executor.
+
 Phase 12D built the native app, launched it in the active Wayland session, answered `org.freedesktop.DBus.Peer.Ping`, and exited through the exported Quit action. Focused tests cover the chooser policy; template filesystem work remains on the bounded worker/create executor rather than GTK callbacks.
 
 Phase 12B native Wayland smoke built the local app, launched with isolated XDG

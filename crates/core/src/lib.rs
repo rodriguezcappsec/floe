@@ -41,7 +41,7 @@ pub use copy::{
 };
 pub use create_operation::{
     CreateCancellation, CreateError, CreateKind, CreateOutcome, CreateProgress, CreateRequest,
-    CreateRequestError, execute_create,
+    CreateRequestError, SymbolicLinkMode, execute_create,
 };
 pub use directory::{enumerate_directory, enumerate_directory_with_cancel};
 pub use error::DirectoryError;

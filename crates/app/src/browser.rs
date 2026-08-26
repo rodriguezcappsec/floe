@@ -10,6 +10,7 @@ use std::{
 };
 
 use adw::prelude::*;
+use floe_core::SymbolicLinkMode;
 use floe_core::{
     BrowserSession, BrowserSessionId, BrowserTabs, ChecksumAlgorithm, CreateRequest,
     DirectoryEntry, DirectoryError, DirectoryGrouping, DirectoryPlacement, DirectorySort,
@@ -268,7 +269,7 @@ enum CreateDialogKind {
     Directory,
     EmptyFile,
     Template(PathBuf),
-    SymbolicLink(PathBuf),
+    SymbolicLink(PathBuf, SymbolicLinkMode),
     HardLink(PathBuf),
 }
 
@@ -278,7 +279,7 @@ impl CreateDialogKind {
             Self::Directory => "Create Folder",
             Self::EmptyFile => "Create Empty File",
             Self::Template(_) => "Create From Template",
-            Self::SymbolicLink(_) => "Create Symbolic Link",
+            Self::SymbolicLink(_, _) => "Create Symbolic Link",
             Self::HardLink(_) => "Create Hard Link",
         }
     }
@@ -291,7 +292,9 @@ impl CreateDialogKind {
             Self::Directory => CreateRequest::directory(destination),
             Self::EmptyFile => CreateRequest::empty_file(destination),
             Self::Template(source) => CreateRequest::template(source, destination),
-            Self::SymbolicLink(target) => CreateRequest::symbolic_link(target, destination),
+            Self::SymbolicLink(source, mode) => {
+                CreateRequest::symbolic_link_from(source, destination, *mode)
+            }
             Self::HardLink(source) => CreateRequest::hard_link(source, destination),
         }
     }
@@ -5491,10 +5494,10 @@ impl BrowserController {
         self.show_create_name_dialog(CreateDialogKind::EmptyFile, "New File");
     }
 
-    fn present_template_catalog(self: &Rc<Self>) -> bool {
+    fn present_template_catalog(self: &Rc<Self>) {
         let Some(root) = glib::user_special_dir(glib::UserDirectory::Templates) else {
             self.show_toast("No XDG Templates folder is configured", 5);
-            return true;
+            return;
         };
         let root = root.to_path_buf();
         let widgets = crate::templates::build_template_dialog();
@@ -5544,7 +5547,6 @@ impl BrowserController {
             });
         }
         widgets.dialog.present(Some(&self.widgets.window));
-        true
     }
 
     fn populate_template_dialog(
@@ -5631,15 +5633,83 @@ impl BrowserController {
             self.show_toast("Select one item to link", 4);
             return;
         };
-        let Some(target_name) = entry.path().file_name() else {
+        let source = entry.path().to_path_buf();
+        let Some(target_name) = source.file_name() else {
             self.show_toast("This item cannot be linked", 4);
             return;
         };
         let initial_name = suggested_link_name(target_name, "Link");
-        self.show_create_name_dialog(
-            CreateDialogKind::SymbolicLink(PathBuf::from(target_name)),
-            &initial_name,
-        );
+
+        let heading = gtk::Label::builder()
+            .label("Choose link target style")
+            .halign(gtk::Align::Start)
+            .build();
+        heading.add_css_class("title-2");
+        let explanation = gtk::Label::builder()
+            .label("Relative links keep working when their surrounding folder tree moves. Absolute links always store the full current path. Either may become broken if its target moves.")
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .wrap(true)
+            .build();
+        explanation.add_css_class("dim-label");
+        let relative_button = gtk::Button::with_label("Use Relative Target");
+        relative_button.add_css_class("suggested-action");
+        let absolute_button = gtk::Button::with_label("Use Absolute Target");
+        let cancel_button = gtk::Button::with_label("Cancel");
+        let actions = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(8)
+            .build();
+        actions.append(&relative_button);
+        actions.append(&absolute_button);
+        actions.append(&cancel_button);
+        let content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(12)
+            .margin_top(24)
+            .margin_bottom(24)
+            .margin_start(24)
+            .margin_end(24)
+            .build();
+        content.append(&heading);
+        content.append(&explanation);
+        content.append(&actions);
+        let dialog = adw::Dialog::builder()
+            .title("Create Symbolic Link")
+            .content_width(460)
+            .content_height(330)
+            .child(&content)
+            .build();
+        dialog.update_property(&[gtk::accessible::Property::Label("Create Symbolic Link")]);
+
+        let weak_dialog = dialog.downgrade();
+        cancel_button.connect_clicked(move |_| {
+            if let Some(dialog) = weak_dialog.upgrade() {
+                dialog.close();
+            }
+        });
+        for (button, mode) in [
+            (relative_button.clone(), SymbolicLinkMode::Relative),
+            (absolute_button, SymbolicLinkMode::Absolute),
+        ] {
+            let controller = Rc::downgrade(self);
+            let weak_dialog = dialog.downgrade();
+            let source = source.clone();
+            let initial_name = initial_name.clone();
+            button.connect_clicked(move |_| {
+                if let Some(dialog) = weak_dialog.upgrade() {
+                    dialog.close();
+                }
+                if let Some(controller) = controller.upgrade() {
+                    controller.show_create_name_dialog(
+                        CreateDialogKind::SymbolicLink(source.clone(), mode),
+                        &initial_name,
+                    );
+                }
+            });
+        }
+        dialog.present(Some(&self.widgets.window));
+        relative_button.grab_focus();
     }
 
     fn show_create_hard_link(self: &Rc<Self>) {
