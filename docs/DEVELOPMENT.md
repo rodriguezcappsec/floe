@@ -540,6 +540,10 @@ application Quit action. The host emitted its documented RADV warning and an
 existing GtkPaned focus warning during shutdown; neither affected lifecycle or
 action state.
 
+Phase 12C repeated the isolated native lifecycle and verified `batch-rename`
+and `undo-batch-rename` were both exported and disabled without eligible
+selection/completed history, answered D-Bus Ping, and exited 0 through Quit.
+
 Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and
 `XDG_RUNTIME_DIR` set. The current native smoke tests run under Niri.
 

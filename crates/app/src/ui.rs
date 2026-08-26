@@ -1324,6 +1324,11 @@ pub fn build(
     file_actions_model.append(Some("Move"), Some("win.cut"));
     file_actions_model.append(Some("Duplicate"), Some("win.duplicate"));
     file_actions_model.append(Some("Rename…"), Some("win.rename"));
+    file_actions_model.append(Some("Batch Rename…"), Some("win.batch-rename"));
+    file_actions_model.append(
+        Some("Undo Last Batch Rename"),
+        Some("win.undo-batch-rename"),
+    );
     file_actions_model.append(
         Some("Create Symbolic Link…"),
         Some("win.create-symbolic-link"),

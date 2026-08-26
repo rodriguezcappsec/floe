@@ -32,6 +32,15 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ### IMPLEMENTED
 
+- Phase 12C batch rename preserves exact source/destination `PathBuf` mappings,
+  rejects non-UTF-8 names for Unicode/regex transforms rather than rebuilding
+  from lossy labels, validates the entire bounded batch before mutation, and
+  uses same-directory hidden staging with Linux no-replace renames. Cancellation
+  is accepted before commit; failures after commit begins are rolled back where
+  possible and incomplete rollback is explicitly partial. Preview text and one
+  exact inverse undo mapping are memory-only; regex queries, names, metadata
+  dates, and usage history are not persisted or logged.
+
 - Phase 12B exposes native Extract Here/To and Compress controls over the Phase
   12A typed executor. GTK receives exact selected paths from application state,
   displays lossy destination text only as preview, and never parses archive

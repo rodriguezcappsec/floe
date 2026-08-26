@@ -184,6 +184,7 @@ use crate::{
         default_compression_name, destination_preview, extraction_request, selected_format,
         with_archive_extension,
     },
+    batch_rename::{BatchRenameSource, build_batch_rename_dialog, refresh_batch_rename_dialog},
     bookmarks::{BookmarkWorker, BookmarkWorkerEvent},
     checksum_ui::{ChecksumDialogInput, build_checksum_request},
     clipboard::{self, ClipboardTransfer},
@@ -1906,6 +1907,13 @@ impl BrowserController {
         cut_action.set_enabled(false);
         let rename_action = self.add_action("rename", |controller| controller.show_rename());
         rename_action.set_enabled(false);
+        let batch_rename_action =
+            self.add_action("batch-rename", |controller| controller.show_batch_rename());
+        batch_rename_action.set_enabled(false);
+        let undo_batch_rename = self.add_action("undo-batch-rename", |controller| {
+            controller.undo_batch_rename();
+        });
+        undo_batch_rename.set_enabled(false);
         let trash_action = self.add_action("trash", |controller| controller.trash_selected());
         trash_action.set_enabled(false);
         let permanent_delete_action = self.add_action("permanent-delete", |controller| {
@@ -4425,6 +4433,7 @@ impl BrowserController {
         self.set_properties_enabled(!self.selected_entries.borrow().is_empty());
         self.set_checksum_enabled(state.checksum);
         self.set_archive_actions_enabled();
+        self.set_batch_rename_enabled();
         self.set_selection_actions_enabled(state.transfer, state.rename, state.trash);
         for name in ["open-new-tab", "open-background-tab"] {
             if let Some(action) = self
@@ -4590,6 +4599,24 @@ impl BrowserController {
             {
                 action.set_enabled(enabled);
             }
+        }
+    }
+
+    fn set_batch_rename_enabled(&self) {
+        let selected = self.selected_entries.borrow();
+        let enabled = !self.trash_active.get()
+            && selected.len() >= 2
+            && selected.len() <= floe_core::BATCH_RENAME_CAPACITY
+            && selected
+                .iter()
+                .all(|entry| !matches!(entry.kind(), EntryKind::Other));
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("batch-rename")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(enabled);
         }
     }
 
@@ -5671,6 +5698,117 @@ impl BrowserController {
                 Err(message) => controller.show_toast(&message, 6),
             }
         });
+    }
+
+    fn show_batch_rename(self: &Rc<Self>) {
+        let selected = self.selected_entries.borrow().clone();
+        if selected.len() < 2 {
+            self.show_toast("Select at least two items to batch rename", 4);
+            return;
+        }
+        let sources = selected
+            .iter()
+            .map(|entry| BatchRenameSource {
+                path: entry.path().to_path_buf(),
+                date: entry
+                    .modified()
+                    .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                    .and_then(|duration| {
+                        glib::DateTime::from_unix_utc(duration.as_secs() as i64)
+                            .ok()
+                            .and_then(|date| date.format("%Y-%m-%d").ok())
+                            .map(|date| date.to_string())
+                    })
+                    .unwrap_or_else(|| "unknown-date".to_owned()),
+            })
+            .collect::<Vec<_>>();
+        let widgets = build_batch_rename_dialog(sources.len());
+        let request = Rc::new(RefCell::new(None));
+        let refresh: Rc<dyn Fn()> = {
+            let widgets = widgets.clone();
+            let sources = sources.clone();
+            let request = Rc::clone(&request);
+            Rc::new(move || {
+                request.replace(refresh_batch_rename_dialog(&widgets, &sources));
+            })
+        };
+        refresh();
+        for entry in [
+            &widgets.find_entry,
+            &widgets.replace_entry,
+            &widgets.prefix_entry,
+            &widgets.suffix_entry,
+        ] {
+            let refresh = Rc::clone(&refresh);
+            entry.connect_changed(move |_| refresh());
+        }
+        for check in [&widgets.regex_check, &widgets.preserve_extension_check] {
+            let refresh = Rc::clone(&refresh);
+            check.connect_toggled(move |_| refresh());
+        }
+        for spin in [&widgets.sequence_start, &widgets.sequence_padding] {
+            let refresh = Rc::clone(&refresh);
+            spin.connect_value_changed(move |_| refresh());
+        }
+        let refresh_case = Rc::clone(&refresh);
+        widgets
+            .case_dropdown
+            .connect_selected_notify(move |_| refresh_case());
+
+        let dialog = widgets.dialog.downgrade();
+        widgets.cancel_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        let dialog = widgets.dialog.downgrade();
+        let error_label = widgets.error_label.clone();
+        widgets.apply_button.connect_clicked(move |button| {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let Some(request) = request.borrow().clone() else {
+                error_label.set_label("Resolve the preview validation error first");
+                return;
+            };
+            button.set_sensitive(false);
+            match controller.application_state.submit_batch_rename(request) {
+                Ok(_) => {
+                    controller
+                        .widgets
+                        .status_label
+                        .set_label("Batch rename queued…");
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.close();
+                    }
+                }
+                Err(error) => {
+                    error_label.set_label(&format!("Could not queue batch rename: {error}"));
+                    button.set_sensitive(true);
+                }
+            }
+        });
+        widgets.dialog.present(Some(&self.widgets.window));
+        widgets.prefix_entry.grab_focus();
+    }
+
+    fn undo_batch_rename(&self) {
+        match self.application_state.submit_batch_rename_undo() {
+            Ok(Some(_)) => {
+                self.widgets.status_label.set_label("Undoing batch rename…");
+                if let Some(action) = self
+                    .widgets
+                    .window
+                    .lookup_action("undo-batch-rename")
+                    .and_downcast::<gio::SimpleAction>()
+                {
+                    action.set_enabled(false);
+                }
+            }
+            Ok(None) => self.show_toast("No completed batch rename is available to undo", 4),
+            Err(error) => self.show_toast(&format!("Could not undo batch rename: {error}"), 7),
+        }
     }
 
     fn show_rename(&self) {

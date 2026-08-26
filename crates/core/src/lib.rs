@@ -1,6 +1,7 @@
 //! GTK-independent filesystem and navigation foundations for Floe.
 
 mod archive;
+mod batch_rename;
 mod checksum;
 mod copy;
 mod create_operation;
@@ -25,6 +26,10 @@ pub use archive::{
     ARCHIVE_SOURCE_CAPACITY, ArchiveCancellation, ArchiveError, ArchiveFormat, ArchiveLimits,
     ArchiveMember, ArchiveMemberKind, ArchiveOutcome, ArchiveProgress, ArchiveRequest,
     ArchiveRequestError, execute_archive,
+};
+pub use batch_rename::{
+    BATCH_RENAME_CAPACITY, BatchRenameCancellation, BatchRenameError, BatchRenameOutcome,
+    BatchRenamePair, BatchRenameRequest, BatchRenameRequestError, execute_batch_rename,
 };
 pub use checksum::{
     CHECKSUM_TARGET_CAPACITY, ChecksumAlgorithm, ChecksumRequest, ChecksumRequestError,
