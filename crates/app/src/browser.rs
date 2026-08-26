@@ -14,9 +14,9 @@ use floe_core::SymbolicLinkMode;
 use floe_core::{
     BrowserSession, BrowserSessionId, BrowserTabs, ChecksumAlgorithm, CreateRequest,
     DirectoryEntry, DirectoryError, DirectoryGrouping, DirectoryPlacement, DirectorySort,
-    EntryKind, MillerChildKind, MillerColumnModel, MillerSelectionTransition, RestoreRequest,
-    SPLIT_RATIO_MAX, SPLIT_RATIO_MIN, SessionScrollAnchor, SortColumn, SplitRatio, SplitSide,
-    TabActivation, TabError, TrashEnumerateError, TrashRoot,
+    EntryKind, FolderFilterMode, MillerChildKind, MillerColumnModel, MillerSelectionTransition,
+    RestoreRequest, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN, SessionScrollAnchor, SortColumn, SplitRatio,
+    SplitSide, TabActivation, TabError, TrashEnumerateError, TrashRoot,
 };
 
 fn tab_title(path: &Path) -> String {
@@ -48,10 +48,29 @@ fn folder_tab_eligible(entries: &[Arc<DirectoryEntry>], trash_active: bool) -> b
 }
 
 const SPLIT_SNAPSHOT_CAPACITY: usize = 512;
+
+#[derive(Clone, Debug)]
+struct FolderFilterState {
+    mode: FolderFilterMode,
+    query: String,
+}
+
+impl Default for FolderFilterState {
+    fn default() -> Self {
+        Self {
+            mode: FolderFilterMode::Text,
+            query: String::new(),
+        }
+    }
+}
+
+struct PendingFolderFilter {
+    generation: u64,
+    entries: Arc<[Arc<DirectoryEntry>]>,
+}
 #[cfg(test)]
 const MILLER_NAVIGATION_ACTIONS: [&str; 2] = ["win.miller-parent", "win.miller-child"];
 const MILLER_DETAIL_ACTIONS: [&str; 2] = ["miller-preview-hook", "miller-inspector-hook"];
-#[cfg(test)]
 const QUICK_PREVIEW_ACCELERATOR: &str = "space";
 #[cfg(test)]
 const INSPECTOR_ACCELERATOR: &str = "<Control>i";
@@ -406,7 +425,14 @@ pub struct BrowserController {
     show_hidden: Cell<bool>,
     trash_active: Cell<bool>,
     trash_root: TrashRoot,
+    listed_entries: RefCell<Arc<[Arc<DirectoryEntry>]>>,
     visible_entries: RefCell<Vec<Arc<DirectoryEntry>>>,
+    filter_worker: RefCell<Option<crate::folder_filter::FolderFilterWorker>>,
+    filter_state: RefCell<FolderFilterState>,
+    filter_generation: Cell<u64>,
+    pending_filter: RefCell<Option<PendingFolderFilter>>,
+    filter_selection_paths: RefCell<Vec<PathBuf>>,
+    filter_location: RefCell<Option<(bool, PathBuf)>>,
     pending_entries: RefCell<VecDeque<Arc<DirectoryEntry>>>,
     pending_store: RefCell<Option<gio::ListStore>>,
     pending_total: Cell<usize>,
@@ -524,6 +550,13 @@ impl BrowserController {
                 None
             }
         };
+        let filter_worker = match crate::folder_filter::FolderFilterWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start folder filter worker");
+                None
+            }
+        };
         widgets.miller_view.set_vim_mode(view_preferences.vim_mode);
         Rc::new(Self {
             widgets,
@@ -552,7 +585,14 @@ impl BrowserController {
             show_hidden: Cell::new(false),
             trash_active: Cell::new(false),
             trash_root: TrashRoot::for_data_home(glib::user_data_dir()),
+            listed_entries: RefCell::new(Arc::from([])),
             visible_entries: RefCell::new(Vec::new()),
+            filter_worker: RefCell::new(filter_worker),
+            filter_state: RefCell::new(FolderFilterState::default()),
+            filter_generation: Cell::new(0),
+            pending_filter: RefCell::new(None),
+            filter_selection_paths: RefCell::new(Vec::new()),
+            filter_location: RefCell::new(None),
             pending_entries: RefCell::new(VecDeque::new()),
             pending_store: RefCell::new(None),
             pending_total: Cell::new(0),
@@ -604,6 +644,7 @@ impl BrowserController {
 
     pub fn wire(self: &Rc<Self>, application: &adw::Application, locations: &[Location]) {
         self.install_actions(application);
+        self.install_filter_signals();
         let clipboard = self.widgets.window.clipboard();
         let controller = Rc::downgrade(self);
         clipboard.connect_changed(move |_| {
@@ -748,6 +789,7 @@ impl BrowserController {
 
         self.install_file_view_shortcuts(&self.widgets.list_view);
         self.install_file_view_shortcuts(&self.widgets.grid_view);
+        self.install_file_view_shortcuts(self.widgets.miller_view.widget());
 
         let controller = Rc::downgrade(self);
         self.widgets
@@ -1411,6 +1453,15 @@ impl BrowserController {
                     controller.show_context_menu();
                 }
                 glib::Propagation::Stop
+            } else if is_quick_preview_space(key, modifiers) {
+                if let Some(controller) = controller.upgrade()
+                    && controller.quick_preview_space_enabled()
+                {
+                    controller.toggle_miller_detail(MillerDetailSurface::Preview);
+                    glib::Propagation::Stop
+                } else {
+                    glib::Propagation::Proceed
+                }
             } else if let Some(controller) = controller.upgrade()
                 && let Some(command) = controller.vim_command_for_key(key, modifiers)
             {
@@ -1435,6 +1486,7 @@ impl BrowserController {
                 return glib::ControlFlow::Break;
             }
             controller.drain_worker();
+            controller.drain_folder_filter_worker();
             controller.drain_bookmark_worker();
             controller.pump_pending_entries();
             controller.submit_thumbnail_requests();
@@ -1548,6 +1600,165 @@ impl BrowserController {
         }
     }
 
+    fn install_filter_signals(self: &Rc<Self>) {
+        let controller = Rc::downgrade(self);
+        self.widgets.filter_entry.connect_search_changed(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.update_folder_filter_from_widgets();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.filter_mode.connect_selected_notify(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.update_folder_filter_from_widgets();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.filter_entry.connect_stop_search(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.clear_folder_filter();
+            }
+        });
+    }
+
+    fn show_folder_filter(&self) {
+        self.widgets.filter_bar.set_visible(true);
+        self.widgets.filter_entry.grab_focus();
+    }
+
+    fn clear_folder_filter(&self) {
+        self.filter_state.replace(FolderFilterState::default());
+        self.widgets.filter_mode.set_selected(0);
+        self.widgets.filter_entry.set_text("");
+        self.widgets.filter_bar.set_visible(false);
+        self.filter_generation
+            .set(self.filter_generation.get().wrapping_add(1));
+        self.pending_filter.borrow_mut().take();
+        let selected_paths = self.selected_paths();
+        self.install_entries(self.listed_entries.borrow().to_vec(), &selected_paths, true);
+        self.set_filter_feedback(None, self.listed_entries.borrow().len());
+    }
+
+    fn update_folder_filter_from_widgets(&self) {
+        let mode = match self.widgets.filter_mode.selected() {
+            1 => FolderFilterMode::Glob,
+            2 => FolderFilterMode::Regex,
+            _ => FolderFilterMode::Text,
+        };
+        let query = self.widgets.filter_entry.text().to_string();
+        self.filter_state.replace(FolderFilterState { mode, query });
+        let selected_paths = self.selected_paths();
+        self.apply_folder_filter(selected_paths, false);
+    }
+
+    fn apply_folder_filter(&self, selected_paths: Vec<PathBuf>, focus_list: bool) {
+        let generation = self.filter_generation.get().wrapping_add(1);
+        self.filter_generation.set(generation);
+        self.filter_selection_paths.replace(selected_paths.clone());
+        self.pending_filter.borrow_mut().take();
+
+        let state = self.filter_state.borrow().clone();
+        let entries = self.listed_entries.borrow().clone();
+        if state.query.is_empty() {
+            self.install_entries(entries.to_vec(), &selected_paths, focus_list);
+            self.set_filter_feedback(None, self.listed_entries.borrow().len());
+            return;
+        }
+
+        self.widgets.filter_feedback.remove_css_class("error");
+        self.widgets.filter_feedback.add_css_class("dim-label");
+        self.widgets.filter_feedback.set_label("Filtering…");
+        self.pending_filter.replace(Some(PendingFolderFilter {
+            generation,
+            entries,
+        }));
+        self.try_submit_pending_filter();
+    }
+
+    fn try_submit_pending_filter(&self) {
+        let Some(pending) = self.pending_filter.borrow_mut().take() else {
+            return;
+        };
+        if pending.generation != self.filter_generation.get() {
+            return;
+        }
+        let state = self.filter_state.borrow().clone();
+        let result = self.filter_worker.borrow().as_ref().map_or(
+            Err(crate::folder_filter::FilterSubmitError::Stopped),
+            |worker| worker.submit(pending.generation, state.mode, state.query, pending.entries),
+        );
+        match result {
+            Ok(()) => {}
+            Err(crate::folder_filter::FilterSubmitError::Busy(entries)) => {
+                self.pending_filter.replace(Some(PendingFolderFilter {
+                    generation: pending.generation,
+                    entries,
+                }));
+            }
+            Err(crate::folder_filter::FilterSubmitError::Stopped) => {
+                self.set_filter_feedback(Some("Filter worker is unavailable"), 0);
+            }
+        }
+    }
+
+    fn drain_folder_filter_worker(&self) {
+        loop {
+            let response = self
+                .filter_worker
+                .borrow()
+                .as_ref()
+                .and_then(crate::folder_filter::FolderFilterWorker::try_response);
+            let Some(response) = response else {
+                break;
+            };
+            if !folder_filter_response_is_current(self.filter_generation.get(), response.generation)
+            {
+                continue;
+            }
+            match response.result {
+                Ok(entries) => {
+                    let count = entries.len();
+                    let selected_paths = self.filter_selection_paths.borrow().clone();
+                    self.install_entries(entries, &selected_paths, false);
+                    self.set_filter_feedback(None, count);
+                }
+                Err(error) => self.set_filter_feedback(Some(&error.to_string()), 0),
+            }
+        }
+        self.try_submit_pending_filter();
+    }
+
+    fn set_filter_feedback(&self, error: Option<&str>, visible_count: usize) {
+        if let Some(error) = error {
+            self.widgets.filter_feedback.remove_css_class("dim-label");
+            self.widgets.filter_feedback.add_css_class("error");
+            self.widgets.filter_feedback.set_label(error);
+            return;
+        }
+
+        self.widgets.filter_feedback.remove_css_class("error");
+        self.widgets.filter_feedback.add_css_class("dim-label");
+        let total = self.listed_entries.borrow().len();
+        let active = !self.filter_state.borrow().query.is_empty();
+        if active {
+            self.widgets
+                .filter_feedback
+                .set_label(&format!("{visible_count} of {total}"));
+            self.widgets.empty_label.set_label("No matching items");
+        } else {
+            self.widgets
+                .filter_feedback
+                .set_label(&format!("{total} items"));
+            self.widgets
+                .empty_label
+                .set_label(if self.trash_active.get() {
+                    "Trash is empty"
+                } else {
+                    "This folder is empty"
+                });
+        }
+    }
+
     fn install_actions(self: &Rc<Self>, application: &adw::Application) {
         self.add_action("command-palette", |controller| {
             controller.command_palette.present();
@@ -1600,6 +1811,12 @@ impl BrowserController {
         self.add_action("forward", |controller| controller.go_forward());
         self.add_action("parent", |controller| controller.go_parent());
         self.add_action("location", |controller| controller.show_location_entry());
+        self.add_action("folder-filter", |controller| {
+            controller.show_folder_filter();
+        });
+        self.add_action("clear-folder-filter", |controller| {
+            controller.clear_folder_filter();
+        });
         self.add_action("cancel-location", |controller| {
             controller.cancel_location_entry();
         });
@@ -1712,9 +1929,7 @@ impl BrowserController {
         });
         preview_hook.set_enabled(self.view_mode.get() == ViewMode::Miller);
         self.add_action("quick-preview", |controller| {
-            if preview_space_should_toggle(controller.focus_consumes_space()) {
-                controller.toggle_miller_detail(MillerDetailSurface::Preview);
-            }
+            controller.toggle_miller_detail(MillerDetailSurface::Preview);
         });
         self.add_action("preview-zoom-in", |controller| {
             controller.widgets.miller_view.preview_zoom_in();
@@ -2955,13 +3170,12 @@ impl BrowserController {
         }
     }
 
-    fn focus_consumes_space(&self) -> bool {
-        gtk::prelude::RootExt::focus(&self.widgets.window).is_some_and(|focus| {
-            focus.is::<gtk::Entry>()
-                || focus.is::<gtk::SearchEntry>()
-                || focus.is::<gtk::SpinButton>()
-                || focus.is::<gtk::TextView>()
-        })
+    fn quick_preview_space_enabled(&self) -> bool {
+        crate::keybindings::local_file_view_shortcut_enabled(
+            &self.current_preferences.borrow().keybindings,
+            "win.quick-preview",
+            QUICK_PREVIEW_ACCELERATOR,
+        )
     }
 
     fn vim_command_for_key(
@@ -3712,7 +3926,7 @@ impl BrowserController {
             sort.grouping,
         );
         self.queue_preferences();
-        let entries = self.visible_entries.borrow().clone();
+        let entries = self.listed_entries.borrow().to_vec();
         if entries.len() < 2 {
             self.refresh_status();
             return;
@@ -4143,6 +4357,7 @@ impl BrowserController {
         if thumbnail_generation == 0 {
             self.widgets.thumbnails.disable();
         }
+        self.listed_entries.replace(Arc::from([]));
         self.visible_entries.borrow_mut().clear();
         self.pending_entries.borrow_mut().clear();
         self.pending_store.borrow_mut().take();
@@ -4169,6 +4384,24 @@ impl BrowserController {
         } else {
             self.tabs.borrow().active().current().path().to_path_buf()
         };
+        let filter_location = (self.trash_active.get(), path.clone());
+        let location_changed = self
+            .filter_location
+            .borrow()
+            .as_ref()
+            .is_none_or(|previous| previous != &filter_location);
+        self.filter_location.replace(Some(filter_location));
+        if location_changed {
+            self.filter_state.replace(FolderFilterState::default());
+            self.filter_generation
+                .set(self.filter_generation.get().wrapping_add(1));
+            self.pending_filter.borrow_mut().take();
+            self.widgets.filter_entry.set_text("");
+            self.widgets.filter_mode.set_selected(0);
+            self.widgets.filter_bar.set_visible(false);
+            self.set_filter_feedback(None, 0);
+        }
+
         let generation = if self.trash_active.get() {
             self.worker
                 .borrow_mut()
@@ -4282,7 +4515,8 @@ impl BrowserController {
                         continue;
                     }
                     let selected_paths = self.sort_selection_paths.take();
-                    self.install_entries(entries, &selected_paths, false);
+                    self.listed_entries.replace(Arc::from(entries));
+                    self.apply_folder_filter(selected_paths, false);
                 }
             }
         }
@@ -4348,7 +4582,8 @@ impl BrowserController {
         {
             selected_paths.push(created.clone());
         }
-        self.install_entries(entries, &selected_paths, true);
+        self.listed_entries.replace(Arc::from(entries));
+        self.apply_folder_filter(selected_paths, true);
         self.request_current_storage_facts();
         self.start_current_watcher();
     }
@@ -6166,6 +6401,10 @@ fn selection_indices_for_paths(
         .collect()
 }
 
+fn folder_filter_response_is_current(active_generation: u64, response_generation: u64) -> bool {
+    active_generation == response_generation
+}
+
 fn selected_entries_for_selection(selection: &gtk::MultiSelection) -> Vec<Arc<DirectoryEntry>> {
     let Some(model) = selection.model() else {
         return Vec::new();
@@ -6465,8 +6704,8 @@ fn is_context_menu_shortcut(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierTyp
         || (key == gtk::gdk::Key::F10 && relevant == gtk::gdk::ModifierType::SHIFT_MASK)
 }
 
-const fn preview_space_should_toggle(focus_consumes_space: bool) -> bool {
-    !focus_consumes_space
+fn is_quick_preview_space(key: gtk::gdk::Key, modifiers: gtk::gdk::ModifierType) -> bool {
+    key == gtk::gdk::Key::space && modifiers.is_empty()
 }
 
 fn vim_selection_target(
@@ -6667,10 +6906,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn phase_13a_filter_rejects_stale_results_and_restores_only_visible_selection() {
+        assert!(folder_filter_response_is_current(19, 19));
+        assert!(!folder_filter_response_is_current(20, 19));
+
+        let fixture = tempdir().expect("temporary filter fixture");
+        let keep = fixture.path().join("keep.txt");
+        let hidden_by_filter = fixture.path().join("notes.log");
+        fs::write(&keep, b"keep").expect("filter fixture");
+        fs::write(&hidden_by_filter, b"hide").expect("filter fixture");
+        let entries = floe_core::enumerate_directory(fixture.path())
+            .expect("enumerate filter fixture")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .filter(|entry| entry.path() == keep)
+            .collect::<Vec<_>>();
+        let selected = vec![keep, hidden_by_filter];
+        assert_eq!(selection_indices_for_paths(&entries, &selected), vec![0]);
+    }
+
+    #[test]
     fn phase_9f_interaction_space_respects_text_focus_and_exports_stable_accelerator() {
         assert_eq!(QUICK_PREVIEW_ACCELERATOR, "space");
-        assert!(preview_space_should_toggle(false));
-        assert!(!preview_space_should_toggle(true));
+        assert!(is_quick_preview_space(
+            gtk::gdk::Key::space,
+            gtk::gdk::ModifierType::empty()
+        ));
+        assert!(!is_quick_preview_space(
+            gtk::gdk::Key::space,
+            gtk::gdk::ModifierType::CONTROL_MASK
+        ));
+        assert!(!is_quick_preview_space(
+            gtk::gdk::Key::Return,
+            gtk::gdk::ModifierType::empty()
+        ));
         assert_eq!(MILLER_DETAIL_ACTIONS[0], "miller-preview-hook");
     }
 

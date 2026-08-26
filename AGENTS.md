@@ -1176,8 +1176,35 @@ Last updated:
 Current phase:
 
 ```text
-Phase 12 — Productivity operations (Phase 12F complete)
+Phase 13 — Filter and search (Phase 13A complete)
 ```
+
+Phase 13A adds a current-folder-only Text/Glob/Regex filter over entries already
+returned by the directory worker. Queries are capped at 256 Unicode scalar
+values; valid names use Unicode semantics and non-UTF-8 Linux names retain raw
+identity with documented ASCII-insensitive text and raw-byte pattern fallback.
+One capacity-1 application worker compiles each pattern once and a one-result
+latest-generation mailbox prevents stale replacement without blocking GTK.
+List, grid, and Miller share the filtered backing entries; exact selection is
+restored only for still-visible paths, refresh/sort/hidden/watcher changes
+reapply the query, and location changes clear it. Header/Ctrl+F discovery,
+visible modes, count/error alert, Escape/close, 100,000-entry tests, strict
+workspace gates, and native Wayland lifecycle are verified. Query, mode,
+results, and usage are memory-only; recursion, content/metadata reads, indexing,
+history, and persistence remain excluded. Phase 13B filename search is the sole
+next phase.
+
+A post-13A keyboard correction removes bare Space from application-wide GTK
+accelerators and handles it only in list, grid, and Miller file views. The
+filter `SearchEntry` and every other editable control therefore receive Space
+directly, while custom non-typing Quick Preview accelerators remain application
+scoped. Focused regression, Phase 13A, workspace check, strict Clippy, and
+native verification gates are recorded in `GATES.md`.
+
+A post-13A filter discoverability correction gives Text, Glob, and Regex popup
+rows concise plain-language summaries plus mode-specific hover and accessible
+descriptions. Glob explains `*` and `?` with filename examples and Regex is
+identified as advanced; the selected collapsed control exposes the same help.
 
 Phase 12F exposes selection-aware Extract Here, Extract To, and Compress in a
 default Archives submenu shared by list, grid, and Miller context surfaces.
@@ -1187,8 +1214,7 @@ actions cannot be hidden. Only stable group IDs persist in preferences through
 the existing worker. Archive, batch rename, and customization commands
 are now registered for header, palette, and shortcut discovery; live GAction
 eligibility remains authoritative. Arbitrary commands, plugins, per-MIME rules,
-and later privacy actions remain excluded. Phase 13A folder filter is the sole
-next phase.
+and later privacy actions remain excluded. Phase 13A followed this work.
 
 Post-12E split-pane maintenance preserves the focused active `GtkPaned` child
 when opening or closing the other pane. Real side swaps hand focus to a stable

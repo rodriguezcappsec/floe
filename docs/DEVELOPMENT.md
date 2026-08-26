@@ -548,6 +548,8 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+Phase 13A built the local application and launched it with isolated HOME/XDG config/data/cache roots in the active Wayland session. The rendered window exposed the visible Text/Glob/Regex filter row; native D-Bus described enabled `folder-filter` and `clear-folder-filter` actions, activating each succeeded, `org.freedesktop.DBus.Peer.Ping` responded, and application Quit exited cleanly. The host emitted only its documented RADV warning. Focused tests additionally cover invalid patterns, raw non-UTF-8 names, exact visible-selection restoration, latest-generation supersession, bounded queue pressure, and 100,000 loaded entries.
+
 Phase 12E rebuilt the native app and repeated the active Wayland D-Bus lifecycle smoke after adding the accessible relative/absolute symbolic-link choice. Filesystem planning/execution remains in the typed core and bounded create executor.
 
 Phase 12D built the native app, launched it in the active Wayland session, answered `org.freedesktop.DBus.Peer.Ping`, and exited through the exported Quit action. Focused tests cover the chooser policy; template filesystem work remains on the bounded worker/create executor rather than GTK callbacks.

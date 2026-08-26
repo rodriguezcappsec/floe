@@ -430,6 +430,14 @@ The header location is both orientation and navigation. Its resting state is a p
 
 Phase 6H implements this surface.
 
+### Current-folder filter
+
+Phase 13A adds a compact filter row inside the active directory panel. The header search control and `Ctrl+F` reveal and focus a native search entry. A visible selector names the three modes—Text, Glob, and Regex—while its popup gives each mode a plain-language summary and hover description with examples. Glob explicitly explains `*` and `?`; Regex is identified as advanced. Adjacent feedback reports the visible/total match count or an inline alert with the invalid-pattern reason. Escape or the labelled close control clears the query and closes the row.
+
+Bare Space is scoped to list, grid, and Miller file views instead of being a global application accelerator. Editable controls therefore receive ordinary Space key events directly, including the filter search entry's internal text widget, while file-view focus still exposes Quick Preview.
+
+Filtering narrows the existing ordered list/grid/Miller backing entries; it is not a search-results page. Entries that remain visible retain exact-path selection, an active zero-match state says “No matching items,” refresh/sort/hidden/watcher updates reapply the query, and navigating elsewhere clears it. Pattern compilation and matching happen on the bounded application worker, never in GTK row binding callbacks.
+
 ### Tabs
 
 Phase 7B adds a compact horizontally scrollable native tab strip between the

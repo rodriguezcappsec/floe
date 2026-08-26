@@ -7,6 +7,7 @@ mod copy;
 mod create_operation;
 mod directory;
 mod error;
+mod filter;
 mod jobs;
 mod miller;
 mod model;
@@ -45,6 +46,9 @@ pub use create_operation::{
 };
 pub use directory::{enumerate_directory, enumerate_directory_with_cancel};
 pub use error::DirectoryError;
+pub use filter::{
+    FOLDER_FILTER_QUERY_CAPACITY, FolderFilterError, FolderFilterMode, FolderFilterPattern,
+};
 pub use jobs::{
     InvalidJobProgress, JobCommand, JobCommandKind, JobEvent, JobEventKind, JobFailure,
     JobFailureKind, JobId, JobProgress, JobRecord, JobState, JobTransitionError, OperationId,
