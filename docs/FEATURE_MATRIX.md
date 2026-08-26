@@ -471,15 +471,15 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Native/Glass/Frosted/Minimal/Compact presets | `COMPLETE` | 0 | Shared appearance tokens exist; environment selection is not yet a full settings UI. |
+| Native/Glass/Frosted/Minimal/Compact presets | `COMPLETE` | 0 | Shared tokens and a radio-style header-menu chooser apply all five presets live. |
 | System light/dark semantic colors | `COMPLETE` | 0 | libadwaita semantic colors provide readable light/dark behavior. |
-| Optional transparency with readable fallback | `COMPLETE` | 0 | Glass/Frosted do not fake blur and remain readable without compositor blur. |
-| User-facing appearance settings | `PLANNED` | 20 | Mode, light/dark/system, radius, opacity, density, and reset UI. |
+| Optional transparency with readable fallback | `COMPLETE` | 0 | Glass/Frosted remove only the opaque top-level Adwaita background, use distinct semantic alpha layers, and remain readable without claiming or faking compositor blur; verified on dark and bright native Wayland backdrops. |
+| User-facing appearance settings | `PARTIAL` | 0/20 | Persistent live preset selection is complete; light/dark/system, custom radius/opacity, and reset UI remain Phase 20. |
 | Custom themes/theme tokens | `DEFERRED` | 19/20 | Must extend shared tokens rather fork widget trees. |
 | Font family/scale settings | `PLANNED` | 20 | Accessible system-font fallback and no layout breakage. |
 | Reduced-motion setting | `PLANNED` | 20 | Honor GTK/system animation policy; custom motion remains restrained. |
 | HiDPI/fractional-scaling audit | `PLANNED` | 20 | Verify icons, thumbnails, borders, and focus at actual scale factors. |
-| Appearance persistence/migration | `PARTIAL` | 0/6D/6K2 | View/grid/sidebar settings persist; appearance preset still uses environment selection. |
+| Appearance persistence/migration | `COMPLETE` | 0/6D/6K2 | Version-9 preferences persist one stable preset ID; legacy/invalid values default to Frosted and `FLOE_APPEARANCE` remains a non-mutating launch override. |
 | Browsing settings | `PLANNED` | 20 | Default view/sort/group/folders-first/hidden/per-folder/startup/click behavior. |
 | Preview/cache settings | `PLANNED` | 9F/20 | Provider enablement, size limits, persistent cache and sensitive defaults. |
 | Operation/Trash confirmation settings | `PLANNED` | 6M/20 | Ordinary Trash stays low-friction; irreversible operations remain strongly confirmed. |

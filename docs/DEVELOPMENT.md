@@ -46,14 +46,30 @@ cargo build --workspace
 cargo run -p floe-app
 ```
 
-The default appearance is Frosted. Exercise another existing preset with:
+The default appearance is Frosted. The header menu's **Appearance** submenu
+switches Native, Glass, Frosted, Minimal, and Compact live and persists the
+selected stable preset ID through the bounded preference worker.
+
+Override the stored preset for one process launch with:
 
 ```bash
 FLOE_APPEARANCE=glass cargo run -p floe-app
 ```
 
 Accepted values are `native`, `glass`, `frosted`, `minimal`, and `compact`.
-Unknown values fall back to Frosted.
+Unknown values fall back to the stored selection, or Frosted for migrated and
+new preferences. The environment override does not itself rewrite the stored
+selection.
+
+The preset is read when the primary Floe process starts. Floe is a
+single-instance application, so close an existing Floe window before launching
+with a different `FLOE_APPEARANCE` value; otherwise the new command activates
+the already-running process with its existing appearance.
+
+The appearance-chooser native Wayland smoke verified live Frosted-to-Glass
+switching, Glass restoration on a second isolated launch, and a Frosted
+environment override that left the stored Glass preference unchanged. Each
+instance answered D-Bus `Peer.Ping` and exited cleanly through Quit.
 
 ## Logging
 
