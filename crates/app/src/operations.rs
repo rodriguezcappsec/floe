@@ -302,12 +302,15 @@ impl OperationController {
         let permission_operation = self.state.is_permission_operation(job_id);
         let checksum_operation = self.state.is_checksum_operation(job_id);
         let archive_operation = self.state.is_archive_operation(job_id);
+        let batch_rename_operation = self.state.is_batch_rename_operation(job_id);
         let title = if checksum_operation {
             "Calculating checksums".to_owned()
         } else if permission_operation {
             "Changing permissions".to_owned()
         } else if archive_operation {
             "Archive operation".to_owned()
+        } else if batch_rename_operation {
+            "Batch rename".to_owned()
         } else {
             operation_title(request.as_ref())
         };
@@ -319,6 +322,8 @@ impl OperationController {
             "Cancel permission change".to_owned()
         } else if archive_operation {
             "Cancel archive operation".to_owned()
+        } else if batch_rename_operation {
+            "Cancel batch rename".to_owned()
         } else {
             format!("Cancel {}", operation_verb(request.as_ref()).to_lowercase())
         };
@@ -355,8 +360,10 @@ impl OperationController {
         let permission_operation = self.state.is_permission_operation(job_id);
         let checksum_operation = self.state.is_checksum_operation(job_id);
         let archive_operation = self.state.is_archive_operation(job_id);
+        let batch_rename_operation = self.state.is_batch_rename_operation(job_id);
         let permission_directories = self.state.permission_affected_directories(job_id);
         let archive_directories = self.state.archive_affected_directories(job_id);
+        let batch_rename_directories = self.state.batch_rename_affected_directories(job_id);
         let request = self.state.finish_operation(job_id, outcome);
         let checksum_outcome = if checksum_operation {
             self.state.finish_checksum(job_id)
@@ -365,6 +372,11 @@ impl OperationController {
         };
         let archive_outcome = if archive_operation {
             self.state.finish_archive(job_id)
+        } else {
+            None
+        };
+        let batch_rename_outcome = if batch_rename_operation {
+            self.state.finish_batch_rename(job_id)
         } else {
             None
         };
@@ -382,6 +394,17 @@ impl OperationController {
                 for directory in &archive_directories {
                     (self.on_operation_completed)(directory);
                 }
+                for directory in &batch_rename_directories {
+                    (self.on_operation_completed)(directory);
+                }
+                if batch_rename_outcome.is_some()
+                    && let Some(action) = self
+                        .window
+                        .lookup_action("undo-batch-rename")
+                        .and_downcast::<gio::SimpleAction>()
+                {
+                    action.set_enabled(true);
+                }
                 if let Some(request) = request.as_ref() {
                     for directory in request.affected_directories() {
                         (self.on_operation_completed)(&directory);
@@ -395,6 +418,8 @@ impl OperationController {
                         "Permissions updated"
                     } else if archive_operation {
                         archive_completed_title(archive_outcome.as_ref())
+                    } else if batch_rename_operation {
+                        "Batch rename complete"
                     } else {
                         completed_title(request.as_ref())
                     },
@@ -404,6 +429,12 @@ impl OperationController {
                         "Selected permission changes completed"
                     } else if archive_operation {
                         archive_completed_detail(archive_outcome.as_ref())
+                    } else if batch_rename_operation {
+                        if batch_rename_outcome.is_some() {
+                            "All validated names were applied; Undo is available for the completed mapping"
+                        } else {
+                            "Batch rename completed"
+                        }
                     } else {
                         completed_detail(request.as_ref())
                     },
@@ -415,6 +446,8 @@ impl OperationController {
                     "Permissions updated".to_owned()
                 } else if archive_operation {
                     archive_completed_title(archive_outcome.as_ref()).to_owned()
+                } else if batch_rename_operation {
+                    "Batch rename complete".to_owned()
                 } else {
                     completed_toast(request.as_ref())
                 };
@@ -434,6 +467,8 @@ impl OperationController {
                         "Permission change cancelled"
                     } else if archive_operation {
                         "Archive operation cancelled"
+                    } else if batch_rename_operation {
+                        "Batch rename cancelled"
                     } else if permanent_delete {
                         "Cancelled before deletion"
                     } else {
@@ -445,6 +480,8 @@ impl OperationController {
                         "No permission change was committed"
                     } else if archive_operation {
                         "No archive result was published"
+                    } else if batch_rename_operation {
+                        "No name was changed"
                     } else if permanent_delete {
                         "No selected item was deleted"
                     } else {
@@ -459,6 +496,8 @@ impl OperationController {
                         "Permission change cancelled before it started"
                     } else if archive_operation {
                         "Archive operation cancelled"
+                    } else if batch_rename_operation {
+                        "Batch rename cancelled"
                     } else if permanent_delete {
                         "Permanent deletion cancelled before it started"
                     } else {
@@ -468,6 +507,11 @@ impl OperationController {
                 );
             }
             TerminalResult::Failed(failure) => {
+                if failure.kind() == JobFailureKind::Partial && batch_rename_operation {
+                    for directory in &batch_rename_directories {
+                        (self.on_operation_completed)(directory);
+                    }
+                }
                 if failure.kind() == JobFailureKind::Partial {
                     for directory in &permission_directories {
                         (self.on_operation_completed)(directory);
@@ -482,6 +526,14 @@ impl OperationController {
                     .then(|| archive_failure_text(failure.kind(), failure.message()));
                 let title = if checksum_operation {
                     "Checksum calculation failed"
+                } else if batch_rename_operation {
+                    if failure.kind() == JobFailureKind::Conflict {
+                        "Batch rename conflict"
+                    } else if failure.kind() == JobFailureKind::Partial {
+                        "Batch rename partially completed"
+                    } else {
+                        "Batch rename failed"
+                    }
                 } else if let Some((title, _)) = archive_failure.as_ref() {
                     title
                 } else {

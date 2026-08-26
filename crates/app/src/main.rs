@@ -3,6 +3,7 @@ mod appearance;
 mod application;
 mod archive_executor;
 mod archive_ui;
+mod batch_rename;
 mod bookmarks;
 mod browser;
 mod checksum_executor;

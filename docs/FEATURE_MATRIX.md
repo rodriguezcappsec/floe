@@ -151,7 +151,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Tab detachment | `DEFERRED` | 7F | Optional after tabs, session transfer, and window ownership are stable. |
 | Pane-to-pane drag | `COMPLETE` | 7F | Inactive pane resolves the live exact opposite path and reuses copy/move/link job commands. |
 | Miller column-to-column drag | `COMPLETE` | 8E | Active/retained exact selections publish standard local file lists; folder and column-background targets resolve exact paths and reuse copy/move/link no-overwrite jobs. Typed hover targets revalidate Miller depth/child identity. |
-| Batch rename | `PLANNED` | 12C | Preview, find/replace, regex, numbering, collision validation, and undo are one bounded operation family. |
+| Batch rename | `COMPLETE` | 12C | Preview-first bounded Unicode transforms use whole-batch validation, cycle-safe no-replace staging, shared jobs, and exact in-session inverse mapping. |
 | Archive compress/extract | `COMPLETE` | 12A-12B | Bounded engine plus native Extract Here/To and Compress workflows reuse shared progress/cancellation and never overwrite existing destinations. |
 
 ## Navigation fundamentals
@@ -405,10 +405,10 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Extract Here/To/into folder | `COMPLETE` | 12B | One exact supported archive resolves a raw-name sibling folder or a chosen local parent plus raw archive stem; engine traversal/link/conflict policy remains authoritative. |
 | Compress | `COMPLETE` | 12B | Exact bounded file/folder selection, reviewed format chooser, editable explicit name, destination preview, atomic no-replace publication, and Operations Island cancellation. |
 | Archive password handling | `DEFERRED` | 12B | UI truthfully explains the reviewed backend cannot accept passwords and exposes no secret field; no argv, environment, persistence, logs, or helper handoff occurs. |
-| Batch rename preview | `PLANNED` | 12C | Whole-batch validation before mutation. |
-| Prefix/suffix/find-replace/regex | `PLANNED` | 12C | Collision-safe preview and explicit extension policy. |
-| Sequence numbering/padding/case/date | `PLANNED` | 12C | Deterministic templates with locale/time semantics shown before apply. |
-| Batch rename undo | `PLANNED` | 12C | Requires recorded exact old/new names and revalidation. |
+| Batch rename preview | `COMPLETE` | 12C | Native preview exposes validated old/new mappings with a 128-row presentation cap before one job submission. |
+| Prefix/suffix/find-replace/regex | `COMPLETE` | 12C | Pinned Rust regex plus literal transforms, safe-name validation, duplicate detection, and explicit preserve-extension policy. |
+| Sequence numbering/padding/case/date | `COMPLETE` | 12C | Deterministic start/padding, case, and stable selected metadata-date templates are shown before apply. |
+| Batch rename undo | `COMPLETE` | 12C | One bounded in-session exact inverse mapping is revalidated through the same no-overwrite job; no persistent undo claim. |
 | Preferred editor/compare tools | `DEFERRED` | 19 | External tools need safe executable/action configuration without shell interpolation. |
 
 ## Sidebar, context actions, commands, keyboard, and terminal

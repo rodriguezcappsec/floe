@@ -1,33 +1,33 @@
-# Gates: Floe Phase 12B — Archive UX
+# Gates: Floe Phase 12C — Batch Rename
 
-Scope: Deliver native accessible Extract Here/To and Compress workflows over the Phase 12A bounded engine.
+Scope: Deliver previewed, collision-safe, bounded batch rename with exact in-session undo.
 
-- [x] G1: The active branch is the dedicated Phase 12B branch.
+- [x] G1: Dedicated Phase 12C branch is active.
 CHECK: git branch --show-current
-EXPECT: phase-12b-archive-ui
-EVIDENCE: `git branch --show-current` returned `phase-12b-archive-ui`.
+EXPECT: phase-12c-batch-rename
+EVIDENCE: Active branch is `phase-12c-batch-rename`.
 
-- [x] G2: Archive UX planning resolves exact sources, reviewed formats, deterministic destinations, raw names, conflicts, and bounded selection eligibility.
-CHECK: cargo test -p floe-app phase_12b_archive_ui_contract -- --nocapture
+- [x] G2: Transform and preview model covers literal/regex/prefix/suffix/number/case/date, extension policy, raw-name rejection, capacity, and deterministic collisions.
+CHECK: cargo test -p floe-app phase_12c_batch_rename_model -- --nocapture
 EXPECT: test result: ok
-EVIDENCE: Focused raw-name and exact-destination contract test passed.
+EVIDENCE: Focused model test passed regex/templates, numbering, case, collision, and raw-name policy.
 
-- [x] G3: Native archive dialogs/actions expose Extract Here, Extract To, and Compress with accessible labels, destination preview, live eligibility, and no GTK filesystem mutation.
-CHECK: cargo test -p floe-app phase_12b_archive_ui_actions -- --nocapture
+- [x] G3: Whole-batch apply and undo validate every exact mapping before no-overwrite mutation, revalidate identities, and report cancellation/partial failure truthfully.
+CHECK: cargo test -p floe-app phase_12c_batch_rename_jobs -- --nocapture
 EXPECT: test result: ok
-EVIDENCE: Focused action/presentation test passed; live Wayland window exported all three actions and Extract Here was disabled with no selection.
+EVIDENCE: Core and app job tests passed cycle-safe apply, conflict preservation, cancellation, shared progress, result, and exact inverse mapping.
 
-- [x] G4: Archive UI jobs reuse shared progress/cancellation/results, refresh affected directories, and report conflict/password/unsupported states truthfully without accepting secrets or overwriting.
-CHECK: cargo test -p floe-app phase_12b_archive_ui_jobs -- --nocapture
+- [x] G4: Native preview UI is accessible, selection-aware, deterministic, and delegates all mutation to application jobs.
+CHECK: cargo test -p floe-app phase_12c_batch_rename_ui -- --nocapture
 EXPECT: test result: ok
-EVIDENCE: Focused state test passed completion, conflict preservation, cancellation, affected-directory, and bounded-result assertions; password/conflict guidance test passed.
+EVIDENCE: Bounded preview test passed; native Wayland described selection-aware Batch Rename and Undo actions as disabled without eligible state.
 
 - [x] G5: Formatting, workspace check, strict Clippy, all tests, native build/smoke, and diff hygiene pass.
-CHECK: sh -c 'cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check && echo phase-12b-full-gate-ok'
-EXPECT: phase-12b-full-gate-ok
-EVIDENCE: Format, workspace check, strict Clippy, 335 app tests, 97 core tests, native build, diff hygiene, D-Bus Ping, action export/state, Quit, and exit 0 passed.
+CHECK: sh -c 'cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check && echo phase-12c-full-gate-ok'
+EXPECT: phase-12c-full-gate-ok
+EVIDENCE: Strict Clippy, 338 app tests, 98 core tests, native build, diff hygiene, Wayland D-Bus Ping, Quit, and exit 0 passed.
 
-- [x] G6: Persistent status records 12B complete and exactly 12C next without password, overwrite, or sandbox claims.
-CHECK: sh -c 'test "$(rg -o "NEXT" docs/ROADMAP.md | wc -l)" -eq 1 && rg -q "12B.*COMPLETE" docs/ROADMAP.md && rg -q "12C.*NEXT" docs/ROADMAP.md && echo phase-12b-docs-ok'
-EXPECT: phase-12b-docs-ok
-EVIDENCE: Roadmap has exactly one `NEXT` at 12C; matrix, AGENTS, development, and privacy/security records match implementation and exclusions.
+- [x] G6: Persistent status records 12C complete and exactly 12D next.
+CHECK: sh -c 'test "$(rg -o "NEXT" docs/ROADMAP.md | wc -l)" -eq 1 && rg -q "12C.*COMPLETE" docs/ROADMAP.md && rg -q "12D.*NEXT" docs/ROADMAP.md && echo phase-12c-docs-ok'
+EXPECT: phase-12c-docs-ok
+EVIDENCE: Roadmap has exactly one NEXT at 12D; AGENTS, matrix, privacy/security, plan, and gates match verified scope.

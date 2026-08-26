@@ -1176,10 +1176,25 @@ Last updated:
 Current phase:
 
 ```text
-Phase 12 — Productivity operations (Phase 12B complete)
+Phase 12 — Productivity operations (Phase 12C complete)
 ```
 
 Status:
+
+```text
+Phase 12C adds preview-first batch rename for 2–4,096 selected local entries.
+Literal/regex find-replace, prefix/suffix, deterministic numbering/padding,
+case, metadata-date/name/extension templates, and explicit preserve-extension
+policy generate a bounded accessible native preview. Unicode transforms reject
+non-UTF-8 names explicitly; original paths are never reconstructed from lossy
+text. Whole-batch validation rejects unsafe/duplicate destinations before one
+application job. Core execution uses same-directory hidden staging and Linux
+no-replace renames so swaps/cycles work without overwrite, checks cancellation
+before commit, attempts rollback, and reports incomplete rollback as partial.
+One exact inverse mapping remains memory-only for Undo Last Batch Rename and is
+revalidated through the same engine. Phase 12D create/templates polish is the
+sole next phase.
+```
 
 ```text
 Phase 12B adds native Extract Here, Extract To, and Compress workflows over the

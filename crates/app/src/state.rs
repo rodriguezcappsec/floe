@@ -8,10 +8,10 @@ use std::{
 };
 
 use floe_core::{
-    ArchiveOutcome, ArchiveRequest, ChecksumRequest, ConflictPolicy, CopyRequest, CreateKind,
-    CreateRequest, CreateRequestError, JobEvent, JobId, MoveRequest, OperationId,
-    PermanentDeleteRequest, PermanentDeleteRequestError, PermissionRequest, RenameRequest,
-    RestoreRequest, RestoreRequestError, SymlinkPolicy,
+    ArchiveOutcome, ArchiveRequest, BatchRenameOutcome, BatchRenameRequest, ChecksumRequest,
+    ConflictPolicy, CopyRequest, CreateKind, CreateRequest, CreateRequestError, JobEvent, JobId,
+    MoveRequest, OperationId, PermanentDeleteRequest, PermanentDeleteRequestError,
+    PermissionRequest, RenameRequest, RestoreRequest, RestoreRequestError, SymlinkPolicy,
 };
 use thiserror::Error;
 
@@ -20,6 +20,7 @@ use crate::{
         ArchiveCancelError, ArchiveExecutor, ArchiveExecutorSpawnError, ArchiveSubmission,
         ArchiveSubmitError,
     },
+    batch_rename::{BatchRenameExecutor, BatchRenameExecutorError, BatchRenameSubmission},
     checksum_executor::{
         ChecksumCancelError, ChecksumExecutor, ChecksumExecutorSpawnError, ChecksumOutcome,
         ChecksumSubmission, ChecksumSubmitError,
@@ -530,6 +531,8 @@ pub enum ApplicationStateSpawnError {
     #[error(transparent)]
     Archive(#[from] ArchiveExecutorSpawnError),
     #[error(transparent)]
+    BatchRename(#[from] BatchRenameExecutorError),
+    #[error(transparent)]
     Checksum(#[from] ChecksumExecutorSpawnError),
     #[error(transparent)]
     Copy(#[from] CopyExecutorSpawnError),
@@ -552,6 +555,7 @@ pub enum ApplicationStateSpawnError {
 pub struct ApplicationState {
     pub jobs: SharedJobManager,
     archive_executor: ArchiveExecutor,
+    batch_rename_executor: BatchRenameExecutor,
     copy_executor: CopyExecutor,
     create_executor: CreateExecutor,
     move_executor: MoveExecutor,
@@ -565,6 +569,8 @@ pub struct ApplicationState {
     permission_requests: RefCell<HashMap<JobId, PermissionRequest>>,
     checksum_requests: RefCell<HashMap<JobId, ChecksumRequest>>,
     archive_requests: RefCell<HashMap<JobId, ArchiveRequest>>,
+    batch_rename_requests: RefCell<HashMap<JobId, BatchRenameRequest>>,
+    batch_rename_undo: RefCell<Option<BatchRenameRequest>>,
     terminal_history: RefCell<VecDeque<TerminalOperation>>,
     resolved_conflicts: RefCell<HashSet<JobId>>,
     resolved_undos: RefCell<HashSet<JobId>>,
@@ -579,6 +585,7 @@ impl ApplicationState {
     pub fn new() -> Result<Self, ApplicationStateSpawnError> {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
         let archive_executor = ArchiveExecutor::spawn(Arc::clone(&jobs))?;
+        let batch_rename_executor = BatchRenameExecutor::spawn(Arc::clone(&jobs))?;
         let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
         let create_executor = CreateExecutor::spawn(Arc::clone(&jobs))?;
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
@@ -590,6 +597,7 @@ impl ApplicationState {
         Ok(Self {
             jobs,
             archive_executor,
+            batch_rename_executor,
             copy_executor,
             create_executor,
             move_executor,
@@ -603,6 +611,8 @@ impl ApplicationState {
             permission_requests: RefCell::new(HashMap::new()),
             checksum_requests: RefCell::new(HashMap::new()),
             archive_requests: RefCell::new(HashMap::new()),
+            batch_rename_requests: RefCell::new(HashMap::new()),
+            batch_rename_undo: RefCell::new(None),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
             resolved_undos: RefCell::new(HashSet::new()),
@@ -1053,6 +1063,54 @@ impl ApplicationState {
             .and_then(Path::parent)
             .map(|path| vec![path.to_path_buf()])
             .unwrap_or_default()
+    }
+
+    pub fn submit_batch_rename(
+        &self,
+        request: BatchRenameRequest,
+    ) -> Result<BatchRenameSubmission, BatchRenameExecutorError> {
+        let submission = self.batch_rename_executor.submit(request.clone())?;
+        self.batch_rename_requests
+            .borrow_mut()
+            .insert(submission.job_id(), request);
+        Ok(submission)
+    }
+
+    pub fn is_batch_rename_operation(&self, job_id: JobId) -> bool {
+        self.batch_rename_requests.borrow().contains_key(&job_id)
+    }
+
+    pub fn batch_rename_affected_directories(&self, job_id: JobId) -> Vec<PathBuf> {
+        let mut directories = Vec::new();
+        if let Some(request) = self.batch_rename_requests.borrow().get(&job_id) {
+            for pair in request.pairs() {
+                if let Some(parent) = pair.source().parent() {
+                    let parent = parent.to_path_buf();
+                    if !directories.contains(&parent) {
+                        directories.push(parent);
+                    }
+                }
+            }
+        }
+        directories
+    }
+
+    pub fn finish_batch_rename(&self, job_id: JobId) -> Option<BatchRenameOutcome> {
+        self.batch_rename_requests.borrow_mut().remove(&job_id);
+        let outcome = self.batch_rename_executor.take_result(job_id);
+        if let Some(outcome) = &outcome {
+            self.batch_rename_undo.replace(outcome.undo_request().ok());
+        }
+        outcome
+    }
+
+    pub fn submit_batch_rename_undo(
+        &self,
+    ) -> Result<Option<BatchRenameSubmission>, BatchRenameExecutorError> {
+        let Some(request) = self.batch_rename_undo.borrow_mut().take() else {
+            return Ok(None);
+        };
+        self.submit_batch_rename(request).map(Some)
     }
 
     pub fn submit_restore(
@@ -1980,6 +2038,12 @@ impl ApplicationState {
     }
 
     pub fn cancel_operation(&self, job_id: JobId) -> Result<(), CopyInteractionError> {
+        if self.batch_rename_requests.borrow().contains_key(&job_id) {
+            self.batch_rename_executor
+                .cancel(job_id)
+                .map_err(|error| CopyInteractionError::PermissionCancel(error.to_string()))?;
+            return Ok(());
+        }
         if self.archive_requests.borrow().contains_key(&job_id) {
             self.archive_executor.cancel(job_id)?;
             return Ok(());
@@ -2030,6 +2094,7 @@ impl ApplicationState {
     ) -> Result<Self, ApplicationStateSpawnError> {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
         let archive_executor = ArchiveExecutor::spawn(Arc::clone(&jobs))?;
+        let batch_rename_executor = BatchRenameExecutor::spawn(Arc::clone(&jobs))?;
         let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
         let create_executor = CreateExecutor::spawn(Arc::clone(&jobs))?;
         let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
@@ -2041,6 +2106,7 @@ impl ApplicationState {
         Ok(Self {
             jobs,
             archive_executor,
+            batch_rename_executor,
             copy_executor,
             create_executor,
             move_executor,
@@ -2054,6 +2120,8 @@ impl ApplicationState {
             permission_requests: RefCell::new(HashMap::new()),
             checksum_requests: RefCell::new(HashMap::new()),
             archive_requests: RefCell::new(HashMap::new()),
+            batch_rename_requests: RefCell::new(HashMap::new()),
+            batch_rename_undo: RefCell::new(None),
             terminal_history: RefCell::new(VecDeque::new()),
             resolved_conflicts: RefCell::new(HashSet::new()),
             resolved_undos: RefCell::new(HashSet::new()),
