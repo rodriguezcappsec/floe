@@ -1,12 +1,15 @@
 //! GTK-independent filesystem and navigation foundations for Floe.
 
+mod advanced_filter;
 mod archive;
 mod batch_rename;
 mod checksum;
+mod content_search;
 mod copy;
 mod create_operation;
 mod directory;
 mod error;
+mod filename_search;
 mod filter;
 mod jobs;
 mod miller;
@@ -22,6 +25,14 @@ mod tabs;
 mod trash_lifecycle;
 mod view;
 
+#[cfg(test)]
+mod property_tests;
+
+pub use advanced_filter::{
+    ADVANCED_FILTER_EXTENSION_CAPACITY, ADVANCED_FILTER_MIME_CAPACITY, AdvancedFilter,
+    AdvancedFilterDecision, AdvancedFilterError, AdvancedMetadata, AdvancedMetadataNeeds,
+    EntryTypeFilter, HiddenFilter, OwnerFilter,
+};
 pub use archive::{
     ARCHIVE_LIST_RESULT_CAPACITY, ARCHIVE_MEMBER_DEPTH, ARCHIVE_MEMBER_PATH_BYTES,
     ARCHIVE_SOURCE_CAPACITY, ArchiveCancellation, ArchiveError, ArchiveFormat, ArchiveLimits,
@@ -36,6 +47,13 @@ pub use checksum::{
     CHECKSUM_TARGET_CAPACITY, ChecksumAlgorithm, ChecksumRequest, ChecksumRequestError,
     ExpectedDigest, encode_hex,
 };
+pub use content_search::{
+    CONTENT_SEARCH_BATCH_CAPACITY, CONTENT_SEARCH_DEPTH_CAPACITY,
+    CONTENT_SEARCH_DIRECTORY_CAPACITY, CONTENT_SEARCH_FILE_BYTES, CONTENT_SEARCH_FILE_CAPACITY,
+    CONTENT_SEARCH_LINE_BYTES, CONTENT_SEARCH_RESULT_CAPACITY, CONTENT_SEARCH_SNIPPET_CHARS,
+    CONTENT_SEARCH_TOTAL_BYTES, ContentSearchError, ContentSearchLimits, ContentSearchMatch,
+    ContentSearchRequest, ContentSearchSummary, search_contents_with_mime,
+};
 pub use copy::{
     ConflictPolicy, CopyCancellation, CopyError, CopyOutcome, CopyProgress, CopyRequest,
     SymlinkPolicy, execute_copy,
@@ -46,6 +64,13 @@ pub use create_operation::{
 };
 pub use directory::{enumerate_directory, enumerate_directory_with_cancel};
 pub use error::DirectoryError;
+pub use filename_search::{
+    FILENAME_SEARCH_BATCH_CAPACITY, FILENAME_SEARCH_DEPTH_CAPACITY,
+    FILENAME_SEARCH_DIRECTORY_CAPACITY, FILENAME_SEARCH_ENTRY_CAPACITY,
+    FILENAME_SEARCH_RESULT_CAPACITY, FilenameSearchError, FilenameSearchLimits,
+    FilenameSearchRequest, FilenameSearchScope, FilenameSearchSummary, search_filenames,
+    search_filenames_with_mime,
+};
 pub use filter::{
     FOLDER_FILTER_QUERY_CAPACITY, FolderFilterError, FolderFilterMode, FolderFilterPattern,
 };

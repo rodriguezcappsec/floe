@@ -8,8 +8,8 @@ use std::{
 
 use adw::prelude::*;
 use floe_core::{
-    DirectoryEntry, DirectoryGrouping, DirectorySort, EntryKind, SortColumn, SortDirection,
-    SplitRatio, SplitSide,
+    ContentSearchMatch, DirectoryEntry, DirectoryGrouping, DirectorySort, EntryKind, SortColumn,
+    SortDirection, SplitRatio, SplitSide,
 };
 use gtk::{gio, glib};
 
@@ -48,8 +48,29 @@ const KEYBOARD_SHORTCUTS_MENU_ITEM: (&str, &str) =
     ("Keyboard Shortcuts…", "win.keyboard-shortcuts");
 pub const VIM_MODE_ON_LABEL: &str = "Vim On";
 const FOLDER_FILTER_MODES: [&str; 3] = ["Text", "Glob", "Regex"];
+const ADVANCED_TYPE_FILTERS: [&str; 5] =
+    ["Any type", "Files", "Folders", "Symbolic links", "Other"];
+const ADVANCED_SIZE_FILTERS: [&str; 5] =
+    ["Any size", "Empty", "Under 1 MB", "1–100 MB", "Over 100 MB"];
+const ADVANCED_DATE_FILTERS: [&str; 5] = [
+    "Any date",
+    "Last 24 hours",
+    "Last 7 days",
+    "Last 30 days",
+    "Last year",
+];
+const ADVANCED_OWNER_FILTERS: [&str; 2] = ["Anyone", "Me"];
+const ADVANCED_HIDDEN_FILTERS: [&str; 3] =
+    ["Current hidden setting", "Include hidden", "Hidden only"];
+pub(crate) const SEARCH_SURFACE_MODES: [&str; 3] =
+    ["Quick Filter", "Search Files", "Search Contents"];
+pub(crate) const SEARCH_SURFACE_MODE_HELP: [&str; 3] = [
+    "Quick Filter narrows the items already shown in this folder. It does not search subfolders or read the filesystem again.",
+    "Search Files finds filenames on disk in this folder or its subfolders. It never reads file contents.",
+    "Search Contents explicitly reads bounded local text files in this folder or its subfolders. It skips binary, unsupported, remote, linked, and over-limit files.",
+];
 const FOLDER_FILTER_MODE_HELP: [&str; 3] = [
-    "Contains these characters, ignoring letter case. Example: vacation finds My Vacation.jpg",
+    "Contains these characters. Letter case is ignored unless Match case is enabled. Example: vacation finds My Vacation.jpg",
     "Uses wildcard patterns: * matches any characters and ? matches one character. Examples: *.pdf or photo-??.jpg",
     "Uses advanced regular-expression patterns. Example: ^invoice-[0-9]+\\.pdf$",
 ];
@@ -251,7 +272,7 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 24] = [
+pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 25] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
@@ -276,6 +297,7 @@ pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 24] = [
     ("Batch Rename…", "win.batch-rename"),
     ("Undo Last Batch Rename", "win.undo-batch-rename"),
     ("Customize Context Menus…", "win.context-menu-settings"),
+    ("Reveal in Folder", "win.reveal-in-folder"),
 ];
 pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Restore", "win.restore"),
@@ -916,10 +938,30 @@ pub struct BrowserWidgets {
     pub grid_size_scale: gtk::Scale,
     pub empty_state: gtk::Box,
     pub empty_label: gtk::Label,
-    pub filter_bar: gtk::Box,
+    pub search_bar: gtk::Box,
+    pub search_mode: gtk::DropDown,
     pub filter_entry: gtk::SearchEntry,
     pub filter_mode: gtk::DropDown,
     pub filter_feedback: gtk::Label,
+    pub advanced_filter_toggle: gtk::ToggleButton,
+    pub advanced_filter_box: gtk::Box,
+    pub advanced_type: gtk::DropDown,
+    pub advanced_extension: gtk::Entry,
+    pub advanced_mime: gtk::Entry,
+    pub advanced_size: gtk::DropDown,
+    pub advanced_date: gtk::DropDown,
+    pub advanced_owner: gtk::DropDown,
+    pub advanced_hidden: gtk::DropDown,
+    pub advanced_match_case: gtk::CheckButton,
+    pub advanced_apply: gtk::Button,
+    pub advanced_clear: gtk::Button,
+    pub search_scope: gtk::DropDown,
+    pub search_button: gtk::Button,
+    pub search_stop_button: gtk::Button,
+    pub search_feedback: gtk::Label,
+    pub search_results_view: gtk::ListView,
+    pub search_context_menu: gtk::PopoverMenu,
+    pub search_background_menu: gtk::PopoverMenu,
     pub spinner: gtk::Spinner,
     pub status_label: gtk::Label,
     pub sort_headers: Vec<SortHeaderWidgets>,
@@ -976,10 +1018,30 @@ struct DirectoryPanelWidgets {
     background_context_model: gio::Menu,
     empty_state: gtk::Box,
     empty_label: gtk::Label,
-    filter_bar: gtk::Box,
+    search_bar: gtk::Box,
+    search_mode: gtk::DropDown,
     filter_entry: gtk::SearchEntry,
     filter_mode: gtk::DropDown,
     filter_feedback: gtk::Label,
+    advanced_filter_toggle: gtk::ToggleButton,
+    advanced_filter_box: gtk::Box,
+    advanced_type: gtk::DropDown,
+    advanced_extension: gtk::Entry,
+    advanced_mime: gtk::Entry,
+    advanced_size: gtk::DropDown,
+    advanced_date: gtk::DropDown,
+    advanced_owner: gtk::DropDown,
+    advanced_hidden: gtk::DropDown,
+    advanced_match_case: gtk::CheckButton,
+    advanced_apply: gtk::Button,
+    advanced_clear: gtk::Button,
+    search_scope: gtk::DropDown,
+    search_button: gtk::Button,
+    search_stop_button: gtk::Button,
+    search_feedback: gtk::Label,
+    search_results_view: gtk::ListView,
+    search_context_menu: gtk::PopoverMenu,
+    search_background_menu: gtk::PopoverMenu,
     spinner: gtk::Spinner,
     status_label: gtk::Label,
     sort_headers: Vec<SortHeaderWidgets>,
@@ -1245,6 +1307,7 @@ impl BrowserWidgets {
     pub fn set_views_sensitive(&self, sensitive: bool) {
         self.list_view.set_sensitive(sensitive);
         self.grid_view.set_sensitive(sensitive);
+        self.search_results_view.set_sensitive(sensitive);
         self.miller_view.widget().set_sensitive(sensitive);
     }
 
@@ -1299,6 +1362,8 @@ impl BrowserWidgets {
     pub fn popdown_context_menus(&self) {
         self.list_context_menu.popdown();
         self.grid_context_menu.popdown();
+        self.search_context_menu.popdown();
+        self.search_background_menu.popdown();
         self.list_background_menu.popdown();
         self.grid_background_menu.popdown();
     }
@@ -1359,6 +1424,7 @@ pub fn build(
     let window = adw::ApplicationWindow::builder()
         .application(application)
         .title("Floe")
+        .icon_name(crate::iconography::APPLICATION_ICON_NAME)
         .default_width(1060)
         .default_height(720)
         .width_request(720)
@@ -1376,12 +1442,12 @@ pub fn build(
         .action_name("win.hidden")
         .build();
     set_accessible_label(&hidden_button, "Show hidden files");
-    let filter_button = icon_button(
+    let header_search_button = icon_button(
         "system-search-symbolic",
-        "Filter this folder (Ctrl+F)",
+        "Search and filter (Ctrl+F)",
         "win.folder-filter",
     );
-    set_accessible_label(&filter_button, "Filter this folder");
+    set_accessible_label(&header_search_button, "Search and filter files");
     let open_button = icon_button(
         "document-open-symbolic",
         "Open selected item (Enter)",
@@ -1693,7 +1759,7 @@ pub fn build(
     );
 
     header.pack_end(&hidden_button);
-    header.pack_end(&filter_button);
+    header.pack_end(&header_search_button);
     header.pack_end(&open_button);
     header.pack_end(&file_actions);
     header.pack_end(&vim_mode_button);
@@ -1722,10 +1788,30 @@ pub fn build(
         background_context_model,
         empty_state,
         empty_label,
-        filter_bar,
+        search_bar,
+        search_mode,
         filter_entry,
         filter_mode,
         filter_feedback,
+        advanced_filter_toggle,
+        advanced_filter_box,
+        advanced_type,
+        advanced_extension,
+        advanced_mime,
+        advanced_size,
+        advanced_date,
+        advanced_owner,
+        advanced_hidden,
+        advanced_match_case,
+        advanced_apply,
+        advanced_clear,
+        search_scope,
+        search_button,
+        search_stop_button,
+        search_feedback,
+        search_results_view,
+        search_context_menu,
+        search_background_menu,
         spinner,
         status_label,
         sort_headers,
@@ -1943,10 +2029,30 @@ pub fn build(
         grid_size_scale,
         empty_state,
         empty_label,
-        filter_bar,
+        search_bar,
+        search_mode,
         filter_entry,
         filter_mode,
         filter_feedback,
+        advanced_filter_toggle,
+        advanced_filter_box,
+        advanced_type,
+        advanced_extension,
+        advanced_mime,
+        advanced_size,
+        advanced_date,
+        advanced_owner,
+        advanced_hidden,
+        advanced_match_case,
+        advanced_apply,
+        advanced_clear,
+        search_scope,
+        search_button,
+        search_stop_button,
+        search_feedback,
+        search_results_view,
+        search_context_menu,
+        search_background_menu,
         spinner,
         status_label,
         sort_headers,
@@ -3178,6 +3284,10 @@ fn build_directory_panel(
     list_context_menu.set_has_arrow(false);
     let grid_context_menu = gtk::PopoverMenu::from_model(Some(&file_context_model));
     grid_context_menu.set_has_arrow(false);
+    let search_context_menu = gtk::PopoverMenu::from_model(Some(&file_context_model));
+    search_context_menu.set_has_arrow(false);
+    let search_background_menu = gtk::PopoverMenu::from_model(Some(&background_context_model));
+    search_background_menu.set_has_arrow(false);
     let list_background_menu = gtk::PopoverMenu::from_model(Some(&background_context_model));
     list_background_menu.set_has_arrow(false);
     let grid_background_menu = gtk::PopoverMenu::from_model(Some(&background_context_model));
@@ -3578,6 +3688,28 @@ fn build_directory_panel(
         .child(&grid_view)
         .vexpand(true)
         .build();
+
+    let search_factory = build_filename_search_factory(&selection, &search_context_menu);
+    let search_results_view =
+        gtk::ListView::new(Some(selection.clone()), Some(search_factory.clone()));
+    search_results_view.add_css_class("floe-directory-list");
+    search_results_view.add_css_class("floe-search-results");
+    search_results_view.set_single_click_activate(false);
+    search_results_view.set_vexpand(true);
+    search_context_menu.set_parent(&search_results_view);
+    search_background_menu.set_parent(&search_results_view);
+    install_background_context_menu(
+        &search_results_view,
+        &selection,
+        &search_background_menu,
+        "floe-search-result-row",
+    );
+    let search_scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .child(&search_results_view)
+        .vexpand(true)
+        .build();
     let miller_file_context: gio::MenuModel = file_context_model.clone().upcast();
     let miller_background_context: gio::MenuModel = background_context_model.clone().upcast();
     let miller_view = MillerView::new(
@@ -3592,6 +3724,7 @@ fn build_directory_panel(
     view_stack.add_named(&list_scroller, Some("list"));
     view_stack.add_named(&grid_scroller, Some("grid"));
     view_stack.add_named(miller_view.widget(), Some("miller"));
+    view_stack.add_named(&search_scroller, Some("search-results"));
     view_stack.set_visible_child_name(preferences.mode.stack_name());
     view_stack.set_vexpand(true);
 
@@ -3618,21 +3751,26 @@ fn build_directory_panel(
     overlay.add_overlay(&empty_state);
     overlay.set_vexpand(true);
 
+    let search_mode = gtk::DropDown::from_strings(&SEARCH_SURFACE_MODES);
+    search_mode.set_tooltip_text(Some(SEARCH_SURFACE_MODE_HELP[0]));
+    search_mode.update_property(&[gtk::accessible::Property::Description(
+        SEARCH_SURFACE_MODE_HELP[0],
+    )]);
+    set_accessible_label(&search_mode, "Search mode");
+
     let filter_entry = gtk::SearchEntry::builder()
-        .placeholder_text("Filter filenames")
+        .placeholder_text("Filter shown items")
         .hexpand(true)
         .build();
     filter_entry.set_search_delay(120);
-    filter_entry.set_tooltip_text(Some(
-        "Filter entries already loaded from this folder; press Escape to close",
-    ));
-    set_accessible_label(&filter_entry, "Filename filter");
+    filter_entry.set_tooltip_text(Some(SEARCH_SURFACE_MODE_HELP[0]));
+    set_accessible_label(&filter_entry, "Search query");
     let filter_mode = gtk::DropDown::from_strings(&FOLDER_FILTER_MODES);
     let filter_mode_factory = build_folder_filter_mode_factory();
     filter_mode.set_list_factory(Some(&filter_mode_factory));
     update_folder_filter_mode_help(&filter_mode);
     filter_mode.connect_selected_notify(update_folder_filter_mode_help);
-    set_accessible_label(&filter_mode, "Filter matching mode");
+    set_accessible_label(&filter_mode, "Filename matching mode");
     let filter_feedback = gtk::Label::builder()
         .label("All items")
         .halign(gtk::Align::Start)
@@ -3642,20 +3780,94 @@ fn build_directory_panel(
     filter_feedback.set_accessible_role(gtk::AccessibleRole::Alert);
     filter_feedback.add_css_class("caption");
     filter_feedback.add_css_class("dim-label");
-    let filter_close_button = icon_button(
+    let advanced_filter_toggle = gtk::ToggleButton::with_label("Filters");
+    advanced_filter_toggle.set_tooltip_text(Some(
+        "Show type, extension, MIME, size, date, owner, hidden, and case filters",
+    ));
+    set_accessible_label(&advanced_filter_toggle, "Show advanced filters");
+
+    let advanced_type = gtk::DropDown::from_strings(&ADVANCED_TYPE_FILTERS);
+    advanced_type.set_tooltip_text(Some("Limit results by filesystem entry type"));
+    set_accessible_label(&advanced_type, "File type filter");
+    let advanced_extension = gtk::Entry::builder()
+        .placeholder_text("Extension")
+        .width_chars(10)
+        .max_length(64)
+        .build();
+    advanced_extension.set_tooltip_text(Some(
+        "Match one filename extension, with or without a leading dot (for example: pdf)",
+    ));
+    set_accessible_label(&advanced_extension, "Filename extension filter");
+    let advanced_mime = gtk::Entry::builder()
+        .placeholder_text("MIME, e.g. image/*")
+        .width_chars(16)
+        .max_length(128)
+        .build();
+    advanced_mime.set_tooltip_text(Some(
+        "Match an exact MIME type or a family such as image/*. MIME is guessed from the name without reading file contents.",
+    ));
+    set_accessible_label(&advanced_mime, "MIME type filter");
+    let advanced_size = gtk::DropDown::from_strings(&ADVANCED_SIZE_FILTERS);
+    advanced_size.set_tooltip_text(Some("Limit regular files by byte size"));
+    set_accessible_label(&advanced_size, "File size filter");
+    let advanced_date = gtk::DropDown::from_strings(&ADVANCED_DATE_FILTERS);
+    advanced_date.set_tooltip_text(Some("Limit results by modification time"));
+    set_accessible_label(&advanced_date, "Modified date filter");
+    let advanced_owner = gtk::DropDown::from_strings(&ADVANCED_OWNER_FILTERS);
+    advanced_owner.set_tooltip_text(Some("Limit results to files owned by your Unix user ID"));
+    set_accessible_label(&advanced_owner, "Owner filter");
+    let advanced_hidden = gtk::DropDown::from_strings(&ADVANCED_HIDDEN_FILTERS);
+    advanced_hidden.set_tooltip_text(Some(
+        "Use Show Hidden, include both hidden and visible items, or show hidden items only",
+    ));
+    set_accessible_label(&advanced_hidden, "Hidden files filter");
+    let advanced_match_case = gtk::CheckButton::with_label("Match case");
+    advanced_match_case.set_tooltip_text(Some(
+        "Make filename, extension, and MIME text matching case-sensitive",
+    ));
+    let advanced_apply = gtk::Button::with_label("Apply");
+    advanced_apply.set_tooltip_text(Some("Apply all advanced filters together"));
+    let advanced_clear = gtk::Button::with_label("Clear filters");
+    advanced_clear.set_tooltip_text(Some("Reset advanced filters but keep the search text"));
+
+    let advanced_filter_flow = gtk::FlowBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .column_spacing(8)
+        .row_spacing(6)
+        .max_children_per_line(6)
+        .min_children_per_line(1)
+        .homogeneous(false)
+        .build();
+    advanced_filter_flow.insert(&advanced_type, -1);
+    advanced_filter_flow.insert(&advanced_extension, -1);
+    advanced_filter_flow.insert(&advanced_mime, -1);
+    advanced_filter_flow.insert(&advanced_size, -1);
+    advanced_filter_flow.insert(&advanced_date, -1);
+    advanced_filter_flow.insert(&advanced_owner, -1);
+    advanced_filter_flow.insert(&advanced_hidden, -1);
+    advanced_filter_flow.insert(&advanced_match_case, -1);
+    advanced_filter_flow.insert(&advanced_apply, -1);
+    advanced_filter_flow.insert(&advanced_clear, -1);
+    let advanced_filter_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .visible(false)
+        .build();
+    advanced_filter_box.append(&advanced_filter_flow);
+    let search_close_button = icon_button(
         "window-close-symbolic",
-        "Clear and close filter (Escape)",
-        "win.clear-folder-filter",
+        "Clear and close search (Escape)",
+        "win.close-search-surface",
     );
-    set_accessible_label(&filter_close_button, "Clear and close filter");
-    let filter_label = gtk::Label::builder()
-        .label("Filter")
+    set_accessible_label(&search_close_button, "Clear and close search");
+    let search_label = gtk::Label::builder()
+        .label("Search")
         .halign(gtk::Align::Start)
         .build();
-    filter_label.add_css_class("heading");
+    search_label.add_css_class("heading");
     let filter_bar = gtk::Box::builder()
-        .orientation(gtk::Orientation::Horizontal)
-        .spacing(8)
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
         .margin_start(12)
         .margin_end(12)
         .margin_top(8)
@@ -3663,11 +3875,61 @@ fn build_directory_panel(
         .visible(false)
         .build();
     filter_bar.add_css_class("floe-filter-bar");
-    filter_bar.append(&filter_label);
-    filter_bar.append(&filter_entry);
-    filter_bar.append(&filter_mode);
-    filter_bar.append(&filter_feedback);
-    filter_bar.append(&filter_close_button);
+    filter_bar.add_css_class("floe-search-bar");
+    let search_query_row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .build();
+    search_query_row.append(&search_label);
+    search_query_row.append(&search_mode);
+    search_query_row.append(&filter_entry);
+    search_query_row.append(&search_close_button);
+
+    let search_options_row = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .build();
+    search_options_row.append(&filter_mode);
+    search_options_row.append(&advanced_filter_toggle);
+    search_options_row.append(&filter_feedback);
+
+    let search_scope = gtk::DropDown::from_strings(&["This Folder", "Include Subfolders"]);
+    search_scope.set_selected(1);
+    search_scope.set_tooltip_text(Some(
+        "Choose whether to search only this folder or descend into subfolders without following links or crossing mounted filesystems.",
+    ));
+    set_accessible_label(&search_scope, "File search scope");
+    search_scope.set_visible(false);
+    let search_button = gtk::Button::builder()
+        .label("Search")
+        .action_name("win.start-filename-search")
+        .visible(false)
+        .build();
+    set_accessible_label(&search_button, "Start file search");
+    let search_stop_button = gtk::Button::builder()
+        .label("Stop")
+        .action_name("win.stop-filename-search")
+        .sensitive(false)
+        .visible(false)
+        .build();
+    set_accessible_label(&search_stop_button, "Stop file search");
+    let search_feedback = gtk::Label::builder()
+        .label("Enter a filename to search")
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .wrap(true)
+        .visible(false)
+        .build();
+    search_feedback.set_accessible_role(gtk::AccessibleRole::Status);
+    search_feedback.add_css_class("caption");
+    search_feedback.add_css_class("dim-label");
+    search_options_row.append(&search_scope);
+    search_options_row.append(&search_button);
+    search_options_row.append(&search_stop_button);
+    search_options_row.append(&search_feedback);
+    filter_bar.append(&search_query_row);
+    filter_bar.append(&search_options_row);
+    filter_bar.append(&advanced_filter_box);
 
     let spinner = gtk::Spinner::new();
     let status_label = gtk::Label::builder()
@@ -3720,10 +3982,30 @@ fn build_directory_panel(
         background_context_model,
         empty_state,
         empty_label,
-        filter_bar,
+        search_bar: filter_bar,
+        search_mode,
         filter_entry,
         filter_mode,
         filter_feedback,
+        advanced_filter_toggle,
+        advanced_filter_box,
+        advanced_type,
+        advanced_extension,
+        advanced_mime,
+        advanced_size,
+        advanced_date,
+        advanced_owner,
+        advanced_hidden,
+        advanced_match_case,
+        advanced_apply,
+        advanced_clear,
+        search_scope,
+        search_button,
+        search_stop_button,
+        search_feedback,
+        search_results_view,
+        search_context_menu,
+        search_background_menu,
         spinner,
         status_label,
         sort_headers,
@@ -3736,6 +4018,151 @@ fn build_directory_panel(
         list_factory: factory,
         grid_factory: RefCell::new(grid_factory),
     }
+}
+
+fn build_filename_search_factory(
+    selection: &gtk::MultiSelection,
+    context_menu: &gtk::PopoverMenu,
+) -> gtk::SignalListItemFactory {
+    let factory = gtk::SignalListItemFactory::new();
+    let row_selection = selection.clone();
+    let row_context_menu = context_menu.clone();
+    factory.connect_setup(move |_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let row = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(12)
+            .margin_start(8)
+            .margin_end(8)
+            .margin_top(6)
+            .margin_bottom(6)
+            .build();
+        row.add_css_class("floe-list-row");
+        row.add_css_class("floe-search-result-row");
+
+        let icon = gtk::Image::builder().pixel_size(LIST_ICON_EDGE).build();
+        icon.set_accessible_role(gtk::AccessibleRole::Presentation);
+        let labels = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(2)
+            .hexpand(true)
+            .build();
+        let name = gtk::Label::builder()
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .single_line_mode(true)
+            .build();
+        name.add_css_class("floe-entry-name");
+        let detail = gtk::Label::builder()
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .single_line_mode(true)
+            .visible(false)
+            .build();
+        detail.add_css_class("caption");
+        let folder = gtk::Label::builder()
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .ellipsize(gtk::pango::EllipsizeMode::Middle)
+            .single_line_mode(true)
+            .build();
+        folder.add_css_class("caption");
+        folder.add_css_class("dim-label");
+        labels.append(&name);
+        labels.append(&detail);
+        labels.append(&folder);
+        row.append(&icon);
+        row.append(&labels);
+
+        let secondary_click = gtk::GestureClick::new();
+        secondary_click.set_button(gtk::gdk::BUTTON_SECONDARY);
+        let list_item_weak = list_item.downgrade();
+        let selection = row_selection.clone();
+        let context_menu = row_context_menu.clone();
+        secondary_click.connect_pressed(move |gesture, _, _, _| {
+            let Some(list_item) = list_item_weak.upgrade() else {
+                return;
+            };
+            let position = list_item.position();
+            if !is_bound_list_position(position) {
+                return;
+            }
+            if context_selection_for_secondary(selection.is_selected(position))
+                == ContextSelection::SelectOnly
+            {
+                selection.select_item(position, true);
+            }
+            context_menu.set_pointing_to(None);
+            context_menu.popup();
+            gesture.set_state(gtk::EventSequenceState::Claimed);
+        });
+        row.add_controller(secondary_click);
+        list_item.set_child(Some(&row));
+    });
+    factory.connect_bind(|_, object| {
+        let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let Some(row) = list_item.child().and_downcast::<gtk::Box>() else {
+            return;
+        };
+        let Some(icon) = row.first_child().and_downcast::<gtk::Image>() else {
+            return;
+        };
+        let Some(labels) = icon.next_sibling().and_downcast::<gtk::Box>() else {
+            return;
+        };
+        let Some(name) = labels.first_child().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(detail) = name.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(folder) = detail.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(object) = list_item.item().and_downcast::<glib::BoxedAnyObject>() else {
+            return;
+        };
+        let (entry, content_detail) =
+            if let Ok(content_match) = object.try_borrow::<std::sync::Arc<ContentSearchMatch>>() {
+                (
+                    content_match.entry().clone(),
+                    Some(format!(
+                        "Line {} · {}",
+                        content_match.line_number(),
+                        content_match.snippet()
+                    )),
+                )
+            } else {
+                let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
+                (entry.as_ref().clone(), None)
+            };
+        apply_entry_icon(&icon, &entry, LIST_ICON_EDGE);
+        let display_name = entry.display_name_lossy();
+        name.set_label(&display_name);
+        name.set_tooltip_text(Some(&display_name));
+        detail.set_visible(content_detail.is_some());
+        detail.set_label(content_detail.as_deref().unwrap_or_default());
+        detail.set_tooltip_text(content_detail.as_deref());
+        let containing_folder = entry
+            .path()
+            .parent()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "/".to_owned());
+        folder.set_label(&containing_folder);
+        folder.set_tooltip_text(Some(&containing_folder));
+        let accessible = content_detail.map_or_else(
+            || format!("{display_name}, in {containing_folder}"),
+            |detail| format!("{display_name}, {detail}, in {containing_folder}"),
+        );
+        row.update_property(&[gtk::accessible::Property::Label(&accessible)]);
+    });
+    factory
 }
 
 fn build_grid_factory(
@@ -4066,6 +4493,7 @@ fn populate_file_context_menu_model(menu: &gio::Menu, preferences: ContextMenuPr
         Some("Open in New Background Tab"),
         Some("win.open-background-tab"),
     );
+    primary.append(Some("Reveal in Folder"), Some("win.reveal-in-folder"));
     menu.append_section(None, &primary);
 
     if preferences.is_visible(ContextMenuGroup::SplitView) {
@@ -4706,6 +5134,169 @@ mod tests {
     use super::*;
 
     #[test]
+    fn phase_13d_content_search_ui_uses_plain_language_modes() {
+        assert_eq!(
+            SEARCH_SURFACE_MODES,
+            ["Quick Filter", "Search Files", "Search Contents"]
+        );
+        assert_eq!(SEARCH_SURFACE_MODE_HELP.len(), SEARCH_SURFACE_MODES.len());
+        assert!(SEARCH_SURFACE_MODE_HELP[0].contains("already shown"));
+        assert!(SEARCH_SURFACE_MODE_HELP[0].contains("does not search subfolders"));
+        assert!(SEARCH_SURFACE_MODE_HELP[1].contains("on disk"));
+        assert!(SEARCH_SURFACE_MODE_HELP[1].contains("never reads file contents"));
+        assert!(SEARCH_SURFACE_MODE_HELP[2].contains("explicitly reads"));
+        assert!(SEARCH_SURFACE_MODE_HELP[2].contains("skips binary"));
+        assert!(SEARCH_SURFACE_MODE_HELP[2].contains("remote"));
+    }
+
+    /// Graphical GTK contract tests are deliberately a separate opt-in layer.
+    /// They construct real Floe widgets and therefore require a working GTK
+    /// display; ordinary `cargo test --workspace` must stay headless-safe.
+    #[test]
+    #[ignore = "requires a graphical GTK session; run the documented GTK component gate"]
+    fn phase_testing_gtk_header_filter_and_operations_accessibility_contract() {
+        gtk::init().expect("GTK component gate requires an available display");
+        adw::init().expect("libadwaita must initialize in the GTK component gate");
+
+        let application = adw::Application::builder()
+            .application_id("io.github.floe.FileManager.ComponentTest")
+            .build();
+        application
+            .register(None::<&gio::Cancellable>)
+            .expect("component-test application must register before creating a window");
+        let widgets = build(
+            &application,
+            &[],
+            Appearance::for_preset(AppearancePreset::Native),
+            ViewPreferences::default(),
+        );
+
+        for (button, action, tooltip) in [
+            (&widgets.back_button, "win.back", "Back (Alt+Left)"),
+            (
+                &widgets.forward_button,
+                "win.forward",
+                "Forward (Alt+Right)",
+            ),
+            (
+                &widgets.parent_button,
+                "win.parent",
+                "Parent folder (Alt+Up)",
+            ),
+        ] {
+            assert_eq!(button.accessible_role(), gtk::AccessibleRole::Button);
+            assert_eq!(button.action_name().as_deref(), Some(action));
+            assert_eq!(button.tooltip_text().as_deref(), Some(tooltip));
+        }
+
+        assert_eq!(
+            widgets.hidden_button.accessible_role(),
+            gtk::AccessibleRole::ToggleButton
+        );
+        assert_eq!(
+            widgets.hidden_button.action_name().as_deref(),
+            Some("win.hidden")
+        );
+        assert_eq!(
+            widgets.location_entry.accessible_role(),
+            gtk::AccessibleRole::TextBox
+        );
+        assert_eq!(
+            widgets.filter_entry.accessible_role(),
+            gtk::AccessibleRole::SearchBox
+        );
+        assert_eq!(
+            widgets.filter_entry.placeholder_text().as_deref(),
+            Some("Filter shown items")
+        );
+        assert_eq!(
+            widgets.filter_entry.tooltip_text().as_deref(),
+            Some(SEARCH_SURFACE_MODE_HELP[0])
+        );
+        assert_eq!(
+            widgets.search_mode.accessible_role(),
+            gtk::AccessibleRole::ComboBox
+        );
+        assert_eq!(
+            widgets.search_scope.accessible_role(),
+            gtk::AccessibleRole::ComboBox
+        );
+        assert_eq!(
+            widgets.search_button.action_name().as_deref(),
+            Some("win.start-filename-search")
+        );
+        assert_eq!(
+            widgets.search_stop_button.action_name().as_deref(),
+            Some("win.stop-filename-search")
+        );
+        assert_eq!(
+            widgets.filter_feedback.accessible_role(),
+            gtk::AccessibleRole::Alert
+        );
+        assert_eq!(
+            widgets.advanced_filter_toggle.accessible_role(),
+            gtk::AccessibleRole::ToggleButton
+        );
+        for dropdown in [
+            &widgets.advanced_type,
+            &widgets.advanced_size,
+            &widgets.advanced_date,
+            &widgets.advanced_owner,
+            &widgets.advanced_hidden,
+        ] {
+            assert_eq!(dropdown.accessible_role(), gtk::AccessibleRole::ComboBox);
+        }
+        assert_eq!(
+            widgets.advanced_extension.accessible_role(),
+            gtk::AccessibleRole::TextBox
+        );
+        assert_eq!(
+            widgets.advanced_mime.accessible_role(),
+            gtk::AccessibleRole::TextBox
+        );
+        assert_eq!(
+            widgets.advanced_match_case.accessible_role(),
+            gtk::AccessibleRole::Checkbox
+        );
+        assert_eq!(
+            widgets.advanced_match_case.label().as_deref(),
+            Some("Match case")
+        );
+        assert_eq!(widgets.advanced_apply.label().as_deref(), Some("Apply"));
+        assert_eq!(
+            widgets.advanced_clear.label().as_deref(),
+            Some("Clear filters")
+        );
+
+        assert_eq!(
+            widgets.operations.operation_progress.accessible_role(),
+            gtk::AccessibleRole::ProgressBar
+        );
+        assert_eq!(
+            widgets.operations.operation_cancel.accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert_eq!(
+            widgets
+                .operations
+                .operation_cancel
+                .tooltip_text()
+                .as_deref(),
+            Some("Cancel file operation")
+        );
+        assert_eq!(
+            widgets.operations.operation_retry.label().as_deref(),
+            Some("Retry")
+        );
+        assert_eq!(
+            widgets.operations.operation_pause.label().as_deref(),
+            Some("Pause after current")
+        );
+
+        widgets.window.close();
+    }
+
+    #[test]
     fn phase_13a_filter_exposes_three_visible_matching_modes() {
         assert_eq!(FOLDER_FILTER_MODES, ["Text", "Glob", "Regex"]);
         assert_eq!(FOLDER_FILTER_MODE_HELP.len(), FOLDER_FILTER_MODES.len());
@@ -4713,13 +5304,31 @@ mod tests {
             FOLDER_FILTER_MODE_SUMMARIES.len(),
             FOLDER_FILTER_MODES.len()
         );
-        assert!(FOLDER_FILTER_MODE_HELP[0].contains("ignoring letter case"));
+        assert!(FOLDER_FILTER_MODE_HELP[0].contains("Match case"));
         assert!(FOLDER_FILTER_MODE_HELP[1].contains("* matches any characters"));
         assert!(FOLDER_FILTER_MODE_HELP[1].contains("*.pdf"));
         assert!(FOLDER_FILTER_MODE_HELP[1].contains("? matches one character"));
         assert!(FOLDER_FILTER_MODE_HELP[2].contains("regular-expression"));
         assert_eq!(folder_filter_mode_index("Glob"), Some(1));
         assert_eq!(folder_filter_mode_index("Unknown"), None);
+    }
+
+    #[test]
+    fn phase_13c_advanced_filter_controls_are_plain_language_and_bounded() {
+        assert_eq!(
+            ADVANCED_TYPE_FILTERS,
+            ["Any type", "Files", "Folders", "Symbolic links", "Other"]
+        );
+        assert_eq!(ADVANCED_OWNER_FILTERS, ["Anyone", "Me"]);
+        assert_eq!(
+            ADVANCED_HIDDEN_FILTERS,
+            ["Current hidden setting", "Include hidden", "Hidden only"]
+        );
+        assert!(ADVANCED_SIZE_FILTERS.contains(&"Empty"));
+        assert!(ADVANCED_SIZE_FILTERS.contains(&"Over 100 MB"));
+        assert!(ADVANCED_DATE_FILTERS.contains(&"Last 24 hours"));
+        assert!(ADVANCED_DATE_FILTERS.contains(&"Last 7 days"));
+        assert!(FOLDER_FILTER_MODE_HELP[0].contains("Match case"));
     }
 
     fn collect_menu_actions(model: &gio::MenuModel, actions: &mut Vec<String>) {
@@ -5168,6 +5777,7 @@ mod tests {
                 ("Batch Rename…", "win.batch-rename"),
                 ("Undo Last Batch Rename", "win.undo-batch-rename"),
                 ("Customize Context Menus…", "win.context-menu-settings"),
+                ("Reveal in Folder", "win.reveal-in-folder"),
             ]
         );
     }
