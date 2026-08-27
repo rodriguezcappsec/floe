@@ -430,13 +430,64 @@ The header location is both orientation and navigation. Its resting state is a p
 
 Phase 6H implements this surface.
 
-### Current-folder filter
+### Unified search surface
+
+Phase 13A and Phase 13B now share one compact search surface. The single header
+button and `Ctrl+F` open **Quick Filter**; `Ctrl+Shift+F` opens **Search Files**
+inside the same surface. A visible selector and accessible help explain that
+Quick Filter narrows items already shown while Search Files traverses filenames
+on disk. Both modes use one query entry and one close control. Mode changes keep
+the query and focus, cancel incompatible work, and reject stale worker results.
+
+#### Quick Filter
 
 Phase 13A adds a compact filter row inside the active directory panel. The header search control and `Ctrl+F` reveal and focus a native search entry. A visible selector names the three modes—Text, Glob, and Regex—while its popup gives each mode a plain-language summary and hover description with examples. Glob explicitly explains `*` and `?`; Regex is identified as advanced. Adjacent feedback reports the visible/total match count or an inline alert with the invalid-pattern reason. Escape or the labelled close control clears the query and closes the row.
 
 Bare Space is scoped to list, grid, and Miller file views instead of being a global application accelerator. Editable controls therefore receive ordinary Space key events directly, including the filter search entry's internal text widget, while file-view focus still exposes Quick Preview.
 
 Filtering narrows the existing ordered list/grid/Miller backing entries; it is not a search-results page. Entries that remain visible retain exact-path selection, an active zero-match state says “No matching items,” refresh/sort/hidden/watcher updates reapply the query, and navigating elsewhere clears it. Pattern compilation and matching happen on the bounded application worker, never in GTK row binding callbacks.
+
+#### Advanced filters
+
+Phase 13C adds one optional, wrapping Filters section shared by Quick Filter and
+Search Files. It combines type, one extension, MIME exact/family pattern, fixed
+size and modified-date presets, owner, hidden policy, and Match Case. Apply runs
+all visible predicates together; Clear Filters resets only those controls and
+keeps the query. An empty query is valid only when a predicate is active.
+
+Current hidden setting follows the ordinary Show Hidden choice. Include Hidden
+temporarily considers visible and hidden entries, while Hidden Only returns only
+hidden entries; closing search restores the ordinary view policy. Text, Glob,
+and Regex are available in both search modes. Controls use visible labels,
+plain-language tooltips, accessible names, and FlowBox wrapping for narrow panes.
+
+Cheap type/extension/size/date/hidden checks happen before lazy metadata. MIME is
+guessed from the exact path/name without reading contents; owner uses no-follow
+Unix metadata. Unknown required metadata excludes the entry and is reported for
+recursive searches. GTK callbacks only capture controls and submit typed work.
+
+#### Search Files
+
+Search Files mode exposes a visible `This Folder` or `Include Subfolders` scope
+plus labelled Search and Stop controls. Enter starts the search. It shares the
+query, mode selector, and Close control with Quick Filter instead of adding a
+second header button or competing row.
+
+Results stream into a dedicated list that shows the semantic entry icon,
+filename, and containing folder. The same exact-path multi-selection and normal
+Open/Open With/file actions are reused; `Reveal in Folder` navigates to the
+exact parent and selects the exact result. View, sort, grouping, and grid-size
+controls stay outside search-result mode until Phase 13C defines their search
+semantics. Search feedback names running, stopped, skipped, truncated, empty,
+and failed states without relying on color.
+
+Traversal is application-worker owned and never occurs in GTK callbacks. It
+does not follow symbolic links or cross mount boundaries, streams batches of at
+most 128, and has explicit result, entry, directory, and depth limits. Queries,
+roots, results, and usage remain memory-only. Same-location refresh and hidden
+visibility changes rerun the active search; navigation cancels and clears it.
+Content search, saved searches, indexing, remote roots, advanced predicates,
+and duplicate discovery remain later phases.
 
 ### Tabs
 

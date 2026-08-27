@@ -1176,8 +1176,55 @@ Last updated:
 Current phase:
 
 ```text
-Phase 13 — Filter and search (Phase 13A complete)
+Phase 13 — Filter and search (Phase 13C complete)
 ```
+
+Phase 13C adds one structured GTK-independent advanced predicate model shared
+by Quick Filter and Search Files. Text, Glob, and Regex support explicit Match
+Case in both modes; an empty name query is accepted only when an advanced
+predicate is active. Type, extension, size, date, and hidden predicates run
+before lazy MIME and numeric Unix-owner resolution. GIO receives the exact path
+and no data buffer for MIME guessing; owner metadata is no-follow. Missing
+required facts exclude the entry and recursive search reports the count.
+
+One wrapping, accessible Filters section exposes reviewed type, extension, MIME,
+size/date preset, Anyone/Me owner, Current Setting/Include Hidden/Hidden Only,
+Apply, and Clear controls. Hidden filter choices are temporary and do not mutate
+Show Hidden. Existing capacity-1 workers, generation cancellation, traversal
+bounds, symlink/mount policy, exact raw identities, streamed results, and
+memory-only behavior remain authoritative. Tags, content search, saved searches,
+history, indexing, remote roots, persistence, and search-specific ordering were
+not added. Five focused core and three focused application Phase 13C tests,
+strict formatting/check/Clippy, 375 application tests, 113 core tests, native
+build, diff hygiene, and native Wayland action/health/clean-Quit lifecycle pass.
+Phase 13D content search is the sole next phase.
+
+A post-13B interaction correction consolidates Phase 13A Quick Filter and
+Phase 13B Search Files into one native search surface and one header button.
+`Ctrl+F` opens Quick Filter; the visible mode selector switches to Search Files;
+`Ctrl+Shift+F` opens Search Files directly. One shared query entry and Close
+control expose mode-specific Text/Glob/Regex or scope/Search/Stop feedback in a
+compact two-row layout. Switching modes preserves the query, cancels
+incompatible work, restores the appropriate view, and retains generation-based
+stale-result rejection. The workers, bounds, exact paths, and memory-only
+privacy behavior are unchanged; Phase 13C builds on those boundaries.
+
+Phase 13B adds case-insensitive filename-only search rooted at the active local
+folder with explicit This Folder and Include Subfolders scopes. One capacity-1
+application worker streams batches of at most 128 exact `PathBuf` results while
+generation cancellation rejects stale work. Traversal is no-follow, stays on
+the root device, and caps results at 100,000, entries at 1,000,000, directories
+at 100,000, and depth at 128; inaccessible, mount, depth, and truncation counts
+remain explicit. `Ctrl+Shift+F` and the header/command surfaces expose native
+query/scope/Search/Stop/Close controls and a dedicated filename/containing-folder
+result list. Normal exact-path actions remain available, and Reveal in Folder
+navigates to the exact parent and selects the exact result. Queries, roots,
+results, counters, and use remain memory-only; no contents, remote roots,
+history, persistence, indexing, advanced predicates, or search sorting/grouping
+were added. The supplied `icon_floe.png` is embedded under the stable application
+ID and selected as Floe's GTK application/window icon. Focused core/application
+tests, strict workspace gates, and isolated native Wayland D-Bus lifecycle are
+verified. Phase 13C advanced filters followed this work.
 
 Phase 13A adds a current-folder-only Text/Glob/Regex filter over entries already
 returned by the directory worker. Queries are capped at 256 Unicode scalar
@@ -1191,8 +1238,7 @@ reapply the query, and location changes clear it. Header/Ctrl+F discovery,
 visible modes, count/error alert, Escape/close, 100,000-entry tests, strict
 workspace gates, and native Wayland lifecycle are verified. Query, mode,
 results, and usage are memory-only; recursion, content/metadata reads, indexing,
-history, and persistence remain excluded. Phase 13B filename search is the sole
-next phase.
+history, and persistence remain excluded. Phase 13B filename search followed this work.
 
 A post-13A keyboard correction removes bare Space from application-wide GTK
 accelerators and handles it only in list, grid, and Miller file views. The

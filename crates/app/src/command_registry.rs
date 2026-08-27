@@ -462,12 +462,37 @@ pub static COMMANDS: &[CommandDefinition] = &[
     ),
     command!(
         "folder-filter",
-        "Filter This Folder",
-        "Filter filenames already loaded in the current folder",
+        "Search",
+        "Open the unified search surface in Quick Filter mode",
         Navigation,
-        ["find", "text", "glob", "regex", "current folder"],
+        [
+            "find",
+            "quick filter",
+            "text",
+            "glob",
+            "regex",
+            "current folder"
+        ],
         ["<Control>f"],
         [W, H]
+    ),
+    command!(
+        "filename-search",
+        "Search Files…",
+        "Open Search in file-search mode for this folder or its subfolders",
+        Navigation,
+        ["find", "filenames", "subfolders", "recursive", "name"],
+        ["<Control><Shift>f"],
+        [H]
+    ),
+    command!(
+        "reveal-in-folder",
+        "Reveal in Folder",
+        "Open the containing folder and select the search result",
+        Navigation,
+        ["parent", "location", "show", "search result"],
+        [],
+        [F]
     ),
     command!(
         "cancel-location",
@@ -872,12 +897,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn phase_13a_filter_is_discoverable_with_ctrl_f() {
+    fn phase_13_search_shortcuts_open_one_surface_in_distinct_modes() {
         let filter = command("win.folder-filter").expect("folder filter command");
-        assert_eq!(filter.name, "Filter This Folder");
+        assert_eq!(filter.name, "Search");
         assert_eq!(filter.default_shortcuts, ["<Control>f"]);
+        assert!(filter.description.contains("Quick Filter mode"));
         assert!(filter.placements.contains(&CommandPlacement::Toolbar));
         assert!(filter.placements.contains(&CommandPlacement::HeaderMenu));
+    }
+
+    #[test]
+    fn phase_13_search_shortcuts_direct_file_mode_and_reveal_are_discoverable() {
+        let search = command("win.filename-search").expect("filename search command");
+        assert_eq!(search.name, "Search Files…");
+        assert_eq!(search.default_shortcuts, ["<Control><Shift>f"]);
+        assert!(search.description.contains("file-search mode"));
+        assert!(!search.placements.contains(&CommandPlacement::Toolbar));
+        assert!(search.placements.contains(&CommandPlacement::HeaderMenu));
+
+        let reveal = command("win.reveal-in-folder").expect("reveal search result command");
+        assert!(reveal.placements.contains(&CommandPlacement::FileContext));
+        assert!(reveal.default_shortcuts.is_empty());
     }
 
     #[test]

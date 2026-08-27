@@ -347,9 +347,60 @@ Auto-lock on timeout, app exit, session lock, suspend, or device removal ships o
 
 ## Current-folder filter
 
+Quick Filter and Search Files now share one visible search surface and query
+entry. This is presentation-only consolidation: mode switches cancel
+incompatible work, and neither engine gains persistence, logging, indexing,
+content reads, broader roots, or weaker path handling.
+
 Phase 13A examines only filenames already returned for the active local folder. A query is capped at 256 Unicode scalar values and is sent with a bounded in-memory entry snapshot to one capacity-1 application worker. The worker retains at most one queued request and one latest generation-tagged result. It performs no recursive enumeration, metadata/content reads, network access, indexing, or helper-process execution.
 
 Queries, selected mode, match results, and usage remain memory-only and are cleared when the active location changes or Floe exits. Floe does not persist or log filter text, filenames, results, or history. Valid UTF-8 names use Unicode matching; non-UTF-8 names retain exact raw identity and use the documented ASCII-insensitive text/raw-byte glob-regex fallback. Display text is never reconstructed into a path. Recursive search, saved search, content search, and privacy-aware search history remain later phases.
+
+## Filename search
+
+Phase 13B recursively examines names and no-follow metadata only beneath one
+explicit active local folder. It never reads file contents, follows symbolic
+links, crosses the root filesystem device, searches remote roots, executes a
+helper, uploads data, or creates an index. Current-folder and subtree scopes
+share the same case-insensitive 256-scalar text matcher as Phase 13A while
+preserving exact `PathBuf`/`OsStr` identities; lossy filenames and containing
+folder labels are presentation only.
+
+One capacity-1 application worker streams at most 128 exact results per bounded
+response. A search stops at 100,000 matches, 1,000,000 examined entries, 100,000
+directories, or depth 128 and reports that it is incomplete. Inaccessible
+entries/directories, skipped mounts, and depth limits are counted rather than
+retained as path lists. Generation cancellation rejects stale events; Stop may
+retain already-displayed results but never claims the traversal completed.
+
+Queries, roots, exact results, counters, and usage are memory-only and are
+cleared on location exit or process exit. Floe does not persist or log search
+queries, result paths, history, or an index. Same-user processes, filesystem
+metadata observers, kernel/filesystem caches, and external applications opened
+from results remain outside this memory-only claim. Private Mode, Sensitive
+Folder suppression, locked-vault search policy, saved searches, content search,
+and optional indexing remain unimplemented.
+
+## Advanced search filters
+
+Phase 13C keeps the typed filter, controls, roots, results, owner IDs, and MIME
+guesses memory-only. It adds no preference field, saved query, history, log,
+index, upload, helper process, remote root, content read, or tag storage. Exact
+`PathBuf`/`OsStr` identity remains authoritative; display and extension text is
+never used to reconstruct a path.
+
+Type, extension, size, date, and hidden checks run before optional metadata.
+MIME is guessed by GIO from the exact path/name with no data buffer; it is not a
+claim about file contents. Owner uses `symlink_metadata`/the traversal's no-follow
+metadata and numeric Unix UID. Missing required MIME or owner facts exclude an
+entry rather than silently treating it as a match; recursive feedback reports
+metadata-unavailable counts. Symbolic-link and mount-boundary traversal policy is
+unchanged.
+
+Include Hidden and Hidden Only are explicit, temporary filter choices. They do
+not change the persisted Show Hidden preference, expand the active local root,
+or override future Sensitive Folder, Private Mode, or locked-vault rules. Tags,
+content search, saved searches, search history, and indexing remain later phases.
 
 ## Command history
 

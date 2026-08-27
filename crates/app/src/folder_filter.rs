@@ -1,5 +1,6 @@
 use std::{
-    io,
+    fs, io,
+    os::unix::fs::MetadataExt,
     sync::{
         Arc, Mutex,
         mpsc::{self, SyncSender, TrySendError},
@@ -7,7 +8,13 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use floe_core::{DirectoryEntry, FolderFilterError, FolderFilterMode, FolderFilterPattern};
+use floe_core::{
+    AdvancedFilter, AdvancedFilterDecision, AdvancedFilterError, AdvancedMetadata,
+    AdvancedMetadataNeeds, DirectoryEntry, FolderFilterError, FolderFilterMode,
+    FolderFilterPattern,
+};
+use gtk::gio;
+use thiserror::Error;
 
 const FILTER_REQUEST_CAPACITY: usize = 1;
 
@@ -16,13 +23,22 @@ struct FilterRequest {
     generation: u64,
     mode: FolderFilterMode,
     query: String,
+    advanced: AdvancedFilter,
     entries: Arc<[Arc<DirectoryEntry>]>,
 }
 
 #[derive(Debug)]
 pub struct FilterResponse {
     pub generation: u64,
-    pub result: Result<Vec<Arc<DirectoryEntry>>, FolderFilterError>,
+    pub result: Result<Vec<Arc<DirectoryEntry>>, FolderFilterWorkError>,
+}
+
+#[derive(Debug, Error)]
+pub enum FolderFilterWorkError {
+    #[error(transparent)]
+    Pattern(#[from] FolderFilterError),
+    #[error(transparent)]
+    Advanced(#[from] AdvancedFilterError),
 }
 
 #[derive(Debug)]
@@ -46,14 +62,28 @@ impl FolderFilterWorker {
             .name("floe-folder-filter".to_owned())
             .spawn(move || {
                 while let Ok(request) = requests.recv() {
-                    let result =
-                        FolderFilterPattern::compile(request.mode, &request.query).map(|pattern| {
-                            request
-                                .entries
-                                .iter()
-                                .filter(|entry| pattern.matches(entry.display_name()))
-                                .cloned()
-                                .collect()
+                    let result = request
+                        .advanced
+                        .validate()
+                        .map_err(FolderFilterWorkError::from)
+                        .and_then(|()| {
+                            FolderFilterPattern::compile_with_case(
+                                request.mode,
+                                &request.query,
+                                request.advanced.match_case,
+                            )
+                            .map_err(FolderFilterWorkError::from)
+                            .map(|pattern| {
+                                request
+                                    .entries
+                                    .iter()
+                                    .filter(|entry| {
+                                        pattern.matches(entry.display_name())
+                                            && advanced_matches(entry, &request.advanced)
+                                    })
+                                    .cloned()
+                                    .collect()
+                            })
                         });
                     let response = FilterResponse {
                         generation: request.generation,
@@ -82,6 +112,7 @@ impl FolderFilterWorker {
         generation: u64,
         mode: FolderFilterMode,
         query: String,
+        advanced: AdvancedFilter,
         entries: Arc<[Arc<DirectoryEntry>]>,
     ) -> Result<(), FilterSubmitError> {
         let Some(sender) = &self.sender else {
@@ -91,6 +122,7 @@ impl FolderFilterWorker {
             generation,
             mode,
             query,
+            advanced,
             entries,
         }) {
             Ok(()) => Ok(()),
@@ -102,6 +134,39 @@ impl FolderFilterWorker {
     pub fn try_response(&self) -> Option<FilterResponse> {
         self.latest_response.lock().ok()?.take()
     }
+}
+
+fn advanced_matches(entry: &DirectoryEntry, filter: &AdvancedFilter) -> bool {
+    match filter.evaluate(entry, None) {
+        AdvancedFilterDecision::Match => true,
+        AdvancedFilterDecision::NoMatch => false,
+        AdvancedFilterDecision::NeedsMetadata(needs) => {
+            filter.evaluate(entry, Some(&load_advanced_metadata(entry, needs)))
+                == AdvancedFilterDecision::Match
+        }
+    }
+}
+
+fn load_advanced_metadata(
+    entry: &DirectoryEntry,
+    needs: AdvancedMetadataNeeds,
+) -> AdvancedMetadata {
+    let owner_uid = needs
+        .owner
+        .then(|| {
+            fs::symlink_metadata(entry.path())
+                .ok()
+                .map(|metadata| metadata.uid())
+        })
+        .flatten();
+    let mime = needs
+        .mime
+        .then(|| {
+            let (content_type, _) = gio::content_type_guess(Some(entry.path()), None::<&[u8]>);
+            (!content_type.is_empty()).then(|| content_type.to_string())
+        })
+        .flatten();
+    AdvancedMetadata { mime, owner_uid }
 }
 
 impl Drop for FolderFilterWorker {
@@ -142,6 +207,7 @@ mod tests {
                 7,
                 FolderFilterMode::Glob,
                 "*9999*.txt".to_owned(),
+                AdvancedFilter::default(),
                 entries(100_000),
             )
             .expect("submit large filter");
@@ -169,6 +235,7 @@ mod tests {
                 1,
                 FolderFilterMode::Text,
                 "no-match".to_owned(),
+                AdvancedFilter::default(),
                 entries(100_000),
             )
             .expect("submit capacity fixture");
@@ -179,6 +246,7 @@ mod tests {
                     generation,
                     FolderFilterMode::Text,
                     "item".to_owned(),
+                    AdvancedFilter::default(),
                     entries(1),
                 )
                 .is_err_and(|error| matches!(error, FilterSubmitError::Busy(_)))
@@ -194,10 +262,22 @@ mod tests {
     fn phase_13a_filter_worker_latest_generation_supersedes_older_response() {
         let worker = FolderFilterWorker::spawn().expect("folder filter worker");
         worker
-            .submit(40, FolderFilterMode::Text, "item".to_owned(), entries(1))
+            .submit(
+                40,
+                FolderFilterMode::Text,
+                "item".to_owned(),
+                AdvancedFilter::default(),
+                entries(1),
+            )
             .expect("submit first generation");
         loop {
-            match worker.submit(41, FolderFilterMode::Text, "item".to_owned(), entries(1)) {
+            match worker.submit(
+                41,
+                FolderFilterMode::Text,
+                "item".to_owned(),
+                AdvancedFilter::default(),
+                entries(1),
+            ) {
                 Ok(()) => break,
                 Err(FilterSubmitError::Busy(_)) => thread::yield_now(),
                 Err(FilterSubmitError::Stopped) => panic!("filter worker stopped"),
@@ -206,5 +286,46 @@ mod tests {
         thread::sleep(Duration::from_millis(20));
         let response = worker.try_response().expect("latest response");
         assert_eq!(response.generation, 41);
+    }
+
+    #[test]
+    fn phase_13c_filter_worker_combines_predicates_and_lazy_owner() {
+        use floe_core::{EntryTypeFilter, OwnerFilter};
+
+        let directory = tempfile::tempdir().expect("advanced filter fixture");
+        fs::write(directory.path().join("keep.TXT"), b"large enough").expect("keep");
+        fs::write(directory.path().join("skip.log"), b"large enough").expect("skip");
+        let entries: Arc<[Arc<DirectoryEntry>]> = floe_core::enumerate_directory(directory.path())
+            .expect("enumerate advanced fixture")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>()
+            .into();
+        let worker = FolderFilterWorker::spawn().expect("folder filter worker");
+        worker
+            .submit(
+                80,
+                FolderFilterMode::Text,
+                String::new(),
+                AdvancedFilter {
+                    entry_type: EntryTypeFilter::File,
+                    extension: Some("txt".to_owned()),
+                    minimum_size: Some(5),
+                    owner: Some(OwnerFilter::Uid(rustix::process::getuid().as_raw())),
+                    ..AdvancedFilter::default()
+                },
+                entries,
+            )
+            .expect("submit advanced filter");
+        let response = (0..200)
+            .find_map(|_| {
+                thread::sleep(Duration::from_millis(5));
+                worker.try_response()
+            })
+            .expect("advanced response");
+        let matches = response.result.expect("advanced filter success");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].display_name_lossy(), "keep.TXT");
     }
 }

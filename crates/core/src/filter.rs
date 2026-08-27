@@ -2,7 +2,7 @@
 
 use std::ffi::OsStr;
 
-use regex::{Regex, bytes};
+use regex::{Regex, RegexBuilder, bytes};
 use thiserror::Error;
 
 /// Maximum number of Unicode scalar values accepted from the filter field.
@@ -29,6 +29,7 @@ pub enum FolderFilterError {
 #[derive(Debug)]
 pub struct FolderFilterPattern {
     mode: FolderFilterMode,
+    match_case: bool,
     text: String,
     folded_text: String,
     unicode_regex: Option<Regex>,
@@ -37,6 +38,14 @@ pub struct FolderFilterPattern {
 
 impl FolderFilterPattern {
     pub fn compile(mode: FolderFilterMode, query: &str) -> Result<Self, FolderFilterError> {
+        Self::compile_with_case(mode, query, false)
+    }
+
+    pub fn compile_with_case(
+        mode: FolderFilterMode,
+        query: &str,
+        match_case: bool,
+    ) -> Result<Self, FolderFilterError> {
         if query.chars().count() > FOLDER_FILTER_QUERY_CAPACITY {
             return Err(FolderFilterError::QueryTooLong);
         }
@@ -45,19 +54,24 @@ impl FolderFilterPattern {
             FolderFilterMode::Text => (None, None),
             FolderFilterMode::Glob => {
                 let source = glob_regex_source(query)?;
-                let unicode = Regex::new(&source)
+                let unicode = RegexBuilder::new(&source)
+                    .case_insensitive(!match_case)
+                    .build()
                     .map_err(|error| FolderFilterError::InvalidGlob(error.to_string()))?;
-                (Some(unicode), byte_regex(&source))
+                (Some(unicode), byte_regex(&source, match_case))
             }
             FolderFilterMode::Regex => {
-                let unicode = Regex::new(query)
+                let unicode = RegexBuilder::new(query)
+                    .case_insensitive(!match_case)
+                    .build()
                     .map_err(|error| FolderFilterError::InvalidRegex(error.to_string()))?;
-                (Some(unicode), byte_regex(query))
+                (Some(unicode), byte_regex(query, match_case))
             }
         };
 
         Ok(Self {
             mode,
+            match_case,
             text: query.to_owned(),
             folded_text: query.to_lowercase(),
             unicode_regex,
@@ -77,6 +91,7 @@ impl FolderFilterPattern {
 
         if let Some(name) = name.to_str() {
             return match self.mode {
+                FolderFilterMode::Text if self.match_case => name.contains(&self.text),
                 FolderFilterMode::Text => name.to_lowercase().contains(&self.folded_text),
                 FolderFilterMode::Glob | FolderFilterMode::Regex => self
                     .unicode_regex
@@ -91,6 +106,9 @@ impl FolderFilterPattern {
 
             let name = name.as_bytes();
             match self.mode {
+                FolderFilterMode::Text if self.match_case => name
+                    .windows(self.text.len())
+                    .any(|window| window == self.text.as_bytes()),
                 FolderFilterMode::Text => ascii_insensitive_contains(name, self.text.as_bytes()),
                 FolderFilterMode::Glob | FolderFilterMode::Regex => self
                     .byte_regex
@@ -106,8 +124,12 @@ impl FolderFilterPattern {
     }
 }
 
-fn byte_regex(source: &str) -> Option<bytes::Regex> {
-    bytes::RegexBuilder::new(source).unicode(false).build().ok()
+fn byte_regex(source: &str, match_case: bool) -> Option<bytes::Regex> {
+    bytes::RegexBuilder::new(source)
+        .unicode(false)
+        .case_insensitive(!match_case)
+        .build()
+        .ok()
 }
 
 fn ascii_insensitive_contains(haystack: &[u8], needle: &[u8]) -> bool {

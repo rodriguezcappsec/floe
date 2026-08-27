@@ -67,7 +67,7 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 | **Preview** | Space-bar Quick Preview for images, bounded text/code, PDF and office documents, audio/video, fonts, and archive listings |
 | **Inspect** | Properties, folder totals, filesystem details, permissions and ownership editing, checksums, EXIF, and media metadata |
 | **Archives** | Create and extract ZIP, tar, tar.gz, tar.xz, and reviewed 7z archives through bounded background jobs |
-| **Work faster** | Searchable command palette, customizable shortcuts, optional Vim navigation, safe “Open Terminal Here,” batch rename, and customizable context menus |
+| **Work faster** | Current-folder Text/Glob/Regex filtering, streaming filename subtree search, searchable command palette, customizable shortcuts, optional Vim navigation, safe “Open Terminal Here,” batch rename, and customizable context menus |
 | **Desktop integration** | XDG Places, bookmarks, drives and removable media, native mount prompts, GIO Open With/default apps, external clipboard files, and live file watching |
 | **Appearance** | Native, Glass, Frosted, Minimal, and Compact presets; adjustable sidebar density and width; optional translucent floating surfaces |
 
@@ -198,9 +198,16 @@ standards-based path.
 
 ## Project status
 
-Floe has completed the foundation through **Phase 12F**, including its archive,
-productivity, command, preview, metadata, tab, split-view, and Miller-column
-milestones. The next bounded milestone is **Phase 13A — Folder Filter**.
+Floe has completed the foundation through **Phase 13C**, including archive,
+productivity, command, preview, metadata, tab, split-view, Miller-column,
+current-folder filtering, and bounded filename-search milestones. The next
+bounded milestone is **Phase 13D — Content Search**.
+
+Search is presented as one coherent workflow: `Ctrl+F` opens a shared surface
+in **Quick Filter** mode, its visible selector switches to **Search Files**, and
+`Ctrl+Shift+F` opens Search Files directly for keyboard-heavy workflows. The
+shared optional Filters section combines type, extension, MIME, size, date,
+owner, hidden, and Match Case controls; it remains memory-only and worker-owned.
 
 The project tracks scope and verification explicitly:
 
