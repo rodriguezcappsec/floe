@@ -960,6 +960,148 @@ Tests must never operate on real user data.
 
 Avoid brittle tests tied closely to widget layout unless there is a strong reason.
 
+## Permanent testing layers
+
+Floe uses distinct testing layers. Do not call one layer by another name and do
+not use a higher-cost graphical layer when a deterministic lower layer proves
+the same invariant more clearly.
+
+### Rust unit tests
+
+Use Rust's built-in `#[test]` framework and keep deterministic tests close to
+the owning code. This is the default layer for path handling, navigation,
+sorting/filtering, conflict naming, metadata and selection policy, job state
+transitions, command policy, parsers/codecs, preferences, operation decisions,
+and security-sensitive validation.
+
+### Filesystem integration tests
+
+Exercise real filesystem behavior only below a `tempfile` root. This includes
+create, copy, move, rename, Trash/restore through an injected test Trash,
+delete, duplicate, links, permissions, conflicts, cancellation/recovery,
+non-UTF-8 names, and source/destination races. Tests must never inspect or
+modify the real HOME, Trash, XDG config/data/cache/state, user folders, mounts,
+or user data. Cross-device tests require deliberate disposable test filesystems;
+never borrow a user's mounted volume merely because it is available.
+
+### Property-based tests
+
+`proptest` is a `floe-core` dev dependency. Use it selectively when generated
+inputs explore a materially larger state space: raw Linux filename bytes,
+non-UTF-8 identity, sort/set invariants, navigation history, conflict names,
+parser round trips, archive/path boundaries, state transitions, or bounded
+collections. Keep ordinary examples as deterministic tests. A property failure
+must retain/report the reproducible proptest seed or regression case.
+
+Useful properties include deterministic ordering, multiset preservation, no
+panic on arbitrary filenames, no lossy display-to-path reconstruction, no path
+escape, no silent overwrite, defined cancellation states, and bounded resource
+use.
+
+### GTK component and accessibility tests
+
+GTK tests belong in `floe-app` and test presentation/application behavior, not
+filesystem implementation. Prefer small real-widget contracts for controls,
+dialogs, sidebar/header state, tabs, breadcrumbs/location entry, list/grid,
+Operations Island, action sensitivity, keyboard wiring, roles, states, labels,
+and descriptions. Graphical tests are explicitly ignored by the ordinary
+headless suite and run with:
+
+```bash
+cargo test -p floe-app phase_testing_gtk -- --ignored --nocapture
+```
+
+They require a real disposable GTK display. Do not move filesystem work into
+GTK or add hidden testing-only widgets, test IDs, or fragile CSS selectors.
+
+Accessibility metadata is both a user requirement and automation contract.
+Interactive controls require stable meaningful roles, names/labels,
+descriptions where useful, states, and relations. Prefer semantic nodes and
+actions over widget position or screen coordinates.
+
+### Native GTK end-to-end tests
+
+`e2e/` is the opt-in Dogtail/AT-SPI layer. It launches the actual `floe-app`
+executable and interacts through native accessibility/actions and keyboard
+workflows. It is not part of `cargo test`, is not `proptest`, and must never be
+implemented with Playwright, Selenium, browser DOM, Tauri, or other web-testing
+tools.
+
+Every E2E launch must use temporary private HOME and XDG config/cache/data/state
+and runtime roots plus an isolated freedesktop Trash. Tests must use bounded
+condition waits on accessibility, process, application, or filesystem state;
+fixed sleeps and coordinate clicks are not acceptable synchronization.
+
+The initial scenario registry is:
+
+1. E2E-01 launch, responsiveness, clean quit.
+2. E2E-02 child navigation, Back, Forward, Parent.
+3. E2E-03 create and rename with filesystem verification.
+4. E2E-04 copy and move with source/destination verification.
+5. E2E-05 current implemented search/filter workflow.
+6. E2E-06 Trash and restore using only isolated test Trash.
+7. E2E-07 multi-selection and a batch operation.
+8. E2E-08 implemented keyboard workflows including Ctrl+L, Ctrl+F, Ctrl+T,
+   Ctrl+W, Alt+Left, Alt+Right, Alt+Up, and F2.
+
+Run harness contract/preflight with:
+
+```bash
+python3 -m unittest discover -s e2e -p 'test_*.py' -v
+```
+
+Dogtail/AT-SPI and an appropriate graphical session are external system
+dependencies. If unavailable, report the skipped native layer and exact reason;
+never claim those workflows ran merely because discovery or Rust tests passed.
+
+### Wayland and compositor gates
+
+Keep these separate:
+
+1. compositor-independent native GTK E2E in an isolated Mutter/GNOME Wayland
+   environment where AT-SPI and semantic input are supported;
+2. Niri native smoke for launch, actions/D-Bus, liveness, clean quit, and only
+   the user-input behavior the compositor permits;
+3. KDE Plasma Wayland smoke for the same generic GTK/GIO contract plus any
+   future explicitly isolated Plasma integration.
+
+The full E2E suite must not depend on Niri input injection or one compositor.
+Existing native Wayland/Niri smoke evidence must be preserved unless a concrete
+replacement is verified.
+
+### Security and privacy testing
+
+Every future encryption, password, vault, Sensitive Folder, Private Mode,
+restricted-preview, or integrity feature requires dedicated correct-round-trip,
+wrong-password, corrupted/truncated/tampered input, authentication failure,
+interruption, temporary cleanup, atomic replacement, permissions, symlink/path
+traversal, and sensitive-log tests as applicable. Verify source data is not
+destroyed before successful commit and encrypted Floe files remain compatible
+after moving. Never invent custom cryptography to simplify a test.
+
+### Regression test policy and future phase requirement
+
+Every reproduced bug fix must add a regression test at the lowest layer that
+would have caught it. If no automated test is practical, record why and the
+exact native/manual gate used.
+
+For every roadmap leaf, future agents must:
+
+1. identify the applicable testing layers before coding;
+2. add or update tests during implementation, including failure and edge cases;
+3. use isolated temporary filesystem roots and add regression coverage for bugs;
+4. run focused tests while developing;
+5. run `cargo fmt --all -- --check`, `cargo check --workspace`,
+   `cargo clippy --workspace --all-targets -- -D warnings`, and
+   `cargo test --workspace` before completion;
+6. run applicable GTK, E2E, Niri, Plasma, or native-smoke gates when behavior is
+   user-visible or environment-specific;
+7. report exact commands, results, skips, and environment limitations.
+
+Deterministic Rust gates belong in ordinary CI when CI is present. Graphical
+GTK/E2E/compositor gates remain separate opt-in jobs with explicit environments;
+do not make ordinary CI fail merely because it has no compositor or display.
+
 ---
 
 # Code Quality Rules
@@ -1176,8 +1318,59 @@ Last updated:
 Current phase:
 
 ```text
-Phase 13 — Filter and search (Phase 13A complete)
+Phase 13 — Filter and search (Phase 13D complete)
 ```
+
+Phase 13D adds explicit Search Contents to the unified search surface. One
+capacity-one application worker submits typed requests to a GTK-independent
+engine that searches only local no-follow regular files under This Folder or
+Include Subfolders without crossing the root device. Phase 13C predicates run
+before bounded reads. UTF-8 and BOM-declared UTF-16LE/BE, Text/Glob/Regex, Match
+Case, 64-result batches, 50,000-result/100,000-entry/depth-128/16-MiB-file/512-MiB
+total limits, cancellation, post-read identity revalidation, and truthful
+binary/encoding/change/limit counters are verified. Results preserve exact
+entry identity and visibly show filename, line-number/snippet, and containing
+folder while reusing ordinary Open/Open With/Properties/Reveal actions.
+Queries, paths, snippets, results, and counters remain memory-only; no Trash,
+remote roots, symlink targets, mount crossing, document/archive extraction,
+helpers, uploads, saved history, or index was added. Strict workspace gates,
+real GTK accessibility, and isolated native Wayland lifecycle are recorded in
+`GATES.md`. Phase 13E saved searches is the sole recommended next phase.
+
+Phase 13C adds one structured bounded advanced-filter model shared by Quick
+Filter and Search Files. Entry type, extension, MIME, size, modification date,
+Unix owner, hidden policy, and explicit Match Case combine with Text/Glob/Regex
+filename matching; an empty filename is valid only with a real predicate.
+Cheap facts run first. Capacity-one application workers resolve only requested
+lazy facts: owner uses no-follow metadata and GIO guesses MIME from the filename
+without content bytes. Unknown requested metadata excludes the candidate and
+recursive feedback counts it. Quick Filter can temporarily include or isolate
+hidden loaded entries without changing global Show Hidden. Exact paths, queries,
+results, and counters remain memory-only. Accessible wrapping native controls,
+raw-name/case/validation tests, strict workspace gates, real GTK accessibility,
+and isolated native Wayland D-Bus/lifecycle smoke are recorded in `GATES.md`.
+Tags, persistence/history, indexing, remote roots, and search-result ordering
+remain excluded from Phase 13C; Phase 13D followed this work.
+
+Phase 13B adds case-insensitive filename-only search rooted at the active local
+folder with explicit This Folder and Include Subfolders scopes. One capacity-1
+application worker streams batches of at most 128 exact `PathBuf` results while
+generation cancellation rejects stale work. Traversal uses no-follow metadata,
+does not descend symbolic links or cross the root filesystem device, and caps
+results at 100,000, entries at 1,000,000, directories at 100,000, and depth at
+128. Skipped, stopped, truncated, empty, and failed states remain explicit.
+
+Quick Filter and Search Files now share one native surface: `Ctrl+F` opens Quick
+Filter, `Ctrl+Shift+F` opens Search Files, and a visible mode selector explains
+the distinction. The dedicated result list shows filename and containing folder,
+reuses exact-path selection and ordinary file actions, and adds Reveal in Folder.
+Queries, roots, results, counters, and use remain memory-only. File contents,
+remote roots, history, persistence, indexing, advanced predicates, and
+search-result ordering remain excluded. The supplied `icon_floe.png` is embedded
+under the stable application ID and used as the GTK application/window icon.
+
+Focused core/application/UI/icon tests and strict workspace gates are recorded
+in `GATES.md`. Phase 13C advanced filters followed this work.
 
 Phase 13A adds a current-folder-only Text/Glob/Regex filter over entries already
 returned by the directory worker. Queries are capped at 256 Unicode scalar
@@ -1191,8 +1384,18 @@ reapply the query, and location changes clear it. Header/Ctrl+F discovery,
 visible modes, count/error alert, Escape/close, 100,000-entry tests, strict
 workspace gates, and native Wayland lifecycle are verified. Query, mode,
 results, and usage are memory-only; recursion, content/metadata reads, indexing,
-history, and persistence remain excluded. Phase 13B filename search is the sole
-next phase.
+history, and persistence remain excluded. Phase 13B filename search followed
+this work.
+
+A testing-foundation pass on `testing-foundation` preserves the Phase 13B next
+recommendation while formalizing permanent test layers. The baseline 469 Rust
+tests remain intact; four selective `floe-core` proptest invariants cover raw
+filename identity, deterministic sort/set preservation, non-UTF-8 filter
+behavior, and navigation history. One opt-in real-widget GTK/accessibility
+contract covers header, filter, and Operations Island controls. `e2e/` registers
+eight isolated Dogtail/AT-SPI workflows with temporary HOME/XDG/Trash roots.
+Harness isolation/discovery is verified; native E2E execution is not claimed on
+the current host because Dogtail and `pyatspi` are unavailable.
 
 A post-13A keyboard correction removes bare Space from application-wide GTK
 accelerators and handles it only in list, grid, and Miller file views. The

@@ -430,13 +430,82 @@ The header location is both orientation and navigation. Its resting state is a p
 
 Phase 6H implements this surface.
 
-### Current-folder filter
+### Unified search surface
+
+Phases 13A–13C share one compact search surface. The header button and
+`Ctrl+F` open **Quick Filter**; `Ctrl+Shift+F` opens **Search Files** in the same
+surface. A visible selector and accessible help explain that Quick Filter
+narrows items already shown while Search Files traverses filenames on disk.
+Both modes use one query entry and one close control. Mode changes preserve the
+query and focus, cancel incompatible work, and reject stale worker results.
+
+#### Quick Filter
 
 Phase 13A adds a compact filter row inside the active directory panel. The header search control and `Ctrl+F` reveal and focus a native search entry. A visible selector names the three modes—Text, Glob, and Regex—while its popup gives each mode a plain-language summary and hover description with examples. Glob explicitly explains `*` and `?`; Regex is identified as advanced. Adjacent feedback reports the visible/total match count or an inline alert with the invalid-pattern reason. Escape or the labelled close control clears the query and closes the row.
 
 Bare Space is scoped to list, grid, and Miller file views instead of being a global application accelerator. Editable controls therefore receive ordinary Space key events directly, including the filter search entry's internal text widget, while file-view focus still exposes Quick Preview.
 
 Filtering narrows the existing ordered list/grid/Miller backing entries; it is not a search-results page. Entries that remain visible retain exact-path selection, an active zero-match state says “No matching items,” refresh/sort/hidden/watcher updates reapply the query, and navigating elsewhere clears it. Pattern compilation and matching happen on the bounded application worker, never in GTK row binding callbacks.
+
+#### Advanced filters
+
+Phase 13C adds one optional **Filters** disclosure shared by Quick Filter and
+Search Files. Its wrapping native controls use plain-language choices for entry
+type, size, modified date, owner, and hidden policy; extension and MIME remain
+bounded editable fields. Text, Glob, and Regex remain visible in both search
+modes and an explicit **Match case** control changes filename, extension, and
+MIME matching together. **Apply** runs the active mode; **Clear filters** resets
+only advanced predicates and preserves the filename text.
+
+The section combines every active predicate rather than silently choosing one.
+An advanced predicate can run with an empty filename field. Quick Filter may
+temporarily include or isolate hidden loaded entries, but never rewrites the
+global Show Hidden preference. MIME and owner facts are resolved lazily on the
+application worker after cheap predicates. Unknown requested metadata excludes
+the candidate and recursive search reports that limitation. Tags, persistence,
+content search, remote roots, and search-result ordering are not implied by the
+disclosure.
+
+#### Search Files
+
+Search Files exposes a visible This Folder or Include Subfolders scope plus
+labelled Search and Stop controls. Enter starts the search. Results stream into
+a dedicated list showing a semantic entry icon, filename, and containing
+folder. Exact-path multi-selection and ordinary Open/Open With/file actions are
+reused; Reveal in Folder navigates to the exact parent and selects the exact
+result. View, sorting, grouping, and grid-size controls are disabled while the
+dedicated result list is active because Phase 13B does not define search-result
+ordering semantics.
+
+Search feedback names running, stopped, skipped, truncated, empty, and failed
+states without relying on color. Traversal is application-worker owned, never
+occurs in GTK callbacks, does not descend through symbolic links or cross mount
+boundaries, streams at most 128 results per batch, and has explicit result,
+entry, directory, and depth limits. Queries, roots, results, and usage remain
+memory-only. Same-location refresh and hidden-visibility changes rerun an active
+search; navigation cancels and clears it. Saved searches,
+indexing, remote roots, and search-specific ordering remain later phases.
+
+#### Search Contents
+
+Phase 13D adds **Search Contents** as an explicit third mode in the same search
+surface. It never begins merely because the user opens `Ctrl+F`: the user must
+choose the mode, enter a non-empty content pattern, and start it. This Folder
+and Include Subfolders remain visible, as do Text, Glob, Regex, Match Case, and
+the shared advanced predicates.
+
+Content results retain the normal filename and containing-folder hierarchy and
+add a separate `Line N · snippet` row. Snippets normalize whitespace and are
+bounded presentation text; exact `PathBuf` identity remains authoritative for
+Open, Open With, Properties, context selection, and Reveal in Folder. The
+result list disables view, sorting, grouping, and grid-size controls until it
+is closed because Phase 13D does not define content-result ordering.
+
+Running, stopped, skipped, truncated, empty, and failed feedback stays visible
+and non-color-only. Closing, navigating, or changing to an incompatible search
+mode cancels the worker and discards content-derived state. The UI does not
+claim binary, unsupported, remote, linked, changed, or over-limit files were
+searched.
 
 ### Tabs
 

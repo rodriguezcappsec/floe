@@ -1,12 +1,237 @@
-# Gates: Floe Phase 13A — Current-Folder Filter
+# Gates: Floe Phase 13D — Content Search
 
-- [x] G1: Exact-name filter semantics are bounded and path-safe.
+Scope: Explicit bounded local text-content search with worker-owned reads,
+exact paths, truthful limits, and no persistence/indexing.
+
+- [x] D1: Core search is bounded, cancellable, encoding-aware, and path-safe.
+  CHECK: cargo test -p floe-core phase_13d -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Five focused core tests pass UTF-8/UTF-16, Text/Glob/Regex/case, advanced predicates before reads, binary/unsupported/over-limit/link skips, cancellation, caps, snippets, and request validation.
+
+- [x] D2: Application worker streams only current generation through bounded
+    capacity and shuts down cleanly.
+  CHECK: cargo test -p floe-app phase_13d_content_search_worker -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Two focused worker tests pass bounded event delivery, complete summary, stale-generation supersession, and clean shutdown.
+
+- [x] D3: Unified native UI exposes truthful Search Contents controls/results
+    and exact-path action reuse.
+  CHECK: cargo test -p floe-app phase_13d_content_search_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused UI test passes three plain-language modes and explicit local-read/skip help. Browser integration compiles with line/snippet/folder result rows, exact-entry selection, Reveal, context, navigation, refresh, cancel, and result-status lifecycle.
+
+- [x] D4: Existing Phase 13 behavior and strict workspace gates remain green.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: Formatting, workspace check, strict all-target/all-feature Clippy with warnings denied, 377 app tests (376 passed plus one intentional graphical ignore), 122 core tests, native app build, and diff hygiene pass.
+
+- [x] D5: Real GTK and isolated native Wayland smoke verify accessible controls,
+    action/mode lifecycle, D-Bus health, and clean Quit.
+  EVIDENCE: Opt-in real GTK widget/accessibility contract passes. Isolated Plasma Wayland launch exports shared search actions, accepts open/clear lifecycle activation, answers Peer.Ping before and after, and Quit exits 0. Standalone AT-SPI bus unavailable is recorded without claiming semantic E2E.
+
+- [x] D6: Persistent documents mark only verified Phase 13D complete and set
+    exactly Phase 13E NEXT without claiming saved search or indexing.
+  CHECK: rg -n '\| .*NEXT' docs/ROADMAP.md
+  EXPECT: 13E — Saved searches | NEXT
+  EVIDENCE: AGENTS, DESIGN, ROADMAP, FEATURE_MATRIX, PRIVACY_SECURITY, DEVELOPMENT, PLAN, and this ledger record the verified boundary; saved searches and indexing remain excluded and exactly Phase 13E is NEXT.
+
+---
+
+# Archived gates: Floe Phase 13C — Advanced Filters
+
+Scope: Combined, bounded advanced predicates in both existing search modes with
+lazy worker-owned metadata and exact Linux path identity.
+
+- [x] C1: Core predicates are bounded, composable, case-aware, and path-safe.
+  CHECK: cargo test -p floe-core phase_13c -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Five focused core tests pass combined
+  type/extension/size/date/hidden, lazy MIME/owner facts with unknown exclusion,
+  invalid ranges/MIME, raw non-UTF-8 extension identity, case-aware glob search,
+  predicate-only hidden search, and cheap-before-MIME resolution. Existing raw-
+  name matcher regression also passes.
+
+- [x] C2: Both application workers remain capacity-one and generation-safe.
+  CHECK: cargo test -p floe-app phase_13c -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Three focused application/UI tests pass combined lazy owner
+  filtering, predicate-only hidden traversal, generation-tagged result delivery,
+  and bounded plain-language control policy. Existing queue-pressure/latest-
+  generation tests remain green in the full workspace suite.
+
+- [x] C3: Unified native UI exposes accessible, truthful advanced controls.
+  CHECK: cargo test -p floe-app advanced_filter -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Deterministic control contract passes visible bounded presets and
+  Match Case help. The opt-in graphical GTK component gate passes real roles and
+  labels for Filters, five dropdowns, extension/MIME entries, Match Case, Apply,
+  and Clear Filters.
+
+- [x] C4: Existing Phase 13 behavior and strict workspace gates remain green.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: `cargo fmt --all -- --check`, workspace check, strict all-target/all-
+  feature Clippy with `-D warnings`, native app build, and `git diff --check`
+  pass. Final serial workspace suite passes 374 application tests with one
+  intentional graphical ignore, 117 core tests, and zero doctest failures. The
+  one split-drop fixture failure from the first full run passed focused and on
+  the complete rerun; no Phase 13 regression remained.
+
+- [x] C5: Native Wayland smoke verifies controls, mode/action lifecycle,
+    responsive D-Bus health, and clean Quit.
+  EVIDENCE: Isolated HOME/XDG launch in the active Plasma Wayland session
+  exported and accepted folder-filter, filename-search, start/stop, and close-
+  search actions; D-Bus Peer.Ping returned `()`, and the application `quit`
+  action exited status 0. The graphical GTK gate independently constructed and
+  verified the shared advanced controls. Host Python lacks `dogtail`, so AT-SPI
+  E2E is not claimed.
+
+- [x] C6: Persistent documents mark only verified Phase 13C complete and set
+    exactly Phase 13D NEXT without claiming tags or later phases.
+  CHECK: rg -n '\| .*NEXT' docs/ROADMAP.md
+  EXPECT: 13D — Content search | NEXT
+  EVIDENCE: AGENTS, DESIGN, ROADMAP, FEATURE_MATRIX, PRIVACY_SECURITY,
+  DEVELOPMENT, PLAN, and this ledger describe the verified Phase 13C boundary;
+  ROADMAP has exactly one NEXT row, Phase 13D. Tags, persistence, content
+  search, indexing, remote roots, and result ordering remain excluded.
+
+---
+
+# Archived gates: Floe Phase 13B — Filename Search
+
+* [x] S1: Core traversal is bounded, cancellable, and path-safe.
+  CHECK: cargo test -p floe-core phase_13b_filename_search -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Four focused core tests pass for folder/subtree scope, raw
+    non-UTF-8 identity, symlink non-descent/root rejection, cancellation,
+    128-result batches, caps/truncation, query/root validation, and device
+    boundary policy.
+
+* [x] S2: Application streaming worker has bounded generation-safe lifecycle.
+  CHECK: cargo test -p floe-app phase_13b_filename_search -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Three focused application tests pass for capacity-1 requests,
+    capacity-32 responses, 128/128/44 streaming, generation supersession,
+    bounded backpressure, and clean worker shutdown.
+
+* [x] S3: Unified native search UX and exact result actions are verified.
+  CHECK: cargo test -p floe-app phase_13b_search_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Three focused UI/registry/feedback tests pass. Native Wayland D-Bus
+    described enabled Quick Filter, Search Files, Start, Stop, and Close actions,
+    disabled Reveal without selection, activated all non-destructive search
+    lifecycle actions, disabled view/zoom actions only while search results owned
+    the surface, restored them on Close, retained Peer.Ping liveness, and Quit
+    cleanly.
+
+* [x] S4: Supplied Floe application icon is embedded and selected safely.
+  CHECK: cargo test -p floe-app phase_13b_application_icon -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused resource test passes the PNG signature under stable
+    `io.github.floe.FileManager`; GTK default and application-window icon names
+    use that same resource alias.
+
+* [x] S5: Privacy, design, roadmap, matrix, and persistent status are exact.
+  CHECK: rg -n '13B.*COMPLETE|13C.*NEXT|Filename search|Search Files' AGENTS.md DESIGN.md docs/ROADMAP.md docs/FEATURE_MATRIX.md docs/PRIVACY_SECURITY.md docs/DEVELOPMENT.md
+  EXPECT: Phase 13B
+  EVIDENCE: ROADMAP marks Phase 13B COMPLETE and exactly Phase 13C NEXT; matrix,
+    privacy, design, development, plan, gates, and AGENTS describe the verified
+    memory-only filename boundary and keep Phase 13C/later work excluded.
+
+* [x] S6: Full deterministic and applicable native gates pass.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: Formatting, workspace check, strict all-target Clippy, 371 app plus
+    112 core tests, native build, diff hygiene, and the opt-in real GTK
+    component/accessibility test pass. Isolated Wayland
+    action/health/clean-Quit smoke passes; Dogtail/pyatspi remain unavailable
+    and are not claimed.
+
+---
+
+# Archived gates: Permanent Layered Testing Foundation
+
+* [x] T1: Baseline audit is measured and preserved.
+  - CHECK: `cargo test --workspace`
+  - EXPECT: the pre-change 365 application and 104 core tests remain passing;
+    existing test/native-smoke infrastructure is not deleted or rewritten.
+  EVIDENCE: Baseline `cargo test --workspace` passed 365 application and 104
+    core tests. Final run passes the same 365 application tests plus four new
+    core properties; the one new graphical GTK test remains explicitly ignored
+    in the headless suite.
+
+* [x] T2: Selective `floe-core` property tests enforce useful invariants.
+  - CHECK: `cargo test -p floe-core property_ -- --nocapture`
+  - EXPECT: deterministic sort/set preservation, exact arbitrary Linux filename
+    identity, bounded filter behavior, and navigation-history invariants pass;
+    failures report reproducible proptest seeds.
+  EVIDENCE: Four properties pass with 128 generated cases each: arbitrary raw
+    Linux filename identity, deterministic sort/multiset preservation,
+    non-UTF-8 text filtering, and Back/Forward navigation round trips.
+
+* [x] T3: GTK component/accessibility tests are a real separate graphical gate.
+  - CHECK: `cargo test -p floe-app phase_testing_gtk -- --ignored --nocapture`
+  - EXPECT: real Floe controls expose stable roles, visible/accessible names or
+    descriptions, and action wiring; ordinary headless workspace tests remain
+    independent from display availability.
+  EVIDENCE: One ignored-by-default real-widget contract passed in the active
+    Wayland session. It verifies navigation, hidden, location, folder-filter,
+    feedback, progress, cancel, retry, and pause roles/action/help contracts.
+    Only the pre-existing host libadwaita GtkSettings warning appeared.
+
+* [x] T4: Native E2E harness is safe, semantic, and explicitly opt-in.
+  - CHECK: `python3 -m unittest discover -s e2e -p 'test_*.py'`
+  - EXPECT: preflight fails/skips truthfully when Dogtail/AT-SPI/session support
+    is unavailable; E2E-01 through E2E-08 are discoverable; every launch uses
+    private temporary HOME/XDG/Trash roots, condition waits, and no coordinates
+    or fixed timing sleeps.
+  EVIDENCE: Python discovery passes three deterministic harness tests covering
+    stable E2E-01..08 registration and private temporary HOME/XDG/Trash roots.
+    The native workflow class skips truthfully because this host lacks Python
+    Dogtail and `pyatspi`; no native E2E execution is claimed.
+
+* [x] T5: Permanent policy and developer instructions cover every layer.
+  - CHECK: `rg -n 'Property-based|GTK component|Dogtail|E2E-08|Niri smoke|Plasma smoke|Regression test|Security and privacy testing' AGENTS.md docs/DEVELOPMENT.md`
+  - EXPECT: future feature leaves select applicable layers, add failure/regression
+    coverage during implementation, run exact gates, preserve isolation, and
+    report unavailable native checks without claiming execution.
+  EVIDENCE: `AGENTS.md` and `docs/DEVELOPMENT.md` now define unit, tempfile
+    filesystem, proptest, GTK/accessibility, Dogtail E2E, isolated Mutter,
+    Niri, Plasma, security/privacy, regression, reporting, and CI boundaries.
+
+* [x] T6: Full deterministic repository gates pass.
+  - CHECK: `cargo fmt --all -- --check`
+  - CHECK: `cargo check --workspace`
+  - CHECK: `cargo clippy --workspace --all-targets -- -D warnings`
+  - CHECK: `cargo test --workspace`
+  - CHECK: `git diff --check`
+  - EXPECT: all commands exit zero; no web E2E dependency or unrelated feature
+    change is introduced.
+  EVIDENCE: Formatting, workspace check, strict all-target Clippy, 473 passing
+    Rust tests with one expected ignored graphical test, and diff hygiene all
+    pass. Cargo manifests contain no web E2E dependency.
+
+* [x] T7: Final status is truthful and measured.
+  - EXPECT: all active T1-T7 gates are checked with concrete evidence, or any
+    genuinely unavailable native run is recorded explicitly without a false
+    pass claim. `AGENTS.md` names this testing foundation without changing the
+    roadmap's Phase 13B recommendation.
+  EVIDENCE: Active ledger records seven of seven outcomes with command-backed
+    evidence. `AGENTS.md` records the testing foundation and retains Phase 13B
+    as the sole roadmap recommendation; native E2E unavailability remains
+    explicit rather than being reported as a pass.
+
+---
+
+# Archived gates: Floe Phase 13A — Current-Folder Filter
+
+* [x] G1: Exact-name filter semantics are bounded and path-safe.
   - CHECK: `cargo test -p floe-core phase_13a_filter -- --nocapture`
   - EXPECT: empty/text/glob/regex behavior, invalid patterns, 256-character
     limit, preserved input order, and raw non-UTF-8 matching are deterministic.
   - EVIDENCE: Three focused core tests passed for all modes, invalid syntax,
     256-scalar rejection, Unicode names, and raw non-UTF-8 matching.
-- [x] G2: Application filtering is responsive and generation-safe.
+* [x] G2: Application filtering is responsive and generation-safe.
   - CHECK: `cargo test -p floe-app phase_13a_filter -- --nocapture`
   - EXPECT: one bounded worker rejects capacity overflow, stale generations do
     not replace newer results, 100,000 loaded entries remain bounded, and
@@ -14,7 +239,7 @@
   - EVIDENCE: Six focused application tests passed for capacity pressure,
     latest-generation replacement, stale rejection, 100,000 entries, stable
     order, and exact visible-only selection restoration.
-- [x] G3: Native UI is discoverable, accessible, and truthful.
+* [x] G3: Native UI is discoverable, accessible, and truthful.
   - CHECK: focused UI/action contract tests plus native Wayland smoke.
   - EXPECT: header control and `Ctrl+F` expose the filter; Text/Glob/Regex have
     visible labels; count and invalid-pattern text are non-color-only; Escape
@@ -27,7 +252,7 @@
     Quick Preview binding. Filter-mode contract tests verify three visible popup
     summaries and mode-specific accessible hover help, including concrete Glob
     wildcard examples.
-- [x] G4: Full repository quality gates pass.
+* [x] G4: Full repository quality gates pass.
   - CHECK: `cargo fmt --all -- --check`
   - CHECK: `cargo check --workspace`
   - CHECK: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
@@ -35,7 +260,7 @@
   - CHECK: `cargo build -p floe-app`
   - EVIDENCE: Formatting, workspace check, strict Clippy, 365 application tests,
     104 core tests, and the native application build passed.
-- [x] G5: Documentation and roadmap status are exact.
+* [x] G5: Documentation and roadmap status are exact.
   - CHECK: `git diff --check`
   - CHECK: `rg -n '\| .*NEXT' docs/ROADMAP.md`
   - EXPECT: Phase 13A is COMPLETE only with G1-G4 evidence; exactly Phase 13B
@@ -47,14 +272,14 @@
 
 # Archived gates: Floe Phase 12F — Productivity Action Integration
 
-- [x] G1: Context-menu policy is compact, bounded, and archive-aware.
+* [x] G1: Context-menu policy is compact, bounded, and archive-aware.
   - CHECK: `cargo test -p floe-app phase_12f_context_menu -- --nocapture`
   - EXPECT: Archives appear by default; fixed essentials cannot disappear;
     optional reviewed groups preserve deterministic order without duplicates.
   - EVIDENCE: Three focused model tests passed; default Archives/Batch rename,
     fixed essentials, compact sections, empty/custom policies, ordering, and
     deduplication were verified.
-- [x] G2: Preference migration and customization UI are safe and accessible.
+* [x] G2: Preference migration and customization UI are safe and accessible.
   - CHECK: `cargo test -p floe-app phase_12f_context_preferences -- --nocapture`
   - EXPECT: legacy defaults migrate, unknown/duplicate/over-capacity group IDs are
     rejected or normalized deterministically, and dialog rows expose visible
@@ -62,7 +287,7 @@
   - EVIDENCE: Three focused preference tests passed; legacy/default, explicit
     empty, unknown/duplicate normalization, version-8 round trip, seven labeled
     switch rows, reset/apply, and capacity-one persistence path were verified.
-- [x] G3: Command and surface parity remain centralized.
+* [x] G3: Command and surface parity remain centralized.
   - CHECK: `cargo test -p floe-app phase_12f_action_integration -- --nocapture`
   - EXPECT: customization is registered for header/palette/shortcuts; file,
     background, list, grid, and Miller surfaces use the same reviewed models and
@@ -70,7 +295,7 @@
   - EVIDENCE: Two focused registry tests passed; six Phase 12 productivity and
     customization commands are searchable with reviewed header/file/background
     placements, while shared live menu objects serve list/grid/Miller surfaces.
-- [x] G4: Full workspace and native Wayland gates pass.
+* [x] G4: Full workspace and native Wayland gates pass.
   - CHECK: `cargo fmt --all -- --check`
   - CHECK: `cargo check --workspace`
   - CHECK: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
@@ -86,7 +311,7 @@
     selection-disabled, the native seven-row editor rendered aligned/unclipped,
     D-Bus Ping responded, and Quit exited 0. Only documented host libadwaita and
     RADV warnings appeared.
-- [x] G5: Persistent phase documents are truthful.
+* [x] G5: Persistent phase documents are truthful.
   - CHECK: exactly Phase 12F is COMPLETE and exactly one Phase 13A entry is NEXT
     only after G1-G4 pass.
   - EVIDENCE: `phase-12f-docs-ok`; ROADMAP, FEATURE_MATRIX,

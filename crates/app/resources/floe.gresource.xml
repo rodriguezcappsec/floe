@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gresources>
   <gresource prefix="/io/github/floe/FileManager">
+    <file alias="icons/512x512/apps/io.github.floe.FileManager.png">../../../icon_floe.png</file>
     <file alias="icons/scalable/mimetypes/floe-folder.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-folder-symbolic.svg</file>
     <file alias="icons/scalable/mimetypes/floe-folder-link.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-folder-link-symbolic.svg</file>
     <file alias="icons/scalable/mimetypes/floe-file-generic.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-generic-symbolic.svg</file>
