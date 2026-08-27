@@ -306,6 +306,30 @@ impl Appearance {
   opacity: 0.72;
 }}
 
+.icon-style-phosphor .floe-entry-icon.floe-icon-folder {{
+  color: #62b8e8;
+}}
+
+.icon-style-phosphor .floe-entry-icon.floe-icon-media {{
+  color: #55b996;
+}}
+
+.icon-style-phosphor .floe-entry-icon.floe-icon-archive {{
+  color: #d9a441;
+}}
+
+.icon-style-phosphor .floe-entry-icon.floe-icon-code {{
+  color: #a68be8;
+}}
+
+.icon-style-phosphor .floe-entry-icon.floe-icon-document {{
+  color: #6f9ee8;
+}}
+
+.icon-style-phosphor .floe-entry-icon.floe-icon-generic {{
+  color: @window_fg_color;
+}}
+
 .floe-directory-list row:selected .floe-entry-icon,
 .floe-directory-grid child:selected .floe-entry-icon {{
   opacity: 1;

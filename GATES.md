@@ -1,3 +1,275 @@
+# Gates: Floe Phases 18T–18X — Integrity and Data-Loss Safety
+
+Scope: Complete exactly Phase 18T, 18U, 18V, 18W, and 18X with native,
+responsive, standards-first behavior. Phase 18Y and all other roadmap work stay
+unimplemented.
+
+- [x] TX1: Every leaf ledger is complete with concrete evidence and its parent
+  re-runs focused checks.
+  CHECK: `node /home/rocappsec/.codex/skills/unlazy/scripts/gate-check.mjs --status gates/phase-18t.md gates/phase-18u.md gates/phase-18v.md gates/phase-18w.md gates/phase-18x.md`
+  EXPECT: every phase leaf reports all gates met
+  EVIDENCE: Parent rerun reports all five leaf ledgers ALL MET: 20/20 gates.
+- [x] TX2: Core/application boundaries preserve exact paths, no-follow and
+  no-shell behavior, bounded asynchronous work, cancellation, generation
+  safety, and no silent overwrite across all five phases.
+  CHECK: `cargo test --workspace phase_18 -- --nocapture`
+  EXPECT: all focused Phase 18T–18X deterministic tests pass
+  EVIDENCE: Phase-family filter passes 71 app tests, 21 integration tests, and
+  14 core tests; two unrelated graphical contracts remain intentionally
+  ignored by the ordinary deterministic filter.
+- [x] TX3: Integrity wording and behavior never claim authenticity, malware
+  safety, intrusion detection, secure erase, or safe eject before completion.
+  CHECK: `rg -n 'hash is not authenticity|not authenticity|not intrusion detection|not encryption|safe to remove' crates docs/FEATURE_MATRIX.md docs/PRIVACY_SECURITY.md`
+  EXPECT: truthful limitations are represented in policy and user surfaces
+  EVIDENCE: Core policy, dialogs, command metadata, matrix, and security
+  architecture explicitly distinguish integrity from authenticity/safety,
+  monitoring from intrusion detection, Protected Folders from encryption or
+  access control, and safe removal from pre-eject partial states.
+- [x] TX4: Existing ordinary checksum, copy, destructive, device, file-view,
+  job, command, preference, and accessibility behavior remains compatible.
+  CHECK: `cargo test --workspace`
+  EXPECT: complete deterministic workspace suite passes
+  EVIDENCE: Complete deterministic workspace passes: 466 app tests, 21 Phase
+  18X integration tests, and 146 core tests; four graphical tests are ignored
+  by the ordinary suite as designed.
+- [x] TX5: GTK remains responsive and user-visible actions expose accessible
+  progress, result, conflict, failure, cancellation, and partial states.
+  CHECK: `cargo test -p floe-app phase_testing_gtk_header_filter_and_operations_accessibility_contract -- --ignored --nocapture && cargo test -p floe-app phase_testing_gtk_phase_18x_guardrail_dialog_accessibility_contract -- --ignored --nocapture`
+  EXPECT: each real GTK component contract passes in its own process
+  EVIDENCE: Both contracts pass 1/1 on the active display. Running the broad
+  filter in one Rust test process is invalid because GTK initialization is
+  thread-affine; separate processes are the documented permanent gate.
+- [x] TX6: Security isolation policy is respected: tests use disposable roots,
+  no real user data/device, no implicit network, no secret/content telemetry,
+  and no future Phase 18 feature is smuggled into scope.
+  CHECK: `git diff --check`
+  EXPECT: diff is hygienic and review confirms bounded scope
+  EVIDENCE: Diff hygiene passes. Filesystem tests use `tempfile` or injected
+  stores/devices; no real HOME, Trash, mount, or USB media was used. No new
+  dependency, network transmission, secret handling, or Phase 18Y work exists.
+- [x] TX7: Formatting, workspace check, strict all-target Clippy, native build,
+  and complete tests pass after integration.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo build -p floe-app`
+  EXPECT: every deterministic build-quality gate passes
+  EVIDENCE: Root rerun passes formatting, workspace check, strict all-target
+  Clippy with warnings denied, the complete deterministic workspace suite, and
+  native `floe-app` build.
+- [x] TX8: Applicable isolated native Wayland workflows pass; environment-only
+  skips and real-removable-device limitations are recorded exactly.
+  EVIDENCE: Real GTK contracts pass separately on the active Wayland display;
+  E2E harness contracts pass 3/3 and semantic workflows skip exactly because
+  Dogtail/pyatspi are unavailable. Real USB validation is skipped because no
+  disposable lab media was provided. A root isolated-D-Bus lifecycle retry was
+  blocked by portal services closing the disposable bus, so no additional
+  lifecycle claim is made and the user's existing Floe instance was untouched.
+- [x] TX9: AGENTS, ROADMAP, FEATURE_MATRIX, PRIVACY_SECURITY, PLAN, GATES,
+  architecture/development/user docs agree with verified implementation.
+  CHECK: `rg -n '18(T|U|V|W|X).*COMPLETE|18Y.*NEXT' docs/ROADMAP.md`
+  EXPECT: 18T–18X complete and exactly 18Y next only after verification
+  EVIDENCE: Persistent project, roadmap, matrix, security, architecture,
+  development, user, plan, and gate documents record 18T–18X COMPLETE, their
+  limitations, and exactly Phase 18Y NEXT.
+- [x] TX10: Root gate checker passes and no dependency is added without a
+  written Phase 18A admission review.
+  CHECK: `node /home/rocappsec/.codex/skills/unlazy/scripts/gate-check.mjs GATES.md`
+  EXPECT: every project gate met with evidence
+  EVIDENCE: No Cargo manifest or lockfile change was introduced for 18T–18X;
+  root gate checker passes after all evidence is recorded.
+
+---
+
+# Gates: Floe Phase 18A — Security Threat Model
+
+Scope: Research, decision records, dependency rationale, and a traceable
+security test plan only. No Phase 18B+ runtime implementation or dependency.
+
+- [x] A1: Authoritative threat model identifies protected assets, adversaries,
+  trusted components, trust/authority boundaries, abuse cases, explicit
+  non-protections, data classes, and prohibited claims against current code.
+  CHECK: `rg -n '^## (Protected assets|Adversaries|Trusted components and assumptions|Trust and authority boundaries|Abuse cases|Explicit non-protections|Security data classification|Prohibited claims)' docs/security/THREAT_MODEL.md`
+  EXPECT: all required sections are present
+  EVIDENCE: All eight required headings are present. The record defines 18
+  numbered abuse cases, C0-C5 data classes, an authority matrix, explicit
+  non-protections, invariants, prohibited claims, and change control.
+- [x] A2: Decision record covers formats, secrets, credential storage, vaults,
+  caches/history, sandboxing, integrity, privileged access, and dependency
+  policy with explicit accepted/candidate/deferred/rejected status and rationale.
+  CHECK: `rg -n '^### SEC-18A-[0-9]{2}' docs/security/PHASE_18A_DECISIONS.md`
+  EXPECT: stable decision IDs cover every required architecture family
+  EVIDENCE: Exactly 16 stable records cover no-runtime scope, portable
+  encryption, secret lifetime, desktop-neutral credentials, vault selection,
+  sandboxing, trace invalidation, SHA-256 integrity, privileged access,
+  dependencies, publication, terminology, recovery, findings, local-first
+  networking, and sequencing. Candidate names remain unselected dependencies.
+- [x] A3: Test plan maps every Phase 18B–18AA leaf to threats, applicable test
+  layers, required success/failure cases, isolation, and evidence needed before
+  any IMPLEMENTED claim.
+  CHECK: `rg -n '^\| 18(B|C|D|E|F|G|H|I|J|K|L|M|N|O|P|Q|R|S|T|U|V|W|X|Y|Z|AA) ' docs/security/PHASE_18_TEST_PLAN.md`
+  EXPECT: one traceability row for every later Phase 18 leaf
+  EVIDENCE: Exactly 26 rows cover every leaf from 18B through 18AA with threat
+  and decision links, required layers, success/failure cases, isolation, and
+  completion evidence. Global hostile-corpus, failure-taxonomy, dependency, and
+  evidence-template requirements are present.
+- [x] A4: Roadmap/matrix/status defer Niri, Plasma-specific integration, remote,
+  and MTP; mark only verified 18A complete and exactly one high-impact next leaf.
+  CHECK: `rg -n 'Status: \*\*NEXT\*\*|\| .*\| NEXT \|' docs/ROADMAP.md`
+  EXPECT: exactly Phase 18T is NEXT
+  EVIDENCE: Roadmap has exactly one NEXT row, Phase 18T. Phases 15 and 16 plus
+  17A-17D are DEFERRED; Phase 18A is COMPLETE. Feature matrix, AGENTS, README,
+  privacy/security architecture, and the three security records agree.
+- [x] A5: Phase adds no dependency or runtime behavior; security terms and
+  persistent documents cross-link the authoritative artifacts consistently.
+  CHECK: `git diff -- Cargo.toml crates/app/Cargo.toml crates/core/Cargo.toml Cargo.lock`
+  EXPECT: no dependency diff
+  EVIDENCE: Manifest/lockfile diff is empty. Phase 18A adds only documentation
+  and status/sequence records; existing source/resource diffs belong to the
+  already verified post-Phase-14 icon work. Later capabilities remain PLANNED,
+  and protected terms retain the authoritative meanings.
+- [x] A6: Documentation hygiene, formatting, workspace check, strict Clippy,
+  complete tests, native build, diff hygiene, and gate checker pass.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`
+  EXPECT: all deterministic gates pass; native smoke explicitly N/A
+  EVIDENCE: Structure/count checks, dependency diff, and `git diff --check`
+  pass. Formatting, workspace check, strict all-target Clippy, complete workspace
+  tests, and native `floe-app` build pass; 397 app and 132 core tests are listed,
+  with the two existing graphical GTK tests intentionally ignored by the
+  ordinary suite. Native GTK/E2E/Wayland smoke is N/A because Phase 18A changes
+  no runtime or UI behavior. The gate checker passes all 107 recorded gates when
+  run outside the command sandbox required by its `/bin/sh` subprocess.
+
+---
+
+# Gates: Floe post-Phase-14 — Synthetic Execute-Bit Icon Regression
+
+Scope: Correct icon classification on exFAT and similar filesystems that report
+ordinary files as executable. No MIME probing, filesystem I/O, or Phase 15 work.
+
+- [x] X1: Recognized PDF, text, document, media, archive, and code extensions
+  retain semantic icons when their metadata includes execute bits.
+  CHECK: `cargo test -p floe-app post_phase_14_synthetic_execute -- --nocapture`
+  EXPECT: focused executable-precedence regression passes
+  EVIDENCE: Focused regression passes ten representative known families as
+  executable `0755` regular files; each retains its semantic icon instead of
+  collapsing to Executable.
+- [x] X2: Unknown or extensionless executable files retain the executable icon;
+  directories, links, non-UTF-8 paths, and ordinary unknown files are unchanged.
+  CHECK: `cargo test -p floe-app phase_6g -- --nocapture`
+  EXPECT: complete entry-icon policy suite passes
+  EVIDENCE: Complete nine-test Phase 6G suite passes. Unknown executable
+  `tool.AppImage` and extensionless executable retain Executable; directory,
+  folder-link, file-link, non-UTF-8, ordinary extension, and resources pass.
+- [x] X3: Formatting, check, strict Clippy, workspace tests, real GTK component,
+  native build, diff hygiene, and documentation gates pass.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`
+  EXPECT: all applicable gates pass
+  EVIDENCE: Formatting, workspace check, strict all-target Clippy, native build,
+  397 app tests (395 passed plus two intentional graphical ignores), 132 core
+  tests, real GTK component gate, diff hygiene, and persistent docs pass. The
+  GTK run emitted only the pre-existing libadwaita host warning.
+
+---
+
+# Gates: Floe post-Phase-14 — File-Type Icon Distinction Regression
+
+Scope: Repair missing or visually collapsed file-type icons in the existing
+three-style entry-icon system. No Phase 15 work or unrelated icon redesign.
+
+- [x] R1: PDF and plain-text fixtures classify into distinct semantic families,
+  and every reviewed extension family retains a deterministic mapping.
+  CHECK: `cargo test -p floe-app post_phase_14_file_type_icon -- --nocapture`
+  EXPECT: focused icon taxonomy tests pass
+  EVIDENCE: Focused regression test passes `.pdf` as PDF, `.txt`/`.md` as
+  Plain Text, `.docx` as Document, case-insensitive reviewed extension mapping,
+  and distinct stable names across Floe Color, Phosphor, and System fallbacks.
+- [x] R2: Floe Color and Phosphor map every entry family to a registered,
+  nonblank app-owned resource; PDF and text resource bytes and resolved
+  paintables are distinct.
+  CHECK: `cargo test -p floe-app post_phase_14_file_type_icon -- --nocapture`
+  EXPECT: focused resource and mapping tests pass
+  EVIDENCE: Focused style/resource tests pass all fifteen Floe Color aliases and
+  all 44 pinned Phosphor symbolic resources with `currentColor`. Real GTK
+  resolves PDF and plain text to different resource files in both styles.
+- [x] R3: System Theme lookup has an explicit usable fallback for every family,
+  preserves native theme icons when available, and cannot collapse PDF and text
+  merely because the host theme lacks or aliases a MIME icon.
+  CHECK: `cargo test -p floe-app post_phase_14_file_type_icon -- --nocapture`
+  EXPECT: focused fallback-policy tests pass
+  EVIDENCE: Every native MIME chain ends in its matching distinct Floe resource;
+  PDF, plain-text, and document chains share no app fallback. The real active
+  GTK theme resolves PDF and TXT to different files.
+- [x] R4: Live style switching clears stale image state and rebinds already
+  loaded list, grid, search, and Miller presentations without filesystem work.
+  CHECK: `cargo test -p floe-app phase_testing_gtk -- --ignored --nocapture`
+  EXPECT: real GTK icon-style component contract passes
+  EVIDENCE: Real GTK gate passes app-owned-to-GIcon-to-app-owned storage changes,
+  distinct resolved paintables, stale GIcon removal, CSS/action/accessibility
+  contracts. Native Wayland action cycle Floe Color -> Phosphor -> System ->
+  Floe Color stayed responsive and Quit exited 0.
+- [x] R5: Formatting, workspace check, strict Clippy, full tests, native build,
+  E2E contract discovery, diff hygiene, and applicable native Wayland smoke pass.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`
+  EXPECT: all deterministic gates pass; graphical limitations reported exactly
+  EVIDENCE: Formatting, workspace check, strict all-target Clippy, native build,
+  and workspace tests pass: 396 app tests (394 passed, two intentional GTK
+  ignores) plus 132 core tests. Real GTK gate passes. E2E harness contracts pass;
+  semantic native E2E skips exactly because Dogtail and pyatspi are unavailable.
+  Native Wayland style/liveness/Quit smoke passes with only documented RADV host
+  warning. Diff hygiene passes.
+- [x] R6: Persistent documentation records the verified regression without
+  changing Phase 15 as the sole roadmap NEXT phase.
+  CHECK: `node /home/rocappsec/.codex/skills/unlazy/scripts/gate-check.mjs GATES.md`
+  EXPECT: every regression gate checked with concrete evidence
+  EVIDENCE: AGENTS, DESIGN, README, ROADMAP, FEATURE_MATRIX, ARCHITECTURE,
+  DEVELOPMENT, PLAN, resource attribution, and this ledger record the verified
+  fifteen-family/44-Phosphor-resource boundary. Exactly Phase 15 remains NEXT.
+
+---
+
+# Gates: Floe post-Phase-14 — Phosphor Icon System
+
+Scope: app-layer icon resources, three persistent entry-icon styles, and live
+virtualized rebinding only. Phase 15 remains untouched.
+
+- [x] P1: Pinned Phosphor Core 2.1.1 Regular subset and exact MIT attribution are
+  bundled as GTK symbolic resources; no runtime download or new dependency.
+  EVIDENCE: GResource compiles and the focused resource test enumerates exactly
+  42 `floe-phosphor-*-symbolic.svg` children, verifies `currentColor`, and retains
+  all fourteen original Floe Color resources. Source commit and MIT text are
+  recorded under `THIRD_PARTY_LICENSES/Phosphor-Icons.txt`.
+- [x] P2: Floe Color, Phosphor Monochrome, and System Theme have stable IDs,
+  labels, deterministic semantic mappings, version-12 persistence, and safe
+  legacy/invalid fallback.
+  CHECK: `cargo test -p floe-app post_phase_14 -- --nocapture`
+  EVIDENCE: Three focused tests pass stable style/resource mapping, legacy and
+  invalid fallback, all-style round trip, and toast-markup escaping.
+- [x] P3: Header/menu/sidebar Floe-owned chrome uses Phosphor resources without
+  changing accessible labels, action names, keyboard paths, or non-color cues.
+  EVIDENCE: The real GTK component gate passes existing header accessibility and
+  action contracts plus Phosphor back-button resource and live CSS-class change.
+- [x] P4: Switching style applies immediately from already-loaded entries across
+  list/grid/Miller-visible state; thumbnails still replace generic icons and GTK
+  performs no filesystem operation.
+  EVIDENCE: `icon-style` changes the shared style cell and rebuilds only the
+  already-loaded virtualized stores; the existing thumbnail presentation remains
+  authoritative. Native D-Bus state changed Floe Color to Phosphor to System and
+  back while `Peer.Ping` remained responsive.
+- [x] P5: Focused tests, formatting, check, strict Clippy, workspace tests, native
+  build, diff hygiene, real GTK component gate, and applicable Wayland lifecycle
+  smoke pass with exact evidence recorded.
+  EVIDENCE: `cargo fmt --all -- --check`, workspace check, strict all-target
+  Clippy, 395 app tests (393 passed plus two intentional graphical ignores), 132
+  core tests, native build, diff hygiene, and one real GTK component test pass.
+  Native E2E harness contracts pass; semantic workflows are skipped explicitly
+  because Python dogtail and pyatspi are unavailable.
+- [x] P6: Persistent docs accurately describe the verified feature and keep
+  exactly Phase 15 as `NEXT`.
+  EVIDENCE: Two-launch isolated Plasma Wayland smoke restored persisted
+  `phosphor`, switched live through `system` and back, answered D-Bus Ping, wrote
+  private version-12 state, and Quit exited 0 without the prior toast markup
+  warning. Only the documented host RADV warning appeared.
+
+---
+
 # Gates: Floe Phase 14 — Generic Desktop Integration Framework
 
 Scope: App-layer standards capability boundary, asynchronous detection,

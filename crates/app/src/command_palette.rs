@@ -304,7 +304,7 @@ impl PaletteInner {
                 matched.definition.risk,
                 CommandRisk::ConfirmationRequired | CommandRisk::Irreversible
             ) {
-                let warning = gtk::Image::from_icon_name("dialog-warning-symbolic");
+                let warning = gtk::Image::from_icon_name("floe-phosphor-warning-symbolic");
                 warning.set_tooltip_text(Some("This command requires confirmation"));
                 row.add_suffix(&warning);
             }

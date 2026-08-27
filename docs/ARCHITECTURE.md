@@ -346,7 +346,7 @@ Classification uses the original `Path` extension and never reconstructs a path
 from lossy display text. Directory enumeration captures only an inexpensive
 executable bit; icon selection performs no filesystem I/O.
 
-Fourteen app-owned SVGs compile into one GResource at build time and register as
+Fifteen app-owned SVGs compile into one GResource at build time and register as
 a non-symbolic icon-theme resource before list/grid factories bind. Both views
 call the same policy and CSS-family mapping. Generic list icons use 28 pixels;
 grid generic icons use bounded 48-88 pixel optical sizes independently of the
@@ -354,6 +354,25 @@ grid generic icons use bounded 48-88 pixel optical sizes independently of the
 any unsupported/failed thumbnail returns to the same semantic fallback. File
 icons are decorative GTK Presentation nodes beside authoritative filename and
 text-kind labels.
+
+The post-Phase-14 icon correction keeps this classification boundary and adds
+an app-only `EntryIconStyle`. Floe Color resolves fifteen
+non-symbolic resources, Phosphor Monochrome resolves a pinned local symbolic
+resource subset, and System Theme resolves standard freedesktop icon names.
+Plain text and office documents are separate from PDF. Every System Theme
+family terminates in its distinct Floe Color resource, preventing missing
+theme artwork from collapsing unrelated families onto one shared generic icon.
+For regular files, a recognized extension family takes presentation precedence
+over execute bits because FAT/exFAT and similar filesystems may synthesize
+`0755` for every file. Only unknown or extensionless executable entries fall
+back to executable artwork. This is app-only presentation policy and does not
+change permission or launch decisions.
+One shared `Rc<Cell<EntryIconStyle>>` is read only while virtualized list/grid
+and search rows bind. A style change updates that cell and rebuilds the model
+from already-loaded `Arc<DirectoryEntry>` values; it performs no enumeration,
+MIME probe, path conversion, or filesystem operation. The existing thumbnail
+presentation remains the final paintable authority. Style persistence stays in
+the capacity-one application preference worker and does not enter `floe-core`.
 
 ### `state.rs` and `job_manager.rs`
 
@@ -863,6 +882,38 @@ copy, staged cross-filesystem move, and bounded desktop clipboard
 interoperability. Phase 6P adds operation control. Phase 6Q adds create,
 duplicate, link, reveal, and explicit path-copy commands. Phase 6R drag and drop
 is the sole recommended next phase.
+
+## Phase 18A security architecture boundary
+
+Phase 18A changes documentation and sequencing only. The authoritative
+[threat model](security/THREAT_MODEL.md),
+[decision record](security/PHASE_18A_DECISIONS.md), and
+[test plan](security/PHASE_18_TEST_PLAN.md) constrain later security work while
+preserving the existing GTK → application controller → bounded worker/core
+boundaries. They select no runtime dependency, crypto library, credential
+backend, vault backend, or sandbox mechanism.
+
+Phases 18T–18X now implement the bounded integrity and data-loss-safety slice
+defined by that architecture. Application-owned workers handle hashing,
+baseline scanning, verified-copy verification, mount flushing, and guardrail
+preflight; GTK only submits typed requests and observes events. Exact raw paths
+remain authoritative throughout.
+
+The integrity layer reuses reviewed Phase 10E SHA-256 and never presents hash
+equality as authenticity or safety. Monitoring is explicit, local,
+same-device, bounded, and rescan-aware rather than intrusion detection.
+Verified Copy distinguishes no output, copied-but-unverified output, and
+verified output. Verified removable transfer adds an exact revalidated mount
+`syncfs` worker and returns to the GLib context for relationship-aware GIO
+eject/unmount; only successful removal reaches SafeToRemove.
+
+`ApplicationState` owns the Protected Folder authority. A strict private store,
+policy generation, bounded preflight worker, and non-cloneable single-use
+permits form the last application boundary before every destructive executor
+dispatch, including queued work, undo/retry, and revised conflict destinations.
+Corrupt policy state fails closed. This is accidental-loss prevention, not
+encryption, access control, or privilege elevation. Phase 18Y is the next
+bounded architecture leaf and owns privacy-aware operation recovery journals.
 
 ## Known architectural debt
 

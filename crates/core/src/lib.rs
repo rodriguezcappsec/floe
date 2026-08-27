@@ -12,6 +12,8 @@ mod duplicate_finder;
 mod error;
 mod filename_search;
 mod filter;
+mod guardrails;
+mod integrity_monitor;
 mod jobs;
 mod miller;
 mod model;
@@ -26,6 +28,7 @@ mod sorting;
 mod split;
 mod tabs;
 mod trash_lifecycle;
+mod verified_copy;
 mod view;
 
 #[cfg(test)]
@@ -84,6 +87,22 @@ pub use filename_search::{
 pub use filter::{
     FOLDER_FILTER_QUERY_CAPACITY, FolderFilterError, FolderFilterMode, FolderFilterPattern,
 };
+pub use guardrails::{
+    DestructiveAction, DestructiveFacts, DestructiveScope, DestructiveScopeError,
+    GUARDRAIL_ACTIVE_PERMIT_CAPACITY, GUARDRAIL_PATH_BYTE_CAPACITY, GUARDRAIL_TARGET_CAPACITY,
+    GuardrailPermit, GuardrailPermitError, GuardrailPermitIssuer, LARGE_DESTRUCTIVE_BYTE_THRESHOLD,
+    LARGE_DESTRUCTIVE_DEPTH_THRESHOLD, LARGE_DESTRUCTIVE_ITEM_THRESHOLD, PREFLIGHT_DEPTH_CAPACITY,
+    PREFLIGHT_DIRECTORY_CAPACITY, PREFLIGHT_ENTRY_CAPACITY, PROTECTED_ROOT_CAPACITY,
+    PreflightDecision, PreflightRisk, PreflightScanState, ProtectedIntersection, ProtectedRelation,
+    ProtectedRoots, ProtectedRootsError, validate_guardrail_path,
+};
+pub use integrity_monitor::{
+    INTEGRITY_MONITOR_ENTRY_CAPACITY, INTEGRITY_MONITOR_EVENT_CAPACITY,
+    INTEGRITY_MONITOR_PATH_BYTES, IntegrityBaseline, IntegrityBaselineDiff, IntegrityBaselineEntry,
+    IntegrityBaselineError, IntegrityDiffEntry, IntegrityEntryStatus, IntegrityMonitorPolicyError,
+    IntegrityMonitorSession, IntegrityMonitorStaleReason, IntegrityMonitorStatus,
+    IntegrityRescanDecision, IntegrityWatchEvent, IntegrityWatchSetPolicy,
+};
 pub use jobs::{
     InvalidJobProgress, JobCommand, JobCommandKind, JobEvent, JobEventKind, JobFailure,
     JobFailureKind, JobId, JobProgress, JobRecord, JobState, JobTransitionError, OperationId,
@@ -136,6 +155,11 @@ pub use tabs::{
 pub use trash_lifecycle::{
     RestoreError, RestoreOutcome, RestoreRequest, RestoreRequestError, TrashEnumerateError,
     TrashRoot, enumerate_trash_with_cancel, execute_restore,
+};
+pub use verified_copy::{
+    VERIFIED_COPY_DEPTH_CAPACITY, VERIFIED_COPY_ENTRY_CAPACITY, VERIFIED_COPY_PATH_BYTES,
+    VerifiedCopyOutcome, VerifiedCopyProgress, VerifiedCopyRequest, VerifiedCopyRetry,
+    VerifiedCopyStage, VerifiedDestinationState,
 };
 pub use view::{
     FileViewDensity, FolderViewState, GRID_SIZES, GridSize, ListColumn, ListColumnLayout, ViewMode,

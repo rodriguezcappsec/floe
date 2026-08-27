@@ -69,6 +69,7 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 | **Archives** | Create and extract ZIP, tar, tar.gz, tar.xz, and reviewed 7z archives through bounded background jobs |
 | **Work faster** | Unified quick filtering, filename/content search, saved searches, optional indexing, duplicate finding, command palette, customizable shortcuts, optional Vim navigation, batch rename, and customizable context menus |
 | **Desktop integration** | XDG Places, bookmarks, drives and removable media, native mount prompts, GIO Open With/default apps, live file watching, and a truthful desktop-capability status surface |
+| **Integrity and data-loss safety** | Saved SHA-256 fingerprints, portable `SHA256SUMS`, explicit local integrity baselines, optional Copy and Verify, verified flush/eject workflow, and exact-path Protected Folder guardrails |
 | **Appearance** | Native, Glass, Frosted, Minimal, and Compact presets; adjustable sidebar density and width; optional translucent floating surfaces |
 
 Glass uses real top-level alpha composition, while Frosted uses a stronger
@@ -198,11 +199,24 @@ standards-based path.
 
 ## Project status
 
-Floe has completed the bounded roadmap through **Phase 14**, including archive,
-productivity, command, preview, metadata, tabs, split view, Miller columns,
-advanced search, saved searches, optional indexing, duplicate finding, and the
-generic desktop-integration framework. The next bounded milestone is
-**Phase 15 — Niri Integration**.
+Floe has completed the generic desktop integration baseline through **Phase
+14**, the documentation-only **Phase 18A Security Threat Model**, and runtime
+**Phases 18T–18X** for integrity and data-loss safety. These phases add
+path-safe SHA-256 fingerprints/manifests, opt-in local monitoring, verified
+copy/removable workflows, and Protected Folder guardrails. Hashes are not
+authenticity or malware safety, monitoring is not intrusion detection, and
+Protected Folders are mistake prevention rather than encryption or access
+control. Real removable-device verification remains unclaimed without
+disposable lab media. Niri, Plasma-specific, remote, and Android/MTP
+integration remain deferred. The next bounded milestone is **Phase 18Y —
+Operation Recovery**.
+
+Application chrome now uses a pinned local Phosphor icon subset, while file
+entries switch live between **Floe Color**, **Phosphor Monochrome**, and the
+active **System Theme**. Plain text, office documents, and PDF use distinct
+families; missing system-theme artwork falls back to a family-specific Floe
+icon. Thumbnails continue replacing generic icons, and the selected style
+persists across launches.
 
 Search is presented as one coherent workflow: `Ctrl+F` opens **Quick Filter**,
 the visible mode selector switches between filtering, filename search, and

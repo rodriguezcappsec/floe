@@ -71,6 +71,19 @@ switching, Glass restoration on a second isolated launch, and a Frosted
 environment override that left the stored Glass preference unchanged. Each
 instance answered D-Bus `Peer.Ping` and exited cleanly through Quit.
 
+The adjacent **File & Folder Icons** submenu switches **Floe Color**,
+**Phosphor Monochrome**, and **System Theme** live. The stable choice persists
+in `view-preferences.conf`; legacy preferences migrate to Floe Color. Phosphor
+SVGs are bundled resources, so this setting performs no network or filesystem
+icon discovery. The source pin and MIT attribution are in
+`THIRD_PARTY_LICENSES/Phosphor-Icons.txt`. Plain text, office documents, and PDF
+are distinct families. System Theme uses the host MIME icon when available,
+then a family-specific bundled Floe fallback.
+Known extensions also retain their semantic icon when a mount reports synthetic
+execute bits. Run `cargo test -p floe-app post_phase_14_synthetic_execute --
+--nocapture` for the exFAT-style `0755` regression; unknown AppImage and
+extensionless executables must still use executable artwork.
+
 ## Logging
 
 The default tracing filter is `floe_app=info,floe_core=info`. Override it with
@@ -296,7 +309,7 @@ the GLib resource compiler already supplied by the GTK/GLib development
 environment. No runtime icon files are read from the checkout. Focused tests
 cover all semantic families, extension case, exact non-UTF-8 paths, directory,
 file-link, folder-link and executable precedence, bounded list/grid optical
-sizes, and all fourteen registered full-color SVG resource aliases.
+sizes, and all fifteen registered full-color SVG resource aliases.
 
 Phase 6H adds no dependency. Focused tests run with `cargo test -p floe-app phase_6h -- --nocapture` and cover location syntax, absolute-path trimming, file-versus-directory recovery wording, non-UTF-8 display ownership, and exact navigation-snapshot rollback. Native checking should exercise both the clickable header path and Ctrl+L, Enter success/failure, Escape cancellation, and restored file-view focus.
 
@@ -803,6 +816,38 @@ to current operation and must remain non-fatal when integration is added.
 No Plasma-specific API or KDE Framework dependency exists. Floe should launch
 normally in a Plasma Wayland session using GTK/GIO behavior. Prefer XDG, GIO,
 GLib, and portals before proposing a KDE-specific dependency.
+
+## Phase 18T–18X integrity and data-loss safety verification
+
+The implemented integrity actions are Save/Verify SHA-256 Fingerprint,
+Generate/Verify `SHA256SUMS`, explicit baseline create/check/monitor controls,
+Copy and Verify, Copy/Verify/Flush/Eject, and Protect/Unprotect/Protected
+Folders. Hashing, scans, copy verification, mount flushing, and policy writes
+run through bounded application workers; GTK callbacks do not perform the
+filesystem work.
+
+Focused deterministic verification is available with:
+
+```bash
+cargo test --workspace phase_18 -- --nocapture
+node /home/rocappsec/.codex/skills/unlazy/scripts/gate-check.mjs --status \
+  gates/phase-18t.md gates/phase-18u.md gates/phase-18v.md \
+  gates/phase-18w.md gates/phase-18x.md
+```
+
+GTK contracts must run as separate filtered processes because GTK can only be
+initialized from one test thread per process:
+
+```bash
+cargo test -p floe-app phase_testing_gtk_header_filter_and_operations_accessibility_contract -- --ignored --nocapture
+cargo test -p floe-app phase_testing_gtk_phase_18x_guardrail_dialog_accessibility_contract -- --ignored --nocapture
+```
+
+Automated removable-transfer tests use mock/disposable targets only. Do not run
+the workflow against user media for a gate. A real-device claim requires an
+explicit disposable lab device. The current host lacks Dogtail/pyatspi, so the
+native semantic E2E suite reports that dependency skip while its harness
+contracts pass.
 
 ## Troubleshooting
 

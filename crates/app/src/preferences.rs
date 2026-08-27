@@ -24,7 +24,9 @@ use thiserror::Error;
 use crate::view::{
     FileViewDensity, FolderViewState, GridSize, ListColumnLayout, MillerColumnWidth, ViewMode,
 };
-use crate::{appearance::AppearancePreset, terminal::TerminalProviderId};
+use crate::{
+    appearance::AppearancePreset, iconography::EntryIconStyle, terminal::TerminalProviderId,
+};
 use crate::{context_menu::ContextMenuPreferences, keybindings::KeybindingOverrides};
 
 const PREFERENCE_QUEUE_CAPACITY: usize = 1;
@@ -92,6 +94,7 @@ pub struct ViewPreferences {
     pub preferred_terminal: Option<TerminalProviderId>,
     pub context_menu: ContextMenuPreferences,
     pub appearance: AppearancePreset,
+    pub icon_style: EntryIconStyle,
     pub saved_searches: SavedSearchCatalog,
     pub search_index_enabled: bool,
     folder_views: Vec<FolderViewOverride>,
@@ -116,6 +119,7 @@ impl Default for ViewPreferences {
             preferred_terminal: None,
             context_menu: ContextMenuPreferences::default(),
             appearance: AppearancePreset::Frosted,
+            icon_style: EntryIconStyle::FloeColor,
             saved_searches: SavedSearchCatalog::default(),
             search_index_enabled: false,
             folder_views: Vec::new(),
@@ -264,6 +268,11 @@ impl ViewPreferences {
                         preferences.appearance = appearance;
                     }
                 }
+                "icon-style" => {
+                    if let Some(style) = EntryIconStyle::from_persisted(value) {
+                        preferences.icon_style = style;
+                    }
+                }
                 "saved-search" => {
                     if let Some(saved) = SavedSearch::parse_record(value) {
                         let _ = preferences.saved_searches.add(saved);
@@ -291,8 +300,9 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=11\nappearance={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\n",
+            "version=12\nappearance={}\nicon-style={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\n",
             self.appearance.persisted(),
+            self.icon_style.persisted(),
             self.mode.persisted(),
             self.grid_size.edge(),
             self.sidebar_density.persisted(),
@@ -646,7 +656,7 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=11\n"));
+        assert!(serialized.starts_with("version=12\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
     }
@@ -665,7 +675,7 @@ mod tests {
         );
         assert_eq!(customized.context_menu.persisted(), "archives,checksums");
         let serialized = customized.serialize();
-        assert!(serialized.starts_with("version=11\n"));
+        assert!(serialized.starts_with("version=12\n"));
         assert!(serialized.contains("context-menu-groups=archives,checksums\n"));
         assert_eq!(ViewPreferences::parse(&serialized), customized);
 
@@ -688,7 +698,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=11\n"));
+        assert!(serialized.starts_with("version=12\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,
@@ -711,9 +721,30 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=11\n"));
+            assert!(serialized.starts_with("version=12\n"));
             assert!(serialized.contains(&format!("appearance={}\n", preset.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).appearance, preset);
+        }
+    }
+
+    #[test]
+    fn post_phase_14_icon_style_migrates_validates_and_round_trips() {
+        let legacy = ViewPreferences::parse("version=11\nappearance=glass\n");
+        assert_eq!(legacy.icon_style, EntryIconStyle::FloeColor);
+        assert_eq!(
+            ViewPreferences::parse("version=12\nicon-style=unknown\n").icon_style,
+            EntryIconStyle::FloeColor
+        );
+
+        for style in EntryIconStyle::ALL {
+            let preferences = ViewPreferences {
+                icon_style: style,
+                ..ViewPreferences::default()
+            };
+            let serialized = preferences.serialize();
+            assert!(serialized.starts_with("version=12\n"));
+            assert!(serialized.contains(&format!("icon-style={}\n", style.persisted())));
+            assert_eq!(ViewPreferences::parse(&serialized).icon_style, style);
         }
     }
 
@@ -744,7 +775,7 @@ mod tests {
         let mut preferences = ViewPreferences::default();
         preferences.saved_searches.add(saved).expect("catalog add");
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=11\n"));
+        assert!(serialized.starts_with("version=12\n"));
         assert!(serialized.contains("saved-search="));
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored.saved_searches, preferences.saved_searches);
@@ -787,7 +818,7 @@ mod tests {
         let mut enabled = defaults;
         enabled.search_index_enabled = true;
         let serialized = enabled.serialize();
-        assert!(serialized.starts_with("version=11\n"));
+        assert!(serialized.starts_with("version=12\n"));
         assert!(serialized.contains("search-index-enabled=true\n"));
         assert!(ViewPreferences::parse(&serialized).search_index_enabled);
         assert!(!ViewPreferences::parse("search-index-enabled=invalid\n").search_index_enabled);

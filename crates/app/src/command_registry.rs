@@ -194,6 +194,49 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [H]
     ),
     command!(
+        "protect-folder",
+        "Protect Folder",
+        "Add the selected directory or current folder to Floe's accidental-change guardrail",
+        Files,
+        [
+            "protected folder",
+            "guardrail",
+            "prevent mistakes",
+            "safety"
+        ],
+        [],
+        [F, B, H]
+    ),
+    command!(
+        "unprotect-folder",
+        "Unprotect Folder",
+        "Remove the selected directory or current folder from Floe's accidental-change guardrail",
+        Files,
+        [
+            "protected folder",
+            "guardrail",
+            "remove protection",
+            "safety"
+        ],
+        [],
+        [F, B, H]
+    ),
+    command!(
+        "protected-folders",
+        "Protected Folders…",
+        "Review Protected Folder status, current target state, and guardrail limitations",
+        Operations,
+        [
+            "protected folder",
+            "guardrail",
+            "status",
+            "settings",
+            "limitations"
+        ],
+        [],
+        [F, B, H]
+    ),
+    command!(
         "properties",
         "Properties",
         "Show properties for the selection",
@@ -210,6 +253,128 @@ pub static COMMANDS: &[CommandDefinition] = &[
         ["sha256", "sha512", "md5", "hash"],
         [],
         [F, T, H]
+    ),
+    command!(
+        "copy-and-verify",
+        "Copy and Verify…",
+        "Copy one selected item, sync it, and compare source and destination with SHA-256",
+        Files,
+        ["integrity", "verified copy", "sha256", "byte comparison"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "verified-removable-transfer",
+        "Verified Removable Transfer…",
+        "Copy one selected item to removable storage, verify bytes, flush, then eject or unmount",
+        Files,
+        [
+            "usb",
+            "removable",
+            "verified copy",
+            "flush",
+            "eject",
+            "sha256"
+        ],
+        [],
+        [F, H]
+    ),
+    command!(
+        "save-sha256-fingerprint",
+        "Save SHA-256 Fingerprint",
+        "Save a private SHA-256 fingerprint for one selected regular file",
+        Files,
+        ["integrity", "hash", "baseline", "byte changes"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "verify-saved-fingerprint",
+        "Verify Saved Fingerprint",
+        "Compare one selected regular file with its private saved SHA-256 fingerprint",
+        Files,
+        ["integrity", "hash", "baseline", "byte changes"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "generate-sha256sums",
+        "Generate SHA256SUMS",
+        "Generate a portable SHA256SUMS manifest without overwriting an existing one",
+        Files,
+        ["integrity", "manifest", "sha256", "checksums"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "verify-sha256sums",
+        "Verify Selected Manifest",
+        "Verify the selected SHA256SUMS manifest and report byte changes",
+        Files,
+        ["integrity", "manifest", "sha256", "changed", "missing"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "create-integrity-baseline",
+        "Create Integrity Baseline",
+        "Create a private SHA-256 baseline for the current local folder",
+        Files,
+        ["integrity", "baseline", "monitor", "sha256"],
+        [],
+        [F, B, H]
+    ),
+    command!(
+        "update-integrity-baseline",
+        "Update Integrity Baseline",
+        "Replace the private baseline after reviewing changes",
+        Files,
+        ["integrity", "baseline", "monitor", "sha256"],
+        [],
+        [F, B, H]
+    ),
+    command!(
+        "verify-integrity-baseline",
+        "Verify Integrity Baseline",
+        "Recheck the current folder and report matching changed missing and new files",
+        Files,
+        [
+            "integrity",
+            "baseline",
+            "verify",
+            "changed",
+            "missing",
+            "new"
+        ],
+        [],
+        [F, B, H]
+    ),
+    command!(
+        "delete-integrity-baseline",
+        "Delete Integrity Baseline",
+        "Remove Floe private baseline data for the current folder",
+        Files,
+        ["integrity", "baseline", "delete", "private"],
+        [],
+        [F, B, H]
+    ),
+    command!(
+        "start-integrity-monitoring",
+        "Start Integrity Monitoring",
+        "Notice changes while Floe watches; not intrusion detection",
+        Files,
+        ["integrity", "monitor", "watch", "not intrusion detection"],
+        [],
+        [F, B, H]
+    ),
+    command!(
+        "stop-integrity-monitoring",
+        "Stop Integrity Monitoring",
+        "Stop the explicit local integrity watch",
+        Files,
+        ["integrity", "monitor", "watch", "stop"],
+        [],
+        [F, B, H]
     ),
     command!(
         "check-duplicates",
@@ -1056,5 +1221,125 @@ mod tests {
                 assert!(definition.placements.contains(placement));
             }
         }
+    }
+
+    #[test]
+    fn phase_18t_ui_registers_accessible_integrity_commands() {
+        for action in [
+            "win.save-sha256-fingerprint",
+            "win.verify-saved-fingerprint",
+            "win.generate-sha256sums",
+            "win.verify-sha256sums",
+        ] {
+            let definition = command(action).unwrap_or_else(|| panic!("missing {action}"));
+            assert!(definition.searchable);
+            assert!(
+                definition
+                    .placements
+                    .contains(&CommandPlacement::FileContext)
+            );
+            assert!(
+                definition
+                    .placements
+                    .contains(&CommandPlacement::HeaderMenu)
+            );
+            assert!(!definition.name.trim().is_empty());
+        }
+    }
+
+    #[test]
+    fn phase_18v_ui_registers_distinct_copy_and_verify_command() {
+        let definition = command("win.copy-and-verify").expect("Copy and Verify command");
+        assert_eq!(definition.name, "Copy and Verify…");
+        assert!(definition.description.contains("SHA-256"));
+        assert!(
+            definition
+                .placements
+                .contains(&CommandPlacement::FileContext)
+        );
+        assert!(
+            definition
+                .placements
+                .contains(&CommandPlacement::HeaderMenu)
+        );
+        assert_ne!(definition.action, "win.copy");
+    }
+
+    #[test]
+    fn phase_18w_ui_registers_distinct_verified_removable_command() {
+        let definition = command("win.verified-removable-transfer")
+            .expect("Verified Removable Transfer command");
+        assert_eq!(definition.name, "Verified Removable Transfer…");
+        assert!(definition.description.contains("flush"));
+        assert!(definition.description.contains("eject or unmount"));
+        assert!(
+            definition
+                .placements
+                .contains(&CommandPlacement::FileContext)
+        );
+        assert!(
+            definition
+                .placements
+                .contains(&CommandPlacement::HeaderMenu)
+        );
+        assert_ne!(definition.action, "win.copy-and-verify");
+    }
+
+    #[test]
+    fn phase_18u_ui_registers_explicit_baseline_and_monitoring_actions() {
+        for action in [
+            "win.create-integrity-baseline",
+            "win.update-integrity-baseline",
+            "win.verify-integrity-baseline",
+            "win.delete-integrity-baseline",
+            "win.start-integrity-monitoring",
+            "win.stop-integrity-monitoring",
+        ] {
+            let definition = command(action).unwrap_or_else(|| panic!("missing {action}"));
+            assert!(definition.searchable);
+            assert!(
+                definition
+                    .placements
+                    .contains(&CommandPlacement::FileContext)
+            );
+            assert!(
+                definition
+                    .placements
+                    .contains(&CommandPlacement::BackgroundContext)
+            );
+            assert!(
+                definition
+                    .placements
+                    .contains(&CommandPlacement::HeaderMenu)
+            );
+        }
+        let start = command("win.start-integrity-monitoring").expect("start monitoring command");
+        assert!(start.description.contains("not intrusion detection"));
+    }
+
+    #[test]
+    fn phase_18x_registry_exposes_protected_folder_actions_with_menu_palette_parity() {
+        for action in [
+            "win.protect-folder",
+            "win.unprotect-folder",
+            "win.protected-folders",
+        ] {
+            let definition = command(action).unwrap_or_else(|| panic!("missing {action}"));
+            assert!(definition.searchable);
+            for placement in [
+                CommandPlacement::FileContext,
+                CommandPlacement::BackgroundContext,
+                CommandPlacement::HeaderMenu,
+            ] {
+                assert!(definition.placements.contains(&placement));
+            }
+            assert!(definition.description.contains("guardrail"));
+        }
+        assert!(
+            command("win.protect-folder")
+                .expect("Protect Folder")
+                .description
+                .contains("accidental-change")
+        );
     }
 }

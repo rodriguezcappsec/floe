@@ -218,7 +218,7 @@ two modes retain separate bounded engines and truthful scope descriptions.
 | 13C — Advanced filters | COMPLETE | `phase-13c-search-filters` | Type, extension, MIME, size, date, owner, hidden, and case-aware filename predicates shared by Quick Filter and Search Files. | Verified structured bounded predicates, cheap-first evaluation, filename-only GIO MIME guessing, no-follow UID lookup, explicit unknown-metadata exclusion, predicate-only searches, temporary hidden policy, capacity-one generation-safe workers, accessible wrapping controls, strict workspace gates, and native GTK/Wayland lifecycle. Tags, persistence, content reads, remote roots, and result ordering remain excluded. |
 | 13D — Content search | COMPLETE | `phase-13d-content-search` | Opt-in bounded text search with glob/regex/case controls. | Verified local-only no-follow reads, exact paths, UTF-8/BOM-declared UTF-16, binary/unsupported/changed/over-limit skip counters, Phase 13C predicates before reads, 64-result batches, capacity-1 generation cancellation, line/snippet/folder results, exact-path actions, strict gates and native Wayland lifecycle. No Trash, remote roots, links, mount crossing, extraction, persistence, indexing, or uploads. |
 | 13E — Saved searches | COMPLETE | `phase-13e-saved-searches` | Versioned saved queries and privacy-aware history. | Verified explicit-only version-10 private preference persistence, exact raw roots, complete query/filter round trip, 64-entry validated catalog, independent corruption skipping, 32-entry deduplicated session-only recents with clear/suppress policy, exact-root replay, accessible save/list/delete/clear controls, and deterministic Name/Modified/Size result ordering. No implicit persistent history, indexing, tags, remote/global roots, or Private Mode claim. |
-| 13F — Optional indexing | COMPLETE | `phase-13f-search-indexing` | Capability-reviewed index with complete non-indexed fallback. | Verified explicit single-root private filename/metadata-only index, exact raw paths, hidden-tree exclusion, no-follow/device/depth/entry/64-MiB bounds, directory and matching-entry staleness validation, versioned corruption-rejecting codec, `0600` atomic cache, version-11 opt-in, accessible compact controls, and automatic live fallback for missing/stale/corrupt/ineligible/busy indexes. No content, hidden/sensitive override, remote/global root, watcher rebuild, or Phase 18 claim. |
+| 13F — Optional indexing | COMPLETE | `phase-13f-search-indexing` | Capability-reviewed index with complete non-indexed fallback. | Verified explicit single-root private filename/metadata-only index, exact raw paths, hidden-tree exclusion, no-follow/device/depth/entry/64-MiB bounds, directory and matching-entry staleness validation, versioned corruption-rejecting codec, `0600` atomic cache, version-12 opt-in, accessible compact controls, and automatic live fallback for missing/stale/corrupt/ineligible/busy indexes. No content, hidden/sensitive override, remote/global root, watcher rebuild, or Phase 18 claim. |
 | 13G — Duplicate finder | COMPLETE | `phase-13g-duplicate-finder` | “Check for Duplicates…” over explicit files or roots with size-first candidate grouping, streaming hashes, byte-for-byte confirmation, and review/reveal/Trash actions. | Verified explicit exact roots, 4,096-root/1,000,000-file/100,000-directory/depth-128/256-GiB-file/1-TiB-hash bounds, same-device no-follow traversal, size-first candidates, reviewed Phase 10E SHA-256, byte confirmation, mutation checks, hard-link labels/reclaimable accounting, capacity-one cancellation worker, memory-only results, context/command action, accessible review/reveal/explicit Trash handoff, strict gates, and native Wayland lifecycle. No index dependency, remote/Trash scan, automatic/permanent deletion, persistence, upload, or secure-erasure claim. |
 
 ## Phases 14–17 — Desktop and location integration
@@ -238,9 +238,22 @@ services preserve existing local browsing. No compositor branch, desktop type
 in core, secret read, notification/share transmission, or lock control was
 added. Strict Rust, real GTK, and isolated Wayland action/lifecycle gates pass.
 
+Post-Phase-14 appearance correction: Floe vendors a pinned MIT-licensed
+Phosphor Core 2.1.1 Regular subset for application-owned interface chrome.
+File and folder entries expose persistent live Floe Color, Phosphor Monochrome,
+and System Theme styles without changing thumbnail, path, MIME, or filesystem
+behavior. Version-12 migration, all 44 symbolic resources, real GTK, and a
+two-launch isolated Wayland action/state/lifecycle gate are verified. A
+follow-up regression separates plain text from office documents/PDF, adds
+distinct family-owned System Theme fallbacks, and clears stale GTK image
+storage during style changes. A second regression keeps known file-type icons
+on filesystems that synthesize execute bits while retaining executable fallback
+for unknown or extensionless executables. These corrections do not advance or
+broaden Phase 15.
+
 ### Phase 15 — Niri integration
 
-Status: **NEXT**
+Status: **DEFERRED**
 Recommended branch: `phase-15-niri-integration`
 
 Goal: add optional detection/IPC, output/workspace awareness, spatial launch,
@@ -250,7 +263,7 @@ and native Niri smoke tests.
 
 ### Phase 16 — KDE Plasma integration
 
-Status: **PLANNED**
+Status: **DEFERRED**
 Recommended branch: `phase-16-plasma-integration`
 
 Goal: add standards-first Plasma capability detection, KDE services only where
@@ -262,20 +275,22 @@ service-unavailable tests, no KDE types in core, and Plasma Wayland smoke.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 17A — Remote model | PLANNED | `phase-17a-remote-location-model` | URI/location identity, capabilities, timeouts and offline state separate from local paths. | 14; no URI semantics in local core; verify redaction, reconnect and identity. |
-| 17B — GIO remote browsing | PLANNED | `phase-17b-gio-remote-browsing` | Reviewed GIO SFTP, SMB, WebDAV and NFS browsing/operations. | 17A; FTP deferred; no silent plaintext staging; verify timeout/partial failures. |
-| 17C — MTP/devices | PLANNED | `phase-17c-mtp-devices` | Android/MTP transfer and disconnect recovery; optional KDE Connect enhancement. | 17A/6K/14; generic path remains; verify disconnect, progress and cancellation. |
-| 17D — Remote recovery | PLANNED | `phase-17d-remote-recovery` | Retry/offline transitions, remote thumbnail policy, saved connections and credential abstraction. | 17B/17C/18J; no secret logs/plaintext cache; verify migration and reconnect. |
+| 17A — Remote model | DEFERRED | `phase-17a-remote-location-model` | URI/location identity, capabilities, timeouts and offline state separate from local paths. | User-deferred on `2026-08-27`; no URI semantics in local core. |
+| 17B — GIO remote browsing | DEFERRED | `phase-17b-gio-remote-browsing` | Reviewed GIO SFTP, SMB, WebDAV and NFS browsing/operations. | User-deferred on `2026-08-27`; FTP and silent plaintext staging remain excluded. |
+| 17C — MTP/devices | DEFERRED | `phase-17c-mtp-devices` | Android/MTP transfer and disconnect recovery; optional KDE Connect enhancement. | User-deferred on `2026-08-27`; existing local GIO device support remains. |
+| 17D — Remote recovery | DEFERRED | `phase-17d-remote-recovery` | Retry/offline transitions, remote thumbnail policy, saved connections and credential abstraction. | User-deferred on `2026-08-27`; depends on deferred remote foundations. |
 
 ## Phase 18 — Privacy, security, and data integrity
 
-No Phase 18 feature is implemented by this planning document. Every leaf follows
-`docs/PRIVACY_SECURITY.md`, and every security-critical dependency requires an
-implementation-time review. Security terms are not interchangeable.
+Phase 18A establishes the architecture baseline only; it implements no runtime
+security feature. Every later leaf follows `docs/PRIVACY_SECURITY.md`,
+`docs/security/THREAT_MODEL.md`, `docs/security/PHASE_18A_DECISIONS.md`, and
+`docs/security/PHASE_18_TEST_PLAN.md`. Every security-critical dependency
+requires an implementation-time review. Security terms are not interchangeable.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 18A — Threat model | PLANNED | `phase-18a-security-threat-model` | Revalidate formats, secrets, vaults, caches, sandbox and integrity design before code. | 14; research/docs only; require decision records, dependency rationale and test plan. |
+| 18A — Threat model | COMPLETE | `phase-18a-security-threat-model` | Revalidated assets, adversaries, non-protections, formats, secrets, vaults, caches, sandbox and integrity architecture before code. | Documentation-only baseline verified: threat IDs, 16 decision records, dependency rationale and traceable 18B–18AA test plan; no dependency/runtime implementation. |
 | 18B — Portable encryption engine | PLANNED | `phase-18b-portable-encryption` | Reviewed interoperable format, preferably `age` after review; streaming passphrase jobs. | Stable jobs; no custom crypto/shell/plaintext fallback; verify interop, auth, malformed input and cleanup. |
 | 18C — Encryption UI | PLANNED | `phase-18c-encryption-ui` | Encrypt/Decrypt prompts, conflicts, Operations Island and multi-selection. | 18B/Trash; original survives until authenticated completion; verify secret UX and leaks. |
 | 18D — Recipient encryption | PLANNED | `phase-18d-recipient-encryption` | Reviewed public identities, fingerprints, multiple recipients and safe identity handling. | 18B; no invented exchange/silent sync; verify interop, duplicates and secret storage. |
@@ -294,12 +309,12 @@ implementation-time review. Security terms are not interchangeable.
 | 18Q — Secure Share | PLANNED | `phase-18q-secure-share` | Compose inspect, sanitize, password/recipient encryption and checksum. | 18B/18D/18O/18P; never alter original; verify step failures and output. |
 | 18R — Permission auditor | PLANNED | `phase-18r-permission-auditor` | Explain risky modes, ownership, ACL/xattr/capability exposure and conservative fixes. | 10D; no casual expert controls; verify evidence, symlinks and partial edits. |
 | 18S — Sensitive scanner | PLANNED | `phase-18s-sensitive-content-scanner` | Explicit local heuristic scan for keys, `.env`, tokens and credential dumps. | 18A/18J; no cloud/secret display/malware claim; verify redaction and false positives. |
-| 18T — Integrity tools | PLANNED | `phase-18t-integrity-tools` | Saved SHA fingerprints and portable `SHA256SUMS` generation/verification. | 10E; hash is not authenticity; verify path-safe manifests and changed/missing/new. |
-| 18U — Integrity monitoring | PLANNED | `phase-18u-integrity-monitoring` | Opt-in baselines and coalesced change reporting. | 6S/18T; not intrusion detection; verify storms, offline gaps and stale baselines. |
-| 18V — Verified copy | PLANNED | `phase-18v-verified-copy` | Optional Copy and Verify with source/destination digest. | 6O/10E; not default; verify changed source, corruption, flush, retry and cancel. |
-| 18W — Verified USB | PLANNED | `phase-18w-verified-usb-transfer` | Copy, Verify, Flush and Safe Eject as explicit staged workflow. | 18V/6K/14; no safe-removal claim before eject; verify partial-success states. |
-| 18X — Data-loss guardrails | PLANNED | `phase-18x-data-loss-guardrails` | Protected Folders and rich thresholded destructive preflight. | 6M/6P; mistake prevention only; verify mounted roots and huge operations. |
-| 18Y — Operation recovery | PLANNED | `phase-18y-operation-recovery` | Privacy-aware journal and conservative interrupted-job/partial-output recovery. | 6P/6O/18J; no secrets/silent deletion; verify crash and corrupt journal. |
+| 18T — Integrity tools | COMPLETE | `phase-18t-integrity-tools` | Saved SHA-256 fingerprints and portable `SHA256SUMS` generation/verification. | Reviewed SHA-256 reuse, raw-path manifest escaping, bounded cancellation, no-overwrite publication, and changed/missing/new reporting verified; hashes are not authenticity or safety. |
+| 18U — Integrity monitoring | COMPLETE | `phase-18u-integrity-monitoring` | Explicit local baselines with bounded coalesced change reporting. | Private strict storage, same-device no-follow watches, overflow/offline rescan state, cancellation, and changed/missing/new reporting verified; this is not intrusion detection. |
+| 18V — Verified copy | COMPLETE | `phase-18v-verified-copy` | Optional Copy and Verify with revalidated source/destination SHA-256. | Ordinary Copy remains unchanged; verified, not-created, and copied-but-unverified outcomes, races, corruption, cancellation, and retry boundaries are verified. |
+| 18W — Verified USB | COMPLETE | `phase-18w-verified-usb-transfer` | Explicit Copy, Verify, Flush, Eject/Unmount workflow. | Exact removable mount/device revalidation, bounded `syncfs`, partial states, cancellation, and GIO removal verified with mocked/disposable targets; “safe to remove” appears only after successful removal. Real USB lab validation remains skipped without disposable media. |
+| 18X — Data-loss guardrails | COMPLETE | `phase-18x-data-loss-guardrails` | Protected Folders and thresholded destructive preflight. | Private fail-closed exact-path policy, bounded preflight, single-use generation-bound permits, all destructive dispatch routes, native Protect/Unprotect/status UI, and corrupt-store reset are verified. Protection prevents mistakes; it is not encryption or access control. |
+| 18Y — Operation recovery | NEXT | `phase-18y-operation-recovery` | Privacy-aware journal and conservative interrupted-job/partial-output recovery. | 6P/6O/18J; no secrets or silent deletion; verify crash, corrupt journal, stale identities, and explicit recovery choices. |
 | 18Z — Security Center | PLANNED | `phase-18z-security-center` | Calm vault, sensitive, session, integrity and finding status/actions. | 18E/18H/18K/18N/18R/18T; no fear score; verify state and accessibility. |
 | 18AA — Security audit | PLANNED | `phase-18aa-security-audit` | Crypto, dependencies, secrets, caches, parsers, vaults, sandbox and recovery audit. | 18B–18Z; no stable Phase 18 claim before pass; close or record every finding. |
 

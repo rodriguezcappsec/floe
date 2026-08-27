@@ -1313,13 +1313,71 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated:
 
-`2026-08-26`
+`2026-08-27`
 
 Current phase:
 
 ```text
-Phase 14 — Generic desktop integration framework (complete)
+Phases 18T–18X — Integrity and Data-Loss Safety (complete)
 ```
+
+Phases 18T–18X add saved SHA-256 fingerprints, strict path-safe portable
+`SHA256SUMS`, explicit local integrity baselines, optional Copy and Verify,
+verified removable-device transfer, and Protected Folder guardrails. Work is
+bounded and cancellable off GTK; exact `PathBuf`/`OsString` identity is
+preserved; no shell or silent overwrite path was added. Hashes are not
+authenticity or safety, monitoring is not intrusion detection, copied output
+can remain explicitly unverified, and “safe to remove” appears only after
+successful revalidated flush and GIO eject/unmount. Protected Folders prevent
+mistakes; they are not encryption or access control. All destructive backend
+dispatches require fresh exact-scope generation-bound single-use permits, and
+corrupt policy storage fails closed. Real USB validation remains skipped
+without disposable lab media.
+
+Phase 18Y — Operation Recovery is the sole recommended next phase. Niri,
+Plasma-specific, remote, and Android/MTP integrations remain user-deferred.
+
+A post-Phase-18X Operations Island regression is fixed: retryable integrity
+failures now retain their explicit Retry action while still receiving a fresh
+three-second auto-hide deadline. A retained retry can no longer suppress the
+hide deadline of later operation results; unresolved destination conflicts
+remain visible because they still require an explicit decision. Focused
+failure-then-success policy coverage, formatting, workspace check, strict
+all-target/all-feature Clippy, 467 application tests, 21 Phase 18X integration
+tests, 146 core tests, native build, and the real GTK Operations Island
+component gate pass.
+
+The historical implementation evidence below remains valid unless a newer
+entry above explicitly supersedes its sequencing text.
+
+A verified post-Phase-14 appearance correction vendors 44 pinned Phosphor Core
+2.1.1 Regular symbolic SVGs for Floe-owned interface chrome with bundled MIT
+attribution and no runtime download. File and folder entries expose live,
+persistent Floe Color, Phosphor Monochrome, and System Theme choices through
+version-12 preferences. Switching rebinds already-loaded virtualized entries;
+thumbnails, exact paths, MIME policy, and filesystem architecture are unchanged.
+Semantic color tokens remain backed by shape, filename/type text, and accessible
+labels. A shared toast-markup escape regression prevents user-visible labels
+containing `&`, `<`, or `>` from producing GTK warnings. Strict workspace tests,
+real GTK, and two-launch isolated Plasma Wayland action/state/persistence/clean-
+Quit gates pass. Phase 15 Niri integration remains the sole recommended next
+phase.
+
+A follow-up file-type icon regression separates plain text from office
+documents and PDF, gives all fifteen semantic entry families a distinct
+app-owned fallback, and prevents System Theme fallback chains from collapsing
+unavailable MIME artwork onto one generic glyph. Live style changes clear stale
+`GtkImage` storage before rebinding. Focused policy/resource tests, the full
+workspace suite, and real GTK resolved-paintable checks pass; Phase 15 remains
+the sole recommended next phase.
+
+A second follow-up regression corrects synthetic execute-bit handling on exFAT
+and similar mounts. Known extensions now retain their semantic file icon even
+when metadata reports `0755`; executable presentation is the fallback only for
+unknown or extensionless executable files such as AppImages and ELF binaries.
+This changes presentation only, performs no content/MIME/filesystem probe, and
+does not grant or revoke execution permission. Focused regression, 397 app
+tests, 132 core tests, strict Clippy, real GTK, and native build pass.
 
 Phase 14 adds an app-only generic `DesktopIntegration` capability boundary for
 GIO launch, mounts/volumes, XDG user folders, portals, notifications, Share
@@ -1366,7 +1424,7 @@ watcher rebuild, or Phase 18 privacy claim was added.
 
 Phase 13E adds a validated GTK-independent saved-query catalog and session
 recent-search model. At most 64 explicitly named definitions persist through
-the current version-11 private preferences on the existing capacity-one worker; raw roots,
+the current version-12 private preferences on the existing capacity-one worker; raw roots,
 Search Files/Search Contents kind, scope, Text/Glob/Regex, hidden inclusion,
 and every advanced predicate round-trip exactly. Invalid, corrupt, duplicate,
 or over-capacity records are skipped independently. At most 32 recent executed
@@ -2787,10 +2845,11 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-15-niri-integration` and add optional Niri detection/IPC,
-output/workspace awareness, and bounded spatial enhancements behind the Phase
-14 application-layer capability boundary. Missing or stale Niri IPC must retain
-the complete generic fallback; do not add Niri types to `floe-core`.
+Create `phase-18t-integrity-tools` and implement saved SHA-256 fingerprints plus
+path-safe portable `SHA256SUMS` generation and verification by reusing the
+reviewed Phase 10E streaming engine. Cite `T18-01`–`T18-03`, `T18-11`–`T18-13`,
+`T18-15`–`T18-16` and `SEC-18A-08`; preserve exact raw paths, no-follow bounded
+work, hash-not-authenticity wording, and the Phase 18 test-plan gates.
 ```
 
 ---
