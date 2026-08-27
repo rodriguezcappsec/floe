@@ -69,6 +69,16 @@ pub(crate) const SEARCH_SURFACE_MODE_HELP: [&str; 3] = [
     "Search Files finds filenames on disk in this folder or its subfolders. It never reads file contents.",
     "Search Contents explicitly reads bounded local text files in this folder or its subfolders. It skips binary, unsupported, remote, linked, and over-limit files.",
 ];
+pub(crate) const SEARCH_RESULT_ORDER_LABELS: [&str; 3] =
+    ["Name", "Modified (newest)", "Size (largest)"];
+pub(crate) const SAVED_SEARCH_CONTROL_LABELS: [&str; 6] = [
+    "Saved searches",
+    "Recent searches (this session)",
+    "Save search",
+    "Delete saved",
+    "Clear recent",
+    "Search result order",
+];
 const FOLDER_FILTER_MODE_HELP: [&str; 3] = [
     "Contains these characters. Letter case is ignored unless Match case is enabled. Example: vacation finds My Vacation.jpg",
     "Uses wildcard patterns: * matches any characters and ? matches one character. Examples: *.pdf or photo-??.jpg",
@@ -958,6 +968,12 @@ pub struct BrowserWidgets {
     pub search_scope: gtk::DropDown,
     pub search_button: gtk::Button,
     pub search_stop_button: gtk::Button,
+    pub saved_searches: gtk::DropDown,
+    pub recent_searches: gtk::DropDown,
+    pub search_result_order: gtk::DropDown,
+    pub save_search_button: gtk::Button,
+    pub delete_saved_search_button: gtk::Button,
+    pub clear_recent_searches_button: gtk::Button,
     pub search_feedback: gtk::Label,
     pub search_results_view: gtk::ListView,
     pub search_context_menu: gtk::PopoverMenu,
@@ -1038,6 +1054,12 @@ struct DirectoryPanelWidgets {
     search_scope: gtk::DropDown,
     search_button: gtk::Button,
     search_stop_button: gtk::Button,
+    saved_searches: gtk::DropDown,
+    recent_searches: gtk::DropDown,
+    search_result_order: gtk::DropDown,
+    save_search_button: gtk::Button,
+    delete_saved_search_button: gtk::Button,
+    clear_recent_searches_button: gtk::Button,
     search_feedback: gtk::Label,
     search_results_view: gtk::ListView,
     search_context_menu: gtk::PopoverMenu,
@@ -1808,6 +1830,12 @@ pub fn build(
         search_scope,
         search_button,
         search_stop_button,
+        saved_searches,
+        recent_searches,
+        search_result_order,
+        save_search_button,
+        delete_saved_search_button,
+        clear_recent_searches_button,
         search_feedback,
         search_results_view,
         search_context_menu,
@@ -2049,6 +2077,12 @@ pub fn build(
         search_scope,
         search_button,
         search_stop_button,
+        saved_searches,
+        recent_searches,
+        search_result_order,
+        save_search_button,
+        delete_saved_search_button,
+        clear_recent_searches_button,
         search_feedback,
         search_results_view,
         search_context_menu,
@@ -3913,6 +3947,33 @@ fn build_directory_panel(
         .visible(false)
         .build();
     set_accessible_label(&search_stop_button, "Stop file search");
+    let saved_searches = gtk::DropDown::from_strings(&[SAVED_SEARCH_CONTROL_LABELS[0]]);
+    saved_searches.set_tooltip_text(Some(
+        "Run an explicitly saved search against its original folder",
+    ));
+    set_accessible_label(&saved_searches, "Saved searches");
+    let recent_searches = gtk::DropDown::from_strings(&[SAVED_SEARCH_CONTROL_LABELS[1]]);
+    recent_searches.set_tooltip_text(Some("Run a recent search kept only until Floe closes"));
+    set_accessible_label(&recent_searches, "Recent searches this session");
+    let search_result_order = gtk::DropDown::from_strings(&SEARCH_RESULT_ORDER_LABELS);
+    search_result_order.set_tooltip_text(Some("Order search results without changing files"));
+    set_accessible_label(&search_result_order, "Search result order");
+    let save_search_button = gtk::Button::builder()
+        .label(SAVED_SEARCH_CONTROL_LABELS[2])
+        .action_name("win.save-search")
+        .build();
+    save_search_button.set_tooltip_text(Some("Name and save this on-disk search"));
+    let delete_saved_search_button = gtk::Button::builder()
+        .label(SAVED_SEARCH_CONTROL_LABELS[3])
+        .action_name("win.delete-saved-search")
+        .build();
+    delete_saved_search_button.set_tooltip_text(Some("Delete the selected saved search"));
+    let clear_recent_searches_button = gtk::Button::builder()
+        .label(SAVED_SEARCH_CONTROL_LABELS[4])
+        .action_name("win.clear-recent-searches")
+        .build();
+    clear_recent_searches_button
+        .set_tooltip_text(Some("Clear searches remembered only for this Floe session"));
     let search_feedback = gtk::Label::builder()
         .label("Enter a filename to search")
         .halign(gtk::Align::Start)
@@ -3926,6 +3987,12 @@ fn build_directory_panel(
     search_options_row.append(&search_scope);
     search_options_row.append(&search_button);
     search_options_row.append(&search_stop_button);
+    search_options_row.append(&saved_searches);
+    search_options_row.append(&recent_searches);
+    search_options_row.append(&search_result_order);
+    search_options_row.append(&save_search_button);
+    search_options_row.append(&delete_saved_search_button);
+    search_options_row.append(&clear_recent_searches_button);
     search_options_row.append(&search_feedback);
     filter_bar.append(&search_query_row);
     filter_bar.append(&search_options_row);
@@ -4002,6 +4069,12 @@ fn build_directory_panel(
         search_scope,
         search_button,
         search_stop_button,
+        saved_searches,
+        recent_searches,
+        search_result_order,
+        save_search_button,
+        delete_saved_search_button,
+        clear_recent_searches_button,
         search_feedback,
         search_results_view,
         search_context_menu,
@@ -5147,6 +5220,38 @@ mod tests {
         assert!(SEARCH_SURFACE_MODE_HELP[2].contains("explicitly reads"));
         assert!(SEARCH_SURFACE_MODE_HELP[2].contains("skips binary"));
         assert!(SEARCH_SURFACE_MODE_HELP[2].contains("remote"));
+    }
+
+    #[test]
+    fn phase_13e_saved_search_ui_is_explicit_session_truthful_and_ordered() {
+        assert_eq!(
+            SAVED_SEARCH_CONTROL_LABELS,
+            [
+                "Saved searches",
+                "Recent searches (this session)",
+                "Save search",
+                "Delete saved",
+                "Clear recent",
+                "Search result order",
+            ]
+        );
+        assert!(SAVED_SEARCH_CONTROL_LABELS[1].contains("this session"));
+        assert_eq!(
+            SEARCH_RESULT_ORDER_LABELS,
+            ["Name", "Modified (newest)", "Size (largest)"]
+        );
+    }
+
+    #[test]
+    fn phase_13e_search_result_order_labels_are_stable_and_plain_language() {
+        assert_eq!(SEARCH_RESULT_ORDER_LABELS.len(), 3);
+        assert!(
+            SEARCH_RESULT_ORDER_LABELS
+                .iter()
+                .all(|label| !label.is_empty())
+        );
+        assert!(SEARCH_RESULT_ORDER_LABELS[1].contains("newest"));
+        assert!(SEARCH_RESULT_ORDER_LABELS[2].contains("largest"));
     }
 
     /// Graphical GTK contract tests are deliberately a separate opt-in layer.

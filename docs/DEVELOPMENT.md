@@ -672,6 +672,15 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+Phase 13E passes four focused core saved-query/history/order tests, three app
+persistence/UI/order contract tests, the complete workspace suite, strict
+Clippy, and the opt-in real GTK component gate. An isolated Plasma Wayland
+launch exported `save-search`, `delete-saved-search`, and
+`clear-recent-searches`; Clear Recent activated, D-Bus Peer.Ping remained
+responsive, and Quit exited 0. The standalone AT-SPI bus remained unavailable,
+so semantic automation beyond the real-widget component contract is not
+claimed.
+
 Phase 13D rebuilt Floe with isolated HOME/XDG config, data, cache, and state
 roots in an active Plasma Wayland session. The live window exported the shared
 search actions, accepted open/clear search lifecycle activation, answered D-Bus
