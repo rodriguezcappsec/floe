@@ -24,6 +24,7 @@ mod filename_search;
 mod folder_filter;
 mod iconography;
 mod inspector;
+mod integration;
 pub mod job_manager;
 mod keybindings;
 mod keyboard_shortcuts;

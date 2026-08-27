@@ -1,4 +1,49 @@
-# Gates: Floe Phase 13G — Duplicate Finder
+# Gates: Floe Phase 14 — Generic Desktop Integration Framework
+
+Scope: App-layer standards capability boundary, asynchronous detection,
+truthful missing-service fallback, status UI, no compositor/core leakage.
+
+- [x] I1: Stable generic capability model covers URI launch, mounts, XDG,
+  portals, notifications, Share, theme, credentials, and session lock without
+  compositor or core types.
+  CHECK: cargo test -p floe-app phase_14_integration_model -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused model test passes nine stable ordered IDs, complete nonempty text reasons, and conservative Limited session-lock state without any `floe-core` type.
+
+- [x] I2: Detection worker is bounded, generation-safe, path/content-free,
+  cleanly shuts down, and reports missing/degraded services as fallback state.
+  CHECK: cargo test -p floe-app phase_14_integration_worker -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused worker test passes capacity-one nonblocking submission, generation-tagged response, aggregate-only snapshot, and joined shutdown; GIO calls use 1.5-second timeout.
+
+- [x] I3: Existing generic launcher/device/location/theme behavior routes or
+  coexists through the boundary and remains usable with every optional service
+  unavailable.
+  CHECK: cargo test -p floe-app phase_14_generic_fallback -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Missing-service test keeps compiled GIO launch, volume monitor, XDG folders, and GTK/libadwaita theme facts Available while portal-dependent facts remain explicit Unavailable or Limited.
+
+- [x] I4: Native Desktop Integration command/status dialog is accessible,
+  deterministic, non-color-only, refreshable, and makes no unsupported claim.
+  CHECK: cargo test -p floe-app phase_14_integration_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Deterministic UI-policy test and opt-in real GTK widget gate pass nine text-labelled rows, nonempty reasons, aggregate summary, Refresh Status accessible description, present/close lifecycle.
+
+- [x] I5: Formatting, workspace check, strict Clippy, complete tests, native
+  build, diff hygiene, and real GTK component gate pass.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: Final formatting check, workspace check, strict all-target/all-feature Clippy with warnings denied, 392 app tests (390 passed plus two intentional graphical ignores), 132 core tests, native app build, diff hygiene, and real GTK Phase 14 gate pass.
+
+- [x] I6: Isolated generic/Plasma Wayland D-Bus lifecycle and persistent docs
+  mark only Phase 14 complete with exactly Phase 15 NEXT.
+  CHECK: rg -n 'Status: \*\*NEXT\*\*|\| .*NEXT' docs/ROADMAP.md
+  EXPECT: Phase 15
+  EVIDENCE: Isolated Plasma Wayland launch exported enabled desktop-integration-status, activated its real dialog, answered Peer.Ping afterward, and Quit exited cleanly. Standalone AT-SPI bus remained unavailable, so no semantic E2E claim is made. Persistent docs mark Phase 14 complete and exactly Phase 15 NEXT.
+
+---
+
+# Archived gates: Floe Phase 13G — Duplicate Finder
 
 Scope: Explicit bounded size/hash/byte-confirmed duplicate review with hard-link
 distinction, cancellation, reveal/Trash handoff, and no automatic deletion.

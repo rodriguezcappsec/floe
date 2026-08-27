@@ -225,19 +225,22 @@ two modes retain separate bounded engines and truthful scope descriptions.
 
 ### Phase 14 — Generic desktop integration framework
 
-Status: **NEXT**
+Status: **COMPLETE**
 Recommended branch: `phase-14-generic-desktop-integration`
 
-Goal: create an application-layer capability boundary for GIO, XDG, portals,
-URI launch, mounts, notifications, Share, themes, credential stores, and reliable
-session-lock signals. It depends on stable app commands and location types. It
-excludes compositor branches or desktop types in core. Acceptance requires
-missing-capability fallback tests and generic Wayland plus first-class desktop
-smoke coverage.
+Verified application-layer capability boundary for GIO launch, mounts/volumes,
+XDG user folders, portals, notifications, Share availability, GTK/libadwaita
+theme signals, Secret Service presence, and reliable session-lock signals. A
+capacity-one generation-safe worker performs bounded session-bus probes and
+returns path/content-free memory-only snapshots. The native refreshable status
+dialog gives available, limited, and unavailable text reasons; missing optional
+services preserve existing local browsing. No compositor branch, desktop type
+in core, secret read, notification/share transmission, or lock control was
+added. Strict Rust, real GTK, and isolated Wayland action/lifecycle gates pass.
 
 ### Phase 15 — Niri integration
 
-Status: **PLANNED**
+Status: **NEXT**
 Recommended branch: `phase-15-niri-integration`
 
 Goal: add optional detection/IPC, output/workspace awareness, spatial launch,
