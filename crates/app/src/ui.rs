@@ -283,7 +283,7 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 25] = [
+pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 26] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
@@ -298,6 +298,7 @@ pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 25] = [
     ("Copy Relative Path", "win.copy-relative-path"),
     ("Copy URI", "win.copy-uri"),
     ("Calculate Checksums…", "win.checksum"),
+    ("Check for Duplicates…", "win.check-duplicates"),
     ("Move to Trash", "win.trash"),
     ("Delete Permanently…", "win.permanent-delete"),
     ("Properties", "win.properties"),
@@ -4715,6 +4716,7 @@ fn populate_file_context_menu_model(menu: &gio::Menu, preferences: ContextMenuPr
     if preferences.is_visible(ContextMenuGroup::Checksums) {
         let checksums = gio::Menu::new();
         checksums.append(Some("Calculate Checksums…"), Some("win.checksum"));
+        checksums.append(Some("Check for Duplicates…"), Some("win.check-duplicates"));
         menu.append_section(None, &checksums);
     }
 
@@ -4792,8 +4794,8 @@ fn build_file_context_menu_model() -> gio::Menu {
         Some(FILE_CONTEXT_ACTIONS[1].1),
     );
     primary.append(
-        Some(FILE_CONTEXT_ACTIONS[17].0),
-        Some(FILE_CONTEXT_ACTIONS[17].1),
+        Some(FILE_CONTEXT_ACTIONS[18].0),
+        Some(FILE_CONTEXT_ACTIONS[18].1),
     );
     primary.append(Some("Open in New Tab"), Some("win.open-new-tab"));
     primary.append(
@@ -4838,21 +4840,32 @@ fn build_file_context_menu_model() -> gio::Menu {
     }
     menu.append_section(None, &copy_identity);
 
-    let destructive = gio::Menu::new();
-    destructive.append(
+    let tools = gio::Menu::new();
+    tools.append(
         Some(FILE_CONTEXT_ACTIONS[13].0),
         Some(FILE_CONTEXT_ACTIONS[13].1),
     );
-    destructive.append(
+    tools.append(
         Some(FILE_CONTEXT_ACTIONS[14].0),
         Some(FILE_CONTEXT_ACTIONS[14].1),
+    );
+    menu.append_section(None, &tools);
+
+    let destructive = gio::Menu::new();
+    destructive.append(
+        Some(FILE_CONTEXT_ACTIONS[15].0),
+        Some(FILE_CONTEXT_ACTIONS[15].1),
+    );
+    destructive.append(
+        Some(FILE_CONTEXT_ACTIONS[16].0),
+        Some(FILE_CONTEXT_ACTIONS[16].1),
     );
     menu.append_section(None, &destructive);
 
     let details = gio::Menu::new();
     details.append(
-        Some(FILE_CONTEXT_ACTIONS[16].0),
-        Some(FILE_CONTEXT_ACTIONS[16].1),
+        Some(FILE_CONTEXT_ACTIONS[17].0),
+        Some(FILE_CONTEXT_ACTIONS[17].1),
     );
     menu.append_section(None, &details);
 
@@ -5946,6 +5959,7 @@ mod tests {
                 ("Copy Relative Path", "win.copy-relative-path"),
                 ("Copy URI", "win.copy-uri"),
                 ("Calculate Checksums…", "win.checksum"),
+                ("Check for Duplicates…", "win.check-duplicates"),
                 ("Move to Trash", "win.trash"),
                 ("Delete Permanently…", "win.permanent-delete"),
                 ("Properties", "win.properties"),
