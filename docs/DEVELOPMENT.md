@@ -672,6 +672,17 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+Phase 13D rebuilt Floe with isolated HOME/XDG config, data, cache, and state
+roots in an active Plasma Wayland session. The live window exported the shared
+search actions, accepted open/clear search lifecycle activation, answered D-Bus
+`Peer.Ping` before and after, and exited status 0 through the application Quit
+action. The opt-in real GTK component/accessibility gate passed. Focused core
+and worker tests cover UTF-8/UTF-16, Text/Glob/Regex/case, advanced predicates,
+binary/unsupported/over-limit skips, symlink exclusion, cancellation, bounded
+batches, and generation supersession. The host accessibility bus was not
+available to the standalone smoke, so semantic AT-SPI automation is not
+claimed; the real-widget component gate supplies the accessibility contract.
+
 Phase 13C rebuilt Floe and launched it with isolated HOME/XDG config, data,
 cache, and state roots in the active Plasma Wayland session. The live window
 exported and accepted `folder-filter`, `filename-search`,

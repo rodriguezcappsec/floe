@@ -1,4 +1,43 @@
-# Gates: Floe Phase 13C — Advanced Filters
+# Gates: Floe Phase 13D — Content Search
+
+Scope: Explicit bounded local text-content search with worker-owned reads,
+exact paths, truthful limits, and no persistence/indexing.
+
+- [x] D1: Core search is bounded, cancellable, encoding-aware, and path-safe.
+  CHECK: cargo test -p floe-core phase_13d -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Five focused core tests pass UTF-8/UTF-16, Text/Glob/Regex/case, advanced predicates before reads, binary/unsupported/over-limit/link skips, cancellation, caps, snippets, and request validation.
+
+- [x] D2: Application worker streams only current generation through bounded
+    capacity and shuts down cleanly.
+  CHECK: cargo test -p floe-app phase_13d_content_search_worker -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Two focused worker tests pass bounded event delivery, complete summary, stale-generation supersession, and clean shutdown.
+
+- [x] D3: Unified native UI exposes truthful Search Contents controls/results
+    and exact-path action reuse.
+  CHECK: cargo test -p floe-app phase_13d_content_search_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused UI test passes three plain-language modes and explicit local-read/skip help. Browser integration compiles with line/snippet/folder result rows, exact-entry selection, Reveal, context, navigation, refresh, cancel, and result-status lifecycle.
+
+- [x] D4: Existing Phase 13 behavior and strict workspace gates remain green.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: Formatting, workspace check, strict all-target/all-feature Clippy with warnings denied, 377 app tests (376 passed plus one intentional graphical ignore), 122 core tests, native app build, and diff hygiene pass.
+
+- [x] D5: Real GTK and isolated native Wayland smoke verify accessible controls,
+    action/mode lifecycle, D-Bus health, and clean Quit.
+  EVIDENCE: Opt-in real GTK widget/accessibility contract passes. Isolated Plasma Wayland launch exports shared search actions, accepts open/clear lifecycle activation, answers Peer.Ping before and after, and Quit exits 0. Standalone AT-SPI bus unavailable is recorded without claiming semantic E2E.
+
+- [x] D6: Persistent documents mark only verified Phase 13D complete and set
+    exactly Phase 13E NEXT without claiming saved search or indexing.
+  CHECK: rg -n '\| .*NEXT' docs/ROADMAP.md
+  EXPECT: 13E — Saved searches | NEXT
+  EVIDENCE: AGENTS, DESIGN, ROADMAP, FEATURE_MATRIX, PRIVACY_SECURITY, DEVELOPMENT, PLAN, and this ledger record the verified boundary; saved searches and indexing remain excluded and exactly Phase 13E is NEXT.
+
+---
+
+# Archived gates: Floe Phase 13C — Advanced Filters
 
 Scope: Combined, bounded advanced predicates in both existing search modes with
 lazy worker-owned metadata and exact Linux path identity.

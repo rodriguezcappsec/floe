@@ -1318,8 +1318,24 @@ Last updated:
 Current phase:
 
 ```text
-Phase 13 — Filter and search (Phase 13C complete)
+Phase 13 — Filter and search (Phase 13D complete)
 ```
+
+Phase 13D adds explicit Search Contents to the unified search surface. One
+capacity-one application worker submits typed requests to a GTK-independent
+engine that searches only local no-follow regular files under This Folder or
+Include Subfolders without crossing the root device. Phase 13C predicates run
+before bounded reads. UTF-8 and BOM-declared UTF-16LE/BE, Text/Glob/Regex, Match
+Case, 64-result batches, 50,000-result/100,000-entry/depth-128/16-MiB-file/512-MiB
+total limits, cancellation, post-read identity revalidation, and truthful
+binary/encoding/change/limit counters are verified. Results preserve exact
+entry identity and visibly show filename, line-number/snippet, and containing
+folder while reusing ordinary Open/Open With/Properties/Reveal actions.
+Queries, paths, snippets, results, and counters remain memory-only; no Trash,
+remote roots, symlink targets, mount crossing, document/archive extraction,
+helpers, uploads, saved history, or index was added. Strict workspace gates,
+real GTK accessibility, and isolated native Wayland lifecycle are recorded in
+`GATES.md`. Phase 13E saved searches is the sole recommended next phase.
 
 Phase 13C adds one structured bounded advanced-filter model shared by Quick
 Filter and Search Files. Entry type, extension, MIME, size, modification date,
@@ -1333,9 +1349,8 @@ hidden loaded entries without changing global Show Hidden. Exact paths, queries,
 results, and counters remain memory-only. Accessible wrapping native controls,
 raw-name/case/validation tests, strict workspace gates, real GTK accessibility,
 and isolated native Wayland D-Bus/lifecycle smoke are recorded in `GATES.md`.
-Tags, content reads, persistence/history, indexing, remote roots, and
-search-result ordering remain excluded. Phase 13D content search is the sole
-recommended next phase.
+Tags, persistence/history, indexing, remote roots, and search-result ordering
+remain excluded from Phase 13C; Phase 13D followed this work.
 
 Phase 13B adds case-insensitive filename-only search rooted at the active local
 folder with explicit This Folder and Include Subfolders scopes. One capacity-1

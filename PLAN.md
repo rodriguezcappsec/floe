@@ -1,4 +1,52 @@
-# Plan: Floe Phase 13C — Advanced Filters
+# Plan: Floe Phase 13D — Content Search
+
+## Contract
+
+- Add an explicit **Search Contents** mode to the existing unified search
+  surface. It searches only local regular files rooted at the active folder,
+  with This Folder and Include Subfolders scopes; it never searches Trash,
+  remote locations, symbolic-link targets, or another filesystem device.
+- Add a GTK-independent bounded content-search engine with exact `PathBuf`
+  identity, Text/Glob/Regex query modes, explicit Match Case, cancellation,
+  stable line-number/snippet results, and explicit result/file/byte/depth caps.
+- Read only candidate regular files that pass the existing Phase 13C advanced
+  predicates. Use no-follow opens and revalidation. Reject binary/NUL-bearing,
+  over-limit, unsupported-encoding, inaccessible, or changed inputs with
+  truthful aggregate counters instead of lossy fallback or silent broadening.
+- Support bounded UTF-8 plus BOM-declared UTF-16LE/UTF-16BE text. Do not guess
+  legacy encodings, execute helpers, inspect archives, upload content, create an
+  index, persist queries/results/snippets, or log file contents.
+- Run traversal and content reads on one capacity-one application worker with
+  bounded response batches and generation cancellation. GTK callbacks only
+  submit typed requests and render events.
+- Reuse ordinary exact-path Open/Open With/Properties/Reveal actions while the
+  result surface visibly presents filename, containing folder, line number, and
+  a whitespace-normalized bounded snippet. Closing, navigating, or switching
+  modes cancels incompatible work and clears content-derived state.
+- Exclude Phase 13E saved searches/history, Phase 13F indexing, Phase 13G
+  duplicate discovery, Phase 14 desktop integration, remote roots, regex
+  replacement, archive/PDF/document extraction, and search-result sorting.
+
+## Applicable testing layers
+
+- Core fixtures: UTF-8/UTF-16, case/Text/Glob/Regex, raw names, binary and
+  malformed inputs, symlink/mount policy, byte/result/depth caps, cancellation,
+  changed-file revalidation, and snippets.
+- Application worker: capacity-one request/response bounds, generation
+  supersession, streaming batches, clean shutdown, no GTK-thread reads.
+- UI/accessibility: visible plain-language mode/help, result columns/labels,
+  error/stopped/limit feedback, exact Reveal mapping, real GTK component gate.
+- Strict workspace gates plus isolated native Wayland D-Bus action/liveness/Quit
+  smoke before documentation can mark the phase complete.
+
+## Status
+
+COMPLETE. All Phase 13D gates have measured evidence in `GATES.md`. Exactly
+Phase 13E saved searches is recommended next; later phases remain excluded.
+
+---
+
+# Archived plan: Floe Phase 13C — Advanced Filters
 
 ## Contract
 

@@ -483,8 +483,29 @@ occurs in GTK callbacks, does not descend through symbolic links or cross mount
 boundaries, streams at most 128 results per batch, and has explicit result,
 entry, directory, and depth limits. Queries, roots, results, and usage remain
 memory-only. Same-location refresh and hidden-visibility changes rerun an active
-search; navigation cancels and clears it. Content search, saved searches,
+search; navigation cancels and clears it. Saved searches,
 indexing, remote roots, and search-specific ordering remain later phases.
+
+#### Search Contents
+
+Phase 13D adds **Search Contents** as an explicit third mode in the same search
+surface. It never begins merely because the user opens `Ctrl+F`: the user must
+choose the mode, enter a non-empty content pattern, and start it. This Folder
+and Include Subfolders remain visible, as do Text, Glob, Regex, Match Case, and
+the shared advanced predicates.
+
+Content results retain the normal filename and containing-folder hierarchy and
+add a separate `Line N · snippet` row. Snippets normalize whitespace and are
+bounded presentation text; exact `PathBuf` identity remains authoritative for
+Open, Open With, Properties, context selection, and Reveal in Folder. The
+result list disables view, sorting, grouping, and grid-size controls until it
+is closed because Phase 13D does not define content-result ordering.
+
+Running, stopped, skipped, truncated, empty, and failed feedback stays visible
+and non-color-only. Closing, navigating, or changing to an incompatible search
+mode cancels the worker and discards content-derived state. The UI does not
+claim binary, unsupported, remote, linked, changed, or over-limit files were
+searched.
 
 ### Tabs
 

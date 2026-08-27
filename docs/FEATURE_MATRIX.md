@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 13C. Phase 13D is the only
+The implementation baseline for this matrix is Phase 13D. Phase 13E is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -307,10 +307,11 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 
 ## Current-folder filtering and search
 
-Phases 13A–13C share one search row: `Ctrl+F` opens Quick Filter, the
+Phases 13A–13D share one search row: `Ctrl+F` opens Quick Filter, the
 visible mode selector switches to Search Files, and `Ctrl+Shift+F` opens Search
 Files directly. Quick Filter narrows loaded entries; Search Files uses the
-bounded filename traversal worker. Both modes share the optional Phase 13C
+bounded filename traversal worker. Search Contents is an explicit third mode
+that reads bounded local text files. All modes share the optional Phase 13C
 advanced predicates and explicit Match Case control.
 
 | Capability | Status | Phase | Notes |
@@ -322,7 +323,7 @@ advanced predicates and explicit Match Case control.
 | Filename search in current folder/subtree | `COMPLETE` | 13B | Case-insensitive filename-only results stream in batches of 128 through a capacity-1 generation-safe worker with exact path identity. |
 | Wider-location search | `PLANNED` | 13B/17 | Depends on generic location architecture and privacy policy. |
 | Search cancellation | `COMPLETE` | 13B | Visible Stop cancels by generation, stale events are ignored, and partial results remain with truthful stopped/skipped/truncated feedback. |
-| Content search | `PLANNED` | 13D | Bounded, cancellable, type-aware, and privacy-safe by default. |
+| Content search | `COMPLETE` | 13D | Explicit local-only mode applies Phase 13C predicates before no-follow reads; supports UTF-8 and BOM-declared UTF-16, Text/Glob/Regex/Match Case, 64-result batches, line numbers and normalized snippets, truthful binary/encoding/change/limit counters, cancellation and exact-path actions. No remote roots, links, mount crossing, extraction, persistence, indexing, or uploads. |
 | Type/extension/MIME filters | `COMPLETE` | 13C | Structured bounded predicates run cheap checks first; GIO guesses MIME from the exact filename without content bytes, and unknown MIME explicitly excludes the candidate. |
 | Size/date/owner/hidden filters | `COMPLETE` | 13C | Size/date use enumerated no-follow facts, owner UID is resolved lazily with no-follow metadata, and temporary Include Hidden/Hidden Only never mutates global Show Hidden. |
 | Tag filters | `DEFERRED` | 19 | No tag model exists. |
