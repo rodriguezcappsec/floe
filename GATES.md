@@ -1,4 +1,48 @@
-# Gates: Floe Phase 13E — Saved Searches
+# Gates: Floe Phase 13F — Optional Search Indexing
+
+Scope: Explicit private filename/metadata index with conservative eligibility,
+stale detection, and mandatory live-search fallback; no content index.
+
+- [x] F1: Core index model/build/codec is bounded, exact-path, no-follow, and
+  conservative.
+  CHECK: cargo test -p floe-core phase_13f -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Three focused core tests pass hidden-subtree exclusion, exact raw non-UTF-8 names, symlink non-descent, entry/encoded limits, versioned round trip, malformed/hidden/duplicate-policy rejection, and cancellation-safe bounded build.
+
+- [x] F2: Indexed filename queries preserve Phase 13C semantics and detect
+  stale roots/directories/entries before presentation.
+  CHECK: cargo test -p floe-core phase_13f_index_query -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused indexed-query test passes exact result identity, stale directory rejection after mutation, hidden-policy ineligibility, no-follow matching-entry validation, Phase 13C advanced predicate/MIME boundary, and deterministic result cap.
+
+- [x] F3: Application index worker has bounded build/query/clear persistence,
+  private atomic files, generation safety, and explicit fallback outcomes.
+  CHECK: cargo test -p floe-app phase_13f_search_index -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Two focused worker tests pass capacity-one commands/capacity-32 events, mode-0600 synchronized atomic cache, query batches, missing/stale fallback with unchanged request, stale-cache discard, clear lifecycle, generation cancellation, and clean Drop join.
+
+- [x] F4: Native controls and controller expose truthful optional capability,
+  accessibility, and complete non-indexed fallback without content indexing.
+  CHECK: cargo test -p floe-app phase_13f_search_index_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused UI/preference tests pass filenames-metadata-only/hidden/content/fallback wording, version-11 off-by-default opt-in round trip, compact Index menu, worker-only Build/Clear actions, and content-mode hiding. Controller compiles indexed result/fallback generation lifecycle; live Wayland action smoke verifies exported controls.
+
+- [x] F5: Full formatting, check, strict Clippy, workspace tests, build, and
+  diff hygiene pass.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: Final cargo fmt check, workspace check, strict all-target/all-feature Clippy with warnings denied, 384 app tests (383 passed plus one intentional graphical ignore), 129 core tests, native app build, and git diff hygiene all pass.
+
+- [x] F6: Native Wayland lifecycle verifies index actions, application health,
+  and clean Quit; persistent documents mark only verified Phase 13F complete
+  and exactly Phase 13G NEXT.
+  CHECK: rg -n '\| .*NEXT' docs/ROADMAP.md
+  EXPECT: 13G — Duplicate finder | NEXT
+  EVIDENCE: Real GTK component gate passes. Isolated Plasma Wayland launch exports Build/Clear Index, creates 600 private cache, clears it, answers Peer.Ping, and Quit exits 0. Standalone AT-SPI bus unavailable is recorded without semantic E2E claim. AGENTS, DESIGN, ROADMAP, FEATURE_MATRIX, PRIVACY_SECURITY, DEVELOPMENT, PLAN, and GATES mark only verified 13F complete and exactly 13G NEXT.
+
+---
+
+# Archived gates: Floe Phase 13E — Saved Searches
 
 Scope: Explicit versioned saved queries, session-only clearable recents, exact
 roots, deterministic result ordering, and no indexing.

@@ -19,6 +19,7 @@ mod navigation;
 mod permanent_delete;
 mod permissions;
 mod saved_search;
+mod search_index;
 mod session;
 mod sorting;
 mod split;
@@ -102,6 +103,11 @@ pub use saved_search::{
     RECENT_SEARCH_CAPACITY, RecentSearches, SAVED_SEARCH_CAPACITY, SAVED_SEARCH_NAME_CAPACITY,
     SavedSearch, SavedSearchCatalog, SavedSearchError, SearchHistoryPolicy, SearchKind,
     SearchQuery, SearchResultOrder,
+};
+pub use search_index::{
+    SEARCH_INDEX_PATH_BYTES, SEARCH_INDEX_SERIALIZED_CAPACITY, SearchIndex,
+    SearchIndexBuildRequest, SearchIndexBuildSummary, SearchIndexError, SearchIndexLimits,
+    build_search_index,
 };
 pub use session::{
     BrowserSession, BrowserSessionId, SESSION_HISTORY_CAPACITY, SESSION_MAX_PATH_BYTES,
