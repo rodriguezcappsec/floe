@@ -13,12 +13,12 @@ use adw::prelude::*;
 use floe_core::SymbolicLinkMode;
 use floe_core::{
     AdvancedFilter, BrowserSession, BrowserSessionId, BrowserTabs, ChecksumAlgorithm,
-    CreateRequest, DirectoryEntry, DirectoryError, DirectoryGrouping, DirectoryPlacement,
-    DirectorySort, EntryKind, EntryTypeFilter, FilenameSearchRequest, FilenameSearchScope,
-    FilenameSearchSummary, FolderFilterMode, HiddenFilter, MillerChildKind, MillerColumnModel,
-    MillerSelectionTransition, OwnerFilter, RestoreRequest, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN,
-    SessionScrollAnchor, SortColumn, SplitRatio, SplitSide, TabActivation, TabError,
-    TrashEnumerateError, TrashRoot,
+    ContentSearchMatch, ContentSearchRequest, ContentSearchSummary, CreateRequest, DirectoryEntry,
+    DirectoryError, DirectoryGrouping, DirectoryPlacement, DirectorySort, EntryKind,
+    EntryTypeFilter, FilenameSearchRequest, FilenameSearchScope, FilenameSearchSummary,
+    FolderFilterMode, HiddenFilter, MillerChildKind, MillerColumnModel, MillerSelectionTransition,
+    OwnerFilter, RestoreRequest, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN, SessionScrollAnchor, SortColumn,
+    SplitRatio, SplitSide, TabActivation, TabError, TrashEnumerateError, TrashRoot,
 };
 
 fn tab_title(path: &Path) -> String {
@@ -96,6 +96,37 @@ fn filename_search_feedback(
             " · {} metadata unavailable",
             summary.metadata_unavailable
         ));
+    }
+    if summary.truncated {
+        message.push_str(" · incomplete (search limit reached)");
+    }
+    message
+}
+
+fn content_search_feedback(summary: ContentSearchSummary, running: bool, stopped: bool) -> String {
+    let skipped = summary
+        .skipped_entries
+        .saturating_add(summary.skipped_directories)
+        .saturating_add(summary.skipped_mounts)
+        .saturating_add(summary.depth_limited)
+        .saturating_add(summary.metadata_unavailable)
+        .saturating_add(summary.binary_skipped)
+        .saturating_add(summary.encoding_skipped)
+        .saturating_add(summary.too_large)
+        .saturating_add(summary.changed_files)
+        .saturating_add(summary.long_lines_skipped);
+    let mut message = if running {
+        format!(
+            "Searching contents… {} matches in {} files",
+            summary.matched, summary.examined_files
+        )
+    } else if stopped {
+        format!("Stopped with {} content matches", summary.matched)
+    } else {
+        format!("{} content matches", summary.matched)
+    };
+    if skipped > 0 {
+        message.push_str(&format!(" · {skipped} skipped"));
     }
     if summary.truncated {
         message.push_str(" · incomplete (search limit reached)");
@@ -482,6 +513,15 @@ pub struct BrowserController {
     filename_search_root: RefCell<Option<PathBuf>>,
     pending_filename_search: RefCell<Option<FilenameSearchRequest>>,
     filename_search_summary: RefCell<Option<FilenameSearchSummary>>,
+    content_search_worker: RefCell<Option<crate::content_search::ContentSearchWorker>>,
+    content_search_generation: Cell<u64>,
+    content_search_active: Cell<bool>,
+    content_search_running: Cell<bool>,
+    content_search_results: RefCell<Vec<Arc<ContentSearchMatch>>>,
+    content_search_store: RefCell<Option<gio::ListStore>>,
+    content_search_root: RefCell<Option<PathBuf>>,
+    pending_content_search: RefCell<Option<ContentSearchRequest>>,
+    content_search_summary: RefCell<Option<ContentSearchSummary>>,
     pending_entries: RefCell<VecDeque<Arc<DirectoryEntry>>>,
     pending_store: RefCell<Option<gio::ListStore>>,
     pending_total: Cell<usize>,
@@ -613,6 +653,13 @@ impl BrowserController {
                 None
             }
         };
+        let content_search_worker = match crate::content_search::ContentSearchWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start content search worker");
+                None
+            }
+        };
         widgets.miller_view.set_vim_mode(view_preferences.vim_mode);
         Rc::new(Self {
             widgets,
@@ -659,6 +706,15 @@ impl BrowserController {
             filename_search_root: RefCell::new(None),
             pending_filename_search: RefCell::new(None),
             filename_search_summary: RefCell::new(None),
+            content_search_worker: RefCell::new(content_search_worker),
+            content_search_generation: Cell::new(0),
+            content_search_active: Cell::new(false),
+            content_search_running: Cell::new(false),
+            content_search_results: RefCell::new(Vec::new()),
+            content_search_store: RefCell::new(None),
+            content_search_root: RefCell::new(None),
+            pending_content_search: RefCell::new(None),
+            content_search_summary: RefCell::new(None),
             pending_entries: RefCell::new(VecDeque::new()),
             pending_store: RefCell::new(None),
             pending_total: Cell::new(0),
@@ -1565,6 +1621,7 @@ impl BrowserController {
             controller.drain_worker();
             controller.drain_folder_filter_worker();
             controller.drain_filename_search_worker();
+            controller.drain_content_search_worker();
             controller.drain_bookmark_worker();
             controller.pump_pending_entries();
             controller.submit_thumbnail_requests();
@@ -1684,7 +1741,9 @@ impl BrowserController {
             if let Some(controller) = controller.upgrade() {
                 if controller.widgets.search_mode.selected() == 0 {
                     controller.update_folder_filter_from_widgets();
-                } else if !controller.filename_search_running.get() {
+                } else if !controller.filename_search_running.get()
+                    && !controller.content_search_running.get()
+                {
                     controller.set_search_feedback("Press Enter or Search", false);
                 }
             }
@@ -1706,8 +1765,10 @@ impl BrowserController {
             if let Some(controller) = controller.upgrade() {
                 if controller.widgets.search_mode.selected() == 0 {
                     controller.update_folder_filter_from_widgets();
-                } else {
+                } else if controller.widgets.search_mode.selected() == 1 {
                     controller.start_filename_search();
+                } else {
+                    controller.start_content_search();
                 }
             }
         });
@@ -1719,6 +1780,8 @@ impl BrowserController {
                     controller.update_folder_filter_from_widgets();
                 } else if controller.filename_search_active.get() {
                     controller.start_filename_search();
+                } else if controller.content_search_active.get() {
+                    controller.start_content_search();
                 }
             }
         });
@@ -1740,8 +1803,11 @@ impl BrowserController {
         if self.filename_search_active.get() {
             self.deactivate_filename_search(true);
         }
+        if self.content_search_active.get() {
+            self.deactivate_content_search(true);
+        }
         self.widgets.search_mode.set_selected(0);
-        self.configure_search_surface(false);
+        self.configure_search_surface(0);
         self.widgets.search_bar.set_visible(true);
         self.focus_search_entry();
     }
@@ -1756,6 +1822,10 @@ impl BrowserController {
     fn clear_folder_filter(&self) {
         if self.filename_search_active.get() {
             self.clear_filename_search();
+            return;
+        }
+        if self.content_search_active.get() {
+            self.clear_content_search();
             return;
         }
         self.filter_state.replace(FolderFilterState::default());
@@ -1995,14 +2065,19 @@ impl BrowserController {
             if let Some(controller) = controller.upgrade() {
                 if controller.widgets.search_mode.selected() == 1 {
                     controller.start_filename_search();
+                } else if controller.widgets.search_mode.selected() == 2 {
+                    controller.start_content_search();
                 }
             }
         });
     }
 
-    fn configure_search_surface(&self, file_search: bool) {
-        let help_index = usize::from(file_search);
-        let help = crate::ui::SEARCH_SURFACE_MODE_HELP[help_index];
+    fn configure_search_surface(&self, mode: u32) {
+        let disk_search = mode != 0;
+        let help = crate::ui::SEARCH_SURFACE_MODE_HELP
+            .get(mode as usize)
+            .copied()
+            .unwrap_or(crate::ui::SEARCH_SURFACE_MODE_HELP[0]);
         self.widgets.search_mode.set_tooltip_text(Some(help));
         self.widgets
             .search_mode
@@ -2010,18 +2085,18 @@ impl BrowserController {
         self.widgets.filter_entry.set_tooltip_text(Some(help));
         self.widgets
             .filter_entry
-            .set_placeholder_text(Some(if file_search {
-                "Filename contains…"
-            } else {
-                "Filter shown items"
+            .set_placeholder_text(Some(match mode {
+                1 => "Filename contains…",
+                2 => "Text inside files…",
+                _ => "Filter shown items",
             }));
         self.widgets.filter_mode.set_visible(true);
-        self.widgets.filter_feedback.set_visible(!file_search);
-        self.widgets.search_scope.set_visible(file_search);
-        self.widgets.search_button.set_visible(file_search);
-        self.widgets.search_stop_button.set_visible(file_search);
-        self.widgets.search_feedback.set_visible(file_search);
-        if !file_search {
+        self.widgets.filter_feedback.set_visible(!disk_search);
+        self.widgets.search_scope.set_visible(disk_search);
+        self.widgets.search_button.set_visible(disk_search);
+        self.widgets.search_stop_button.set_visible(disk_search);
+        self.widgets.search_feedback.set_visible(disk_search);
+        if !disk_search {
             self.widgets.filter_entry.set_sensitive(true);
             self.widgets.search_scope.set_sensitive(true);
             self.widgets.search_button.set_sensitive(true);
@@ -2030,23 +2105,38 @@ impl BrowserController {
     }
 
     fn switch_search_surface_mode(&self) {
-        let file_search = self.widgets.search_mode.selected() == 1;
+        let mode = self.widgets.search_mode.selected();
         let query = self.widgets.filter_entry.text().to_string();
-        if file_search {
+        if mode != 0 {
             if self.trash_active.get() {
                 self.widgets.search_mode.set_selected(0);
-                self.configure_search_surface(false);
+                self.configure_search_surface(0);
                 self.show_toast("Search Files is available in local folders", 5);
                 return;
             }
-            if !self.filename_search_active.get() {
-                self.show_filename_search();
+            if mode == 1 {
+                if self.content_search_active.get() {
+                    self.deactivate_content_search(false);
+                }
+                if !self.filename_search_active.get() {
+                    self.show_filename_search();
+                }
+            } else {
+                if self.filename_search_active.get() {
+                    self.deactivate_filename_search(false);
+                }
+                if !self.content_search_active.get() {
+                    self.show_content_search();
+                }
             }
         } else {
             if self.filename_search_active.get() {
                 self.deactivate_filename_search(true);
             }
-            self.configure_search_surface(false);
+            if self.content_search_active.get() {
+                self.deactivate_content_search(true);
+            }
+            self.configure_search_surface(0);
             self.widgets.search_bar.set_visible(true);
             if self.widgets.filter_entry.text().as_str() != query {
                 self.widgets.filter_entry.set_text(&query);
@@ -2057,7 +2147,9 @@ impl BrowserController {
     }
 
     fn close_search_surface(&self) {
-        if self.filename_search_active.get() || self.widgets.search_mode.selected() == 1 {
+        if self.content_search_active.get() || self.widgets.search_mode.selected() == 2 {
+            self.clear_content_search();
+        } else if self.filename_search_active.get() || self.widgets.search_mode.selected() == 1 {
             self.clear_filename_search();
         } else {
             self.clear_folder_filter();
@@ -2083,7 +2175,7 @@ impl BrowserController {
             return;
         }
         self.deactivate_folder_filter_for_search();
-        self.configure_search_surface(true);
+        self.configure_search_surface(1);
         self.filename_search_active.set(true);
         self.filename_search_running.set(false);
         self.filename_search_root.replace(Some(
@@ -2114,6 +2206,233 @@ impl BrowserController {
         self.set_selection_actions_enabled(false, false, false);
         self.set_reveal_enabled(false);
         self.focus_search_entry();
+    }
+
+    fn open_content_search_surface(&self) {
+        if self.trash_active.get() {
+            self.show_toast("Search Contents is available in local folders", 5);
+            return;
+        }
+        self.widgets.search_mode.set_selected(2);
+        if !self.content_search_active.get() {
+            self.show_content_search();
+        }
+        self.widgets.search_bar.set_visible(true);
+        self.focus_search_entry();
+    }
+
+    fn show_content_search(&self) {
+        if self.trash_active.get() {
+            self.show_toast("Search Contents is available in local folders", 5);
+            return;
+        }
+        self.deactivate_folder_filter_for_search();
+        self.configure_search_surface(2);
+        self.content_search_active.set(true);
+        self.content_search_running.set(false);
+        self.content_search_root.replace(Some(
+            self.tabs.borrow().active().current().path().to_path_buf(),
+        ));
+        self.content_search_results.borrow_mut().clear();
+        self.content_search_summary.borrow_mut().take();
+        self.pending_content_search.borrow_mut().take();
+        let store = gio::ListStore::new::<glib::BoxedAnyObject>();
+        self.widgets.selection.set_model(Some(&store));
+        self.content_search_store.replace(Some(store));
+        self.widgets.selection.unselect_all();
+        self.selected_entries.borrow_mut().clear();
+        self.widgets.search_bar.set_visible(true);
+        self.widgets
+            .view_stack
+            .set_visible_child_name("search-results");
+        self.widgets.list_header.set_visible(false);
+        self.widgets.empty_state.set_visible(false);
+        self.set_view_controls_sensitive(false);
+        self.set_sort_controls_sensitive(false);
+        self.set_content_search_running(false);
+        self.set_search_feedback("Enter text to search inside local files", false);
+        self.set_open_enabled(false);
+        self.set_open_with_enabled(false);
+        self.set_properties_enabled(false);
+        self.set_checksum_enabled(false);
+        self.set_selection_actions_enabled(false, false, false);
+        self.set_reveal_enabled(false);
+        self.focus_search_entry();
+    }
+
+    fn start_content_search(&self) {
+        if !self.content_search_active.get() {
+            self.open_content_search_surface();
+        }
+        if !self.content_search_active.get() {
+            return;
+        }
+        let query = self.widgets.filter_entry.text().to_string();
+        let scope = if self.widgets.search_scope.selected() == 0 {
+            FilenameSearchScope::CurrentFolder
+        } else {
+            FilenameSearchScope::Subtree
+        };
+        let root = self.tabs.borrow().active().current().path().to_path_buf();
+        let mode = match self.widgets.filter_mode.selected() {
+            1 => FolderFilterMode::Glob,
+            2 => FolderFilterMode::Regex,
+            _ => FolderFilterMode::Text,
+        };
+        let request = match ContentSearchRequest::new(
+            root.clone(),
+            query,
+            scope,
+            self.show_hidden.get(),
+            mode,
+            self.advanced_filter_from_widgets(),
+        ) {
+            Ok(request) => request,
+            Err(error) => {
+                self.set_content_search_running(false);
+                self.set_search_feedback(&error.to_string(), true);
+                return;
+            }
+        };
+        let generation = self.content_search_generation.get().wrapping_add(1).max(1);
+        self.content_search_generation.set(generation);
+        self.content_search_root.replace(Some(root));
+        self.content_search_results.borrow_mut().clear();
+        self.content_search_summary.borrow_mut().take();
+        self.widgets.selection.unselect_all();
+        self.selected_entries.borrow_mut().clear();
+        let store = gio::ListStore::new::<glib::BoxedAnyObject>();
+        self.widgets.selection.set_model(Some(&store));
+        self.content_search_store.replace(Some(store));
+        self.widgets.empty_state.set_visible(false);
+        self.pending_content_search.replace(Some(request));
+        self.set_content_search_running(true);
+        self.set_search_feedback("Searching file contents…", false);
+        self.try_submit_pending_content_search();
+    }
+
+    fn try_submit_pending_content_search(&self) {
+        let Some(request) = self.pending_content_search.borrow_mut().take() else {
+            return;
+        };
+        let generation = self.content_search_generation.get();
+        let outcome = self.content_search_worker.borrow().as_ref().map_or(
+            Err(crate::content_search::ContentSearchSubmitError::Stopped),
+            |worker| worker.submit(generation, request),
+        );
+        match outcome {
+            Ok(()) => {}
+            Err(crate::content_search::ContentSearchSubmitError::Busy(request)) => {
+                self.pending_content_search.replace(Some(*request));
+            }
+            Err(crate::content_search::ContentSearchSubmitError::Stopped) => {
+                self.set_content_search_running(false);
+                self.set_search_feedback("Content search worker is unavailable", true);
+            }
+        }
+    }
+
+    fn drain_content_search_worker(&self) {
+        loop {
+            let event = self
+                .content_search_worker
+                .borrow()
+                .as_ref()
+                .and_then(crate::content_search::ContentSearchWorker::try_event);
+            let Some(event) = event else {
+                break;
+            };
+            if !self.content_search_active.get()
+                || event.generation != self.content_search_generation.get()
+            {
+                continue;
+            }
+            match event.kind {
+                crate::content_search::ContentSearchEventKind::Batch { matches, summary } => {
+                    if let Some(store) = self.content_search_store.borrow().as_ref() {
+                        for content_match in &matches {
+                            store.append(&glib::BoxedAnyObject::new(content_match.clone()));
+                        }
+                    }
+                    self.content_search_results.borrow_mut().extend(matches);
+                    self.content_search_summary.replace(Some(summary));
+                    self.widgets.empty_state.set_visible(false);
+                    self.set_search_feedback(&content_search_feedback(summary, true, false), false);
+                    self.refresh_status();
+                }
+                crate::content_search::ContentSearchEventKind::Finished(summary) => {
+                    self.content_search_summary.replace(Some(summary));
+                    self.set_content_search_running(false);
+                    let empty = self.content_search_results.borrow().is_empty();
+                    self.widgets.empty_state.set_visible(empty);
+                    if empty {
+                        self.widgets.empty_label.set_label("No content matches");
+                    }
+                    self.set_search_feedback(
+                        &content_search_feedback(summary, false, false),
+                        false,
+                    );
+                    self.refresh_status();
+                }
+                crate::content_search::ContentSearchEventKind::Failed(error) => {
+                    self.set_content_search_running(false);
+                    self.set_search_feedback(&format!("Content search failed: {error}"), true);
+                }
+            }
+        }
+        self.try_submit_pending_content_search();
+    }
+
+    fn stop_content_search(&self) {
+        if !self.content_search_active.get() {
+            return;
+        }
+        let generation = self.content_search_generation.get().wrapping_add(1).max(1);
+        self.content_search_generation.set(generation);
+        if let Some(worker) = self.content_search_worker.borrow().as_ref() {
+            worker.cancel(generation);
+        }
+        self.pending_content_search.borrow_mut().take();
+        self.set_content_search_running(false);
+        let summary = self.content_search_summary.borrow().unwrap_or_default();
+        self.set_search_feedback(&content_search_feedback(summary, false, true), false);
+    }
+
+    fn clear_content_search(&self) {
+        self.widgets.filter_entry.set_text("");
+        self.reset_advanced_filter_widgets();
+        self.deactivate_content_search(true);
+    }
+
+    fn deactivate_content_search(&self, restore_listing: bool) {
+        let generation = self.content_search_generation.get().wrapping_add(1).max(1);
+        self.content_search_generation.set(generation);
+        if let Some(worker) = self.content_search_worker.borrow().as_ref() {
+            worker.cancel(generation);
+        }
+        self.content_search_active.set(false);
+        self.content_search_running.set(false);
+        self.content_search_root.borrow_mut().take();
+        self.content_search_results.borrow_mut().clear();
+        self.content_search_store.borrow_mut().take();
+        self.content_search_summary.borrow_mut().take();
+        self.pending_content_search.borrow_mut().take();
+        self.widgets.search_bar.set_visible(false);
+        self.set_view_controls_sensitive(true);
+        self.set_sort_controls_sensitive(true);
+        self.set_reveal_enabled(false);
+        self.widgets.set_view_mode(self.view_mode.get());
+        if restore_listing {
+            self.install_entries(self.listed_entries.borrow().to_vec(), &[], true);
+        }
+    }
+
+    fn set_content_search_running(&self, running: bool) {
+        self.content_search_running.set(running);
+        self.widgets.search_button.set_sensitive(!running);
+        self.widgets.search_stop_button.set_sensitive(running);
+        self.widgets.filter_entry.set_sensitive(!running);
+        self.widgets.search_scope.set_sensitive(!running);
     }
 
     fn start_filename_search(&self) {
@@ -2319,14 +2638,18 @@ impl BrowserController {
     }
 
     fn reveal_search_result(&self) {
-        if !self.filename_search_active.get() {
+        if !self.filename_search_active.get() && !self.content_search_active.get() {
             return;
         }
         let Some(entry) = self.selected_entry() else {
             return;
         };
         let target = entry.path().to_path_buf();
-        self.deactivate_filename_search(false);
+        if self.filename_search_active.get() {
+            self.deactivate_filename_search(false);
+        } else {
+            self.deactivate_content_search(false);
+        }
         self.navigate_to_revealing(target);
     }
 
@@ -2395,10 +2718,18 @@ impl BrowserController {
             controller.open_filename_search_surface();
         });
         self.add_action("start-filename-search", |controller| {
-            controller.start_filename_search();
+            if controller.widgets.search_mode.selected() == 2 {
+                controller.start_content_search();
+            } else {
+                controller.start_filename_search();
+            }
         });
         self.add_action("stop-filename-search", |controller| {
-            controller.stop_filename_search();
+            if controller.content_search_active.get() {
+                controller.stop_content_search();
+            } else {
+                controller.stop_filename_search();
+            }
         });
         self.add_action("clear-filename-search", |controller| {
             controller.clear_filename_search();
@@ -3632,7 +3963,7 @@ impl BrowserController {
     }
 
     fn apply_view_command(&self, command: ViewCommand) {
-        if self.filename_search_active.get() {
+        if self.filename_search_active.get() || self.content_search_active.get() {
             return;
         }
         match command {
@@ -5019,6 +5350,30 @@ impl BrowserController {
                 self.widgets.set_views_sensitive(false);
             }
         }
+        if self.content_search_active.get() {
+            let same_root = !self.trash_active.get()
+                && self
+                    .content_search_root
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|root| root == &path);
+            if same_root {
+                let generation = self.content_search_generation.get().wrapping_add(1).max(1);
+                self.content_search_generation.set(generation);
+                if let Some(worker) = self.content_search_worker.borrow().as_ref() {
+                    worker.cancel(generation);
+                }
+                self.set_content_search_running(false);
+                self.content_search_results.borrow_mut().clear();
+                self.content_search_store.borrow_mut().take();
+                self.content_search_summary.borrow_mut().take();
+                self.pending_content_search.borrow_mut().take();
+            } else {
+                self.deactivate_content_search(false);
+                self.set_sort_controls_sensitive(false);
+                self.widgets.set_views_sensitive(false);
+            }
+        }
         let filter_location = (self.trash_active.get(), path.clone());
         let location_changed = self
             .filter_location
@@ -5233,6 +5588,8 @@ impl BrowserController {
         self.start_current_watcher();
         if self.filename_search_active.get() {
             self.start_filename_search();
+        } else if self.content_search_active.get() {
+            self.start_content_search();
         }
     }
 
@@ -5413,7 +5770,9 @@ impl BrowserController {
         self.set_open_enabled(state.single);
         self.set_open_with_enabled(state.open_with);
         self.set_properties_enabled(!self.selected_entries.borrow().is_empty());
-        self.set_reveal_enabled(self.filename_search_active.get() && state.single);
+        self.set_reveal_enabled(
+            (self.filename_search_active.get() || self.content_search_active.get()) && state.single,
+        );
         self.set_checksum_enabled(state.checksum);
         self.set_archive_actions_enabled();
         self.set_batch_rename_enabled();
@@ -5481,7 +5840,7 @@ impl BrowserController {
     }
 
     fn show_context_menu(&self) {
-        if self.filename_search_active.get() {
+        if self.filename_search_active.get() || self.content_search_active.get() {
             if self.selected_entries.borrow().is_empty() {
                 self.widgets.search_background_menu.set_pointing_to(None);
                 self.widgets.search_background_menu.popup();
@@ -5512,6 +5871,17 @@ impl BrowserController {
                 format!("{results} search results")
             } else {
                 format!("{selected} selected of {results} search results")
+            };
+            self.widgets.status_label.set_label(&label);
+            return;
+        }
+        if self.content_search_active.get() {
+            let results = self.content_search_results.borrow().len();
+            let selected = self.selected_entries.borrow().len();
+            let label = if selected == 0 {
+                format!("{results} content matches")
+            } else {
+                format!("{selected} selected of {results} content matches")
             };
             self.widgets.status_label.set_label(&label);
             return;
@@ -7091,10 +7461,16 @@ fn selected_entries_for_selection(selection: &gtk::MultiSelection) -> Vec<Arc<Di
     std::iter::once(first)
         .chain(indices)
         .filter_map(|position| {
-            model
+            let object = model
                 .item(position)
-                .and_downcast::<glib::BoxedAnyObject>()
-                .map(|object| object.borrow::<Arc<DirectoryEntry>>().clone())
+                .and_downcast::<glib::BoxedAnyObject>()?;
+            if let Ok(entry) = object.try_borrow::<Arc<DirectoryEntry>>() {
+                return Some(entry.clone());
+            }
+            object
+                .try_borrow::<Arc<floe_core::ContentSearchMatch>>()
+                .ok()
+                .map(|content_match| Arc::new(content_match.entry().clone()))
         })
         .collect()
 }

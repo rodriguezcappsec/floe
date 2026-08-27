@@ -4,6 +4,7 @@ mod advanced_filter;
 mod archive;
 mod batch_rename;
 mod checksum;
+mod content_search;
 mod copy;
 mod create_operation;
 mod directory;
@@ -45,6 +46,13 @@ pub use batch_rename::{
 pub use checksum::{
     CHECKSUM_TARGET_CAPACITY, ChecksumAlgorithm, ChecksumRequest, ChecksumRequestError,
     ExpectedDigest, encode_hex,
+};
+pub use content_search::{
+    CONTENT_SEARCH_BATCH_CAPACITY, CONTENT_SEARCH_DEPTH_CAPACITY,
+    CONTENT_SEARCH_DIRECTORY_CAPACITY, CONTENT_SEARCH_FILE_BYTES, CONTENT_SEARCH_FILE_CAPACITY,
+    CONTENT_SEARCH_LINE_BYTES, CONTENT_SEARCH_RESULT_CAPACITY, CONTENT_SEARCH_SNIPPET_CHARS,
+    CONTENT_SEARCH_TOTAL_BYTES, ContentSearchError, ContentSearchLimits, ContentSearchMatch,
+    ContentSearchRequest, ContentSearchSummary, search_contents_with_mime,
 };
 pub use copy::{
     ConflictPolicy, CopyCancellation, CopyError, CopyOutcome, CopyProgress, CopyRequest,

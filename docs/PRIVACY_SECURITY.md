@@ -398,6 +398,31 @@ Show Hidden preference. Exact `PathBuf`/`OsStr` identity remains authoritative;
 lossy labels are presentation only. Tags, content reads, saved searches,
 history, persistence, indexing, remote roots, and uploads remain excluded.
 
+## Content search
+
+Phase 13D reads file content only after the user explicitly selects Search
+Contents and starts a non-empty query. The bounded core engine accepts only an
+active local directory, never Trash or a remote URI. It stays on the root
+device, does not descend symbolic links, opens candidate regular files
+no-follow, and revalidates identity after reading. Existing structured
+predicates run before content reads; MIME filtering remains filename-only.
+
+Supported text is UTF-8 (including UTF-8 BOM) and BOM-declared UTF-16LE/BE.
+NUL-bearing binary data, malformed or unsupported encodings, files over 16 MiB,
+lines over 256 KiB, inaccessible inputs, and files changed while scanning are
+skipped with aggregate counters rather than lossy decoding. One request is
+bounded to 100,000 traversed files/directories, depth 128, 512 MiB total read,
+50,000 matches, 64-result event batches, and 240-character normalized snippets.
+Generation cancellation prevents stale results from replacing current state.
+
+Queries, roots, exact result paths, snippets, counters, and outcomes remain
+memory-only and clear on the normal search/location lifecycle or process exit.
+Floe does not log content or snippets, upload hashes or bytes, execute helpers,
+extract documents/archives, persist search history, or build an index in this
+phase. Ordinary filesystem, process-memory, display, and applications opened by
+the user remain outside Floe's confidentiality boundary. Saved searches and
+indexing require their own later privacy gates.
+
 ## Command history
 
 Phase 11B command-palette search examines only static command metadata. It does

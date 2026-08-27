@@ -8,8 +8,8 @@ use std::{
 
 use adw::prelude::*;
 use floe_core::{
-    DirectoryEntry, DirectoryGrouping, DirectorySort, EntryKind, SortColumn, SortDirection,
-    SplitRatio, SplitSide,
+    ContentSearchMatch, DirectoryEntry, DirectoryGrouping, DirectorySort, EntryKind, SortColumn,
+    SortDirection, SplitRatio, SplitSide,
 };
 use gtk::{gio, glib};
 
@@ -62,10 +62,12 @@ const ADVANCED_DATE_FILTERS: [&str; 5] = [
 const ADVANCED_OWNER_FILTERS: [&str; 2] = ["Anyone", "Me"];
 const ADVANCED_HIDDEN_FILTERS: [&str; 3] =
     ["Current hidden setting", "Include hidden", "Hidden only"];
-pub(crate) const SEARCH_SURFACE_MODES: [&str; 2] = ["Quick Filter", "Search Files"];
-pub(crate) const SEARCH_SURFACE_MODE_HELP: [&str; 2] = [
+pub(crate) const SEARCH_SURFACE_MODES: [&str; 3] =
+    ["Quick Filter", "Search Files", "Search Contents"];
+pub(crate) const SEARCH_SURFACE_MODE_HELP: [&str; 3] = [
     "Quick Filter narrows the items already shown in this folder. It does not search subfolders or read the filesystem again.",
     "Search Files finds filenames on disk in this folder or its subfolders. It never reads file contents.",
+    "Search Contents explicitly reads bounded local text files in this folder or its subfolders. It skips binary, unsupported, remote, linked, and over-limit files.",
 ];
 const FOLDER_FILTER_MODE_HELP: [&str; 3] = [
     "Contains these characters. Letter case is ignored unless Match case is enabled. Example: vacation finds My Vacation.jpg",
@@ -4054,6 +4056,14 @@ fn build_filename_search_factory(
             .single_line_mode(true)
             .build();
         name.add_css_class("floe-entry-name");
+        let detail = gtk::Label::builder()
+            .halign(gtk::Align::Start)
+            .xalign(0.0)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .single_line_mode(true)
+            .visible(false)
+            .build();
+        detail.add_css_class("caption");
         let folder = gtk::Label::builder()
             .halign(gtk::Align::Start)
             .xalign(0.0)
@@ -4063,6 +4073,7 @@ fn build_filename_search_factory(
         folder.add_css_class("caption");
         folder.add_css_class("dim-label");
         labels.append(&name);
+        labels.append(&detail);
         labels.append(&folder);
         row.append(&icon);
         row.append(&labels);
@@ -4108,17 +4119,36 @@ fn build_filename_search_factory(
         let Some(name) = labels.first_child().and_downcast::<gtk::Label>() else {
             return;
         };
-        let Some(folder) = name.next_sibling().and_downcast::<gtk::Label>() else {
+        let Some(detail) = name.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(folder) = detail.next_sibling().and_downcast::<gtk::Label>() else {
             return;
         };
         let Some(object) = list_item.item().and_downcast::<glib::BoxedAnyObject>() else {
             return;
         };
-        let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
+        let (entry, content_detail) =
+            if let Ok(content_match) = object.try_borrow::<std::sync::Arc<ContentSearchMatch>>() {
+                (
+                    content_match.entry().clone(),
+                    Some(format!(
+                        "Line {} · {}",
+                        content_match.line_number(),
+                        content_match.snippet()
+                    )),
+                )
+            } else {
+                let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
+                (entry.as_ref().clone(), None)
+            };
         apply_entry_icon(&icon, &entry, LIST_ICON_EDGE);
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
         name.set_tooltip_text(Some(&display_name));
+        detail.set_visible(content_detail.is_some());
+        detail.set_label(content_detail.as_deref().unwrap_or_default());
+        detail.set_tooltip_text(content_detail.as_deref());
         let containing_folder = entry
             .path()
             .parent()
@@ -4126,9 +4156,11 @@ fn build_filename_search_factory(
             .unwrap_or_else(|| "/".to_owned());
         folder.set_label(&containing_folder);
         folder.set_tooltip_text(Some(&containing_folder));
-        row.update_property(&[gtk::accessible::Property::Label(&format!(
-            "{display_name}, in {containing_folder}"
-        ))]);
+        let accessible = content_detail.map_or_else(
+            || format!("{display_name}, in {containing_folder}"),
+            |detail| format!("{display_name}, {detail}, in {containing_folder}"),
+        );
+        row.update_property(&[gtk::accessible::Property::Label(&accessible)]);
     });
     factory
 }
@@ -5102,13 +5134,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn phase_13b_search_ui_uses_plain_language_modes() {
-        assert_eq!(SEARCH_SURFACE_MODES, ["Quick Filter", "Search Files"]);
+    fn phase_13d_content_search_ui_uses_plain_language_modes() {
+        assert_eq!(
+            SEARCH_SURFACE_MODES,
+            ["Quick Filter", "Search Files", "Search Contents"]
+        );
         assert_eq!(SEARCH_SURFACE_MODE_HELP.len(), SEARCH_SURFACE_MODES.len());
         assert!(SEARCH_SURFACE_MODE_HELP[0].contains("already shown"));
         assert!(SEARCH_SURFACE_MODE_HELP[0].contains("does not search subfolders"));
         assert!(SEARCH_SURFACE_MODE_HELP[1].contains("on disk"));
         assert!(SEARCH_SURFACE_MODE_HELP[1].contains("never reads file contents"));
+        assert!(SEARCH_SURFACE_MODE_HELP[2].contains("explicitly reads"));
+        assert!(SEARCH_SURFACE_MODE_HELP[2].contains("skips binary"));
+        assert!(SEARCH_SURFACE_MODE_HELP[2].contains("remote"));
     }
 
     /// Graphical GTK contract tests are deliberately a separate opt-in layer.
