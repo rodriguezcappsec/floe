@@ -1347,6 +1347,12 @@ all-target/all-feature Clippy, 467 application tests, 21 Phase 18X integration
 tests, 146 core tests, native build, and the real GTK Operations Island
 component gate pass.
 
+`docs/USER_GUIDE.md` is the living current-feature manual linked from the
+README. It explains navigation, views, selection, operations, search, preview,
+archives, devices, customization, integrity tooling, guardrails, shortcuts,
+troubleshooting, and truthful limitations without replacing the planned Phase
+21C release-documentation audit.
+
 The historical implementation evidence below remains valid unless a newer
 entry above explicitly supersedes its sequencing text.
 
