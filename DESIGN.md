@@ -527,6 +527,16 @@ Ordering compares metadata already held in each exact result; content matches
 for the same file retain line-number order. It does not read files, change
 files, or imply index relevance. Group headings remain deferred.
 
+#### Optional filename index
+
+Phase 13F adds one compact **Index** menu only in Search Files. Its visible
+capability copy says filenames and metadata only, hidden entries and contents
+excluded, and live search remains the complete fallback. **Use index** is an
+off-by-default persisted opt-in; **Build index** explicitly replaces the one
+private local-root cache; **Clear index** removes it. Building, validation, and
+cache I/O remain worker-owned. Indexed/live/stale status is textual and does not
+rely on color. Search Contents never presents or uses index controls.
+
 ### Tabs
 
 Phase 7B adds a compact horizontally scrollable native tab strip between the

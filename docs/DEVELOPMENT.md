@@ -681,6 +681,22 @@ responsive, and Quit exited 0. The standalone AT-SPI bus remained unavailable,
 so semantic automation beyond the real-widget component contract is not
 claimed.
 
+Phase 13F focused verification is:
+
+```bash
+cargo test -p floe-core phase_13f -- --nocapture
+cargo test -p floe-app phase_13f -- --nocapture
+```
+
+The final strict workspace gate passes 384 application tests (383 passed plus
+one intentional graphical ignore), 129 core tests, strict all-target/all-feature
+Clippy, native build, and diff hygiene. The opt-in real GTK component gate
+passes. An isolated Plasma Wayland launch exported `build-search-index` and
+`clear-search-index`, built a mode-`0600` private cache, cleared it, answered
+`org.freedesktop.DBus.Peer.Ping`, and exited status 0 through Quit. The host
+accessibility bus was unavailable in the standalone launch, so Floe does not
+claim semantic AT-SPI E2E beyond the real-widget component contract.
+
 Phase 13D rebuilt Floe with isolated HOME/XDG config, data, cache, and state
 roots in an active Plasma Wayland session. The live window exported the shared
 search actions, accepted open/clear search lifecycle activation, answered D-Bus

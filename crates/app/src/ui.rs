@@ -79,6 +79,7 @@ pub(crate) const SAVED_SEARCH_CONTROL_LABELS: [&str; 6] = [
     "Clear recent",
     "Search result order",
 ];
+pub(crate) const SEARCH_INDEX_CAPABILITY_HELP: &str = "Optional private filenames and metadata only. Hidden entries and file contents are never indexed; stale, unavailable, or ineligible indexes fall back to complete live search.";
 const FOLDER_FILTER_MODE_HELP: [&str; 3] = [
     "Contains these characters. Letter case is ignored unless Match case is enabled. Example: vacation finds My Vacation.jpg",
     "Uses wildcard patterns: * matches any characters and ? matches one character. Examples: *.pdf or photo-??.jpg",
@@ -974,6 +975,8 @@ pub struct BrowserWidgets {
     pub save_search_button: gtk::Button,
     pub delete_saved_search_button: gtk::Button,
     pub clear_recent_searches_button: gtk::Button,
+    pub search_index_toggle: gtk::CheckButton,
+    pub search_index_menu_button: gtk::MenuButton,
     pub search_feedback: gtk::Label,
     pub search_results_view: gtk::ListView,
     pub search_context_menu: gtk::PopoverMenu,
@@ -1060,6 +1063,8 @@ struct DirectoryPanelWidgets {
     save_search_button: gtk::Button,
     delete_saved_search_button: gtk::Button,
     clear_recent_searches_button: gtk::Button,
+    search_index_toggle: gtk::CheckButton,
+    search_index_menu_button: gtk::MenuButton,
     search_feedback: gtk::Label,
     search_results_view: gtk::ListView,
     search_context_menu: gtk::PopoverMenu,
@@ -1836,6 +1841,8 @@ pub fn build(
         save_search_button,
         delete_saved_search_button,
         clear_recent_searches_button,
+        search_index_toggle,
+        search_index_menu_button,
         search_feedback,
         search_results_view,
         search_context_menu,
@@ -2083,6 +2090,8 @@ pub fn build(
         save_search_button,
         delete_saved_search_button,
         clear_recent_searches_button,
+        search_index_toggle,
+        search_index_menu_button,
         search_feedback,
         search_results_view,
         search_context_menu,
@@ -3972,6 +3981,60 @@ fn build_directory_panel(
         .label(SAVED_SEARCH_CONTROL_LABELS[4])
         .action_name("win.clear-recent-searches")
         .build();
+    let search_index_toggle = gtk::CheckButton::with_label("Use index");
+    search_index_toggle.set_active(preferences.search_index_enabled);
+    search_index_toggle.set_tooltip_text(Some(
+        "Use a private filename/metadata index when current; live search remains the fallback",
+    ));
+    set_accessible_label(&search_index_toggle, "Use optional search index");
+    search_index_toggle.update_property(&[gtk::accessible::Property::Description(
+        SEARCH_INDEX_CAPABILITY_HELP,
+    )]);
+    let search_index_build_button = gtk::Button::builder()
+        .label("Build index")
+        .action_name("win.build-search-index")
+        .build();
+    search_index_build_button.set_tooltip_text(Some(
+        "Build a private index for this local folder and its visible subfolders",
+    ));
+    set_accessible_label(
+        &search_index_build_button,
+        "Build search index for this folder",
+    );
+    let search_index_clear_button = gtk::Button::builder()
+        .label("Clear index")
+        .action_name("win.clear-search-index")
+        .build();
+    search_index_clear_button.set_tooltip_text(Some("Remove Floe's current search index cache"));
+    set_accessible_label(&search_index_clear_button, "Clear search index cache");
+    let search_index_help = gtk::Label::builder()
+        .label(SEARCH_INDEX_CAPABILITY_HELP)
+        .xalign(0.0)
+        .wrap(true)
+        .max_width_chars(42)
+        .build();
+    search_index_help.add_css_class("caption");
+    search_index_help.add_css_class("dim-label");
+    let search_index_popover_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(8)
+        .margin_start(12)
+        .margin_end(12)
+        .margin_top(12)
+        .margin_bottom(12)
+        .build();
+    search_index_popover_box.append(&search_index_help);
+    search_index_popover_box.append(&search_index_toggle);
+    search_index_popover_box.append(&search_index_build_button);
+    search_index_popover_box.append(&search_index_clear_button);
+    let search_index_popover = gtk::Popover::new();
+    search_index_popover.set_child(Some(&search_index_popover_box));
+    let search_index_menu_button = gtk::MenuButton::builder()
+        .label("Index")
+        .popover(&search_index_popover)
+        .build();
+    search_index_menu_button.set_tooltip_text(Some(SEARCH_INDEX_CAPABILITY_HELP));
+    set_accessible_label(&search_index_menu_button, "Optional search index controls");
     clear_recent_searches_button
         .set_tooltip_text(Some("Clear searches remembered only for this Floe session"));
     let search_feedback = gtk::Label::builder()
@@ -3993,6 +4056,7 @@ fn build_directory_panel(
     search_options_row.append(&save_search_button);
     search_options_row.append(&delete_saved_search_button);
     search_options_row.append(&clear_recent_searches_button);
+    search_options_row.append(&search_index_menu_button);
     search_options_row.append(&search_feedback);
     filter_bar.append(&search_query_row);
     filter_bar.append(&search_options_row);
@@ -4075,6 +4139,8 @@ fn build_directory_panel(
         save_search_button,
         delete_saved_search_button,
         clear_recent_searches_button,
+        search_index_toggle,
+        search_index_menu_button,
         search_feedback,
         search_results_view,
         search_context_menu,
@@ -5252,6 +5318,14 @@ mod tests {
         );
         assert!(SEARCH_RESULT_ORDER_LABELS[1].contains("newest"));
         assert!(SEARCH_RESULT_ORDER_LABELS[2].contains("largest"));
+    }
+
+    #[test]
+    fn phase_13f_search_index_ui_describes_capability_and_fallback_truthfully() {
+        assert!(SEARCH_INDEX_CAPABILITY_HELP.contains("filenames and metadata only"));
+        assert!(SEARCH_INDEX_CAPABILITY_HELP.contains("Hidden entries"));
+        assert!(SEARCH_INDEX_CAPABILITY_HELP.contains("never indexed"));
+        assert!(SEARCH_INDEX_CAPABILITY_HELP.contains("complete live search"));
     }
 
     /// Graphical GTK contract tests are deliberately a separate opt-in layer.
