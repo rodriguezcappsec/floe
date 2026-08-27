@@ -17,8 +17,10 @@ use floe_core::{
     DirectoryError, DirectoryGrouping, DirectoryPlacement, DirectorySort, EntryKind,
     EntryTypeFilter, FilenameSearchRequest, FilenameSearchScope, FilenameSearchSummary,
     FolderFilterMode, HiddenFilter, MillerChildKind, MillerColumnModel, MillerSelectionTransition,
-    OwnerFilter, RestoreRequest, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN, SessionScrollAnchor, SortColumn,
-    SplitRatio, SplitSide, TabActivation, TabError, TrashEnumerateError, TrashRoot,
+    OwnerFilter, RecentSearches, RestoreRequest, SAVED_SEARCH_NAME_CAPACITY, SPLIT_RATIO_MAX,
+    SPLIT_RATIO_MIN, SavedSearch, SearchHistoryPolicy, SearchKind, SearchQuery, SearchResultOrder,
+    SessionScrollAnchor, SortColumn, SplitRatio, SplitSide, TabActivation, TabError,
+    TrashEnumerateError, TrashRoot,
 };
 
 fn tab_title(path: &Path) -> String {
@@ -522,6 +524,10 @@ pub struct BrowserController {
     content_search_root: RefCell<Option<PathBuf>>,
     pending_content_search: RefCell<Option<ContentSearchRequest>>,
     content_search_summary: RefCell<Option<ContentSearchSummary>>,
+    recent_searches: RefCell<RecentSearches>,
+    search_result_order: Cell<SearchResultOrder>,
+    pending_saved_search: RefCell<Option<SearchQuery>>,
+    selected_saved_search_id: Cell<Option<u64>>,
     pending_entries: RefCell<VecDeque<Arc<DirectoryEntry>>>,
     pending_store: RefCell<Option<gio::ListStore>>,
     pending_total: Cell<usize>,
@@ -715,6 +721,10 @@ impl BrowserController {
             content_search_root: RefCell::new(None),
             pending_content_search: RefCell::new(None),
             content_search_summary: RefCell::new(None),
+            recent_searches: RefCell::new(RecentSearches::default()),
+            search_result_order: Cell::new(SearchResultOrder::default()),
+            pending_saved_search: RefCell::new(None),
+            selected_saved_search_id: Cell::new(None),
             pending_entries: RefCell::new(VecDeque::new()),
             pending_store: RefCell::new(None),
             pending_total: Cell::new(0),
@@ -767,6 +777,7 @@ impl BrowserController {
     pub fn wire(self: &Rc<Self>, application: &adw::Application, locations: &[Location]) {
         self.install_actions(application);
         self.install_filter_signals();
+        self.install_saved_search_signals();
         self.install_filename_search_signals();
         let clipboard = self.widgets.window.clipboard();
         let controller = Rc::downgrade(self);
@@ -1799,6 +1810,297 @@ impl BrowserController {
         });
     }
 
+    fn install_saved_search_signals(self: &Rc<Self>) {
+        self.refresh_search_catalog_controls();
+        let controller = Rc::downgrade(self);
+        self.widgets
+            .saved_searches
+            .connect_selected_notify(move |dropdown| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                let selected = dropdown.selected();
+                if selected == 0 {
+                    return;
+                }
+                dropdown.set_selected(0);
+                let saved = controller
+                    .current_preferences
+                    .borrow()
+                    .saved_searches
+                    .entries()
+                    .get((selected - 1) as usize)
+                    .cloned();
+                if let Some(saved) = saved {
+                    controller.selected_saved_search_id.set(Some(saved.id()));
+                    controller.replay_search(saved.query_definition().clone());
+                }
+            });
+        let controller = Rc::downgrade(self);
+        self.widgets
+            .recent_searches
+            .connect_selected_notify(move |dropdown| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                let selected = dropdown.selected();
+                if selected == 0 {
+                    return;
+                }
+                dropdown.set_selected(0);
+                let query = controller
+                    .recent_searches
+                    .borrow()
+                    .entries()
+                    .get((selected - 1) as usize)
+                    .cloned();
+                if let Some(query) = query {
+                    controller.replay_search(query);
+                }
+            });
+        let controller = Rc::downgrade(self);
+        self.widgets
+            .search_result_order
+            .connect_selected_notify(move |dropdown| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                let order = SearchResultOrder::ALL
+                    .get(dropdown.selected() as usize)
+                    .copied()
+                    .unwrap_or_default();
+                controller.search_result_order.set(order);
+                controller.apply_search_result_order();
+            });
+    }
+
+    fn refresh_search_catalog_controls(&self) {
+        let saved_labels = std::iter::once("Saved searches".to_owned())
+            .chain(
+                self.current_preferences
+                    .borrow()
+                    .saved_searches
+                    .entries()
+                    .iter()
+                    .map(|saved| {
+                        format!(
+                            "{} — {}",
+                            saved.name(),
+                            saved.query_definition().root().to_string_lossy()
+                        )
+                    }),
+            )
+            .collect::<Vec<_>>();
+        let saved_refs = saved_labels.iter().map(String::as_str).collect::<Vec<_>>();
+        self.widgets
+            .saved_searches
+            .set_model(Some(&gtk::StringList::new(&saved_refs)));
+        self.widgets.saved_searches.set_selected(0);
+
+        let recent_labels = std::iter::once("Recent searches (this session)".to_owned())
+            .chain(self.recent_searches.borrow().entries().iter().map(|query| {
+                let kind = match query.kind() {
+                    SearchKind::Files => "Files",
+                    SearchKind::Contents => "Contents",
+                };
+                format!(
+                    "{kind}: {} — {}",
+                    query.query(),
+                    query.root().to_string_lossy()
+                )
+            }))
+            .collect::<Vec<_>>();
+        let recent_refs = recent_labels.iter().map(String::as_str).collect::<Vec<_>>();
+        self.widgets
+            .recent_searches
+            .set_model(Some(&gtk::StringList::new(&recent_refs)));
+        self.widgets.recent_searches.set_selected(0);
+    }
+
+    fn record_recent_search(&self, query: SearchQuery) {
+        self.recent_searches
+            .borrow_mut()
+            .record(query, SearchHistoryPolicy::Record);
+        self.refresh_search_catalog_controls();
+    }
+
+    fn current_disk_search_query(&self) -> Result<SearchQuery, String> {
+        let kind = match self.widgets.search_mode.selected() {
+            1 => SearchKind::Files,
+            2 => SearchKind::Contents,
+            _ => return Err("Choose Search Files or Search Contents before saving".to_owned()),
+        };
+        let scope = if self.widgets.search_scope.selected() == 0 {
+            FilenameSearchScope::CurrentFolder
+        } else {
+            FilenameSearchScope::Subtree
+        };
+        let mode = match self.widgets.filter_mode.selected() {
+            1 => FolderFilterMode::Glob,
+            2 => FolderFilterMode::Regex,
+            _ => FolderFilterMode::Text,
+        };
+        SearchQuery::new(
+            self.tabs.borrow().active().current().path().to_path_buf(),
+            kind,
+            self.widgets.filter_entry.text().to_string(),
+            scope,
+            self.show_hidden.get(),
+            mode,
+            self.advanced_filter_from_widgets(),
+        )
+        .map_err(|error| error.to_string())
+    }
+
+    fn show_save_search_dialog(self: &Rc<Self>) {
+        let query = match self.current_disk_search_query() {
+            Ok(query) => query,
+            Err(error) => {
+                self.show_toast(&error, 5);
+                return;
+            }
+        };
+        let name = gtk::Entry::builder()
+            .placeholder_text("Saved search name")
+            .max_length(SAVED_SEARCH_NAME_CAPACITY as i32)
+            .activates_default(true)
+            .build();
+        name.update_property(&[gtk::accessible::Property::Label("Saved search name")]);
+        let dialog = adw::AlertDialog::builder()
+            .heading("Save Search")
+            .body("Only searches you explicitly save are written to Floe's private preferences. Recent searches remain session-only.")
+            .extra_child(&name)
+            .build();
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("save", "Save");
+        dialog.set_default_response(Some("save"));
+        dialog.set_close_response("cancel");
+        dialog.set_response_appearance("save", adw::ResponseAppearance::Suggested);
+        let controller = Rc::downgrade(self);
+        dialog.connect_response(None, move |_, response| {
+            if response != "save" {
+                return;
+            }
+            if let Some(controller) = controller.upgrade() {
+                controller.save_named_search(name.text().to_string(), query.clone());
+            }
+        });
+        dialog.present(Some(&self.widgets.window));
+    }
+
+    fn save_named_search(&self, name: String, query: SearchQuery) {
+        let mut preferences = self.current_preferences.borrow().clone();
+        let id = match preferences.saved_searches.next_id() {
+            Ok(id) => id,
+            Err(error) => {
+                self.show_toast(&error.to_string(), 6);
+                return;
+            }
+        };
+        let saved = match SavedSearch::new(id, name, query) {
+            Ok(saved) => saved,
+            Err(error) => {
+                self.show_toast(&error.to_string(), 6);
+                return;
+            }
+        };
+        let saved_name = saved.name().to_owned();
+        if let Err(error) = preferences.saved_searches.add(saved) {
+            self.show_toast(&error.to_string(), 6);
+            return;
+        }
+        *self.current_preferences.borrow_mut() = preferences;
+        self.queue_preferences();
+        self.refresh_search_catalog_controls();
+        self.show_toast(&format!("Saved search “{saved_name}”"), 4);
+    }
+
+    fn delete_selected_saved_search(&self) {
+        let Some(id) = self.selected_saved_search_id.take() else {
+            self.show_toast("Choose a saved search before deleting it", 5);
+            return;
+        };
+        let mut preferences = self.current_preferences.borrow().clone();
+        if !preferences.saved_searches.remove(id) {
+            self.show_toast("That saved search no longer exists", 5);
+            return;
+        }
+        *self.current_preferences.borrow_mut() = preferences;
+        self.queue_preferences();
+        self.refresh_search_catalog_controls();
+        self.show_toast("Saved search deleted", 4);
+    }
+
+    fn clear_recent_searches(&self) {
+        self.recent_searches.borrow_mut().clear();
+        self.refresh_search_catalog_controls();
+        self.show_toast("Recent searches cleared", 4);
+    }
+
+    fn replay_search(&self, query: SearchQuery) {
+        self.widgets.filter_entry.set_text(query.query());
+        self.widgets.search_scope.set_selected(match query.scope() {
+            FilenameSearchScope::CurrentFolder => 0,
+            FilenameSearchScope::Subtree => 1,
+        });
+        self.widgets.filter_mode.set_selected(match query.mode() {
+            FolderFilterMode::Text => 0,
+            FolderFilterMode::Glob => 1,
+            FolderFilterMode::Regex => 2,
+        });
+        self.pending_saved_search.replace(Some(query.clone()));
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
+        if current != query.root() {
+            self.navigate_to(query.root().to_path_buf());
+        } else {
+            self.launch_pending_saved_search();
+        }
+    }
+
+    fn launch_pending_saved_search(&self) {
+        let kind = self
+            .pending_saved_search
+            .borrow()
+            .as_ref()
+            .map(SearchQuery::kind);
+        match kind {
+            Some(SearchKind::Files) => self.start_filename_search(),
+            Some(SearchKind::Contents) => self.start_content_search(),
+            None => {}
+        }
+    }
+
+    fn apply_search_result_order(&self) {
+        let order = self.search_result_order.get();
+        if self.filename_search_active.get() {
+            self.filename_search_results
+                .borrow_mut()
+                .sort_by(|left, right| order.compare(left, right));
+            let store = gio::ListStore::new::<glib::BoxedAnyObject>();
+            for entry in self.filename_search_results.borrow().iter() {
+                store.append(&glib::BoxedAnyObject::new(entry.clone()));
+            }
+            self.widgets.selection.set_model(Some(&store));
+            self.filename_search_store.replace(Some(store));
+        } else if self.content_search_active.get() {
+            self.content_search_results
+                .borrow_mut()
+                .sort_by(|left, right| {
+                    order
+                        .compare(left.entry(), right.entry())
+                        .then_with(|| left.line_number().cmp(&right.line_number()))
+                });
+            let store = gio::ListStore::new::<glib::BoxedAnyObject>();
+            for entry in self.content_search_results.borrow().iter() {
+                store.append(&glib::BoxedAnyObject::new(entry.clone()));
+            }
+            self.widgets.selection.set_model(Some(&store));
+            self.content_search_store.replace(Some(store));
+        }
+        self.widgets.selection.unselect_all();
+        self.apply_action_selection(Vec::new());
+    }
+
     fn show_folder_filter(&self) {
         if self.filename_search_active.get() {
             self.deactivate_filename_search(true);
@@ -2096,6 +2398,16 @@ impl BrowserController {
         self.widgets.search_button.set_visible(disk_search);
         self.widgets.search_stop_button.set_visible(disk_search);
         self.widgets.search_feedback.set_visible(disk_search);
+        self.widgets.saved_searches.set_visible(disk_search);
+        self.widgets.recent_searches.set_visible(disk_search);
+        self.widgets.search_result_order.set_visible(disk_search);
+        self.widgets.save_search_button.set_visible(disk_search);
+        self.widgets
+            .delete_saved_search_button
+            .set_visible(disk_search);
+        self.widgets
+            .clear_recent_searches_button
+            .set_visible(disk_search);
         if !disk_search {
             self.widgets.filter_entry.set_sensitive(true);
             self.widgets.search_scope.set_sensitive(true);
@@ -2279,14 +2591,34 @@ impl BrowserController {
             2 => FolderFilterMode::Regex,
             _ => FolderFilterMode::Text,
         };
-        let request = match ContentSearchRequest::new(
-            root.clone(),
-            query,
-            scope,
-            self.show_hidden.get(),
-            mode,
-            self.advanced_filter_from_widgets(),
-        ) {
+        let definition = self
+            .pending_saved_search
+            .borrow_mut()
+            .take()
+            .filter(|saved| saved.kind() == SearchKind::Contents && saved.root() == root)
+            .map_or_else(
+                || {
+                    SearchQuery::new(
+                        root.clone(),
+                        SearchKind::Contents,
+                        query,
+                        scope,
+                        self.show_hidden.get(),
+                        mode,
+                        self.advanced_filter_from_widgets(),
+                    )
+                },
+                Ok,
+            );
+        let definition = match definition {
+            Ok(definition) => definition,
+            Err(error) => {
+                self.set_content_search_running(false);
+                self.set_search_feedback(&error.to_string(), true);
+                return;
+            }
+        };
+        let request = match definition.content_request() {
             Ok(request) => request,
             Err(error) => {
                 self.set_content_search_running(false);
@@ -2294,6 +2626,7 @@ impl BrowserController {
                 return;
             }
         };
+        self.record_recent_search(definition);
         let generation = self.content_search_generation.get().wrapping_add(1).max(1);
         self.content_search_generation.set(generation);
         self.content_search_root.replace(Some(root));
@@ -2372,6 +2705,7 @@ impl BrowserController {
                         &content_search_feedback(summary, false, false),
                         false,
                     );
+                    self.apply_search_result_order();
                     self.refresh_status();
                 }
                 crate::content_search::ContentSearchEventKind::Failed(error) => {
@@ -2454,15 +2788,34 @@ impl BrowserController {
             2 => FolderFilterMode::Regex,
             _ => FolderFilterMode::Text,
         };
-        let advanced = self.advanced_filter_from_widgets();
-        let request = match FilenameSearchRequest::new_with_filter(
-            root.clone(),
-            query,
-            scope,
-            self.show_hidden.get(),
-            mode,
-            advanced,
-        ) {
+        let definition = self
+            .pending_saved_search
+            .borrow_mut()
+            .take()
+            .filter(|saved| saved.kind() == SearchKind::Files && saved.root() == root)
+            .map_or_else(
+                || {
+                    SearchQuery::new(
+                        root.clone(),
+                        SearchKind::Files,
+                        query,
+                        scope,
+                        self.show_hidden.get(),
+                        mode,
+                        self.advanced_filter_from_widgets(),
+                    )
+                },
+                Ok,
+            );
+        let definition = match definition {
+            Ok(definition) => definition,
+            Err(error) => {
+                self.set_filename_search_running(false);
+                self.set_search_feedback(&error.to_string(), true);
+                return;
+            }
+        };
+        let request = match definition.filename_request() {
             Ok(request) => request,
             Err(error) => {
                 self.set_filename_search_running(false);
@@ -2470,6 +2823,7 @@ impl BrowserController {
                 return;
             }
         };
+        self.record_recent_search(definition);
         let generation = self.filename_search_generation.get().wrapping_add(1).max(1);
         self.filename_search_generation.set(generation);
         self.filename_search_root.replace(Some(root));
@@ -2552,6 +2906,7 @@ impl BrowserController {
                         &filename_search_feedback(summary, false, false),
                         false,
                     );
+                    self.apply_search_result_order();
                     self.refresh_status();
                 }
                 crate::filename_search::FilenameSearchEventKind::Failed(error) => {
@@ -2733,6 +3088,15 @@ impl BrowserController {
         });
         self.add_action("clear-filename-search", |controller| {
             controller.clear_filename_search();
+        });
+        self.add_action("save-search", |controller| {
+            controller.show_save_search_dialog();
+        });
+        self.add_action("delete-saved-search", |controller| {
+            controller.delete_selected_saved_search();
+        });
+        self.add_action("clear-recent-searches", |controller| {
+            controller.clear_recent_searches();
         });
         let reveal = self.add_action("reveal-in-folder", |controller| {
             controller.reveal_search_result();
@@ -4821,7 +5185,7 @@ impl BrowserController {
         match result {
             Some(Ok(())) | None => {}
             Some(Err(PreferenceSubmitError::Full(preferences))) => {
-                self.pending_preferences.set(Some(preferences));
+                self.pending_preferences.set(Some(*preferences));
             }
             Some(Err(PreferenceSubmitError::Disconnected)) => {
                 tracing::warn!("view preference worker disconnected; persistence disabled");
@@ -5586,7 +5950,9 @@ impl BrowserController {
         self.apply_folder_filter(selected_paths, true);
         self.request_current_storage_facts();
         self.start_current_watcher();
-        if self.filename_search_active.get() {
+        if self.pending_saved_search.borrow().is_some() {
+            self.launch_pending_saved_search();
+        } else if self.filename_search_active.get() {
             self.start_filename_search();
         } else if self.content_search_active.get() {
             self.start_content_search();

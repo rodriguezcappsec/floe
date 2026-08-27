@@ -15,7 +15,10 @@ use std::{
     },
 };
 
-use floe_core::{DirectoryGrouping, DirectoryPlacement, DirectorySort, SortColumn, SortDirection};
+use floe_core::{
+    DirectoryGrouping, DirectoryPlacement, DirectorySort, SavedSearch, SavedSearchCatalog,
+    SortColumn, SortDirection,
+};
 use thiserror::Error;
 
 use crate::view::{
@@ -89,6 +92,7 @@ pub struct ViewPreferences {
     pub preferred_terminal: Option<TerminalProviderId>,
     pub context_menu: ContextMenuPreferences,
     pub appearance: AppearancePreset,
+    pub saved_searches: SavedSearchCatalog,
     folder_views: Vec<FolderViewOverride>,
 }
 
@@ -111,6 +115,7 @@ impl Default for ViewPreferences {
             preferred_terminal: None,
             context_menu: ContextMenuPreferences::default(),
             appearance: AppearancePreset::Frosted,
+            saved_searches: SavedSearchCatalog::default(),
             folder_views: Vec::new(),
         }
     }
@@ -257,6 +262,11 @@ impl ViewPreferences {
                         preferences.appearance = appearance;
                     }
                 }
+                "saved-search" => {
+                    if let Some(saved) = SavedSearch::parse_record(value) {
+                        let _ = preferences.saved_searches.add(saved);
+                    }
+                }
                 "folder" => {
                     if let Some(folder) = parse_folder_override(value) {
                         preferences
@@ -276,7 +286,7 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=9\nappearance={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\n",
+            "version=10\nappearance={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\n",
             self.appearance.persisted(),
             self.mode.persisted(),
             self.grid_size.edge(),
@@ -305,6 +315,11 @@ impl ViewPreferences {
         for record in self.keybindings.serialize_records() {
             serialized.push_str("keybinding=");
             serialized.push_str(&record);
+            serialized.push('\n');
+        }
+        for saved in self.saved_searches.entries() {
+            serialized.push_str("saved-search=");
+            serialized.push_str(&saved.serialize_record());
             serialized.push('\n');
         }
         for folder in &self.folder_views {
@@ -420,7 +435,7 @@ fn hex_nibble(byte: u8) -> Option<u8> {
 #[derive(Debug, Error)]
 pub enum PreferenceSubmitError {
     #[error("preference worker queue is full")]
-    Full(ViewPreferences),
+    Full(Box<ViewPreferences>),
     #[error("preference worker is disconnected")]
     Disconnected,
 }
@@ -476,7 +491,9 @@ impl PreferenceWorker {
         };
         match sender.try_send(preferences) {
             Ok(()) => Ok(()),
-            Err(TrySendError::Full(preferences)) => Err(PreferenceSubmitError::Full(preferences)),
+            Err(TrySendError::Full(preferences)) => {
+                Err(PreferenceSubmitError::Full(Box::new(preferences)))
+            }
             Err(TrySendError::Disconnected(_)) => Err(PreferenceSubmitError::Disconnected),
         }
     }
@@ -543,7 +560,10 @@ mod tests {
     use std::fs;
 
     #[cfg(unix)]
-    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    use std::{
+        ffi::OsString,
+        os::unix::{ffi::OsStringExt, fs::PermissionsExt},
+    };
 
     use tempfile::tempdir;
 
@@ -620,7 +640,7 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=9\n"));
+        assert!(serialized.starts_with("version=10\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
     }
@@ -639,7 +659,7 @@ mod tests {
         );
         assert_eq!(customized.context_menu.persisted(), "archives,checksums");
         let serialized = customized.serialize();
-        assert!(serialized.starts_with("version=9\n"));
+        assert!(serialized.starts_with("version=10\n"));
         assert!(serialized.contains("context-menu-groups=archives,checksums\n"));
         assert_eq!(ViewPreferences::parse(&serialized), customized);
 
@@ -662,7 +682,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=9\n"));
+        assert!(serialized.starts_with("version=10\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,
@@ -675,7 +695,7 @@ mod tests {
         let legacy = ViewPreferences::parse("version=8\nview=grid\n");
         assert_eq!(legacy.appearance, AppearancePreset::Frosted);
         assert_eq!(
-            ViewPreferences::parse("version=9\nappearance=unknown\n").appearance,
+            ViewPreferences::parse("version=10\nappearance=unknown\n").appearance,
             AppearancePreset::Frosted
         );
 
@@ -685,10 +705,72 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=9\n"));
+            assert!(serialized.starts_with("version=10\n"));
             assert!(serialized.contains(&format!("appearance={}\n", preset.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).appearance, preset);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn phase_13e_saved_search_preferences_are_versioned_exact_and_corruption_tolerant() {
+        use floe_core::{
+            AdvancedFilter, FilenameSearchScope, FolderFilterMode, SavedSearch, SearchKind,
+            SearchQuery,
+        };
+
+        let raw = PathBuf::from("/tmp").join(OsString::from_vec(vec![b's', 0x80]));
+        let query = SearchQuery::new(
+            raw.clone(),
+            SearchKind::Contents,
+            "Needle".to_owned(),
+            FilenameSearchScope::Subtree,
+            true,
+            FolderFilterMode::Regex,
+            AdvancedFilter {
+                minimum_size: Some(10),
+                match_case: true,
+                ..AdvancedFilter::default()
+            },
+        )
+        .expect("saved query");
+        let saved = SavedSearch::new(1, "Raw root".to_owned(), query).expect("saved search");
+        let mut preferences = ViewPreferences::default();
+        preferences.saved_searches.add(saved).expect("catalog add");
+        let serialized = preferences.serialize();
+        assert!(serialized.starts_with("version=10\n"));
+        assert!(serialized.contains("saved-search="));
+        let restored = ViewPreferences::parse(&serialized);
+        assert_eq!(restored.saved_searches, preferences.saved_searches);
+        assert_eq!(
+            restored.saved_searches.entries()[0]
+                .query_definition()
+                .root(),
+            raw
+        );
+        let corrupt = ViewPreferences::parse(&format!(
+            "version=10\nsaved-search=bad\n{}",
+            serialized
+                .lines()
+                .find(|line| line.starts_with("saved-search="))
+                .expect("saved record")
+        ));
+        assert_eq!(corrupt.saved_searches.entries().len(), 1);
+        let directory = tempdir().expect("saved-search preference directory");
+        let path = directory.path().join("floe").join(PREFERENCE_FILE_NAME);
+        persist_preferences(&path, &preferences).expect("persist saved searches");
+        assert_eq!(
+            fs::metadata(&path)
+                .expect("saved-search preference metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            load_preferences(&path).saved_searches,
+            preferences.saved_searches
+        );
     }
 
     #[cfg(unix)]

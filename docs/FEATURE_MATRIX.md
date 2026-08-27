@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 13D. Phase 13E is the only
+The implementation baseline for this matrix is Phase 13E. Phase 13F is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -328,9 +328,9 @@ advanced predicates and explicit Match Case control.
 | Size/date/owner/hidden filters | `COMPLETE` | 13C | Size/date use enumerated no-follow facts, owner UID is resolved lazily with no-follow metadata, and temporary Include Hidden/Hidden Only never mutates global Show Hidden. |
 | Tag filters | `DEFERRED` | 19 | No tag model exists. |
 | Glob/regex/case sensitivity | `COMPLETE` | 13C | Text, Glob, and Regex plus explicit Match Case share one query model across Quick Filter and Search Files, including deterministic raw-name fallback. |
-| Search history | `PLANNED` | 13E | Must obey Sensitive Folder and Private Mode history suppression. |
-| Saved searches | `PLANNED` | 13E | Versioned query representation with clear scope. |
-| Search sorting/grouping | `PLANNED` | 13E | Reuse view policy rather than create separate filesystem actions. |
+| Search history | `COMPLETE` | 13E | At most 32 exact query definitions are deduplicated in memory for this process only; visible Clear Recent and a suppression policy boundary exist. Nothing implicit is persisted, and no Sensitive Folder or Private Mode claim is made before Phase 18. |
+| Saved searches | `COMPLETE` | 13E | At most 64 explicitly named searches persist in version-10 private preferences with raw root bytes, kind/scope/mode and every advanced predicate; corrupt, duplicate, invalid, or over-capacity records are skipped independently. |
+| Search sorting/grouping | `PARTIAL` | 13E | Dedicated result lists support deterministic Name, Modified-newest, or Size-largest ordering with exact-path and content-line tie-breakers. Group headings remain deferred rather than inventing a second grouping model. |
 | Reveal/search-result context actions | `COMPLETE` | 13B | Dedicated filename/containing-folder rows reuse normal exact-path actions; Reveal navigates to the exact parent and selects the exact result. |
 | Optional indexed backend | `DEFERRED` | 13F | Must have non-indexed fallback and exclude private/sensitive content safely. |
 | Locked-vault search leakage prevention | `PLANNED` | 18J | Locked names/content must not enter global or Floe indexes. |
