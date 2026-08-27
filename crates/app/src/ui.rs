@@ -46,6 +46,8 @@ const RESET_SIDEBAR_WIDTH_MENU_ITEM: (&str, &str) =
 const OPERATION_HISTORY_MENU_ITEM: (&str, &str) = ("Operation History", "win.operation-history");
 const KEYBOARD_SHORTCUTS_MENU_ITEM: (&str, &str) =
     ("Keyboard Shortcuts…", "win.keyboard-shortcuts");
+const DESKTOP_INTEGRATION_MENU_ITEM: (&str, &str) =
+    ("Desktop Integration…", "win.desktop-integration-status");
 pub const VIM_MODE_ON_LABEL: &str = "Vim On";
 const FOLDER_FILTER_MODES: [&str; 3] = ["Text", "Glob", "Regex"];
 const ADVANCED_TYPE_FILTERS: [&str; 5] =
@@ -1698,6 +1700,10 @@ pub fn build(
     file_actions_model.append(
         Some(KEYBOARD_SHORTCUTS_MENU_ITEM.0),
         Some(KEYBOARD_SHORTCUTS_MENU_ITEM.1),
+    );
+    file_actions_model.append(
+        Some(DESKTOP_INTEGRATION_MENU_ITEM.0),
+        Some(DESKTOP_INTEGRATION_MENU_ITEM.1),
     );
     let file_actions = gtk::MenuButton::builder()
         .icon_name("view-more-symbolic")

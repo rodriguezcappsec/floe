@@ -23,6 +23,21 @@ Function, legibility, and responsiveness take priority over visual effects.
 
 ## Currently implemented
 
+### Desktop integration status
+
+The header menu and command palette expose **Desktop Integration…**. Its native
+dialog lists nine standards-backed capabilities in deterministic order and uses
+the visible words Available, Limited, and Unavailable plus a plain-language
+reason; color is never the only state. **Refresh Status** repeats the bounded
+application-worker probe without blocking GTK. The summary explicitly states
+that normal local browsing remains independent from optional desktop services.
+
+The surface distinguishes detected service presence from implemented behavior.
+For example, portal presence does not claim Share is implemented, Secret
+Service presence does not claim Floe read a credential, and session-bus presence
+does not claim reliable lock signals. Niri and Plasma enhancements remain later
+backends behind this generic boundary.
+
 ### Window and navigation header
 
 The application uses an `AdwApplicationWindow` with an `AdwHeaderBar`. The

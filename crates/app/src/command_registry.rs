@@ -133,6 +133,22 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [H, W]
     ),
     command!(
+        "desktop-integration-status",
+        "Desktop Integration…",
+        "Show availability and limitations of standard Linux desktop services",
+        Operations,
+        [
+            "wayland",
+            "portal",
+            "notification",
+            "mount",
+            "xdg",
+            "service"
+        ],
+        [],
+        [H]
+    ),
+    command!(
         "context-menu-settings",
         "Customize Context Menus…",
         "Choose optional command groups shown in file and folder context menus",
