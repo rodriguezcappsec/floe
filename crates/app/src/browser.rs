@@ -13,14 +13,17 @@ use adw::prelude::*;
 use floe_core::SymbolicLinkMode;
 use floe_core::{
     AdvancedFilter, BrowserSession, BrowserSessionId, BrowserTabs, ChecksumAlgorithm,
-    ContentSearchMatch, ContentSearchRequest, ContentSearchSummary, CreateRequest, DirectoryEntry,
-    DirectoryError, DirectoryGrouping, DirectoryPlacement, DirectorySort, EntryKind,
-    EntryTypeFilter, FilenameSearchRequest, FilenameSearchScope, FilenameSearchSummary,
-    FolderFilterMode, HiddenFilter, MillerChildKind, MillerColumnModel, MillerSelectionTransition,
-    OwnerFilter, RecentSearches, RestoreRequest, SAVED_SEARCH_NAME_CAPACITY, SPLIT_RATIO_MAX,
-    SPLIT_RATIO_MIN, SavedSearch, SearchHistoryPolicy, SearchKind, SearchQuery, SearchResultOrder,
+    ConflictPolicy, ContentSearchMatch, ContentSearchRequest, ContentSearchSummary, CreateRequest,
+    DestructiveScope, DirectoryEntry, DirectoryError, DirectoryGrouping, DirectoryPlacement,
+    DirectorySort, EntryKind, EntryTypeFilter, FilenameSearchRequest, FilenameSearchScope,
+    FilenameSearchSummary, FolderFilterMode, HiddenFilter, IntegrityBaseline,
+    IntegrityMonitorSession, IntegrityMonitorStaleReason, IntegrityRescanDecision,
+    IntegrityWatchEvent, IntegrityWatchSetPolicy, MillerChildKind, MillerColumnModel,
+    MillerSelectionTransition, MoveRequest, OwnerFilter, PermanentDeleteRequest, RecentSearches,
+    RenameRequest, RestoreRequest, SAVED_SEARCH_NAME_CAPACITY, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN,
+    SavedSearch, SearchHistoryPolicy, SearchKind, SearchQuery, SearchResultOrder,
     SessionScrollAnchor, SortColumn, SplitRatio, SplitSide, TabActivation, TabError,
-    TrashEnumerateError, TrashRoot,
+    TrashEnumerateError, TrashRoot, VerifiedCopyRequest,
 };
 
 fn tab_title(path: &Path) -> String {
@@ -49,6 +52,20 @@ fn session_restore_snapshot(session: &BrowserSession) -> ViewStateSnapshot {
 
 fn folder_tab_eligible(entries: &[Arc<DirectoryEntry>], trash_active: bool) -> bool {
     !trash_active && entries.len() == 1 && entries[0].is_navigable_directory()
+}
+
+fn device_start_failure_detail(error: &DeviceActionStartError) -> String {
+    match error {
+        DeviceActionStartError::UnknownDevice => {
+            "The removable device disconnected before removal could start.".to_owned()
+        }
+        DeviceActionStartError::Busy { .. } => {
+            "The copy was verified and flushed, but the removable device is busy.".to_owned()
+        }
+        DeviceActionStartError::Unavailable { .. } => format!(
+            "The copy was verified and flushed, but the selected removal action is no longer available: {error}"
+        ),
+    }
 }
 
 const SPLIT_SNAPSHOT_CAPACITY: usize = 512;
@@ -287,13 +304,25 @@ use crate::{
     },
     drag_drop::{
         DropAction, DropDestination, DropEvent, DropHoverTarget, DropRequest, install_drag_source,
-        install_drop_target, install_drop_target_with_hover,
+        install_drop_target, install_drop_target_with_hover, plan_directory_drop,
     },
     file_watcher::{
         FileWatcher, RenamePair, ViewStateSnapshot, WatchBatch, batch_is_current,
         reconcile_view_state, scroll_anchor_index, watch_failure_message,
     },
+    guardrail_controller::{GuardrailAuthorizationItem, GuardrailStoreHealth},
+    guardrail_preflight::PreflightEnvironment,
+    guardrail_ui::review_and_authorize,
+    iconography::EntryIconStyle,
     inspector::{InspectorRequest, InspectorSubmitError, InspectorWorker},
+    integrity_executor::IntegrityRequest,
+    integrity_monitor::{
+        IntegrityMonitorOutcome, IntegrityMonitorRequest, IntegrityMonitorRootKind,
+        IntegrityMonitorWorker,
+    },
+    integrity_monitor_store::IntegrityBaselineStoragePolicy,
+    integrity_ui::private_fingerprint_store_path,
+    integrity_watch::IntegrityWatchSet,
     launcher,
     location_input::{
         PendingLocation, location_failure_message, location_text, resolve_location_input,
@@ -319,18 +348,30 @@ use crate::{
         present as present_properties,
     },
     session_store::SessionStoreWorker,
-    state::{ApplicationState, TransferIntent, validate_rename_name},
+    state::{
+        ApplicationState, GuardrailAuthorized, GuardrailAuthorizedBatchRename, TrackedOperation,
+        TransferIntent, destructive_scope_for_move, destructive_scope_for_permanent_delete,
+        destructive_scope_for_rename, destructive_scope_for_restore, destructive_scope_for_trash,
+        destructive_scopes_for_batch_rename, transfer_destination, validate_rename_name,
+    },
     storage::{
         StorageFacts, StorageRequest, StorageSubmitError, StorageTarget, StorageWorker,
         format_bytes, format_storage_facts,
     },
     thumbnail::{ThumbnailSubmitError, ThumbnailWorker},
+    trash_executor::TrashRequest,
     ui::{self, BrowserWidgets},
     view::{
         FileViewDensity, FolderViewState, GridSize, ListColumn, MillerColumnWidth, VIEW_ACTIONS,
         ViewCommand, ViewMode,
     },
     worker::{BrowserWorker, ResponseKind},
+};
+
+use crate::{
+    devices::{DeviceActionStartError, resolve_removal_target, revalidate_removal_target},
+    verified_copy_executor::{VerifiedCopyError, VerifiedCopyResult, present_verified_copy},
+    verified_usb::{DeviceFlushResult, DeviceFlushWorker, VerifiedUsbWorkflow},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -493,6 +534,9 @@ pub struct BrowserController {
     current_storage_facts: Cell<Option<StorageFacts>>,
     device_storage_facts: RefCell<HashMap<String, StorageFacts>>,
     device_snapshots: RefCell<Vec<DeviceSnapshot>>,
+    verified_usb_workflow: RefCell<Option<VerifiedUsbLive>>,
+    verified_usb_flush_worker: RefCell<Option<DeviceFlushWorker>>,
+    verified_usb_flush_source: RefCell<Option<glib::SourceId>>,
     thumbnail_generation: Cell<u64>,
     active_generation: Cell<u64>,
     show_hidden: Cell<bool>,
@@ -576,6 +620,12 @@ pub struct BrowserController {
     file_watcher: FileWatcher,
     watch_generation: Cell<u64>,
     pending_reconciliation: RefCell<Option<PendingReconciliation>>,
+    integrity_monitor_worker: RefCell<Option<IntegrityMonitorWorker>>,
+    integrity_baseline: RefCell<Option<IntegrityBaseline>>,
+    integrity_session: RefCell<IntegrityMonitorSession>,
+    integrity_watch_set: RefCell<Option<IntegrityWatchSet>>,
+    integrity_request_generation: Cell<Option<u64>>,
+    integrity_rescan_source: RefCell<Option<glib::SourceId>>,
     pending_scroll_index: Cell<Option<u32>>,
     terminal_worker: RefCell<Option<crate::terminal::TerminalWorker>>,
     terminal_availability: RefCell<Vec<crate::terminal::TerminalAvailability>>,
@@ -583,6 +633,12 @@ pub struct BrowserController {
     template_worker: RefCell<Option<crate::templates::TemplateWorker>>,
     template_request_id: Cell<u64>,
     pending_create_rename: RefCell<Option<PathBuf>>,
+}
+
+#[derive(Debug)]
+struct VerifiedUsbLive {
+    workflow: VerifiedUsbWorkflow,
+    request: VerifiedCopyRequest,
 }
 
 impl Drop for BrowserController {
@@ -596,7 +652,15 @@ impl Drop for BrowserController {
         if let Some(source) = self.drop_hover_source.get_mut().take() {
             source.remove();
         }
+        if let Some(source) = self.verified_usb_flush_source.get_mut().take() {
+            source.remove();
+        }
         self.file_watcher.stop();
+        if let Some(source) = self.integrity_rescan_source.get_mut().take() {
+            source.remove();
+        }
+        self.integrity_watch_set.get_mut().take();
+        self.integrity_session.get_mut().disable();
         self.persist_session_for_shutdown();
         let Some(worker) = self.preference_worker.get_mut().as_ref() else {
             return;
@@ -691,6 +755,13 @@ impl BrowserController {
                 None
             }
         };
+        let verified_usb_flush_worker = match DeviceFlushWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start verified removable-device flush worker");
+                None
+            }
+        };
         widgets.miller_view.set_vim_mode(view_preferences.vim_mode);
         Rc::new(Self {
             widgets,
@@ -715,6 +786,9 @@ impl BrowserController {
             current_storage_facts: Cell::new(None),
             device_storage_facts: RefCell::new(HashMap::new()),
             device_snapshots: RefCell::new(Vec::new()),
+            verified_usb_workflow: RefCell::new(None),
+            verified_usb_flush_worker: RefCell::new(verified_usb_flush_worker),
+            verified_usb_flush_source: RefCell::new(None),
             thumbnail_generation: Cell::new(0),
             active_generation: Cell::new(0),
             show_hidden: Cell::new(false),
@@ -798,6 +872,12 @@ impl BrowserController {
             file_watcher: FileWatcher::default(),
             watch_generation: Cell::new(0),
             pending_reconciliation: RefCell::new(None),
+            integrity_monitor_worker: RefCell::new(None),
+            integrity_baseline: RefCell::new(None),
+            integrity_session: RefCell::new(IntegrityMonitorSession::default()),
+            integrity_watch_set: RefCell::new(None),
+            integrity_request_generation: Cell::new(None),
+            integrity_rescan_source: RefCell::new(None),
             pending_scroll_index: Cell::new(None),
             terminal_worker: RefCell::new(terminal_worker),
             terminal_availability: RefCell::new(Vec::new()),
@@ -809,6 +889,13 @@ impl BrowserController {
     }
 
     pub fn wire(self: &Rc<Self>, application: &adw::Application, locations: &[Location]) {
+        let controller = Rc::downgrade(self);
+        self.application_state
+            .observe_verified_usb_completions(move |job_id, result| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.finish_verified_usb_copy(job_id, result);
+                }
+            });
         self.install_actions(application);
         self.install_filter_signals();
         self.install_saved_search_signals();
@@ -1047,18 +1134,101 @@ impl BrowserController {
     fn submit_drop(&self, request: DropRequest) {
         let action = request.action().label();
         let count = request.sources().len();
-        match self.application_state.submit_drop(request) {
-            Ok(batch) => {
-                self.show_toast(
-                    &format!("{action}: queued {} of {count} items", batch.queued()),
-                    4,
-                );
+        if matches!(request.action(), DropAction::Copy | DropAction::Link) {
+            match self.application_state.submit_drop(request) {
+                Ok(batch) => {
+                    self.show_toast(
+                        &format!("{action}: queued {} of {count} items", batch.queued()),
+                        4,
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "drop request was rejected");
+                    self.show_toast(&format!("Could not complete drop: {error}"), 7);
+                }
             }
-            Err(error) => {
-                tracing::warn!(%error, "drop request was rejected");
-                self.show_toast(&format!("Could not complete drop: {error}"), 7);
-            }
+            return;
         }
+        let operations = if matches!(request.destination(), DropDestination::Trash) {
+            request
+                .sources()
+                .iter()
+                .cloned()
+                .map(TrashRequest::new)
+                .map(|request| request.map(TrackedOperation::Trash))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| error.to_string())
+        } else {
+            plan_directory_drop(&request)
+                .map(|items| {
+                    items
+                        .into_iter()
+                        .map(|item| {
+                            TrackedOperation::Move(MoveRequest::new(
+                                item.source,
+                                item.destination,
+                                ConflictPolicy::FailIfExists,
+                            ))
+                        })
+                        .collect()
+                })
+                .map_err(|error| error.to_string())
+        };
+        let operations = match operations {
+            Ok(operations) => operations,
+            Err(error) => {
+                self.show_toast(&format!("Could not complete drop: {error}"), 7);
+                return;
+            }
+        };
+        let scopes = match operations
+            .iter()
+            .map(|operation| match operation {
+                TrackedOperation::Move(request) => destructive_scope_for_move(request),
+                TrackedOperation::Trash(request) => destructive_scope_for_trash(request),
+                _ => unreachable!("guarded drop contains only Move or Trash"),
+            })
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(scopes) => scopes,
+            Err(error) => {
+                self.show_toast(&format!("Could not complete drop: {error}"), 7);
+                return;
+            }
+        };
+        let application_state = Rc::clone(&self.application_state);
+        let toast_overlay = self.widgets.toast_overlay.clone();
+        self.review_guardrail(scopes, move |authorizations| {
+            let guarded = operations
+                .into_iter()
+                .zip(authorizations)
+                .map(|(operation, authorization)| {
+                    GuardrailAuthorized::new(operation, authorization)
+                })
+                .collect();
+            match application_state.enqueue_authorized_batch(guarded) {
+                Ok(batch) => {
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!(
+                                "{action}: queued {} of {count} items",
+                                batch.queued()
+                            ))
+                            .timeout(4)
+                            .build(),
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "drop request was rejected");
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not complete drop: {error}"))
+                            .timeout(7)
+                            .build(),
+                    );
+                }
+            }
+        });
     }
 
     fn schedule_hover_open(self: &Rc<Self>, target: DropHoverTarget) {
@@ -1342,7 +1512,7 @@ impl BrowserController {
                 .orientation(gtk::Orientation::Horizontal)
                 .spacing(8)
                 .build();
-            content.append(&gtk::Image::from_icon_name("folder-symbolic"));
+            content.append(&gtk::Image::from_icon_name("floe-phosphor-folder-symbolic"));
             let label = gtk::Label::builder()
                 .label(&display_name)
                 .halign(gtk::Align::Start)
@@ -1374,7 +1544,7 @@ impl BrowserController {
             row.append(&open);
 
             let remove = gtk::Button::builder()
-                .icon_name("edit-delete-symbolic")
+                .icon_name("floe-phosphor-trash-symbolic")
                 .has_frame(false)
                 .sensitive(actions_enabled)
                 .tooltip_text(format!("Remove {display_name} from Bookmarks"))
@@ -1413,9 +1583,9 @@ impl BrowserController {
                 .spacing(8)
                 .build();
             let icon_name = if snapshot.removable {
-                "drive-removable-media-symbolic"
+                "floe-phosphor-usb-symbolic"
             } else {
-                "drive-harddisk-symbolic"
+                "floe-phosphor-hard-drives-symbolic"
             };
             content.append(&gtk::Image::from_icon_name(icon_name));
             let labels = gtk::Box::builder()
@@ -1491,7 +1661,7 @@ impl BrowserController {
             if policy.can_unmount {
                 row.append(&self.device_action_button(
                     snapshot,
-                    "media-playback-stop-symbolic",
+                    "floe-phosphor-stop-symbolic",
                     "Unmount",
                     DeviceAction::Unmount,
                 ));
@@ -1499,7 +1669,7 @@ impl BrowserController {
             if policy.can_eject {
                 row.append(&self.device_action_button(
                     snapshot,
-                    "media-eject-symbolic",
+                    "floe-phosphor-eject-symbolic",
                     "Eject",
                     DeviceAction::Eject,
                 ));
@@ -1681,6 +1851,7 @@ impl BrowserController {
             controller.drain_properties_worker();
             controller.drain_storage_worker();
             controller.drain_terminal_worker();
+            controller.drain_guardrail_policy_worker();
             controller.flush_pending_preferences();
             glib::ControlFlow::Continue
         });
@@ -3567,6 +3738,27 @@ impl BrowserController {
         });
         self.widgets.window.add_action(&appearance_action);
 
+        let icon_style = self.widgets.entry_icon_style();
+        let icon_style_action = gio::SimpleAction::new_stateful(
+            "icon-style",
+            Some(&String::static_variant_type()),
+            &icon_style.persisted().to_variant(),
+        );
+        let controller = Rc::downgrade(self);
+        icon_style_action.connect_activate(move |action, parameter| {
+            let Some(style) = parameter
+                .and_then(glib::Variant::str)
+                .and_then(EntryIconStyle::from_persisted)
+            else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                controller.change_entry_icon_style(style);
+                action.set_state(&style.persisted().to_variant());
+            }
+        });
+        self.widgets.window.add_action(&icon_style_action);
+
         let density = self.current_preferences.borrow().sidebar_density;
         let density_action = gio::SimpleAction::new_stateful(
             "sidebar-density",
@@ -3723,6 +3915,40 @@ impl BrowserController {
         let checksum_action =
             self.add_action("checksum", |controller| controller.show_checksum_dialog());
         checksum_action.set_enabled(false);
+        let save_fingerprint = self.add_action("save-sha256-fingerprint", |controller| {
+            controller.save_selected_fingerprint()
+        });
+        save_fingerprint.set_enabled(false);
+        let verify_fingerprint = self.add_action("verify-saved-fingerprint", |controller| {
+            controller.verify_selected_fingerprint()
+        });
+        verify_fingerprint.set_enabled(false);
+        let generate_manifest = self.add_action("generate-sha256sums", |controller| {
+            controller.generate_selected_sha256sums()
+        });
+        generate_manifest.set_enabled(false);
+        let verify_manifest = self.add_action("verify-sha256sums", |controller| {
+            controller.verify_selected_sha256sums()
+        });
+        verify_manifest.set_enabled(false);
+        self.add_action("create-integrity-baseline", |controller| {
+            controller.create_integrity_baseline(false);
+        });
+        self.add_action("update-integrity-baseline", |controller| {
+            controller.create_integrity_baseline(true);
+        });
+        self.add_action("verify-integrity-baseline", |controller| {
+            controller.verify_integrity_baseline();
+        });
+        self.add_action("delete-integrity-baseline", |controller| {
+            controller.delete_integrity_baseline();
+        });
+        self.add_action("start-integrity-monitoring", |controller| {
+            controller.start_integrity_monitoring();
+        });
+        self.add_action("stop-integrity-monitoring", |controller| {
+            controller.stop_integrity_monitoring();
+        });
         let duplicates_action = self.add_action("check-duplicates", |controller| {
             controller.start_duplicate_scan();
         });
@@ -3743,6 +3969,14 @@ impl BrowserController {
         compress_action.set_enabled(false);
         let copy_action = self.add_action("copy", |controller| controller.stage_selected_copy());
         copy_action.set_enabled(false);
+        let copy_verify_action = self.add_action("copy-and-verify", |controller| {
+            controller.choose_verified_copy_destination()
+        });
+        copy_verify_action.set_enabled(false);
+        let verified_usb_action = self.add_action("verified-removable-transfer", |controller| {
+            controller.choose_verified_usb_destination()
+        });
+        verified_usb_action.set_enabled(false);
         let cut_action = self.add_action("cut", |controller| controller.stage_selected_move());
         cut_action.set_enabled(false);
         let rename_action = self.add_action("rename", |controller| controller.show_rename());
@@ -3756,6 +3990,17 @@ impl BrowserController {
         undo_batch_rename.set_enabled(false);
         let trash_action = self.add_action("trash", |controller| controller.trash_selected());
         trash_action.set_enabled(false);
+        let protect_folder = self.add_action("protect-folder", |controller| {
+            controller.change_target_protection(true);
+        });
+        protect_folder.set_enabled(false);
+        let unprotect_folder = self.add_action("unprotect-folder", |controller| {
+            controller.change_target_protection(false);
+        });
+        unprotect_folder.set_enabled(false);
+        self.add_action("protected-folders", |controller| {
+            controller.show_protected_folders_status();
+        });
         let permanent_delete_action = self.add_action("permanent-delete", |controller| {
             controller.confirm_permanent_delete();
         });
@@ -4093,6 +4338,30 @@ impl BrowserController {
         let paths = self.selected_paths();
         if paths.is_empty() {
             self.show_toast("Select one or more items first", 4);
+            return;
+        }
+        if intent == TransferIntent::Move {
+            let status_label = self.widgets.status_label.clone();
+            let toast_overlay = self.widgets.toast_overlay.clone();
+            review_move_batch(
+                &self.widgets.window,
+                Rc::clone(&self.application_state),
+                self.guardrail_environment(),
+                paths,
+                destination,
+                move |result| match result {
+                    Ok(batch) => status_label.set_label(&format!(
+                        "Move to other pane queued: {}",
+                        item_count_text(batch.queued())
+                    )),
+                    Err(error) => toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not start pane transfer: {error}"))
+                            .timeout(6)
+                            .build(),
+                    ),
+                },
+            );
             return;
         }
         match self
@@ -4447,7 +4716,7 @@ impl BrowserController {
             row.add_controller(context);
 
             let close = gtk::Button::builder()
-                .icon_name("window-close-symbolic")
+                .icon_name("floe-phosphor-x-symbolic")
                 .tooltip_text(format!("Close {title}"))
                 .build();
             close.add_css_class("flat");
@@ -4649,6 +4918,31 @@ impl BrowserController {
         self.current_preferences.borrow_mut().appearance = preset;
         self.queue_preferences();
         self.show_toast(&format!("Appearance: {}", preset.label()), 3);
+    }
+
+    fn change_entry_icon_style(&self, style: EntryIconStyle) {
+        if self.widgets.entry_icon_style() == style {
+            return;
+        }
+
+        self.widgets.apply_entry_icon_style(style);
+        self.current_preferences.borrow_mut().icon_style = style;
+        self.queue_preferences();
+
+        if self.filename_search_active.get() || self.content_search_active.get() {
+            self.apply_search_result_order();
+        } else {
+            let selected_paths = self
+                .selected_entries
+                .borrow()
+                .iter()
+                .map(|entry| entry.path().to_path_buf())
+                .collect::<Vec<_>>();
+            let entries = self.visible_entries.borrow().clone();
+            self.install_entries(entries, &selected_paths, false);
+        }
+
+        self.show_toast(&format!("File & folder icons: {}", style.label()), 3);
     }
 
     fn prepare_miller_for_current(&self) {
@@ -6432,6 +6726,38 @@ impl BrowserController {
         if let Some(action) = self
             .widgets
             .window
+            .lookup_action("copy-and-verify")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(state.single && !self.trash_active.get());
+        }
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("verified-removable-transfer")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(
+                state.single
+                    && !self.trash_active.get()
+                    && self.verified_usb_flush_worker.borrow().is_some()
+                    && self.verified_usb_workflow.borrow().is_none(),
+            );
+        }
+        self.set_integrity_actions_enabled(
+            state.single
+                && matches!(
+                    self.selected_entries.borrow()[0].kind(),
+                    EntryKind::RegularFile
+                ),
+            !self.selected_entries.borrow().is_empty()
+                && self.selected_entries.borrow().iter().all(|entry| {
+                    matches!(entry.kind(), EntryKind::RegularFile | EntryKind::Directory)
+                }),
+        );
+        if let Some(action) = self
+            .widgets
+            .window
             .lookup_action("check-duplicates")
             .and_downcast::<gio::SimpleAction>()
         {
@@ -6452,6 +6778,7 @@ impl BrowserController {
         }
         self.update_split_action_states();
         self.update_terminal_action_enabled();
+        self.update_guardrail_action_states();
         self.refresh_status();
     }
 
@@ -6607,6 +6934,24 @@ impl BrowserController {
             .and_downcast::<gio::SimpleAction>()
         {
             action.set_enabled(enabled);
+        }
+    }
+
+    fn set_integrity_actions_enabled(&self, single_regular_file: bool, manifest_targets: bool) {
+        for (name, enabled) in [
+            ("save-sha256-fingerprint", single_regular_file),
+            ("verify-saved-fingerprint", single_regular_file),
+            ("verify-sha256sums", single_regular_file),
+            ("generate-sha256sums", manifest_targets),
+        ] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(enabled);
+            }
         }
     }
 
@@ -6809,19 +7154,71 @@ impl BrowserController {
                                 return;
                             };
                             let count = paths.len();
-                            match controller.application_state.submit_trash_batch(paths) {
-                                Ok(_) => controller.show_toast(
-                                    &format!(
-                                        "Queued {} for Trash after explicit duplicate review",
-                                        item_count_text(count)
+                            let requests = match paths
+                                .into_iter()
+                                .map(TrashRequest::new)
+                                .collect::<Result<Vec<_>, _>>()
+                            {
+                                Ok(requests) => requests,
+                                Err(error) => {
+                                    controller.show_toast(
+                                        &format!(
+                                            "Could not queue duplicate paths for Trash: {error}"
+                                        ),
+                                        7,
+                                    );
+                                    return;
+                                }
+                            };
+                            let scopes = match requests
+                                .iter()
+                                .map(destructive_scope_for_trash)
+                                .collect::<Result<Vec<_>, _>>()
+                            {
+                                Ok(scopes) => scopes,
+                                Err(error) => {
+                                    controller.show_toast(
+                                        &format!(
+                                            "Could not queue duplicate paths for Trash: {error}"
+                                        ),
+                                        7,
+                                    );
+                                    return;
+                                }
+                            };
+                            let application_state = Rc::clone(&controller.application_state);
+                            let toast_overlay = controller.widgets.toast_overlay.clone();
+                            controller.review_guardrail(scopes, move |authorizations| {
+                                let guarded = requests
+                                    .into_iter()
+                                    .zip(authorizations)
+                                    .map(|(request, authorization)| {
+                                        GuardrailAuthorized::new(
+                                            TrackedOperation::Trash(request),
+                                            authorization,
+                                        )
+                                    })
+                                    .collect();
+                                match application_state.enqueue_authorized_batch(guarded) {
+                                    Ok(_) => toast_overlay.add_toast(
+                                        adw::Toast::builder()
+                                            .title(format!(
+                                                "Queued {} for Trash after explicit duplicate review",
+                                                item_count_text(count)
+                                            ))
+                                            .timeout(5)
+                                            .build(),
                                     ),
-                                    5,
-                                ),
-                                Err(error) => controller.show_toast(
-                                    &format!("Could not queue duplicate paths for Trash: {error}"),
-                                    7,
-                                ),
-                            }
+                                    Err(error) => toast_overlay.add_toast(
+                                        adw::Toast::builder()
+                                            .title(format!(
+                                                "Could not queue duplicate paths for Trash: {error}"
+                                            ))
+                                            .timeout(7)
+                                            .build(),
+                                    ),
+                                }
+                            });
                         },
                     );
                 }
@@ -6912,6 +7309,385 @@ impl BrowserController {
         });
         widgets.dialog.present(Some(&self.widgets.window));
         widgets.algorithm_dropdown.grab_focus();
+    }
+
+    fn selected_single_regular_path(&self) -> Option<PathBuf> {
+        let selected = self.selected_entries.borrow();
+        (selected.len() == 1 && matches!(selected[0].kind(), EntryKind::RegularFile))
+            .then(|| selected[0].path().to_path_buf())
+    }
+
+    fn fingerprint_store_path(&self) -> PathBuf {
+        private_fingerprint_store_path(&glib::user_data_dir())
+    }
+
+    fn submit_integrity_request(&self, request: IntegrityRequest, queued: &str) {
+        match self.application_state.submit_integrity(request) {
+            Ok(_) => self.show_toast(queued, 4),
+            Err(error) => {
+                self.show_toast(&format!("Could not start integrity operation: {error}"), 7)
+            }
+        }
+    }
+
+    fn save_selected_fingerprint(&self) {
+        let Some(target) = self.selected_single_regular_path() else {
+            self.show_toast(
+                "Select one regular local file to save its SHA-256 fingerprint",
+                5,
+            );
+            return;
+        };
+        self.submit_integrity_request(
+            IntegrityRequest::SaveFingerprint {
+                target,
+                store_path: self.fingerprint_store_path(),
+            },
+            "Saving private SHA-256 fingerprint…",
+        );
+    }
+
+    fn verify_selected_fingerprint(&self) {
+        let Some(target) = self.selected_single_regular_path() else {
+            self.show_toast(
+                "Select one regular local file to verify its saved SHA-256 fingerprint",
+                5,
+            );
+            return;
+        };
+        self.submit_integrity_request(
+            IntegrityRequest::VerifyFingerprint {
+                target,
+                store_path: self.fingerprint_store_path(),
+            },
+            "Verifying saved SHA-256 fingerprint…",
+        );
+    }
+
+    fn generate_selected_sha256sums(&self) {
+        let targets = self
+            .selected_entries
+            .borrow()
+            .iter()
+            .filter(|entry| matches!(entry.kind(), EntryKind::RegularFile | EntryKind::Directory))
+            .map(|entry| entry.path().to_path_buf())
+            .collect::<Vec<_>>();
+        if targets.is_empty() {
+            self.show_toast("Select regular files or folders to generate SHA256SUMS", 5);
+            return;
+        }
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
+        let Some(root) = integrity_manifest_root(&current, &targets) else {
+            self.show_toast("Selected files do not share a local manifest root", 6);
+            return;
+        };
+        self.submit_integrity_request(
+            IntegrityRequest::GenerateSha256Sums {
+                output_path: root.join("SHA256SUMS"),
+                root,
+                targets,
+            },
+            "Generating SHA256SUMS; an existing manifest will not be replaced…",
+        );
+    }
+
+    fn verify_selected_sha256sums(&self) {
+        let Some(manifest_path) = self.selected_single_regular_path() else {
+            self.show_toast("Select one local SHA256SUMS manifest to verify", 5);
+            return;
+        };
+        let Some(root) = manifest_path.parent().map(Path::to_path_buf) else {
+            self.show_toast("The selected manifest has no safe parent folder", 6);
+            return;
+        };
+        self.submit_integrity_request(
+            IntegrityRequest::VerifySha256Sums {
+                root,
+                manifest_path,
+            },
+            "Verifying selected SHA256SUMS manifest…",
+        );
+    }
+
+    fn integrity_baseline_store_path(&self) -> PathBuf {
+        crate::integrity_ui::private_integrity_baseline_store_path(&glib::user_data_dir())
+    }
+
+    fn ensure_integrity_monitor_worker(&self) -> bool {
+        if self.integrity_monitor_worker.borrow().is_some() {
+            return true;
+        }
+        match IntegrityMonitorWorker::spawn() {
+            Ok(worker) => {
+                self.integrity_monitor_worker.replace(Some(worker));
+                true
+            }
+            Err(error) => {
+                self.show_toast(&format!("Integrity monitoring unavailable: {error}"), 7);
+                false
+            }
+        }
+    }
+
+    fn create_integrity_baseline(self: &Rc<Self>, update: bool) {
+        if !self.ensure_integrity_monitor_worker() {
+            return;
+        }
+        let request = IntegrityMonitorRequest::Create {
+            root: self.tabs.borrow().active().current().path().to_path_buf(),
+            root_kind: IntegrityMonitorRootKind::Local,
+            store_path: self.integrity_baseline_store_path(),
+            storage_policy: IntegrityBaselineStoragePolicy::Persist,
+        };
+        self.submit_integrity_monitor_request(
+            request,
+            if update {
+                "Updating private integrity baseline…"
+            } else {
+                "Creating private integrity baseline…"
+            },
+        );
+    }
+
+    fn verify_integrity_baseline(self: &Rc<Self>) {
+        let Some(baseline) = self.integrity_baseline.borrow().clone() else {
+            if self.ensure_integrity_monitor_worker() {
+                self.submit_integrity_monitor_request(
+                    IntegrityMonitorRequest::Load {
+                        store_path: self.integrity_baseline_store_path(),
+                    },
+                    "Loading private integrity baseline…",
+                );
+            }
+            return;
+        };
+        self.submit_integrity_monitor_request(
+            IntegrityMonitorRequest::Check {
+                baseline,
+                root_kind: IntegrityMonitorRootKind::Local,
+            },
+            "Verifying integrity baseline…",
+        );
+    }
+
+    fn delete_integrity_baseline(self: &Rc<Self>) {
+        if !self.ensure_integrity_monitor_worker() {
+            return;
+        }
+        self.stop_integrity_monitoring();
+        self.submit_integrity_monitor_request(
+            IntegrityMonitorRequest::Delete {
+                store_path: self.integrity_baseline_store_path(),
+            },
+            "Removing private integrity baseline…",
+        );
+    }
+
+    fn start_integrity_monitoring(self: &Rc<Self>) {
+        let Some(baseline) = self.integrity_baseline.borrow().clone() else {
+            self.show_toast(
+                "Create or load an integrity baseline before starting monitoring",
+                6,
+            );
+            return;
+        };
+        let root = self.tabs.borrow().active().current().path().to_path_buf();
+        if baseline.root() != root {
+            self.show_toast("The baseline belongs to a different folder", 6);
+            return;
+        }
+        match self.rebuild_integrity_watch_set(root) {
+            Ok(()) => {
+                self.integrity_session.borrow_mut().enable();
+                self.show_toast(
+                    "Integrity monitoring started. It is not intrusion detection.",
+                    6,
+                );
+                self.request_integrity_rescan();
+            }
+            Err(error) => {
+                self.show_toast(&format!("Could not start integrity monitoring: {error}"), 7)
+            }
+        }
+    }
+
+    fn rebuild_integrity_watch_set(self: &Rc<Self>, root: PathBuf) -> Result<(), String> {
+        let weak = Rc::downgrade(self);
+        let watch_set = IntegrityWatchSet::start(root, move |event| {
+            if let Some(controller) = weak.upgrade() {
+                controller.record_integrity_watch_event(event);
+            }
+        })
+        .map_err(|error| error.to_string())?;
+        self.integrity_watch_set.replace(Some(watch_set));
+        Ok(())
+    }
+
+    fn stop_integrity_monitoring(&self) {
+        if let Some(source) = self.integrity_rescan_source.borrow_mut().take() {
+            source.remove();
+        }
+        self.integrity_watch_set.replace(None);
+        self.integrity_session.borrow_mut().disable();
+        self.show_toast("Integrity monitoring stopped", 4);
+    }
+
+    fn record_integrity_watch_event(self: &Rc<Self>, event: IntegrityWatchEvent) {
+        let Some(root) = self
+            .integrity_watch_set
+            .borrow()
+            .as_ref()
+            .map(|set| set.root().to_path_buf())
+        else {
+            return;
+        };
+        let Ok(policy) = IntegrityWatchSetPolicy::new(root) else {
+            return;
+        };
+        if self
+            .integrity_session
+            .borrow_mut()
+            .record_event(&policy, &event)
+            .is_err()
+            || self.integrity_rescan_source.borrow().is_some()
+        {
+            return;
+        }
+        let weak = Rc::downgrade(self);
+        let source = glib::timeout_add_local_once(Duration::from_millis(220), move || {
+            if let Some(controller) = weak.upgrade() {
+                controller.integrity_rescan_source.borrow_mut().take();
+                controller.request_integrity_rescan();
+            }
+        });
+        self.integrity_rescan_source.replace(Some(source));
+    }
+
+    fn request_integrity_rescan(self: &Rc<Self>) {
+        let IntegrityRescanDecision::Start { .. } =
+            self.integrity_session.borrow_mut().take_rescan()
+        else {
+            return;
+        };
+        let Some(baseline) = self.integrity_baseline.borrow().clone() else {
+            self.integrity_session
+                .borrow_mut()
+                .interrupt_scan(IntegrityMonitorStaleReason::ScanInterrupted);
+            return;
+        };
+        self.submit_integrity_monitor_request(
+            IntegrityMonitorRequest::Check {
+                baseline,
+                root_kind: IntegrityMonitorRootKind::Local,
+            },
+            "Rechecking integrity baseline…",
+        );
+    }
+
+    fn submit_integrity_monitor_request(
+        self: &Rc<Self>,
+        request: IntegrityMonitorRequest,
+        queued: &str,
+    ) {
+        if !self.ensure_integrity_monitor_worker() {
+            return;
+        }
+        let Some(submission) = self
+            .integrity_monitor_worker
+            .borrow()
+            .as_ref()
+            .and_then(|worker| worker.submit(request).ok())
+        else {
+            self.show_toast("Could not queue integrity monitoring work", 7);
+            return;
+        };
+        self.integrity_request_generation
+            .set(Some(submission.generation));
+        self.show_toast(queued, 4);
+        let weak = Rc::downgrade(self);
+        glib::timeout_add_local(Duration::from_millis(35), move || {
+            let Some(controller) = weak.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if controller.poll_integrity_monitor_result() {
+                glib::ControlFlow::Break
+            } else {
+                glib::ControlFlow::Continue
+            }
+        });
+    }
+
+    fn poll_integrity_monitor_result(self: &Rc<Self>) -> bool {
+        let Some(generation) = self.integrity_request_generation.get() else {
+            return true;
+        };
+        let result = self
+            .integrity_monitor_worker
+            .borrow()
+            .as_ref()
+            .and_then(|worker| worker.take_result(generation));
+        let Some(result) = result else {
+            return false;
+        };
+        self.integrity_request_generation.set(None);
+        match result.outcome {
+            Ok(IntegrityMonitorOutcome::BaselineCreated { baseline, .. }) => {
+                self.integrity_baseline.replace(Some(baseline));
+                self.show_toast("Private integrity baseline saved", 5);
+            }
+            Ok(IntegrityMonitorOutcome::BaselineLoaded(Some(baseline))) => {
+                self.integrity_baseline.replace(Some(baseline));
+                self.show_toast("Private integrity baseline loaded", 5);
+            }
+            Ok(IntegrityMonitorOutcome::BaselineLoaded(None)) => {
+                self.show_toast("No private integrity baseline stored", 6)
+            }
+            Ok(IntegrityMonitorOutcome::Checked { diff, .. }) => {
+                let session_generation = self.integrity_session.borrow().generation();
+                self.integrity_session
+                    .borrow_mut()
+                    .complete_scan(session_generation);
+                if self.integrity_session.borrow().enabled() {
+                    if let Some(root) = self
+                        .integrity_baseline
+                        .borrow()
+                        .as_ref()
+                        .map(|baseline| baseline.root().to_path_buf())
+                    {
+                        if let Err(error) = self.rebuild_integrity_watch_set(root) {
+                            self.integrity_session
+                                .borrow_mut()
+                                .interrupt_scan(IntegrityMonitorStaleReason::WatcherInvalidated);
+                            self.show_toast(
+                                &format!("Integrity monitoring needs recheck: {error}"),
+                                7,
+                            );
+                        }
+                    }
+                }
+                let presentation = crate::integrity_ui::present_integrity_monitor_diff(&diff);
+                let widgets = crate::integrity_ui::build_integrity_results_dialog(&presentation);
+                let dialog = widgets.dialog.downgrade();
+                widgets.close_button.connect_clicked(move |_| {
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.close();
+                    }
+                });
+                widgets.dialog.present(Some(&self.widgets.window));
+                widgets.close_button.grab_focus();
+            }
+            Ok(IntegrityMonitorOutcome::StoredBaselineRemoved) => {
+                self.integrity_baseline.replace(None);
+                self.show_toast("Private integrity baseline removed", 5);
+            }
+            Err(error) => {
+                self.integrity_session
+                    .borrow_mut()
+                    .interrupt_scan(IntegrityMonitorStaleReason::ScanInterrupted);
+                self.show_toast(&format!("Integrity monitoring needs recheck: {error}"), 7);
+            }
+        }
+        true
     }
 
     fn show_properties(&self) {
@@ -7264,6 +8040,432 @@ impl BrowserController {
         });
     }
 
+    fn choose_verified_copy_destination(self: &Rc<Self>) {
+        let Some(source) = self
+            .selected_entry()
+            .map(|entry| entry.path().to_path_buf())
+        else {
+            self.show_toast("Select one local item to Copy and Verify", 5);
+            return;
+        };
+        let Some(name) = source.file_name().map(OsStr::to_os_string) else {
+            self.show_toast("The selected item has no copyable filename", 5);
+            return;
+        };
+        let chooser = gtk::FileDialog::builder()
+            .title("Choose Copy and Verify Destination")
+            .modal(true)
+            .build();
+        chooser.set_initial_folder(Some(&gio::File::for_path(self.action_directory())));
+        let window = self.widgets.window.clone();
+        let controller = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            match chooser.select_folder_future(Some(&window)).await {
+                Ok(folder) => {
+                    let Some(parent) = folder.path() else {
+                        if let Some(controller) = controller.upgrade() {
+                            controller
+                                .show_toast("Copy and Verify supports local destinations only", 6);
+                        }
+                        return;
+                    };
+                    if let Some(controller) = controller.upgrade() {
+                        let request = VerifiedCopyRequest::new(source, parent.join(name));
+                        match controller.application_state.submit_verified_copy(request) {
+                            Ok(_) => controller.show_toast(
+                                "Copy and Verify queued. SHA-256 checks bytes; it does not prove authenticity.",
+                                6,
+                            ),
+                            Err(error) => controller.show_toast(
+                                &format!("Could not start Copy and Verify: {error}"),
+                                7,
+                            ),
+                        }
+                    }
+                }
+                Err(error) if error.matches(gio::IOErrorEnum::Cancelled) => {}
+                Err(error) => {
+                    if let Some(controller) = controller.upgrade() {
+                        controller.show_toast(
+                            &format!("Could not choose Copy and Verify destination: {error}"),
+                            7,
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    fn choose_verified_usb_destination(self: &Rc<Self>) {
+        if self.verified_usb_workflow.borrow().is_some() {
+            self.show_toast("A verified removable transfer is already active", 5);
+            return;
+        }
+        let mut selected = self.selected_paths();
+        if selected.len() != 1 {
+            self.show_toast("Select one local item for a verified removable transfer", 5);
+            return;
+        }
+        let source = selected.remove(0);
+        let Some(name) = source.file_name().map(OsStr::to_os_string) else {
+            self.show_toast("The selected item has no destination name", 5);
+            return;
+        };
+        let chooser = gtk::FileDialog::builder()
+            .title("Choose Folder on Removable Device")
+            .modal(true)
+            .build();
+        let window = self.widgets.window.clone();
+        let controller = Rc::downgrade(self);
+        glib::spawn_future_local(async move {
+            match chooser.select_folder_future(Some(&window)).await {
+                Ok(folder) => {
+                    let Some(parent) = folder.path() else {
+                        if let Some(controller) = controller.upgrade() {
+                            controller.show_toast(
+                                "Verified removable transfer supports local devices only",
+                                6,
+                            );
+                        }
+                        return;
+                    };
+                    let Some(controller) = controller.upgrade() else {
+                        return;
+                    };
+                    let destination = parent.join(name);
+                    let snapshots = controller.device_monitor.snapshots();
+                    let Some(target) = resolve_removal_target(&destination, &snapshots) else {
+                        controller.show_toast(
+                            "Choose a folder on a mounted removable device that can be ejected or unmounted",
+                            7,
+                        );
+                        return;
+                    };
+                    let removable = snapshots
+                        .iter()
+                        .any(|snapshot| snapshot.id == *target.id() && snapshot.removable);
+                    if !removable {
+                        controller.show_toast(
+                            "The selected destination is not reported as removable storage",
+                            7,
+                        );
+                        return;
+                    }
+                    let request = VerifiedCopyRequest::new(source, destination);
+                    match controller
+                        .application_state
+                        .submit_verified_usb_copy(request.clone())
+                    {
+                        Ok(submission) => {
+                            controller
+                                .verified_usb_workflow
+                                .replace(Some(VerifiedUsbLive {
+                                    workflow: VerifiedUsbWorkflow::new(submission.job_id(), target),
+                                    request,
+                                }));
+                            controller.refresh_verified_usb_action();
+                            controller.show_toast(
+                                "Verified removable transfer queued. SHA-256 checks byte integrity; it does not prove authenticity.",
+                                7,
+                            );
+                        }
+                        Err(error) => controller.show_toast(
+                            &format!("Could not start verified removable transfer: {error}"),
+                            7,
+                        ),
+                    }
+                }
+                Err(error) if error.matches(gio::IOErrorEnum::Cancelled) => {}
+                Err(error) => {
+                    if let Some(controller) = controller.upgrade() {
+                        controller.show_toast(
+                            &format!("Could not choose removable destination: {error}"),
+                            7,
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    fn finish_verified_usb_copy(
+        self: &Rc<Self>,
+        job_id: floe_core::JobId,
+        result: VerifiedCopyResult,
+    ) {
+        let is_current = self
+            .verified_usb_workflow
+            .borrow()
+            .as_ref()
+            .is_some_and(|live| live.workflow.child_job() == job_id);
+        if !is_current {
+            tracing::error!(
+                ?job_id,
+                "received terminal result for an unowned verified removable transfer"
+            );
+            return;
+        }
+
+        match result {
+            Ok(_) => {
+                let (transfer, snapshots, destination) = {
+                    let mut live = self.verified_usb_workflow.borrow_mut();
+                    let live = live.as_mut().expect("current workflow was checked above");
+                    live.workflow.copy_verified();
+                    (
+                        live.workflow.transfer().clone(),
+                        self.device_monitor.snapshots(),
+                        live.request.destination().to_path_buf(),
+                    )
+                };
+                self.show_verified_usb_stage(
+                    "Verified removable transfer",
+                    "Copy verified; flushing the selected device. Keep it connected.",
+                    0.75,
+                    false,
+                );
+                let submitted = self
+                    .verified_usb_flush_worker
+                    .borrow()
+                    .as_ref()
+                    .ok_or_else(|| "The device flush worker is unavailable.".to_owned())
+                    .and_then(|worker| {
+                        worker
+                            .submit(job_id, transfer, snapshots, destination)
+                            .map_err(|error| error.to_string())
+                    });
+                match submitted {
+                    Ok(()) => self.schedule_verified_usb_flush_poll(),
+                    Err(detail) => self.fail_verified_usb(&detail, false),
+                }
+            }
+            Err(failure) => {
+                let cancelled = matches!(failure.error(), VerifiedCopyError::Cancelled);
+                let presentation = present_verified_copy(&Err(failure));
+                let detail = format!(
+                    "{} {} The device was not flushed or removed.",
+                    presentation.detail, presentation.notice
+                );
+                self.fail_verified_usb(&detail, cancelled);
+            }
+        }
+    }
+
+    fn schedule_verified_usb_flush_poll(self: &Rc<Self>) {
+        if self.verified_usb_flush_source.borrow().is_some() {
+            return;
+        }
+        let controller = Rc::downgrade(self);
+        let source = glib::timeout_add_local(Duration::from_millis(40), move || {
+            let Some(controller) = controller.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            let result = controller
+                .verified_usb_flush_worker
+                .borrow()
+                .as_ref()
+                .and_then(DeviceFlushWorker::try_result);
+            let Some(result) = result else {
+                return glib::ControlFlow::Continue;
+            };
+            controller.verified_usb_flush_source.borrow_mut().take();
+            controller.finish_verified_usb_flush(result);
+            glib::ControlFlow::Break
+        });
+        self.verified_usb_flush_source.replace(Some(source));
+    }
+
+    fn finish_verified_usb_flush(self: &Rc<Self>, result: DeviceFlushResult) {
+        let job_id = result.child_job();
+        let (_, flush_result) = result.into_parts();
+        let is_current = self
+            .verified_usb_workflow
+            .borrow()
+            .as_ref()
+            .is_some_and(|live| live.workflow.child_job() == job_id);
+        if !is_current {
+            tracing::error!(
+                ?job_id,
+                "received flush result for an unowned verified removable transfer"
+            );
+            return;
+        }
+        if let Err(error) = flush_result {
+            self.fail_verified_usb(
+                &format!("The verified copy remains on the device, but flushing failed: {error}"),
+                false,
+            );
+            return;
+        }
+
+        let (target, destination) = {
+            let mut live = self.verified_usb_workflow.borrow_mut();
+            let live = live.as_mut().expect("current workflow was checked above");
+            live.workflow.flush_succeeded();
+            (
+                live.workflow.transfer().target().clone(),
+                live.request.destination().to_path_buf(),
+            )
+        };
+        let snapshots = self.device_monitor.snapshots();
+        let relationship_is_current = revalidate_removal_target(&target, &snapshots)
+            && resolve_removal_target(&destination, &snapshots).as_ref() == Some(&target)
+            && snapshots
+                .iter()
+                .any(|snapshot| snapshot.id == *target.id() && snapshot.removable);
+        if !relationship_is_current {
+            self.fail_verified_usb(
+                "The device, mount, or removal action changed after flushing. Floe did not request removal.",
+                false,
+            );
+            return;
+        }
+
+        self.show_verified_usb_stage(
+            "Verified removable transfer",
+            &format!(
+                "{} the verified destination device…",
+                target.action().present_participle()
+            ),
+            0.9,
+            false,
+        );
+        let mount_operation = gtk::MountOperation::new(Some(&self.widgets.window));
+        let controller = Rc::downgrade(self);
+        let outcome_job = job_id;
+        let start = self.device_monitor.remove_verified_target(
+            &target,
+            Some(mount_operation.upcast_ref()),
+            move |outcome| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.finish_verified_usb_removal(outcome_job, outcome);
+                }
+            },
+        );
+        if let Err(error) = start {
+            self.fail_verified_usb(&device_start_failure_detail(&error), false);
+        }
+    }
+
+    fn finish_verified_usb_removal(
+        self: &Rc<Self>,
+        job_id: floe_core::JobId,
+        outcome: DeviceActionOutcome,
+    ) {
+        let Some((expected_id, expected_action)) = self
+            .verified_usb_workflow
+            .borrow()
+            .as_ref()
+            .filter(|live| live.workflow.child_job() == job_id)
+            .map(|live| {
+                (
+                    live.workflow.transfer().target().id().clone(),
+                    live.workflow.transfer().target().action(),
+                )
+            })
+        else {
+            tracing::error!(
+                ?job_id,
+                "received removal result for an unowned verified removable transfer"
+            );
+            return;
+        };
+        match outcome {
+            DeviceActionOutcome::Completed { id, action }
+                if id == expected_id && action == expected_action =>
+            {
+                if let Some(live) = self.verified_usb_workflow.borrow_mut().as_mut() {
+                    live.workflow.removal_succeeded();
+                }
+                self.show_verified_usb_stage(
+                    "Safe to remove",
+                    "The copied bytes were verified, the device was flushed, and removal completed.",
+                    1.0,
+                    false,
+                );
+                self.present_verified_usb_terminal(
+                    "Safe to remove",
+                    "The selected removable device was flushed and removed successfully. SHA-256 equality is integrity evidence, not proof of authenticity.",
+                );
+                self.verified_usb_workflow.borrow_mut().take();
+                self.refresh_verified_usb_action();
+            }
+            DeviceActionOutcome::Completed { .. } => self.fail_verified_usb(
+                "The desktop reported completion for a different device or action. Floe cannot confirm removal.",
+                false,
+            ),
+            DeviceActionOutcome::Failed { failure, .. } => self.fail_verified_usb(
+                &format!("The copy was verified and flushed, but device removal failed: {}", failure.message),
+                failure.kind == crate::devices::DeviceActionFailureKind::Cancelled,
+            ),
+        }
+    }
+
+    fn fail_verified_usb(&self, detail: &str, cancelled: bool) {
+        if let Some(live) = self.verified_usb_workflow.borrow_mut().as_mut() {
+            if cancelled {
+                live.workflow.cancelled();
+            } else {
+                live.workflow.failed();
+            }
+        }
+        let title = if cancelled {
+            "Verified removable transfer cancelled"
+        } else {
+            "Verified removable transfer incomplete"
+        };
+        self.show_verified_usb_stage(title, detail, 0.0, false);
+        self.present_verified_usb_terminal(
+            title,
+            &format!("{detail} Keep the device connected and review it before disconnecting."),
+        );
+        self.verified_usb_workflow.borrow_mut().take();
+        self.refresh_verified_usb_action();
+    }
+
+    fn show_verified_usb_stage(&self, title: &str, detail: &str, fraction: f64, cancellable: bool) {
+        let operations = &self.widgets.operations;
+        operations.operation_label.set_label(title);
+        operations.operation_detail.set_label(detail);
+        operations.operation_progress.set_fraction(fraction);
+        operations.operation_cancel.set_sensitive(cancellable);
+        operations
+            .operation_cancel
+            .set_tooltip_text(Some(if cancellable {
+                "Cancel verified removable transfer"
+            } else {
+                "This device step cannot be interrupted safely"
+            }));
+        operations.revealer.set_reveal_child(true);
+    }
+
+    fn present_verified_usb_terminal(&self, title: &str, detail: &str) {
+        let dialog = adw::AlertDialog::builder()
+            .heading(title)
+            .body(detail)
+            .build();
+        dialog.add_response("close", "Close");
+        dialog.set_default_response(Some("close"));
+        dialog.set_close_response("close");
+        dialog.update_property(&[gtk::accessible::Property::Label(title)]);
+        dialog.present(Some(&self.widgets.window));
+    }
+
+    fn refresh_verified_usb_action(&self) {
+        let enabled = self.selected_entries.borrow().len() == 1
+            && !self.trash_active.get()
+            && self.verified_usb_flush_worker.borrow().is_some()
+            && self.verified_usb_workflow.borrow().is_none();
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("verified-removable-transfer")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(enabled);
+        }
+    }
+
     fn show_compress_dialog(self: &Rc<Self>) {
         let sources: Arc<[PathBuf]> = self.selected_paths().into();
         if sources.is_empty() {
@@ -7429,6 +8631,7 @@ impl BrowserController {
 
     fn paste_transfer(&self) {
         let destination = self.action_directory();
+        let guardrail_environment = self.guardrail_environment();
         let clipboard = self.widgets.window.clipboard();
         if clipboard::contains_transfer(&clipboard) {
             let application_state = Rc::clone(&self.application_state);
@@ -7466,6 +8669,42 @@ impl BrowserController {
                     );
                     return;
                 }
+                if intent == TransferIntent::Move {
+                    let status_label = status_label.clone();
+                    let toast_overlay = toast_overlay.clone();
+                    let window_after = window.clone();
+                    review_move_batch(
+                        &window,
+                        Rc::clone(&application_state),
+                        guardrail_environment.clone(),
+                        transfer.paths().to_vec(),
+                        destination.clone(),
+                        move |result| match result {
+                            Ok(batch) => {
+                                status_label.set_label(&format!(
+                                    "Move {} queued…",
+                                    item_count_text(batch.queued())
+                                ));
+                                let _ = window_after
+                                    .clipboard()
+                                    .set_content(gdk::ContentProvider::NONE);
+                                if let Some(action) = window_after
+                                    .lookup_action("paste")
+                                    .and_downcast::<gio::SimpleAction>()
+                                {
+                                    action.set_enabled(false);
+                                }
+                            }
+                            Err(error) => toast_overlay.add_toast(
+                                adw::Toast::builder()
+                                    .title(format!("Could not start operation: {error}"))
+                                    .timeout(7)
+                                    .build(),
+                            ),
+                        },
+                    );
+                    return;
+                }
                 match application_state.submit_paste_batch(&destination) {
                     Ok(batch) => {
                         status_label.set_label(&format!(
@@ -7497,10 +8736,42 @@ impl BrowserController {
             return;
         }
 
-        let intent = self
-            .application_state
-            .staged_transfers()
-            .map(|(intent, _)| intent);
+        let staged = self.application_state.staged_transfers();
+        let intent = staged.as_ref().map(|(intent, _)| *intent);
+        if let Some((TransferIntent::Move, sources)) = staged {
+            let status_label = self.widgets.status_label.clone();
+            let paste_action = self
+                .widgets
+                .window
+                .lookup_action("paste")
+                .and_downcast::<gio::SimpleAction>();
+            let toast_overlay = self.widgets.toast_overlay.clone();
+            review_move_batch(
+                &self.widgets.window,
+                Rc::clone(&self.application_state),
+                guardrail_environment,
+                sources,
+                destination.clone(),
+                move |result| match result {
+                    Ok(batch) => {
+                        if let Some(action) = paste_action.as_ref() {
+                            action.set_enabled(false);
+                        }
+                        status_label.set_label(&format!(
+                            "Move {} queued…",
+                            item_count_text(batch.queued())
+                        ));
+                    }
+                    Err(error) => toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not start operation: {error}"))
+                            .timeout(6)
+                            .build(),
+                    ),
+                },
+            );
+            return;
+        }
         match self.application_state.submit_paste_batch(&destination) {
             Ok(batch) => {
                 if intent == Some(TransferIntent::Move) {
@@ -7525,15 +8796,43 @@ impl BrowserController {
             self.show_toast("Select one or more items to move to Trash", 4);
             return;
         }
-        match self.application_state.submit_trash_batch(paths) {
-            Ok(_) => self
-                .widgets
-                .status_label
-                .set_label("Moving selection to Trash…"),
+        let requests = match paths
+            .into_iter()
+            .map(TrashRequest::new)
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(requests) => requests,
             Err(error) => {
-                self.show_toast(&format!("Could not move selection to Trash: {error}"), 7)
+                self.show_toast(&format!("Could not move selection to Trash: {error}"), 7);
+                return;
             }
-        }
+        };
+        let scopes = match requests
+            .iter()
+            .map(destructive_scope_for_trash)
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(scopes) => scopes,
+            Err(error) => {
+                self.show_toast(&format!("Could not move selection to Trash: {error}"), 7);
+                return;
+            }
+        };
+        let application_state = Rc::clone(&self.application_state);
+        let status_label = self.widgets.status_label.clone();
+        self.review_guardrail(scopes, move |authorizations| {
+            let operations = requests
+                .into_iter()
+                .zip(authorizations)
+                .map(|(request, authorization)| {
+                    GuardrailAuthorized::new(TrackedOperation::Trash(request), authorization)
+                })
+                .collect();
+            match application_state.enqueue_authorized_batch(operations) {
+                Ok(_) => status_label.set_label("Moving selection to Trash…"),
+                Err(error) => tracing::error!(%error, "could not submit authorized Trash batch"),
+            }
+        });
     }
 
     fn restore_selected(&self) {
@@ -7558,13 +8857,33 @@ impl BrowserController {
             self.show_toast("Select one or more Trash items to restore", 4);
             return;
         }
-        match self.application_state.submit_restore_batch(requests) {
-            Ok(batch) => self
-                .widgets
-                .status_label
-                .set_label(&format!("Restoring {}…", item_count_text(batch.queued()))),
-            Err(error) => self.show_toast(&format!("Could not start restore: {error}"), 7),
-        }
+        let scopes = match requests
+            .iter()
+            .map(destructive_scope_for_restore)
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(scopes) => scopes,
+            Err(error) => {
+                self.show_toast(&format!("Could not start restore: {error}"), 7);
+                return;
+            }
+        };
+        let application_state = Rc::clone(&self.application_state);
+        let status_label = self.widgets.status_label.clone();
+        self.review_guardrail(scopes, move |authorizations| {
+            let operations = requests
+                .into_iter()
+                .zip(authorizations)
+                .map(|(request, authorization)| {
+                    GuardrailAuthorized::new(TrackedOperation::Restore(request), authorization)
+                })
+                .collect();
+            match application_state.enqueue_authorized_batch(operations) {
+                Ok(batch) => status_label
+                    .set_label(&format!("Restoring {}…", item_count_text(batch.queued()))),
+                Err(error) => tracing::error!(%error, "could not submit authorized restore batch"),
+            }
+        });
     }
 
     fn confirm_empty_trash(&self) {
@@ -7603,25 +8922,60 @@ impl BrowserController {
         let status_label = self.widgets.status_label.clone();
         let toast_overlay = self.widgets.toast_overlay.clone();
         let dialog = confirmation.dialog.downgrade();
+        let window = self.widgets.window.clone();
+        let environment = self.guardrail_environment();
+        let request = match PermanentDeleteRequest::new(targets) {
+            Ok(request) => request,
+            Err(error) => {
+                self.show_toast(&format!("Could not empty Trash: {error}"), 7);
+                return;
+            }
+        };
+        let scope = match destructive_scope_for_permanent_delete(&request) {
+            Ok(scope) => scope,
+            Err(error) => {
+                self.show_toast(&format!("Could not empty Trash: {error}"), 7);
+                return;
+            }
+        };
         confirmation.delete_button.connect_clicked(move |button| {
             button.set_sensitive(false);
-            match application_state.submit_permanent_delete(targets.clone()) {
-                Ok(_) => {
-                    status_label.set_label("Empty Trash queued…");
-                    if let Some(dialog) = dialog.upgrade() {
-                        dialog.close();
+            let button = button.clone();
+            let application_state = Rc::clone(&application_state);
+            let status_label = status_label.clone();
+            let toast_overlay = toast_overlay.clone();
+            let dialog = dialog.clone();
+            let request = request.clone();
+            review_and_authorize(
+                &window,
+                Rc::clone(&application_state),
+                vec![scope.clone()],
+                environment.clone(),
+                move |mut authorizations| {
+                    let Some(authorization) = authorizations.pop() else {
+                        return;
+                    };
+                    match application_state.submit_permanent_delete_authorized(
+                        GuardrailAuthorized::new(request, authorization),
+                    ) {
+                        Ok(_) => {
+                            status_label.set_label("Empty Trash queued…");
+                            if let Some(dialog) = dialog.upgrade() {
+                                dialog.close();
+                            }
+                        }
+                        Err(error) => {
+                            button.set_sensitive(true);
+                            toast_overlay.add_toast(
+                                adw::Toast::builder()
+                                    .title(format!("Could not empty Trash: {error}"))
+                                    .timeout(7)
+                                    .build(),
+                            );
+                        }
                     }
-                }
-                Err(error) => {
-                    button.set_sensitive(true);
-                    toast_overlay.add_toast(
-                        adw::Toast::builder()
-                            .title(format!("Could not empty Trash: {error}"))
-                            .timeout(7)
-                            .build(),
-                    );
-                }
-            }
+                },
+            );
         });
         confirmation.dialog.present(Some(&self.widgets.window));
         confirmation.cancel_button.grab_focus();
@@ -7659,25 +9013,60 @@ impl BrowserController {
         let status_label = self.widgets.status_label.clone();
         let toast_overlay = self.widgets.toast_overlay.clone();
         let dialog = confirmation.dialog.downgrade();
+        let window = self.widgets.window.clone();
+        let environment = self.guardrail_environment();
+        let request = match PermanentDeleteRequest::new(paths) {
+            Ok(request) => request,
+            Err(error) => {
+                self.show_toast(&format!("Could not start permanent deletion: {error}"), 7);
+                return;
+            }
+        };
+        let scope = match destructive_scope_for_permanent_delete(&request) {
+            Ok(scope) => scope,
+            Err(error) => {
+                self.show_toast(&format!("Could not start permanent deletion: {error}"), 7);
+                return;
+            }
+        };
         confirmation.delete_button.connect_clicked(move |button| {
             button.set_sensitive(false);
-            match application_state.submit_permanent_delete(paths.clone()) {
-                Ok(_) => {
-                    status_label.set_label("Permanent deletion queued…");
-                    if let Some(dialog) = dialog.upgrade() {
-                        dialog.close();
+            let button = button.clone();
+            let application_state = Rc::clone(&application_state);
+            let status_label = status_label.clone();
+            let toast_overlay = toast_overlay.clone();
+            let dialog = dialog.clone();
+            let request = request.clone();
+            review_and_authorize(
+                &window,
+                Rc::clone(&application_state),
+                vec![scope.clone()],
+                environment.clone(),
+                move |mut authorizations| {
+                    let Some(authorization) = authorizations.pop() else {
+                        return;
+                    };
+                    match application_state.submit_permanent_delete_authorized(
+                        GuardrailAuthorized::new(request, authorization),
+                    ) {
+                        Ok(_) => {
+                            status_label.set_label("Permanent deletion queued…");
+                            if let Some(dialog) = dialog.upgrade() {
+                                dialog.close();
+                            }
+                        }
+                        Err(error) => {
+                            button.set_sensitive(true);
+                            toast_overlay.add_toast(
+                                adw::Toast::builder()
+                                    .title(format!("Could not start permanent deletion: {error}"))
+                                    .timeout(7)
+                                    .build(),
+                            );
+                        }
                     }
-                }
-                Err(error) => {
-                    button.set_sensitive(true);
-                    toast_overlay.add_toast(
-                        adw::Toast::builder()
-                            .title(format!("Could not start permanent deletion: {error}"))
-                            .timeout(7)
-                            .build(),
-                    );
-                }
-            }
+                },
+            );
         });
 
         confirmation.dialog.present(Some(&self.widgets.window));
@@ -7773,7 +9162,9 @@ impl BrowserController {
                         .activatable(true)
                         .build();
                     row.update_property(&[gtk::accessible::Property::Label(&display_name)]);
-                    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+                    row.add_suffix(&gtk::Image::from_icon_name(
+                        "floe-phosphor-caret-right-symbolic",
+                    ));
                     let source = entry.path().to_path_buf();
                     let initial_name = entry
                         .name()
@@ -8157,42 +9548,89 @@ impl BrowserController {
                 return;
             };
             button.set_sensitive(false);
-            match controller.application_state.submit_batch_rename(request) {
-                Ok(_) => {
-                    controller
-                        .widgets
-                        .status_label
-                        .set_label("Batch rename queued…");
-                    if let Some(dialog) = dialog.upgrade() {
-                        dialog.close();
-                    }
-                }
+            let scopes = match destructive_scopes_for_batch_rename(&request) {
+                Ok(scopes) => scopes,
                 Err(error) => {
                     error_label.set_label(&format!("Could not queue batch rename: {error}"));
                     button.set_sensitive(true);
+                    return;
                 }
-            }
+            };
+            let application_state = Rc::clone(&controller.application_state);
+            let controller_after = Rc::clone(&controller);
+            let dialog = dialog.clone();
+            let error_label = error_label.clone();
+            let button = button.clone();
+            controller.review_guardrail(scopes, move |authorizations| {
+                match application_state.submit_batch_rename_authorized(
+                    GuardrailAuthorizedBatchRename::new(request, authorizations),
+                ) {
+                    Ok(_) => {
+                        controller_after
+                            .widgets
+                            .status_label
+                            .set_label("Batch rename queued…");
+                        if let Some(dialog) = dialog.upgrade() {
+                            dialog.close();
+                        }
+                    }
+                    Err(error) => {
+                        error_label.set_label(&format!("Could not queue batch rename: {error}"));
+                        button.set_sensitive(true);
+                    }
+                }
+            });
         });
         widgets.dialog.present(Some(&self.widgets.window));
         widgets.prefix_entry.grab_focus();
     }
 
     fn undo_batch_rename(&self) {
-        match self.application_state.submit_batch_rename_undo() {
-            Ok(Some(_)) => {
-                self.widgets.status_label.set_label("Undoing batch rename…");
-                if let Some(action) = self
-                    .widgets
-                    .window
-                    .lookup_action("undo-batch-rename")
-                    .and_downcast::<gio::SimpleAction>()
-                {
-                    action.set_enabled(false);
+        let scopes = match self.application_state.batch_rename_undo_guardrail_scopes() {
+            Ok(Some(scopes)) => scopes,
+            Ok(None) => {
+                self.show_toast("No completed batch rename available to undo", 4);
+                return;
+            }
+            Err(error) => {
+                self.show_toast(&format!("Could not undo batch rename: {error}"), 7);
+                return;
+            }
+        };
+        let application_state = Rc::clone(&self.application_state);
+        let status_label = self.widgets.status_label.clone();
+        let undo_action = self
+            .widgets
+            .window
+            .lookup_action("undo-batch-rename")
+            .and_downcast::<gio::SimpleAction>();
+        let toast_overlay = self.widgets.toast_overlay.clone();
+        self.review_guardrail(scopes, move |authorizations| {
+            match application_state.submit_batch_rename_undo_authorized(authorizations) {
+                Ok(Some(_)) => {
+                    status_label.set_label("Undoing batch rename…");
+                    if let Some(action) = undo_action.as_ref() {
+                        action.set_enabled(false);
+                    }
+                }
+                Ok(None) => {
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title("No completed batch rename is available to undo")
+                            .timeout(4)
+                            .build(),
+                    );
+                }
+                Err(error) => {
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not undo batch rename: {error}"))
+                            .timeout(7)
+                            .build(),
+                    );
                 }
             }
-            Ok(None) => self.show_toast("No completed batch rename is available to undo", 4),
-            Err(error) => self.show_toast(&format!("Could not undo batch rename: {error}"), 7),
-        }
+        });
     }
 
     fn show_rename(&self) {
@@ -8217,6 +9655,8 @@ impl BrowserController {
         let rename_entry = rename.rename_entry.clone();
         let rename_error = rename.rename_error.clone();
         let dialog = rename.dialog.downgrade();
+        let window = self.widgets.window.clone();
+        let environment = self.guardrail_environment();
         rename.rename_button.connect_clicked(move |_| {
             let new_name = rename_entry.text();
             let new_name_os = OsString::from(new_name.as_str());
@@ -8235,19 +9675,47 @@ impl BrowserController {
                 return;
             }
 
-            match application_state.submit_rename(source.clone(), new_name_os) {
-                Ok(_) => {
-                    status_label.set_label("Rename queued…");
-                    if let Some(dialog) = dialog.upgrade() {
-                        dialog.close();
-                    }
-                }
+            let request =
+                RenameRequest::new(source.clone(), new_name_os, ConflictPolicy::FailIfExists);
+            let scope = match destructive_scope_for_rename(&request) {
+                Ok(scope) => scope,
                 Err(error) => {
                     rename_error.set_label(&format!("Could not rename: {error}"));
                     rename_error.set_visible(true);
-                    rename_entry.grab_focus();
+                    return;
                 }
-            }
+            };
+            let application_state = Rc::clone(&application_state);
+            let status_label = status_label.clone();
+            let rename_error = rename_error.clone();
+            let rename_entry = rename_entry.clone();
+            let dialog = dialog.clone();
+            review_and_authorize(
+                &window,
+                Rc::clone(&application_state),
+                vec![scope],
+                environment.clone(),
+                move |mut authorizations| {
+                    let Some(authorization) = authorizations.pop() else {
+                        return;
+                    };
+                    match application_state
+                        .submit_rename_authorized(GuardrailAuthorized::new(request, authorization))
+                    {
+                        Ok(_) => {
+                            status_label.set_label("Rename queued…");
+                            if let Some(dialog) = dialog.upgrade() {
+                                dialog.close();
+                            }
+                        }
+                        Err(error) => {
+                            rename_error.set_label(&format!("Could not rename: {error}"));
+                            rename_error.set_visible(true);
+                            rename_entry.grab_focus();
+                        }
+                    }
+                },
+            );
         });
 
         rename.dialog.present(Some(&self.widgets.window));
@@ -8278,11 +9746,336 @@ impl BrowserController {
         self.load_current_inner();
     }
 
+    fn guardrail_target_folder(&self) -> Option<PathBuf> {
+        if self.trash_active.get() {
+            return None;
+        }
+        let selected = self.selected_entries.borrow();
+        if selected.len() == 1 && matches!(selected[0].kind(), EntryKind::Directory) {
+            return Some(selected[0].path().to_path_buf());
+        }
+        Some(self.tabs.borrow().active().current().path().to_path_buf())
+    }
+
+    fn update_guardrail_action_states(&self) {
+        let target = self.guardrail_target_folder();
+        let policy = self.application_state.guardrail_policy();
+        let blocked =
+            self.application_state.guardrail_store_health() == GuardrailStoreHealth::Blocked;
+        let busy = self.application_state.guardrail_policy_busy();
+        let states = crate::guardrail_ui_model::guardrail_action_states(
+            target.as_deref(),
+            &policy,
+            blocked,
+            busy,
+        );
+        for (name, enabled) in [
+            ("protect-folder", states.protect),
+            ("unprotect-folder", states.unprotect),
+        ] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(enabled);
+            }
+        }
+    }
+
+    fn change_target_protection(self: &Rc<Self>, protect: bool) {
+        let Some(target) = self.guardrail_target_folder() else {
+            self.show_toast("Open a normal local folder first", 5);
+            return;
+        };
+        match self
+            .application_state
+            .submit_guardrail_protection_change(target, protect)
+        {
+            Ok(true) => {
+                self.widgets.status_label.set_label(if protect {
+                    "Saving Protected Folder…"
+                } else {
+                    "Removing Protected Folder…"
+                });
+                self.update_guardrail_action_states();
+            }
+            Ok(false) => self.show_toast(
+                if protect {
+                    "This folder is already protected"
+                } else {
+                    "This folder is not an exact Protected Folder root"
+                },
+                5,
+            ),
+            Err(error) => {
+                self.show_toast(&format!("Could not update Protected Folders: {error}"), 7)
+            }
+        }
+    }
+
+    fn drain_guardrail_policy_worker(&self) {
+        while let Some(result) = self.application_state.poll_guardrail_policy_update() {
+            match result {
+                Ok(true) => {
+                    self.show_toast("Protected Folder policy reset; no folders are protected", 6)
+                }
+                Ok(false) => self.show_toast("Protected Folder policy saved", 5),
+                Err(error) => self.show_toast(
+                    &format!("Protected Folder policy was not changed: {error}"),
+                    8,
+                ),
+            }
+            self.update_guardrail_action_states();
+        }
+    }
+
+    fn show_protected_folders_status(self: &Rc<Self>) {
+        let health = self.application_state.guardrail_store_health();
+        if health == GuardrailStoreHealth::Blocked {
+            let detail = self
+                .application_state
+                .guardrail_store_error_text()
+                .unwrap_or_else(|| "unknown policy storage error".to_owned());
+            let dialog = adw::AlertDialog::builder()
+                .heading("Protected Folders Unavailable")
+                .body(format!(
+                    "Destructive actions remain blocked because Floe could not safely load its policy: {detail}\n\n{}",
+                    crate::guardrail_ui::GUARDRAIL_LIMITATION_TEXT
+                ))
+                .build();
+            dialog.add_response("cancel", "Cancel");
+            dialog.add_response("reset", "Review Reset…");
+            dialog.set_close_response("cancel");
+            dialog.set_response_appearance("reset", adw::ResponseAppearance::Destructive);
+            dialog.update_property(&[gtk::accessible::Property::Label(
+                "Protected Folder policy storage error",
+            )]);
+            let controller = Rc::downgrade(self);
+            dialog.connect_response(None, move |_, response| {
+                if response == "reset"
+                    && let Some(controller) = controller.upgrade()
+                {
+                    controller.confirm_guardrail_store_reset();
+                }
+            });
+            dialog.present(Some(&self.widgets.window));
+            return;
+        }
+
+        let policy = self.application_state.guardrail_policy();
+        let target = self.guardrail_target_folder();
+        let exact_protected = target
+            .as_ref()
+            .is_some_and(|target| policy.roots().iter().any(|protected| protected == target));
+        let target_text = target
+            .as_deref()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "No normal folder is active".to_owned());
+        let dialog = adw::AlertDialog::builder()
+            .heading("Protected Folders")
+            .body(format!(
+                "{} exact folder root{} saved.\n\nCurrent target: {target_text}\nState: {}\n\n{}",
+                policy.roots().len(),
+                if policy.roots().len() == 1 {
+                    " is"
+                } else {
+                    "s are"
+                },
+                if exact_protected {
+                    "Protected"
+                } else {
+                    "Not protected"
+                },
+                crate::guardrail_ui::GUARDRAIL_LIMITATION_TEXT
+            ))
+            .build();
+        dialog.add_response("close", "Close");
+        if target.is_some() && !self.application_state.guardrail_policy_busy() {
+            dialog.add_response(
+                if exact_protected {
+                    "unprotect"
+                } else {
+                    "protect"
+                },
+                if exact_protected {
+                    "Unprotect Folder"
+                } else {
+                    "Protect Folder"
+                },
+            );
+        }
+        dialog.set_close_response("close");
+        let controller = Rc::downgrade(self);
+        dialog.connect_response(None, move |_, response| {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            if response == "protect" {
+                controller.change_target_protection(true);
+            } else if response == "unprotect" {
+                controller.change_target_protection(false);
+            }
+        });
+        dialog.present(Some(&self.widgets.window));
+    }
+
+    fn confirm_guardrail_store_reset(self: &Rc<Self>) {
+        let dialog = adw::AlertDialog::builder()
+            .heading("Reset Blocked Protected Folder Policy?")
+            .body(format!(
+                "This acknowledges the storage error and replaces the unreadable policy with an empty policy. Previously protected folder entries cannot be recovered from the corrupt store.\n\n{}",
+                crate::guardrail_ui::GUARDRAIL_LIMITATION_TEXT
+            ))
+            .build();
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("acknowledge-reset", "Acknowledge and Reset");
+        dialog.set_close_response("cancel");
+        dialog.set_response_appearance("acknowledge-reset", adw::ResponseAppearance::Destructive);
+        dialog.update_property(&[gtk::accessible::Property::Label(
+            "Acknowledge and reset blocked Protected Folder policy",
+        )]);
+        let controller = Rc::downgrade(self);
+        dialog.connect_response(None, move |_, response| {
+            if response != "acknowledge-reset" {
+                return;
+            }
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            match controller
+                .application_state
+                .submit_guardrail_blocked_reset(true)
+            {
+                Ok(()) => {
+                    controller
+                        .widgets
+                        .status_label
+                        .set_label("Resetting Protected Folder policy…");
+                    controller.update_guardrail_action_states();
+                }
+                Err(error) => controller.show_toast(
+                    &format!("Could not reset Protected Folder policy: {error}"),
+                    8,
+                ),
+            }
+        });
+        dialog.present(Some(&self.widgets.window));
+    }
+
     fn show_toast(&self, title: &str, timeout: u32) {
+        let title = escaped_toast_title(title);
         self.widgets
             .toast_overlay
             .add_toast(adw::Toast::builder().title(title).timeout(timeout).build());
     }
+
+    fn review_guardrail(
+        &self,
+        scopes: Vec<DestructiveScope>,
+        on_authorized: impl FnOnce(Vec<GuardrailAuthorizationItem>) + 'static,
+    ) {
+        let environment = self.guardrail_environment();
+        review_and_authorize(
+            &self.widgets.window,
+            Rc::clone(&self.application_state),
+            scopes,
+            environment,
+            on_authorized,
+        );
+    }
+
+    pub(crate) fn guardrail_environment(&self) -> PreflightEnvironment {
+        let mount_roots = self
+            .device_snapshots
+            .borrow()
+            .iter()
+            .filter_map(DeviceSnapshot::local_root)
+            .map(Path::to_path_buf)
+            .collect();
+        PreflightEnvironment::new(Some(glib::home_dir()), mount_roots).unwrap_or_default()
+    }
+}
+
+fn escaped_toast_title(title: &str) -> glib::GString {
+    glib::markup_escape_text(title)
+}
+
+fn review_move_batch(
+    window: &adw::ApplicationWindow,
+    state: Rc<ApplicationState>,
+    environment: PreflightEnvironment,
+    sources: Vec<PathBuf>,
+    destination_directory: PathBuf,
+    on_complete: impl FnOnce(Result<crate::state::BatchSubmission, String>) + 'static,
+) {
+    let mut seen = HashSet::with_capacity(sources.len());
+    let operations = sources
+        .into_iter()
+        .filter(|source| seen.insert(source.clone()))
+        .map(|source| {
+            transfer_destination(&source, &destination_directory).map(|destination| {
+                TrackedOperation::Move(MoveRequest::new(
+                    source,
+                    destination,
+                    ConflictPolicy::FailIfExists,
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>();
+    let operations = match operations {
+        Ok(operations) if !operations.is_empty() => operations,
+        Ok(_) => {
+            on_complete(Err("select at least one item".to_owned()));
+            return;
+        }
+        Err(error) => {
+            on_complete(Err(error.to_string()));
+            return;
+        }
+    };
+    let scopes = match operations
+        .iter()
+        .map(|operation| match operation {
+            TrackedOperation::Move(request) => destructive_scope_for_move(request),
+            _ => unreachable!("move batch planner emits only Move"),
+        })
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(scopes) => scopes,
+        Err(error) => {
+            on_complete(Err(error.to_string()));
+            return;
+        }
+    };
+    let callback =
+        Rc::new(RefCell::new(Some(Box::new(on_complete)
+            as Box<
+                dyn FnOnce(Result<crate::state::BatchSubmission, String>),
+            >)));
+    let callback_after = Rc::clone(&callback);
+    review_and_authorize(
+        window,
+        Rc::clone(&state),
+        scopes,
+        environment,
+        move |items| {
+            let guarded = operations
+                .into_iter()
+                .zip(items)
+                .map(|(operation, authorization)| {
+                    GuardrailAuthorized::new(operation, authorization)
+                })
+                .collect();
+            let result = state
+                .enqueue_authorized_batch(guarded)
+                .map_err(|error| error.to_string());
+            if let Some(callback) = callback_after.borrow_mut().take() {
+                callback(result);
+            }
+        },
+    );
 }
 
 fn selection_indices_for_paths(
@@ -8392,6 +10185,22 @@ fn selection_action_state(entries: &[Arc<DirectoryEntry>]) -> SelectionActionSta
         rename: single,
         trash: !entries.is_empty(),
     }
+}
+
+fn integrity_manifest_root(current: &Path, targets: &[PathBuf]) -> Option<PathBuf> {
+    if targets.is_empty() || !current.is_absolute() {
+        return None;
+    }
+    if targets.iter().all(|target| target.starts_with(current)) {
+        return Some(current.to_path_buf());
+    }
+    let mut root = targets.first()?.parent()?.to_path_buf();
+    while !targets.iter().all(|target| target.starts_with(&root)) {
+        if !root.pop() {
+            return None;
+        }
+    }
+    root.is_absolute().then_some(root)
 }
 
 fn suggested_link_name(source_name: &OsStr, fallback: &str) -> String {
@@ -8815,6 +10624,40 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn post_phase_14_toast_titles_escape_markup_metacharacters() {
+        assert_eq!(
+            escaped_toast_title("File & folder icons: <Phosphor>"),
+            "File &amp; folder icons: &lt;Phosphor&gt;"
+        );
+    }
+
+    #[test]
+    fn phase_18t_ui_uses_current_or_common_manifest_root_without_path_text() {
+        let current = Path::new("/workspace/current");
+        assert_eq!(
+            integrity_manifest_root(
+                current,
+                &[
+                    PathBuf::from("/workspace/current/a"),
+                    PathBuf::from("/workspace/current/b")
+                ],
+            ),
+            Some(current.to_path_buf())
+        );
+        assert_eq!(
+            integrity_manifest_root(
+                current,
+                &[
+                    PathBuf::from("/workspace/other/a"),
+                    PathBuf::from("/workspace/other/b")
+                ],
+            ),
+            Some(PathBuf::from("/workspace/other"))
+        );
+        assert_eq!(integrity_manifest_root(current, &[]), None);
+    }
 
     #[test]
     fn phase_13b_search_ui_feedback_reports_progress_stop_skips_and_limits() {

@@ -9,9 +9,10 @@ use std::{
 
 use floe_core::{
     ArchiveOutcome, ArchiveRequest, BatchRenameOutcome, BatchRenameRequest, ChecksumRequest,
-    ConflictPolicy, CopyRequest, CreateKind, CreateRequest, CreateRequestError, JobEvent, JobId,
-    MoveRequest, OperationId, PermanentDeleteRequest, PermanentDeleteRequestError,
-    PermissionRequest, RenameRequest, RestoreRequest, RestoreRequestError, SymlinkPolicy,
+    ConflictPolicy, CopyRequest, CreateKind, CreateRequest, CreateRequestError, DestructiveAction,
+    DestructiveScope, DestructiveScopeError, GuardrailPermitError, JobEvent, JobId, MoveRequest,
+    OperationId, PermanentDeleteRequest, PermanentDeleteRequestError, PermissionRequest,
+    RenameRequest, RestoreRequest, RestoreRequestError, SymlinkPolicy, VerifiedCopyRequest,
 };
 use thiserror::Error;
 
@@ -33,6 +34,17 @@ use crate::{
         CreateSubmitError,
     },
     drag_drop::{DropAction, DropDestination, DropPolicyError, DropRequest, plan_directory_drop},
+    guardrail_controller::{
+        GuardrailAuthorizationItem, GuardrailConfirmation, GuardrailController,
+        GuardrailControllerError, GuardrailPoll, GuardrailResolution, GuardrailReviewRequest,
+        GuardrailReviewSubmission, GuardrailStoreHealth,
+    },
+    guardrail_policy_worker::{GuardrailPolicyRequest, GuardrailPolicyWorker},
+    guardrail_preflight::PreflightEnvironment,
+    integrity_executor::{
+        IntegrityCancelError, IntegrityExecutor, IntegrityExecutorSpawnError, IntegrityOutcome,
+        IntegrityRequest, IntegritySubmission, IntegritySubmitError,
+    },
     job_manager::{ApplicationJobManager, SharedJobManager},
     move_executor::{
         MoveCancelError, MoveExecutor, MoveExecutorSpawnError, MoveSubmission, MoveSubmitError,
@@ -54,7 +66,38 @@ use crate::{
         TrashCancelError, TrashExecutor, TrashExecutorSpawnError, TrashRequest, TrashRequestError,
         TrashSubmission, TrashSubmitError,
     },
+    verified_copy_executor::{
+        VerifiedCopyCancelError, VerifiedCopyExecutor, VerifiedCopyExecutorSpawnError,
+        VerifiedCopyResult, VerifiedCopySubmission, VerifiedCopySubmitError,
+    },
 };
+
+/// Identifies the application workflow that exclusively owns a terminal
+/// verified-copy result. The executor result is still removed exactly once by
+/// [`OperationController`](crate::operations::OperationController); claimed
+/// removable-media results are then delivered to the registered workflow
+/// observer instead of the ordinary Copy and Verify result dialog.
+#[derive(Debug)]
+pub enum VerifiedCopyCompletion {
+    Ordinary(VerifiedCopyResult),
+    VerifiedUsb(VerifiedCopyResult),
+}
+
+type VerifiedUsbCompletionHandler = Box<dyn Fn(JobId, VerifiedCopyResult)>;
+
+#[derive(Default)]
+struct VerifiedUsbCompletionObserver {
+    handler: RefCell<Option<VerifiedUsbCompletionHandler>>,
+}
+
+impl std::fmt::Debug for VerifiedUsbCompletionObserver {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("VerifiedUsbCompletionObserver")
+            .field("registered", &self.handler.borrow().is_some())
+            .finish()
+    }
+}
 
 #[cfg(test)]
 use crate::trash_executor::{TrashBackend, TrashError};
@@ -152,10 +195,11 @@ pub enum TrackedOperation {
 pub const MAX_TERMINAL_HISTORY: usize = 64;
 const MAX_BATCH_HISTORY: usize = 64;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct PendingBatchItem {
     batch_id: BatchId,
     operation: TrackedOperation,
+    authorization: Option<GuardrailAuthorizationItem>,
 }
 
 #[derive(Clone, Debug)]
@@ -406,6 +450,48 @@ pub enum ConflictResolution {
     Retried(RetrySubmission),
 }
 
+/// A destructive request paired with the exact single-use authorization
+/// produced by the application-owned guardrail controller.
+///
+/// The wrapper is deliberately not `Clone`: retry, undo, conflict, and queued
+/// dispatch must each obtain a fresh permit for their exact scope.
+#[derive(Debug)]
+pub struct GuardrailAuthorized<T> {
+    value: T,
+    authorization: GuardrailAuthorizationItem,
+}
+
+#[derive(Debug)]
+pub struct GuardrailAuthorizedBatchRename {
+    request: BatchRenameRequest,
+    authorizations: Vec<GuardrailAuthorizationItem>,
+}
+
+impl GuardrailAuthorizedBatchRename {
+    pub(crate) fn new(
+        request: BatchRenameRequest,
+        authorizations: Vec<GuardrailAuthorizationItem>,
+    ) -> Self {
+        Self {
+            request,
+            authorizations,
+        }
+    }
+}
+
+impl<T> GuardrailAuthorized<T> {
+    pub(crate) fn new(value: T, authorization: GuardrailAuthorizationItem) -> Self {
+        Self {
+            value,
+            authorization,
+        }
+    }
+
+    fn into_parts(self) -> (T, GuardrailAuthorizationItem) {
+        (self.value, self.authorization)
+    }
+}
+
 impl RetrySubmission {
     pub const fn operation_id(self) -> OperationId {
         match self {
@@ -458,6 +544,14 @@ pub enum CopyInteractionError {
     DestinationInsideSource,
     #[error("enter one filename without slashes")]
     InvalidRenameName,
+    #[error("fresh guardrail authorization is required before this destructive operation")]
+    AuthorizationRequired(DestructiveScope),
+    #[error(transparent)]
+    DestructiveScope(#[from] DestructiveScopeError),
+    #[error(transparent)]
+    GuardrailPermit(#[from] GuardrailPermitError),
+    #[error(transparent)]
+    BatchRename(#[from] BatchRenameExecutorError),
     #[error(transparent)]
     DropPolicy(#[from] DropPolicyError),
     #[error(transparent)]
@@ -497,6 +591,10 @@ pub enum CopyInteractionError {
     #[error(transparent)]
     ChecksumCancel(#[from] ChecksumCancelError),
     #[error(transparent)]
+    IntegrityCancel(#[from] IntegrityCancelError),
+    #[error(transparent)]
+    VerifiedCopyCancel(#[from] VerifiedCopyCancelError),
+    #[error(transparent)]
     ArchiveCancel(#[from] ArchiveCancelError),
     #[error("terminal operation history does not contain job {0:?}")]
     RetryNotFound(JobId),
@@ -529,11 +627,19 @@ pub enum CopyInteractionError {
 #[derive(Debug, Error)]
 pub enum ApplicationStateSpawnError {
     #[error(transparent)]
+    Guardrail(#[from] GuardrailControllerError),
+    #[error("could not start Protected Folder policy worker")]
+    GuardrailPolicy(#[source] std::io::Error),
+    #[error(transparent)]
     Archive(#[from] ArchiveExecutorSpawnError),
     #[error(transparent)]
     BatchRename(#[from] BatchRenameExecutorError),
     #[error(transparent)]
     Checksum(#[from] ChecksumExecutorSpawnError),
+    #[error(transparent)]
+    Integrity(#[from] IntegrityExecutorSpawnError),
+    #[error(transparent)]
+    VerifiedCopy(#[from] VerifiedCopyExecutorSpawnError),
     #[error(transparent)]
     Copy(#[from] CopyExecutorSpawnError),
     #[error(transparent)]
@@ -563,11 +669,20 @@ pub struct ApplicationState {
     permanent_delete_executor: PermanentDeleteExecutor,
     permission_executor: PermissionExecutor,
     checksum_executor: ChecksumExecutor,
+    integrity_executor: IntegrityExecutor,
+    verified_copy_executor: VerifiedCopyExecutor,
     restore_executor: RestoreExecutor,
+    guardrails: RefCell<GuardrailController>,
+    guardrail_policy_worker: RefCell<GuardrailPolicyWorker>,
+    guardrail_policy_pending: Cell<Option<u64>>,
     transfer_buffer: RefCell<TransferBuffer>,
     operation_requests: RefCell<HashMap<JobId, TrackedOperation>>,
     permission_requests: RefCell<HashMap<JobId, PermissionRequest>>,
     checksum_requests: RefCell<HashMap<JobId, ChecksumRequest>>,
+    integrity_requests: RefCell<HashMap<JobId, IntegrityRequest>>,
+    verified_copy_requests: RefCell<HashMap<JobId, VerifiedCopyRequest>>,
+    verified_usb_copy_jobs: RefCell<HashSet<JobId>>,
+    verified_usb_completion_observer: VerifiedUsbCompletionObserver,
     archive_requests: RefCell<HashMap<JobId, ArchiveRequest>>,
     batch_rename_requests: RefCell<HashMap<JobId, BatchRenameRequest>>,
     batch_rename_undo: RefCell<Option<BatchRenameRequest>>,
@@ -593,7 +708,13 @@ impl ApplicationState {
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
         let permission_executor = PermissionExecutor::spawn(Arc::clone(&jobs))?;
         let checksum_executor = ChecksumExecutor::spawn(Arc::clone(&jobs))?;
+        let integrity_executor = IntegrityExecutor::spawn(Arc::clone(&jobs))?;
+        let verified_copy_executor = VerifiedCopyExecutor::spawn(Arc::clone(&jobs))?;
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
+        let guardrail_store_path = default_guardrail_store_path();
+        let guardrails = GuardrailController::load_at(guardrail_store_path.clone())?;
+        let guardrail_policy_worker = GuardrailPolicyWorker::spawn(guardrail_store_path)
+            .map_err(ApplicationStateSpawnError::GuardrailPolicy)?;
         Ok(Self {
             jobs,
             archive_executor,
@@ -605,11 +726,20 @@ impl ApplicationState {
             permanent_delete_executor,
             permission_executor,
             checksum_executor,
+            integrity_executor,
+            verified_copy_executor,
             restore_executor,
+            guardrails: RefCell::new(guardrails),
+            guardrail_policy_worker: RefCell::new(guardrail_policy_worker),
+            guardrail_policy_pending: Cell::new(None),
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
             permission_requests: RefCell::new(HashMap::new()),
             checksum_requests: RefCell::new(HashMap::new()),
+            integrity_requests: RefCell::new(HashMap::new()),
+            verified_copy_requests: RefCell::new(HashMap::new()),
+            verified_usb_copy_jobs: RefCell::new(HashSet::new()),
+            verified_usb_completion_observer: VerifiedUsbCompletionObserver::default(),
             archive_requests: RefCell::new(HashMap::new()),
             batch_rename_requests: RefCell::new(HashMap::new()),
             batch_rename_undo: RefCell::new(None),
@@ -622,6 +752,128 @@ impl ApplicationState {
             job_batches: RefCell::new(HashMap::new()),
             next_batch_id: Cell::new(1),
         })
+    }
+
+    pub fn guardrail_store_health(&self) -> GuardrailStoreHealth {
+        self.guardrails.borrow().store_health()
+    }
+
+    pub fn guardrail_store_error_text(&self) -> Option<String> {
+        self.guardrails
+            .borrow()
+            .store_error()
+            .map(ToString::to_string)
+    }
+
+    pub fn guardrail_policy(&self) -> floe_core::ProtectedRoots {
+        self.guardrails.borrow().policy().clone()
+    }
+
+    pub fn guardrail_policy_busy(&self) -> bool {
+        self.guardrail_policy_pending.get().is_some()
+    }
+
+    pub fn submit_guardrail_protection_change(
+        &self,
+        path: PathBuf,
+        protect: bool,
+    ) -> Result<bool, String> {
+        if self.guardrail_store_health() == GuardrailStoreHealth::Blocked {
+            return Err("Protected Folder policy is blocked until it is explicitly reset".into());
+        }
+        if self.guardrail_policy_busy() {
+            return Err("another Protected Folder policy save is still running".into());
+        }
+        let mut policy = self.guardrail_policy();
+        let changed = if protect {
+            policy.add(path)
+        } else {
+            policy.remove(&path)
+        }
+        .map_err(|error| error.to_string())?;
+        if !changed {
+            return Ok(false);
+        }
+        let request_id = self
+            .guardrail_policy_worker
+            .borrow_mut()
+            .submit(GuardrailPolicyRequest::Persist(policy))
+            .map_err(|error| error.to_string())?;
+        self.guardrail_policy_pending.set(Some(request_id));
+        Ok(true)
+    }
+
+    pub fn submit_guardrail_blocked_reset(&self, acknowledged: bool) -> Result<(), String> {
+        if self.guardrail_store_health() != GuardrailStoreHealth::Blocked || !acknowledged {
+            return Err("acknowledge the blocked policy store before resetting it".into());
+        }
+        if self.guardrail_policy_busy() {
+            return Err("another Protected Folder policy save is still running".into());
+        }
+        let generation = self
+            .guardrail_policy()
+            .generation()
+            .checked_add(1)
+            .ok_or_else(|| "Protected Folder policy generation is exhausted".to_owned())?;
+        let policy = floe_core::ProtectedRoots::with_generation(generation, Vec::new())
+            .map_err(|error| error.to_string())?;
+        let request_id = self
+            .guardrail_policy_worker
+            .borrow_mut()
+            .submit(GuardrailPolicyRequest::ResetBlocked(policy))
+            .map_err(|error| error.to_string())?;
+        self.guardrail_policy_pending.set(Some(request_id));
+        Ok(())
+    }
+
+    pub fn poll_guardrail_policy_update(&self) -> Option<Result<bool, String>> {
+        let response = self.guardrail_policy_worker.borrow().try_response()?;
+        if self.guardrail_policy_pending.get() != Some(response.request_id()) {
+            return Some(Err("stale Protected Folder policy response".to_owned()));
+        }
+        self.guardrail_policy_pending.set(None);
+        if let Err(error) = response.result() {
+            return Some(Err(error.clone()));
+        }
+        let reset = matches!(response.request(), GuardrailPolicyRequest::ResetBlocked(_));
+        match self
+            .guardrails
+            .borrow_mut()
+            .install_persisted_policy(response.request().policy().clone())
+        {
+            Ok(()) => Some(Ok(reset)),
+            Err(error) => Some(Err(error.to_string())),
+        }
+    }
+
+    pub fn begin_guardrail_review(
+        &self,
+        scopes: Vec<DestructiveScope>,
+        environment: PreflightEnvironment,
+    ) -> Result<GuardrailReviewSubmission, GuardrailControllerError> {
+        let request = GuardrailReviewRequest::new(scopes, environment)?;
+        self.guardrails.borrow_mut().begin_review(request)
+    }
+
+    pub fn poll_guardrail_review(
+        &self,
+        generation: u64,
+    ) -> Result<GuardrailPoll, GuardrailControllerError> {
+        self.guardrails.borrow_mut().poll(generation)
+    }
+
+    pub fn resolve_guardrail_review(
+        &self,
+        generation: u64,
+        confirmation: GuardrailConfirmation,
+    ) -> Result<GuardrailResolution, GuardrailControllerError> {
+        self.guardrails
+            .borrow_mut()
+            .resolve_review(generation, confirmation)
+    }
+
+    pub fn cancel_guardrail_review(&self, generation: u64) -> Result<(), GuardrailControllerError> {
+        self.guardrails.borrow_mut().cancel(generation)
     }
 
     pub fn stage_copy(&self, source: PathBuf) -> Result<(), CopyInteractionError> {
@@ -845,20 +1097,31 @@ impl ApplicationState {
             }
             TransferIntent::Move => {
                 let request = MoveRequest::new(source, destination, ConflictPolicy::FailIfExists);
-                match self.move_executor.submit_move(request.clone()) {
-                    Ok(submission) => {
-                        self.track(submission.job_id(), TrackedOperation::Move(request));
-                        Ok(TransferSubmission::Move(submission))
-                    }
-                    Err(error) => {
-                        if let Some(job_id) = error.job_id() {
-                            self.track(job_id, TrackedOperation::Move(request));
-                        }
-                        Err(error.into())
-                    }
-                }
+                let scope = destructive_scope_for_move(&request)?;
+                Err(CopyInteractionError::AuthorizationRequired(scope))
             }
         }
+    }
+
+    pub fn submit_move_authorized(
+        &self,
+        authorized: GuardrailAuthorized<MoveRequest>,
+    ) -> Result<TransferSubmission, CopyInteractionError> {
+        let scope = destructive_scope_for_move(&authorized.value)?;
+        self.consume_then_dispatch(scope, authorized, |request| {
+            match self.move_executor.submit_move(request.clone()) {
+                Ok(submission) => {
+                    self.track(submission.job_id(), TrackedOperation::Move(request));
+                    Ok(TransferSubmission::Move(submission))
+                }
+                Err(error) => {
+                    if let Some(job_id) = error.job_id() {
+                        self.track(job_id, TrackedOperation::Move(request));
+                    }
+                    Err(error.into())
+                }
+            }
+        })
     }
 
     pub fn submit_rename(
@@ -868,18 +1131,29 @@ impl ApplicationState {
     ) -> Result<MoveSubmission, CopyInteractionError> {
         validate_rename_name(&new_name)?;
         let request = RenameRequest::new(source, new_name, ConflictPolicy::FailIfExists);
-        match self.move_executor.submit_rename(request.clone()) {
-            Ok(submission) => {
-                self.track(submission.job_id(), TrackedOperation::Rename(request));
-                Ok(submission)
-            }
-            Err(error) => {
-                if let Some(job_id) = error.job_id() {
-                    self.track(job_id, TrackedOperation::Rename(request));
+        let scope = destructive_scope_for_rename(&request)?;
+        Err(CopyInteractionError::AuthorizationRequired(scope))
+    }
+
+    pub fn submit_rename_authorized(
+        &self,
+        authorized: GuardrailAuthorized<RenameRequest>,
+    ) -> Result<MoveSubmission, CopyInteractionError> {
+        let scope = destructive_scope_for_rename(&authorized.value)?;
+        self.consume_then_dispatch(scope, authorized, |request| {
+            match self.move_executor.submit_rename(request.clone()) {
+                Ok(submission) => {
+                    self.track(submission.job_id(), TrackedOperation::Rename(request));
+                    Ok(submission)
                 }
-                Err(error.into())
+                Err(error) => {
+                    if let Some(job_id) = error.job_id() {
+                        self.track(job_id, TrackedOperation::Rename(request));
+                    }
+                    Err(error.into())
+                }
             }
-        }
+        })
     }
 
     pub fn submit_create(
@@ -929,9 +1203,72 @@ impl ApplicationState {
         self.checksum_requests.borrow().contains_key(&job_id)
     }
 
+    /// OperationController should use this before terminal presentation, then call
+    /// [`Self::finish_integrity`] to obtain the backend-owned structured outcome.
+    pub fn is_integrity_operation(&self, job_id: JobId) -> bool {
+        self.integrity_requests.borrow().contains_key(&job_id)
+    }
+
+    pub fn is_verified_copy_operation(&self, job_id: JobId) -> bool {
+        self.verified_copy_requests.borrow().contains_key(&job_id)
+    }
+
+    pub fn is_verified_usb_copy_operation(&self, job_id: JobId) -> bool {
+        self.verified_usb_copy_jobs.borrow().contains(&job_id)
+    }
+
+    pub fn observe_verified_usb_completions(
+        &self,
+        handler: impl Fn(JobId, VerifiedCopyResult) + 'static,
+    ) {
+        self.verified_usb_completion_observer
+            .handler
+            .replace(Some(Box::new(handler)));
+    }
+
+    pub fn verified_copy_request(&self, job_id: JobId) -> Option<VerifiedCopyRequest> {
+        self.verified_copy_requests.borrow().get(&job_id).cloned()
+    }
+
+    pub fn integrity_request(&self, job_id: JobId) -> Option<IntegrityRequest> {
+        self.integrity_requests.borrow().get(&job_id).cloned()
+    }
+
     pub fn finish_checksum(&self, job_id: JobId) -> Option<ChecksumOutcome> {
         self.checksum_requests.borrow_mut().remove(&job_id);
         self.checksum_executor.take_result(job_id)
+    }
+
+    /// Retrieves the structured result after the job is terminal. This is intentionally UI-free.
+    pub fn finish_integrity(&self, job_id: JobId) -> Option<IntegrityOutcome> {
+        self.integrity_requests.borrow_mut().remove(&job_id);
+        self.integrity_executor.take_result(job_id)
+    }
+
+    pub fn finish_verified_copy(&self, job_id: JobId) -> Option<VerifiedCopyCompletion> {
+        self.verified_copy_requests.borrow_mut().remove(&job_id);
+        let result = self.verified_copy_executor.take_result(job_id)?;
+        if self.verified_usb_copy_jobs.borrow_mut().remove(&job_id) {
+            Some(VerifiedCopyCompletion::VerifiedUsb(result))
+        } else {
+            Some(VerifiedCopyCompletion::Ordinary(result))
+        }
+    }
+
+    pub fn dispatch_verified_usb_completion(&self, job_id: JobId, result: VerifiedCopyResult) {
+        if let Some(handler) = self
+            .verified_usb_completion_observer
+            .handler
+            .borrow()
+            .as_ref()
+        {
+            handler(job_id, result);
+        } else {
+            tracing::error!(
+                ?job_id,
+                "verified removable transfer completed without an application observer"
+            );
+        }
     }
 
     pub fn finish_permission(&self, job_id: JobId) {
@@ -940,18 +1277,29 @@ impl ApplicationState {
 
     pub fn submit_trash(&self, source: PathBuf) -> Result<TrashSubmission, CopyInteractionError> {
         let request = TrashRequest::new(source)?;
-        match self.trash_executor.submit_trash(request.clone()) {
-            Ok(submission) => {
-                self.track(submission.job_id(), TrackedOperation::Trash(request));
-                Ok(submission)
-            }
-            Err(error) => {
-                if let Some(job_id) = error.job_id() {
-                    self.track(job_id, TrackedOperation::Trash(request));
+        let scope = destructive_scope_for_trash(&request)?;
+        Err(CopyInteractionError::AuthorizationRequired(scope))
+    }
+
+    pub fn submit_trash_authorized(
+        &self,
+        authorized: GuardrailAuthorized<TrashRequest>,
+    ) -> Result<TrashSubmission, CopyInteractionError> {
+        let scope = destructive_scope_for_trash(&authorized.value)?;
+        self.consume_then_dispatch(scope, authorized, |request| {
+            match self.trash_executor.submit_trash(request.clone()) {
+                Ok(submission) => {
+                    self.track(submission.job_id(), TrackedOperation::Trash(request));
+                    Ok(submission)
                 }
-                Err(error.into())
+                Err(error) => {
+                    if let Some(job_id) = error.job_id() {
+                        self.track(job_id, TrackedOperation::Trash(request));
+                    }
+                    Err(error.into())
+                }
             }
-        }
+        })
     }
 
     pub fn submit_permanent_delete(
@@ -959,21 +1307,32 @@ impl ApplicationState {
         targets: Vec<PathBuf>,
     ) -> Result<PermanentDeleteSubmission, CopyInteractionError> {
         let request = PermanentDeleteRequest::new(targets)?;
-        match self.permanent_delete_executor.submit(request.clone()) {
-            Ok(submission) => {
-                self.track(
-                    submission.job_id(),
-                    TrackedOperation::PermanentDelete(request),
-                );
-                Ok(submission)
-            }
-            Err(error) => {
-                if let Some(job_id) = error.job_id() {
-                    self.track(job_id, TrackedOperation::PermanentDelete(request));
+        let scope = destructive_scope_for_permanent_delete(&request)?;
+        Err(CopyInteractionError::AuthorizationRequired(scope))
+    }
+
+    pub fn submit_permanent_delete_authorized(
+        &self,
+        authorized: GuardrailAuthorized<PermanentDeleteRequest>,
+    ) -> Result<PermanentDeleteSubmission, CopyInteractionError> {
+        let scope = destructive_scope_for_permanent_delete(&authorized.value)?;
+        self.consume_then_dispatch(scope, authorized, |request| {
+            match self.permanent_delete_executor.submit(request.clone()) {
+                Ok(submission) => {
+                    self.track(
+                        submission.job_id(),
+                        TrackedOperation::PermanentDelete(request),
+                    );
+                    Ok(submission)
                 }
-                Err(error.into())
+                Err(error) => {
+                    if let Some(job_id) = error.job_id() {
+                        self.track(job_id, TrackedOperation::PermanentDelete(request));
+                    }
+                    Err(error.into())
+                }
             }
-        }
+        })
     }
 
     pub fn submit_permissions(
@@ -1015,6 +1374,63 @@ impl ApplicationState {
                 }
                 Err(error)
             }
+        }
+    }
+
+    pub fn submit_integrity(
+        &self,
+        request: IntegrityRequest,
+    ) -> Result<IntegritySubmission, IntegritySubmitError> {
+        match self.integrity_executor.submit(request.clone()) {
+            Ok(submission) => {
+                self.integrity_requests
+                    .borrow_mut()
+                    .insert(submission.job_id(), request);
+                Ok(submission)
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.integrity_requests.borrow_mut().insert(job_id, request);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub fn submit_verified_copy(
+        &self,
+        request: VerifiedCopyRequest,
+    ) -> Result<VerifiedCopySubmission, VerifiedCopySubmitError> {
+        match self.verified_copy_executor.submit(request.clone()) {
+            Ok(submission) => {
+                self.verified_copy_requests
+                    .borrow_mut()
+                    .insert(submission.job_id(), request);
+                Ok(submission)
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.verified_copy_requests
+                        .borrow_mut()
+                        .insert(job_id, request);
+                }
+                Err(error)
+            }
+        }
+    }
+
+    pub fn submit_verified_usb_copy(
+        &self,
+        request: VerifiedCopyRequest,
+    ) -> Result<VerifiedCopySubmission, VerifiedCopySubmitError> {
+        match self.submit_verified_copy(request) {
+            Ok(submission) => {
+                self.verified_usb_copy_jobs
+                    .borrow_mut()
+                    .insert(submission.job_id());
+                Ok(submission)
+            }
+            Err(error) => Err(error),
         }
     }
 
@@ -1068,7 +1484,36 @@ impl ApplicationState {
     pub fn submit_batch_rename(
         &self,
         request: BatchRenameRequest,
-    ) -> Result<BatchRenameSubmission, BatchRenameExecutorError> {
+    ) -> Result<BatchRenameSubmission, CopyInteractionError> {
+        let scope = destructive_scopes_for_batch_rename(&request)?
+            .into_iter()
+            .next()
+            .ok_or(CopyInteractionError::EmptySelection)?;
+        Err(CopyInteractionError::AuthorizationRequired(scope))
+    }
+
+    pub fn submit_batch_rename_authorized(
+        &self,
+        authorized: GuardrailAuthorizedBatchRename,
+    ) -> Result<BatchRenameSubmission, CopyInteractionError> {
+        let GuardrailAuthorizedBatchRename {
+            request,
+            authorizations,
+        } = authorized;
+        let scopes = destructive_scopes_for_batch_rename(&request)?;
+        if scopes.len() != authorizations.len() {
+            return Err(CopyInteractionError::AuthorizationRequired(
+                scopes
+                    .into_iter()
+                    .next()
+                    .ok_or(CopyInteractionError::EmptySelection)?,
+            ));
+        }
+        for (scope, authorization) in scopes.into_iter().zip(authorizations) {
+            self.guardrails
+                .borrow_mut()
+                .consume_authorization(authorization, &scope)?;
+        }
         let submission = self.batch_rename_executor.submit(request.clone())?;
         self.batch_rename_requests
             .borrow_mut()
@@ -1106,34 +1551,105 @@ impl ApplicationState {
 
     pub fn submit_batch_rename_undo(
         &self,
-    ) -> Result<Option<BatchRenameSubmission>, BatchRenameExecutorError> {
+    ) -> Result<Option<BatchRenameSubmission>, CopyInteractionError> {
+        let Some(request) = self.batch_rename_undo.borrow().clone() else {
+            return Ok(None);
+        };
+        let scope = destructive_scopes_for_batch_rename(&request)?
+            .into_iter()
+            .next()
+            .ok_or(CopyInteractionError::EmptySelection)?;
+        Err(CopyInteractionError::AuthorizationRequired(scope))
+    }
+
+    pub fn batch_rename_undo_guardrail_scopes(
+        &self,
+    ) -> Result<Option<Vec<DestructiveScope>>, CopyInteractionError> {
+        self.batch_rename_undo
+            .borrow()
+            .as_ref()
+            .map(destructive_scopes_for_batch_rename)
+            .transpose()
+            .map_err(CopyInteractionError::from)
+    }
+
+    pub fn submit_batch_rename_undo_authorized(
+        &self,
+        authorizations: Vec<GuardrailAuthorizationItem>,
+    ) -> Result<Option<BatchRenameSubmission>, CopyInteractionError> {
         let Some(request) = self.batch_rename_undo.borrow_mut().take() else {
             return Ok(None);
         };
-        self.submit_batch_rename(request).map(Some)
+        self.submit_batch_rename_authorized(GuardrailAuthorizedBatchRename::new(
+            request,
+            authorizations,
+        ))
+        .map(Some)
     }
 
     pub fn submit_restore(
         &self,
         request: RestoreRequest,
     ) -> Result<RestoreSubmission, CopyInteractionError> {
-        match self.restore_executor.submit(request.clone()) {
-            Ok(submission) => {
-                self.track(submission.job_id(), TrackedOperation::Restore(request));
-                Ok(submission)
-            }
-            Err(error) => {
-                if let Some(job_id) = error.job_id() {
-                    self.track(job_id, TrackedOperation::Restore(request));
+        let scope = destructive_scope_for_restore(&request)?;
+        Err(CopyInteractionError::AuthorizationRequired(scope))
+    }
+
+    pub fn submit_restore_authorized(
+        &self,
+        authorized: GuardrailAuthorized<RestoreRequest>,
+    ) -> Result<RestoreSubmission, CopyInteractionError> {
+        let scope = destructive_scope_for_restore(&authorized.value)?;
+        self.consume_then_dispatch(scope, authorized, |request| {
+            match self.restore_executor.submit(request.clone()) {
+                Ok(submission) => {
+                    self.track(submission.job_id(), TrackedOperation::Restore(request));
+                    Ok(submission)
                 }
-                Err(error.into())
+                Err(error) => {
+                    if let Some(job_id) = error.job_id() {
+                        self.track(job_id, TrackedOperation::Restore(request));
+                    }
+                    Err(error.into())
+                }
             }
-        }
+        })
     }
 
     fn enqueue_batch(
         &self,
         operations: Vec<TrackedOperation>,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        let mut items = Vec::with_capacity(operations.len());
+        for operation in operations {
+            if let Some(scope) = destructive_scope_for_operation(&operation)? {
+                return Err(CopyInteractionError::AuthorizationRequired(scope));
+            }
+            items.push((operation, None));
+        }
+        self.enqueue_batch_items(items)
+    }
+
+    pub fn enqueue_authorized_batch(
+        &self,
+        operations: Vec<GuardrailAuthorized<TrackedOperation>>,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        let mut items = Vec::with_capacity(operations.len());
+        for authorized in operations {
+            let (operation, authorization) = authorized.into_parts();
+            if destructive_scope_for_operation(&operation)?.is_none() {
+                return Err(CopyInteractionError::InvalidSource(
+                    operation.source().to_path_buf(),
+                ));
+            }
+            items.push((operation, Some(authorization)));
+        }
+        self.enqueue_batch_items(items)
+    }
+
+    fn enqueue_batch_items(
+        &self,
+        operations: Vec<(TrackedOperation, Option<GuardrailAuthorizationItem>)>,
     ) -> Result<BatchSubmission, CopyInteractionError> {
         if operations.is_empty() {
             return Err(CopyInteractionError::EmptySelection);
@@ -1161,10 +1677,15 @@ impl ApplicationState {
             .push_back(BatchRecord::new(id, queued));
         self.batch_pending
             .borrow_mut()
-            .extend(operations.into_iter().map(|operation| PendingBatchItem {
-                batch_id: id,
-                operation,
-            }));
+            .extend(
+                operations
+                    .into_iter()
+                    .map(|(operation, authorization)| PendingBatchItem {
+                        batch_id: id,
+                        operation,
+                        authorization,
+                    }),
+            );
         self.pump_batch();
         Ok(BatchSubmission { id, queued })
     }
@@ -1221,9 +1742,18 @@ impl ApplicationState {
     pub fn cancel_batch(&self, id: BatchId) -> Result<(), CopyInteractionError> {
         let removed = {
             let mut pending = self.batch_pending.borrow_mut();
-            let before = pending.len();
-            pending.retain(|item| item.batch_id != id);
-            before.saturating_sub(pending.len())
+            let mut retained = VecDeque::with_capacity(pending.len());
+            let mut removed = 0usize;
+            while let Some(item) = pending.pop_front() {
+                if item.batch_id == id {
+                    removed = removed.saturating_add(1);
+                    self.discard_pending_authorization(item.authorization);
+                } else {
+                    retained.push_back(item);
+                }
+            }
+            *pending = retained;
+            removed
         };
         let (active_job, blocked_conflict) = {
             let mut batches = self.batches.borrow_mut();
@@ -1263,29 +1793,32 @@ impl ApplicationState {
             return;
         }
         loop {
-            let Some(next) = self.batch_pending.borrow().front().cloned() else {
+            let Some(next) = self.batch_pending.borrow_mut().pop_front() else {
                 return;
             };
             let dispatch = {
                 let mut batches = self.batches.borrow_mut();
                 let Some(batch) = batches.iter_mut().find(|batch| batch.id == next.batch_id) else {
-                    self.batch_pending.borrow_mut().pop_front();
+                    drop(batches);
+                    self.discard_pending_authorization(next.authorization);
                     continue;
                 };
                 if batch.cancelling {
                     batch.cancelled = batch.cancelled.saturating_add(1);
                     false
                 } else if batch.paused || batch.blocked_conflict.is_some() {
+                    drop(batches);
+                    self.batch_pending.borrow_mut().push_front(next);
                     return;
                 } else {
                     true
                 }
             };
-            self.batch_pending.borrow_mut().pop_front();
             if !dispatch {
+                self.discard_pending_authorization(next.authorization);
                 continue;
             }
-            match self.submit_batch_operation(next.operation) {
+            match self.submit_batch_operation(next.operation, next.authorization) {
                 Ok(job_id) => {
                     self.batch_active.set(Some(job_id));
                     self.job_batches.borrow_mut().insert(job_id, next.batch_id);
@@ -1315,6 +1848,23 @@ impl ApplicationState {
     }
 
     fn submit_batch_operation(
+        &self,
+        operation: TrackedOperation,
+        authorization: Option<GuardrailAuthorizationItem>,
+    ) -> Result<JobId, CopyInteractionError> {
+        let Some(scope) = destructive_scope_for_operation(&operation)? else {
+            return self.dispatch_batch_operation_after_guardrail(operation);
+        };
+        let authorization = authorization
+            .ok_or_else(|| CopyInteractionError::AuthorizationRequired(scope.clone()))?;
+        self.consume_then_dispatch(
+            scope,
+            GuardrailAuthorized::new(operation, authorization),
+            |operation| self.dispatch_batch_operation_after_guardrail(operation),
+        )
+    }
+
+    fn dispatch_batch_operation_after_guardrail(
         &self,
         operation: TrackedOperation,
     ) -> Result<JobId, CopyInteractionError> {
@@ -1545,6 +2095,32 @@ impl ApplicationState {
         &self,
         original_job_id: JobId,
     ) -> Result<MoveSubmission, CopyInteractionError> {
+        let scope = self.undo_operation_guardrail_scope(original_job_id)?;
+        Err(CopyInteractionError::AuthorizationRequired(scope))
+    }
+
+    pub fn undo_operation_guardrail_scope(
+        &self,
+        original_job_id: JobId,
+    ) -> Result<DestructiveScope, CopyInteractionError> {
+        if self.resolved_undos.borrow().contains(&original_job_id) {
+            return Err(CopyInteractionError::UndoAlreadySubmitted(original_job_id));
+        }
+        let undo = self
+            .terminal_history
+            .borrow()
+            .iter()
+            .find(|entry| entry.job_id() == original_job_id)
+            .and_then(|entry| entry.undo().cloned())
+            .ok_or(CopyInteractionError::UndoNotAvailable(original_job_id))?;
+        destructive_scope_for_move(&undo.request).map_err(CopyInteractionError::from)
+    }
+
+    pub fn undo_operation_authorized(
+        &self,
+        original_job_id: JobId,
+        authorization: GuardrailAuthorizationItem,
+    ) -> Result<MoveSubmission, CopyInteractionError> {
         if self.resolved_undos.borrow().contains(&original_job_id) {
             return Err(CopyInteractionError::UndoAlreadySubmitted(original_job_id));
         }
@@ -1559,18 +2135,23 @@ impl ApplicationState {
             request: undo.request.clone(),
             original_job_id,
         };
-        let submission = match self.move_executor.submit_move(undo.request) {
-            Ok(submission) => {
-                self.track(submission.job_id(), operation);
-                submission
-            }
-            Err(error) => {
-                if let Some(job_id) = error.job_id() {
-                    self.track(job_id, operation);
+        let scope = destructive_scope_for_move(&undo.request)?;
+        let submission = self.consume_then_dispatch(
+            scope,
+            GuardrailAuthorized::new(undo.request, authorization),
+            |request| match self.move_executor.submit_move(request) {
+                Ok(submission) => {
+                    self.track(submission.job_id(), operation);
+                    Ok(submission)
                 }
-                return Err(error.into());
-            }
-        };
+                Err(error) => {
+                    if let Some(job_id) = error.job_id() {
+                        self.track(job_id, operation);
+                    }
+                    Err(error.into())
+                }
+            },
+        )?;
         self.resolved_undos.borrow_mut().insert(original_job_id);
         Ok(submission)
     }
@@ -1579,6 +2160,40 @@ impl ApplicationState {
         &self,
         failed_job_id: JobId,
     ) -> Result<RetrySubmission, CopyInteractionError> {
+        let operation = self.retryable_operation(failed_job_id)?;
+        if let Some(scope) = destructive_scope_for_operation(&operation)? {
+            return Err(CopyInteractionError::AuthorizationRequired(scope));
+        }
+        self.dispatch_retry_operation(failed_job_id, operation)
+    }
+
+    pub fn retry_operation_guardrail_scope(
+        &self,
+        failed_job_id: JobId,
+    ) -> Result<Option<DestructiveScope>, CopyInteractionError> {
+        let operation = self.retryable_operation(failed_job_id)?;
+        destructive_scope_for_operation(&operation).map_err(CopyInteractionError::from)
+    }
+
+    pub fn retry_operation_authorized(
+        &self,
+        failed_job_id: JobId,
+        authorization: GuardrailAuthorizationItem,
+    ) -> Result<RetrySubmission, CopyInteractionError> {
+        let operation = self.retryable_operation(failed_job_id)?;
+        let scope = destructive_scope_for_operation(&operation)?
+            .ok_or_else(|| CopyInteractionError::InvalidSource(operation.source().to_path_buf()))?;
+        self.consume_then_dispatch(
+            scope,
+            GuardrailAuthorized::new(operation, authorization),
+            |operation| self.dispatch_retry_operation(failed_job_id, operation),
+        )
+    }
+
+    fn retryable_operation(
+        &self,
+        failed_job_id: JobId,
+    ) -> Result<TrackedOperation, CopyInteractionError> {
         let terminal = self
             .terminal_history
             .borrow()
@@ -1597,8 +2212,15 @@ impl ApplicationState {
         if terminal.outcome() == TerminalOutcome::PartialFailure {
             return Err(CopyInteractionError::RetryUnsafePartial(failed_job_id));
         }
+        Ok(terminal.operation().clone())
+    }
 
-        match terminal.operation().clone() {
+    fn dispatch_retry_operation(
+        &self,
+        failed_job_id: JobId,
+        operation: TrackedOperation,
+    ) -> Result<RetrySubmission, CopyInteractionError> {
+        match operation {
             TrackedOperation::Copy(request) => {
                 match self
                     .copy_executor
@@ -1792,6 +2414,106 @@ impl ApplicationState {
         job_id: JobId,
         decision: ConflictDecision,
     ) -> Result<ConflictResolution, CopyInteractionError> {
+        self.resolve_conflict_with_authorization(job_id, decision, None)
+    }
+
+    pub fn resolve_conflict_authorized(
+        &self,
+        job_id: JobId,
+        decision: ConflictDecision,
+        authorization: GuardrailAuthorizationItem,
+    ) -> Result<ConflictResolution, CopyInteractionError> {
+        self.resolve_conflict_with_authorization(job_id, decision, Some(authorization))
+    }
+
+    pub fn conflict_guardrail_scope(
+        &self,
+        job_id: JobId,
+        decision: &ConflictDecision,
+    ) -> Result<Option<DestructiveScope>, CopyInteractionError> {
+        let terminal = self.pending_conflict_operation(job_id)?;
+        let new_name = match decision {
+            ConflictDecision::KeepExisting | ConflictDecision::SkipAll => return Ok(None),
+            ConflictDecision::RetryWithName(new_name) => {
+                validate_rename_name(new_name)?;
+                new_name.clone()
+            }
+            ConflictDecision::KeepBoth => {
+                let attempt = self
+                    .terminal_history
+                    .borrow()
+                    .iter()
+                    .filter(|entry| {
+                        entry.operation_id() == terminal.operation_id()
+                            && entry.outcome() == TerminalOutcome::Conflict
+                    })
+                    .count()
+                    .try_into()
+                    .unwrap_or(u32::MAX);
+                let base_name = self
+                    .terminal_history
+                    .borrow()
+                    .iter()
+                    .find(|entry| entry.operation_id() == terminal.operation_id())
+                    .and_then(|entry| conflict_destination(entry.operation()))
+                    .and_then(|path| path.file_name().map(OsStr::to_os_string))
+                    .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?;
+                match terminal.operation() {
+                    TrackedOperation::Create(request)
+                        if matches!(request.kind(), CreateKind::Duplicate { .. }) =>
+                    {
+                        let source_name = request
+                            .source()
+                            .and_then(Path::file_name)
+                            .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?;
+                        duplicate_name(source_name, attempt.saturating_add(1))
+                    }
+                    _ => keep_both_name(&base_name, attempt),
+                }
+                .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?
+            }
+        };
+
+        match terminal.operation() {
+            TrackedOperation::Copy(_) | TrackedOperation::Create(_) => Ok(None),
+            TrackedOperation::Move(request) => {
+                let destination = retry_destination(request.destination(), &new_name, job_id)?;
+                destructive_scope_for_move(&MoveRequest::new(
+                    request.source(),
+                    destination,
+                    ConflictPolicy::FailIfExists,
+                ))
+                .map(Some)
+                .map_err(CopyInteractionError::from)
+            }
+            TrackedOperation::Rename(request) => destructive_scope_for_rename(&RenameRequest::new(
+                request.source(),
+                new_name,
+                ConflictPolicy::FailIfExists,
+            ))
+            .map(Some)
+            .map_err(CopyInteractionError::from),
+            TrackedOperation::Restore(request) => {
+                let destination = retry_destination(request.destination(), &new_name, job_id)?;
+                let revised = request.with_destination(destination)?;
+                destructive_scope_for_restore(&revised)
+                    .map(Some)
+                    .map_err(CopyInteractionError::from)
+            }
+            TrackedOperation::Trash(_)
+            | TrackedOperation::PermanentDelete(_)
+            | TrackedOperation::UndoMove { .. } => {
+                Err(CopyInteractionError::ConflictUnsupported(job_id))
+            }
+        }
+    }
+
+    fn resolve_conflict_with_authorization(
+        &self,
+        job_id: JobId,
+        decision: ConflictDecision,
+        mut authorization: Option<GuardrailAuthorizationItem>,
+    ) -> Result<ConflictResolution, CopyInteractionError> {
         let terminal = self.pending_conflict_operation(job_id)?;
         if matches!(terminal.operation(), TrackedOperation::Trash(_)) {
             return Err(CopyInteractionError::ConflictUnsupported(job_id));
@@ -1844,16 +2566,24 @@ impl ApplicationState {
                     _ => keep_both_name(&base_name, attempt),
                 }
                 .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?;
-                let submission =
-                    self.submit_conflict_retry(job_id, terminal.operation(), new_name)?;
+                let submission = self.submit_conflict_retry(
+                    job_id,
+                    terminal.operation(),
+                    new_name,
+                    authorization.take(),
+                )?;
                 self.resolved_conflicts.borrow_mut().insert(job_id);
                 self.complete_batch_conflict(job_id, Some(submission.job_id()), false, false);
                 Ok(ConflictResolution::Retried(submission))
             }
             ConflictDecision::RetryWithName(new_name) => {
                 validate_rename_name(&new_name)?;
-                let submission =
-                    self.submit_conflict_retry(job_id, terminal.operation(), new_name)?;
+                let submission = self.submit_conflict_retry(
+                    job_id,
+                    terminal.operation(),
+                    new_name,
+                    authorization.take(),
+                )?;
                 self.resolved_conflicts.borrow_mut().insert(job_id);
                 self.complete_batch_conflict(job_id, Some(submission.job_id()), false, false);
                 Ok(ConflictResolution::Retried(submission))
@@ -1918,6 +2648,7 @@ impl ApplicationState {
         failed_job_id: JobId,
         operation: &TrackedOperation,
         new_name: OsString,
+        authorization: Option<GuardrailAuthorizationItem>,
     ) -> Result<RetrySubmission, CopyInteractionError> {
         match operation {
             TrackedOperation::Copy(request) => {
@@ -1970,25 +2701,38 @@ impl ApplicationState {
                     retry_destination(request.destination(), &new_name, failed_job_id)?;
                 let revised =
                     MoveRequest::new(request.source(), destination, ConflictPolicy::FailIfExists);
-                match self
-                    .move_executor
-                    .submit_move_retry(failed_job_id, revised.clone())
-                {
-                    Ok(submission) => {
-                        self.track(submission.job_id(), TrackedOperation::Move(revised));
-                        Ok(RetrySubmission::Move(submission))
-                    }
-                    Err(error) => {
-                        if let Some(job_id) = error.job_id() {
-                            self.track(job_id, TrackedOperation::Move(revised));
+                let scope = destructive_scope_for_move(&revised)?;
+                let authorization = authorization
+                    .ok_or_else(|| CopyInteractionError::AuthorizationRequired(scope.clone()))?;
+                self.consume_then_dispatch(
+                    scope,
+                    GuardrailAuthorized::new(revised, authorization),
+                    |revised| match self
+                        .move_executor
+                        .submit_move_retry(failed_job_id, revised.clone())
+                    {
+                        Ok(submission) => {
+                            self.track(submission.job_id(), TrackedOperation::Move(revised));
+                            Ok(RetrySubmission::Move(submission))
                         }
-                        Err(error.into())
-                    }
-                }
+                        Err(error) => {
+                            if let Some(job_id) = error.job_id() {
+                                self.track(job_id, TrackedOperation::Move(revised));
+                            }
+                            Err(error.into())
+                        }
+                    },
+                )
             }
             TrackedOperation::Rename(request) => {
                 let revised =
                     RenameRequest::new(request.source(), new_name, ConflictPolicy::FailIfExists);
+                let scope = destructive_scope_for_rename(&revised)?;
+                let authorization = authorization
+                    .ok_or_else(|| CopyInteractionError::AuthorizationRequired(scope.clone()))?;
+                self.guardrails
+                    .borrow_mut()
+                    .consume_authorization(authorization, &scope)?;
                 match self
                     .move_executor
                     .submit_rename_retry(failed_job_id, revised.clone())
@@ -2009,6 +2753,12 @@ impl ApplicationState {
                 let destination =
                     retry_destination(request.destination(), &new_name, failed_job_id)?;
                 let revised = request.with_destination(destination)?;
+                let scope = destructive_scope_for_restore(&revised)?;
+                let authorization = authorization
+                    .ok_or_else(|| CopyInteractionError::AuthorizationRequired(scope.clone()))?;
+                self.guardrails
+                    .borrow_mut()
+                    .consume_authorization(authorization, &scope)?;
                 match self
                     .restore_executor
                     .submit_retry(failed_job_id, revised.clone())
@@ -2052,6 +2802,14 @@ impl ApplicationState {
             self.checksum_executor.cancel(job_id)?;
             return Ok(());
         }
+        if self.integrity_requests.borrow().contains_key(&job_id) {
+            self.integrity_executor.cancel(job_id)?;
+            return Ok(());
+        }
+        if self.verified_copy_requests.borrow().contains_key(&job_id) {
+            self.verified_copy_executor.cancel(job_id)?;
+            return Ok(());
+        }
         if self.permission_requests.borrow().contains_key(&job_id) {
             self.permission_executor
                 .cancel(job_id)
@@ -2088,9 +2846,44 @@ impl ApplicationState {
             .insert(job_id, operation);
     }
 
+    /// The sole final application boundary for guarded executor dispatch.
+    /// Permit consumption is intentionally the last operation before the
+    /// executor closure is invoked.
+    fn consume_then_dispatch<T, R>(
+        &self,
+        exact_scope: DestructiveScope,
+        authorized: GuardrailAuthorized<T>,
+        dispatch: impl FnOnce(T) -> Result<R, CopyInteractionError>,
+    ) -> Result<R, CopyInteractionError> {
+        let (value, authorization) = authorized.into_parts();
+        self.guardrails
+            .borrow_mut()
+            .consume_authorization(authorization, &exact_scope)?;
+        dispatch(value)
+    }
+
+    fn discard_pending_authorization(&self, authorization: Option<GuardrailAuthorizationItem>) {
+        if let Some(authorization) = authorization
+            && let Err(error) = self
+                .guardrails
+                .borrow_mut()
+                .discard_authorization(authorization)
+        {
+            tracing::debug!(%error, "queued guardrail authorization was already revoked");
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn new_with_trash_backend(
         backend: Arc<dyn TrashBackend>,
+    ) -> Result<Self, ApplicationStateSpawnError> {
+        Self::new_with_trash_backend_and_guardrail_store(backend, test_guardrail_store_path())
+    }
+
+    #[cfg(test)]
+    fn new_with_trash_backend_and_guardrail_store(
+        backend: Arc<dyn TrashBackend>,
+        guardrail_store_path: PathBuf,
     ) -> Result<Self, ApplicationStateSpawnError> {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
         let archive_executor = ArchiveExecutor::spawn(Arc::clone(&jobs))?;
@@ -2102,7 +2895,12 @@ impl ApplicationState {
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
         let permission_executor = PermissionExecutor::spawn(Arc::clone(&jobs))?;
         let checksum_executor = ChecksumExecutor::spawn(Arc::clone(&jobs))?;
+        let integrity_executor = IntegrityExecutor::spawn(Arc::clone(&jobs))?;
+        let verified_copy_executor = VerifiedCopyExecutor::spawn(Arc::clone(&jobs))?;
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
+        let guardrails = GuardrailController::load_at(guardrail_store_path.clone())?;
+        let guardrail_policy_worker = GuardrailPolicyWorker::spawn(guardrail_store_path)
+            .map_err(ApplicationStateSpawnError::GuardrailPolicy)?;
         Ok(Self {
             jobs,
             archive_executor,
@@ -2114,11 +2912,20 @@ impl ApplicationState {
             permanent_delete_executor,
             permission_executor,
             checksum_executor,
+            integrity_executor,
+            verified_copy_executor,
             restore_executor,
+            guardrails: RefCell::new(guardrails),
+            guardrail_policy_worker: RefCell::new(guardrail_policy_worker),
+            guardrail_policy_pending: Cell::new(None),
             transfer_buffer: RefCell::new(TransferBuffer::default()),
             operation_requests: RefCell::new(HashMap::new()),
             permission_requests: RefCell::new(HashMap::new()),
             checksum_requests: RefCell::new(HashMap::new()),
+            integrity_requests: RefCell::new(HashMap::new()),
+            verified_copy_requests: RefCell::new(HashMap::new()),
+            verified_usb_copy_jobs: RefCell::new(HashSet::new()),
+            verified_usb_completion_observer: VerifiedUsbCompletionObserver::default(),
             archive_requests: RefCell::new(HashMap::new()),
             batch_rename_requests: RefCell::new(HashMap::new()),
             batch_rename_undo: RefCell::new(None),
@@ -2159,6 +2966,110 @@ impl ApplicationState {
     }
 }
 
+fn default_guardrail_store_path() -> PathBuf {
+    glib::user_config_dir()
+        .join("floe")
+        .join("guardrails-v1.bin")
+}
+
+pub(crate) fn destructive_scope_for_move(
+    request: &MoveRequest,
+) -> Result<DestructiveScope, DestructiveScopeError> {
+    DestructiveScope::new(
+        DestructiveAction::Move,
+        vec![request.source().to_path_buf()],
+        Some(request.destination().to_path_buf()),
+    )
+}
+
+pub(crate) fn destructive_scope_for_rename(
+    request: &RenameRequest,
+) -> Result<DestructiveScope, DestructiveScopeError> {
+    let destination = request
+        .source()
+        .parent()
+        .map(|parent| parent.join(request.new_name()));
+    DestructiveScope::new(
+        DestructiveAction::Rename,
+        vec![request.source().to_path_buf()],
+        destination,
+    )
+}
+
+pub(crate) fn destructive_scope_for_trash(
+    request: &TrashRequest,
+) -> Result<DestructiveScope, DestructiveScopeError> {
+    DestructiveScope::new(
+        DestructiveAction::Trash,
+        vec![request.source().to_path_buf()],
+        None,
+    )
+}
+
+pub(crate) fn destructive_scope_for_permanent_delete(
+    request: &PermanentDeleteRequest,
+) -> Result<DestructiveScope, DestructiveScopeError> {
+    DestructiveScope::new(
+        DestructiveAction::PermanentDelete,
+        request.targets().to_vec(),
+        None,
+    )
+}
+
+pub(crate) fn destructive_scope_for_restore(
+    request: &RestoreRequest,
+) -> Result<DestructiveScope, DestructiveScopeError> {
+    DestructiveScope::new(
+        DestructiveAction::Move,
+        vec![request.backing_path().to_path_buf()],
+        Some(request.destination().to_path_buf()),
+    )
+}
+
+pub(crate) fn destructive_scope_for_operation(
+    operation: &TrackedOperation,
+) -> Result<Option<DestructiveScope>, DestructiveScopeError> {
+    match operation {
+        TrackedOperation::Copy(_) | TrackedOperation::Create(_) => Ok(None),
+        TrackedOperation::Move(request) => destructive_scope_for_move(request).map(Some),
+        TrackedOperation::Rename(request) => destructive_scope_for_rename(request).map(Some),
+        TrackedOperation::Trash(request) => destructive_scope_for_trash(request).map(Some),
+        TrackedOperation::PermanentDelete(request) => {
+            destructive_scope_for_permanent_delete(request).map(Some)
+        }
+        TrackedOperation::Restore(request) => destructive_scope_for_restore(request).map(Some),
+        TrackedOperation::UndoMove { request, .. } => destructive_scope_for_move(request).map(Some),
+    }
+}
+
+pub(crate) fn destructive_scopes_for_batch_rename(
+    request: &BatchRenameRequest,
+) -> Result<Vec<DestructiveScope>, DestructiveScopeError> {
+    request
+        .pairs()
+        .iter()
+        .map(|pair| {
+            DestructiveScope::new(
+                DestructiveAction::Rename,
+                vec![pair.source().to_path_buf()],
+                Some(pair.destination().to_path_buf()),
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+fn test_guardrail_store_path() -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+    std::env::temp_dir().join(format!(
+        "floe-phase-18x-state-{}-{}.bin",
+        std::process::id(),
+        NEXT_ID.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
 fn retry_destination(
     destination: &Path,
     new_name: &OsStr,
@@ -2185,7 +3096,7 @@ fn conflict_destination(operation: &TrackedOperation) -> Option<PathBuf> {
     }
 }
 
-fn transfer_destination(
+pub(crate) fn transfer_destination(
     source: &Path,
     destination_directory: &Path,
 ) -> Result<PathBuf, CopyInteractionError> {
@@ -2243,7 +3154,10 @@ mod tests {
     use std::{
         ffi::OsString,
         fs,
-        os::unix::ffi::{OsStrExt, OsStringExt},
+        os::unix::{
+            ffi::{OsStrExt, OsStringExt},
+            fs::PermissionsExt,
+        },
         sync::atomic::{AtomicUsize, Ordering},
         thread,
         time::{Duration, Instant},
@@ -2255,6 +3169,258 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::{
+        guardrail_controller::GuardrailBlock, guardrail_preflight::GuardrailPreflightError,
+        guardrail_store::GuardrailStore,
+    };
+
+    fn authorize_scope(
+        state: &ApplicationState,
+        scope: DestructiveScope,
+    ) -> GuardrailAuthorizationItem {
+        let deterministic_scope = scope.clone();
+        let submission = state
+            .begin_guardrail_review(vec![scope], PreflightEnvironment::default())
+            .expect("guardrail review should start");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            match state
+                .poll_guardrail_review(submission.generation())
+                .expect("guardrail review should poll")
+            {
+                GuardrailPoll::Pending => {
+                    assert!(Instant::now() < deadline, "guardrail review timed out");
+                    thread::yield_now();
+                }
+                GuardrailPoll::Allowed(authorization) => {
+                    return authorization
+                        .into_items()
+                        .into_iter()
+                        .next()
+                        .expect("one exact authorization item");
+                }
+                GuardrailPoll::ReviewRequired(review) => {
+                    return match state
+                        .resolve_guardrail_review(
+                            review.generation(),
+                            GuardrailConfirmation::Confirm,
+                        )
+                        .expect("guardrail review should resolve")
+                    {
+                        GuardrailResolution::Allowed(authorization) => authorization
+                            .into_items()
+                            .into_iter()
+                            .next()
+                            .expect("one exact authorization item"),
+                        other => panic!("expected authorization, received {other:?}"),
+                    };
+                }
+                GuardrailPoll::Blocked(GuardrailBlock::Preflight(
+                    GuardrailPreflightError::TargetUnavailable { .. },
+                )) => {
+                    return state
+                        .guardrails
+                        .borrow_mut()
+                        .authorize_deterministic_scope_for_test(deterministic_scope)
+                        .expect("deterministic reviewed test scope should authorize");
+                }
+                other => panic!("expected authorization review, received {other:?}"),
+            }
+        }
+    }
+
+    fn submit_paste(
+        state: &ApplicationState,
+        destination_directory: &Path,
+    ) -> Result<TransferSubmission, CopyInteractionError> {
+        let Some((intent, sources)) = state.staged_transfers() else {
+            return Err(CopyInteractionError::EmptyBuffer);
+        };
+        if intent == TransferIntent::Copy {
+            return state.submit_paste(destination_directory);
+        }
+        let source = sources
+            .into_iter()
+            .next()
+            .ok_or(CopyInteractionError::EmptyBuffer)?;
+        let request = MoveRequest::new(
+            source.clone(),
+            transfer_destination(&source, destination_directory)?,
+            ConflictPolicy::FailIfExists,
+        );
+        let authorization = authorize_scope(state, destructive_scope_for_move(&request)?);
+        let submission =
+            state.submit_move_authorized(GuardrailAuthorized::new(request, authorization))?;
+        state.transfer_buffer.borrow_mut().clear_move();
+        Ok(submission)
+    }
+
+    fn submit_paste_batch(
+        state: &ApplicationState,
+        destination_directory: &Path,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        let Some((intent, sources)) = state.staged_transfers() else {
+            return Err(CopyInteractionError::EmptyBuffer);
+        };
+        if intent == TransferIntent::Copy {
+            return state.submit_paste_batch(destination_directory);
+        }
+        let guarded = sources
+            .into_iter()
+            .map(|source| {
+                let request = MoveRequest::new(
+                    source.clone(),
+                    transfer_destination(&source, destination_directory)?,
+                    ConflictPolicy::FailIfExists,
+                );
+                let authorization = authorize_scope(state, destructive_scope_for_move(&request)?);
+                Ok(GuardrailAuthorized::new(
+                    TrackedOperation::Move(request),
+                    authorization,
+                ))
+            })
+            .collect::<Result<Vec<_>, CopyInteractionError>>()?;
+        let submission = state.enqueue_authorized_batch(guarded)?;
+        state.transfer_buffer.borrow_mut().clear_move();
+        Ok(submission)
+    }
+
+    fn submit_transfer_batch(
+        state: &ApplicationState,
+        intent: TransferIntent,
+        sources: Vec<PathBuf>,
+        destination_directory: &Path,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        if intent == TransferIntent::Copy {
+            return state.submit_transfer_batch(intent, sources, destination_directory);
+        }
+        let guarded = sources
+            .into_iter()
+            .map(|source| {
+                let request = MoveRequest::new(
+                    source.clone(),
+                    transfer_destination(&source, destination_directory)?,
+                    ConflictPolicy::FailIfExists,
+                );
+                let authorization = authorize_scope(state, destructive_scope_for_move(&request)?);
+                Ok(GuardrailAuthorized::new(
+                    TrackedOperation::Move(request),
+                    authorization,
+                ))
+            })
+            .collect::<Result<Vec<_>, CopyInteractionError>>()?;
+        state.enqueue_authorized_batch(guarded)
+    }
+
+    fn submit_rename(
+        state: &ApplicationState,
+        source: PathBuf,
+        new_name: OsString,
+    ) -> Result<MoveSubmission, CopyInteractionError> {
+        let request = RenameRequest::new(source, new_name, ConflictPolicy::FailIfExists);
+        let authorization = authorize_scope(state, destructive_scope_for_rename(&request)?);
+        state.submit_rename_authorized(GuardrailAuthorized::new(request, authorization))
+    }
+
+    fn submit_trash(
+        state: &ApplicationState,
+        source: PathBuf,
+    ) -> Result<TrashSubmission, CopyInteractionError> {
+        let request = TrashRequest::new(source)?;
+        let authorization = authorize_scope(state, destructive_scope_for_trash(&request)?);
+        state.submit_trash_authorized(GuardrailAuthorized::new(request, authorization))
+    }
+
+    fn submit_trash_batch(
+        state: &ApplicationState,
+        sources: Vec<PathBuf>,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        let guarded = sources
+            .into_iter()
+            .map(|source| {
+                let request = TrashRequest::new(source)?;
+                let authorization = authorize_scope(state, destructive_scope_for_trash(&request)?);
+                Ok(GuardrailAuthorized::new(
+                    TrackedOperation::Trash(request),
+                    authorization,
+                ))
+            })
+            .collect::<Result<Vec<_>, CopyInteractionError>>()?;
+        state.enqueue_authorized_batch(guarded)
+    }
+
+    fn submit_drop(
+        state: &ApplicationState,
+        request: DropRequest,
+    ) -> Result<BatchSubmission, CopyInteractionError> {
+        if matches!(request.action(), DropAction::Copy | DropAction::Link) {
+            return state.submit_drop(request);
+        }
+        let operations = if matches!(request.destination(), DropDestination::Trash) {
+            request
+                .sources()
+                .iter()
+                .cloned()
+                .map(TrashRequest::new)
+                .map(|request| request.map(TrackedOperation::Trash))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            plan_directory_drop(&request)?
+                .into_iter()
+                .map(|item| {
+                    TrackedOperation::Move(MoveRequest::new(
+                        item.source,
+                        item.destination,
+                        ConflictPolicy::FailIfExists,
+                    ))
+                })
+                .collect()
+        };
+        let guarded = operations
+            .into_iter()
+            .map(|operation| {
+                let scope = destructive_scope_for_operation(&operation)?.ok_or_else(|| {
+                    CopyInteractionError::InvalidSource(operation.source().into())
+                })?;
+                Ok(GuardrailAuthorized::new(
+                    operation,
+                    authorize_scope(state, scope),
+                ))
+            })
+            .collect::<Result<Vec<_>, CopyInteractionError>>()?;
+        state.enqueue_authorized_batch(guarded)
+    }
+
+    fn submit_restore(
+        state: &ApplicationState,
+        request: RestoreRequest,
+    ) -> Result<RestoreSubmission, CopyInteractionError> {
+        let authorization = authorize_scope(state, destructive_scope_for_restore(&request)?);
+        state.submit_restore_authorized(GuardrailAuthorized::new(request, authorization))
+    }
+
+    fn retry_operation(
+        state: &ApplicationState,
+        job_id: JobId,
+    ) -> Result<RetrySubmission, CopyInteractionError> {
+        match state.retry_operation_guardrail_scope(job_id)? {
+            Some(scope) => state.retry_operation_authorized(job_id, authorize_scope(state, scope)),
+            None => state.retry_operation(job_id),
+        }
+    }
+
+    fn resolve_conflict(
+        state: &ApplicationState,
+        job_id: JobId,
+        decision: ConflictDecision,
+    ) -> Result<ConflictResolution, CopyInteractionError> {
+        match state.conflict_guardrail_scope(job_id, &decision)? {
+            Some(scope) => {
+                state.resolve_conflict_authorized(job_id, decision, authorize_scope(state, scope))
+            }
+            None => state.resolve_conflict(job_id, decision),
+        }
+    }
 
     fn wait_for_terminal(state: &ApplicationState, job_id: JobId) -> JobState {
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -2471,9 +3637,8 @@ mod tests {
             Some((TransferIntent::Move, source.clone()))
         );
 
-        let moved = state
-            .submit_paste(&destination_directory)
-            .expect("move paste should be submitted");
+        let moved =
+            submit_paste(&state, &destination_directory).expect("move paste should be submitted");
         assert_eq!(
             wait_for_terminal(&state, moved.job_id()),
             JobState::Completed
@@ -2490,8 +3655,7 @@ mod tests {
         assert_eq!(state.staged_transfer(), None);
 
         let renamed_name = OsString::from_vec(b"renamed-\xfe".to_vec());
-        let renamed = state
-            .submit_rename(moved_path.clone(), renamed_name.clone())
+        let renamed = submit_rename(&state, moved_path.clone(), renamed_name.clone())
             .expect("rename should be submitted");
         assert_eq!(
             wait_for_terminal(&state, renamed.job_id()),
@@ -2517,6 +3681,138 @@ mod tests {
         ) -> Result<(), TrashError> {
             Ok(())
         }
+    }
+
+    fn wait_for_guardrail_policy_update(state: &ApplicationState) -> Result<bool, String> {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(result) = state.poll_guardrail_policy_update() {
+                return result;
+            }
+            assert!(Instant::now() < deadline, "guardrail policy save timed out");
+            thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn phase_18x_policy_change_is_busy_until_persisted_and_preserves_raw_path() {
+        let fixture = tempdir().expect("guardrail fixture");
+        let store = fixture.path().join("private/guardrails.bin");
+        let state = ApplicationState::new_with_trash_backend_and_guardrail_store(
+            Arc::new(SuccessfulTrashBackend),
+            store.clone(),
+        )
+        .expect("application state");
+        let target = fixture
+            .path()
+            .join(OsString::from_vec(b"protected-\xff".to_vec()));
+
+        assert!(
+            state
+                .submit_guardrail_protection_change(target.clone(), true)
+                .expect("queue protection")
+        );
+        assert!(state.guardrail_policy_busy());
+        assert!(
+            state.guardrail_policy().roots().is_empty(),
+            "in-memory policy must not install before persistence succeeds"
+        );
+        assert!(
+            state
+                .submit_guardrail_protection_change(target.clone(), true)
+                .expect_err("one pending update at a time")
+                .contains("still running")
+        );
+
+        assert_eq!(wait_for_guardrail_policy_update(&state), Ok(false));
+        assert!(!state.guardrail_policy_busy());
+        assert_eq!(
+            state.guardrail_policy().roots(),
+            std::slice::from_ref(&target)
+        );
+        let persisted = GuardrailStore::load(&store)
+            .expect("read persisted guardrail store")
+            .expect("persisted guardrail policy");
+        assert_eq!(
+            persisted.roots()[0].as_os_str().as_bytes(),
+            target.as_os_str().as_bytes()
+        );
+    }
+
+    #[test]
+    fn phase_18x_failed_policy_persistence_never_installs_requested_policy() {
+        let fixture = tempdir().expect("guardrail fixture");
+        let blocked_parent = fixture.path().join("private");
+        fs::create_dir(&blocked_parent).expect("initial valid store parent");
+        fs::set_permissions(&blocked_parent, fs::Permissions::from_mode(0o700))
+            .expect("private permissions");
+        let state = ApplicationState::new_with_trash_backend_and_guardrail_store(
+            Arc::new(SuccessfulTrashBackend),
+            blocked_parent.join("guardrails.bin"),
+        )
+        .expect("application state");
+        fs::remove_dir(&blocked_parent).expect("replace empty parent");
+        fs::write(&blocked_parent, b"file").expect("blocking parent file");
+        let target = fixture.path().join("protected");
+
+        assert!(
+            state
+                .submit_guardrail_protection_change(target, true)
+                .expect("queue protection")
+        );
+        let error = wait_for_guardrail_policy_update(&state)
+            .expect_err("persistence through a regular-file parent must fail");
+        assert!(!error.is_empty());
+        assert!(!state.guardrail_policy_busy());
+        assert!(state.guardrail_policy().roots().is_empty());
+    }
+
+    #[test]
+    fn phase_18x_blocked_store_requires_acknowledged_async_reset() {
+        let fixture = tempdir().expect("guardrail fixture");
+        let private = fixture.path().join("private");
+        fs::create_dir(&private).expect("private directory");
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o700))
+            .expect("private permissions");
+        let store = private.join("guardrails.bin");
+        fs::write(&store, b"corrupt guardrail store").expect("corrupt store");
+        fs::set_permissions(&store, fs::Permissions::from_mode(0o600)).expect("store permissions");
+        let state = ApplicationState::new_with_trash_backend_and_guardrail_store(
+            Arc::new(SuccessfulTrashBackend),
+            store.clone(),
+        )
+        .expect("application state");
+
+        assert_eq!(
+            state.guardrail_store_health(),
+            GuardrailStoreHealth::Blocked
+        );
+        assert!(
+            state
+                .submit_guardrail_protection_change(fixture.path().join("target"), true)
+                .is_err()
+        );
+        assert!(state.submit_guardrail_blocked_reset(false).is_err());
+        state
+            .submit_guardrail_blocked_reset(true)
+            .expect("acknowledged reset queues");
+        assert!(state.guardrail_policy_busy());
+        assert_eq!(
+            state.guardrail_store_health(),
+            GuardrailStoreHealth::Blocked
+        );
+        assert!(state.submit_guardrail_blocked_reset(true).is_err());
+
+        assert_eq!(wait_for_guardrail_policy_update(&state), Ok(true));
+        assert_eq!(state.guardrail_store_health(), GuardrailStoreHealth::Ready);
+        assert!(state.guardrail_policy().roots().is_empty());
+        assert!(
+            GuardrailStore::load(&store)
+                .expect("read reset store")
+                .expect("reset policy")
+                .roots()
+                .is_empty()
+        );
     }
 
     #[derive(Debug, Default)]
@@ -2547,9 +3843,8 @@ mod tests {
         let source = fixture.path().join(&name);
         let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
             .expect("application state should start with test trash backend");
-        let submission = state
-            .submit_trash(source.clone())
-            .expect("trash request should be submitted");
+        let submission =
+            submit_trash(&state, source.clone()).expect("trash request should be submitted");
 
         assert_eq!(
             wait_for_terminal(&state, submission.job_id()),
@@ -2588,9 +3883,8 @@ mod tests {
             JobState::Cancelled
         );
         state.finish_operation(cancelled_copy.job_id(), TerminalOutcome::Cancelled);
-        let retried_copy = state
-            .retry_operation(cancelled_copy.job_id())
-            .expect("cancelled copy should retry");
+        let retried_copy =
+            retry_operation(&state, cancelled_copy.job_id()).expect("cancelled copy should retry");
         assert_eq!(retried_copy.operation_id(), cancelled_copy.operation_id());
         assert_ne!(retried_copy.job_id(), cancelled_copy.job_id());
         assert_eq!(
@@ -2607,18 +3901,15 @@ mod tests {
         fs::write(&move_source, b"move").expect("move source fixture");
         fs::write(&move_conflict, b"conflict").expect("move conflict fixture");
         state.stage_move(move_source).expect("move should stage");
-        let failed_move = state
-            .submit_paste(&move_destination_dir)
-            .expect("move should submit");
+        let failed_move = submit_paste(&state, &move_destination_dir).expect("move should submit");
         assert_eq!(
             wait_for_terminal(&state, failed_move.job_id()),
             JobState::Failed
         );
         state.finish_operation(failed_move.job_id(), TerminalOutcome::Failed);
         fs::remove_file(&move_conflict).expect("move conflict should be removable");
-        let retried_move = state
-            .retry_operation(failed_move.job_id())
-            .expect("failed move should retry");
+        let retried_move =
+            retry_operation(&state, failed_move.job_id()).expect("failed move should retry");
         assert_eq!(retried_move.operation_id(), failed_move.operation_id());
         assert_ne!(retried_move.job_id(), failed_move.job_id());
         assert_eq!(
@@ -2630,8 +3921,7 @@ mod tests {
         let rename_conflict = fixture.path().join("rename-target");
         fs::write(&rename_source, b"rename").expect("rename source fixture");
         fs::write(&rename_conflict, b"conflict").expect("rename conflict fixture");
-        let failed_rename = state
-            .submit_rename(rename_source, OsString::from("rename-target"))
+        let failed_rename = submit_rename(&state, rename_source, OsString::from("rename-target"))
             .expect("rename should submit");
         assert_eq!(
             wait_for_terminal(&state, failed_rename.job_id()),
@@ -2639,9 +3929,8 @@ mod tests {
         );
         state.finish_operation(failed_rename.job_id(), TerminalOutcome::Failed);
         fs::remove_file(&rename_conflict).expect("rename conflict should be removable");
-        let retried_rename = state
-            .retry_operation(failed_rename.job_id())
-            .expect("failed rename should retry");
+        let retried_rename =
+            retry_operation(&state, failed_rename.job_id()).expect("failed rename should retry");
         assert_eq!(retried_rename.operation_id(), failed_rename.operation_id());
         assert_ne!(retried_rename.job_id(), failed_rename.job_id());
         assert_eq!(
@@ -2656,15 +3945,11 @@ mod tests {
         let state = ApplicationState::new_with_trash_backend(backend.clone())
             .expect("application state should start");
         let source = PathBuf::from("/virtual").join(OsString::from_vec(b"retry-\xff".to_vec()));
-        let failed = state
-            .submit_trash(source.clone())
-            .expect("trash should submit");
+        let failed = submit_trash(&state, source.clone()).expect("trash should submit");
         assert_eq!(wait_for_terminal(&state, failed.job_id()), JobState::Failed);
         state.finish_operation(failed.job_id(), TerminalOutcome::Failed);
 
-        let retried = state
-            .retry_operation(failed.job_id())
-            .expect("failed trash should retry");
+        let retried = retry_operation(&state, failed.job_id()).expect("failed trash should retry");
         assert_eq!(retried.operation_id(), failed.operation_id());
         assert_ne!(retried.job_id(), failed.job_id());
         assert_eq!(
@@ -2688,9 +3973,9 @@ mod tests {
         let mut first_job = None;
         let mut last_job = None;
         for index in 0..=MAX_TERMINAL_HISTORY {
-            let submission = state
-                .submit_trash(PathBuf::from(format!("/virtual/history-{index}")))
-                .expect("history trash should submit");
+            let submission =
+                submit_trash(&state, PathBuf::from(format!("/virtual/history-{index}")))
+                    .expect("history trash should submit");
             assert_eq!(
                 wait_for_terminal(&state, submission.job_id()),
                 JobState::Completed
@@ -2713,11 +3998,11 @@ mod tests {
                 .is_none()
         );
         assert!(matches!(
-            state.retry_operation(first_job.expect("first job")),
+            retry_operation(&state, first_job.expect("first job")),
             Err(CopyInteractionError::RetryNotFound(_))
         ));
         assert!(matches!(
-            state.retry_operation(last_job.expect("last job")),
+            retry_operation(&state, last_job.expect("last job")),
             Err(CopyInteractionError::RetryCompleted(_))
         ));
     }
@@ -2750,13 +4035,14 @@ mod tests {
         assert_eq!(pending.source(), source);
         assert_eq!(pending.destination(), destination);
         assert!(matches!(
-            state.retry_operation(failed.job_id()),
+            retry_operation(&state, failed.job_id()),
             Err(CopyInteractionError::ConflictDecisionRequired(job_id))
                 if job_id == failed.job_id()
         ));
 
         assert!(matches!(
-            state.resolve_conflict(
+            resolve_conflict(
+                &state,
                 failed.job_id(),
                 ConflictDecision::RetryWithName(OsString::from("nested/name")),
             ),
@@ -2765,12 +4051,12 @@ mod tests {
         assert!(state.pending_conflict(failed.job_id()).is_ok());
 
         let revised_name = OsString::from_vec(b"item-\xff".to_vec());
-        let resolution = state
-            .resolve_conflict(
-                failed.job_id(),
-                ConflictDecision::RetryWithName(revised_name.clone()),
-            )
-            .expect("valid revised copy should submit");
+        let resolution = resolve_conflict(
+            &state,
+            failed.job_id(),
+            ConflictDecision::RetryWithName(revised_name.clone()),
+        )
+        .expect("valid revised copy should submit");
         let ConflictResolution::Retried(retried) = resolution else {
             panic!("copy conflict should create a revised retry");
         };
@@ -2786,7 +4072,7 @@ mod tests {
             b"new"
         );
         assert!(matches!(
-            state.resolve_conflict(failed.job_id(), ConflictDecision::KeepExisting),
+            resolve_conflict(&state, failed.job_id(), ConflictDecision::KeepExisting),
             Err(CopyInteractionError::ConflictAlreadyResolved(job_id))
                 if job_id == failed.job_id()
         ));
@@ -2808,8 +4094,7 @@ mod tests {
         state
             .stage_move(move_source.clone())
             .expect("move should stage");
-        let failed_move = state
-            .submit_paste(&move_destination_directory)
+        let failed_move = submit_paste(&state, &move_destination_directory)
             .expect("conflicting move should submit");
         assert_eq!(
             wait_for_terminal(&state, failed_move.job_id()),
@@ -2817,13 +4102,12 @@ mod tests {
         );
         state.finish_operation(failed_move.job_id(), TerminalOutcome::Conflict);
         let moved_name = OsString::from("moved-item");
-        let ConflictResolution::Retried(retried_move) = state
-            .resolve_conflict(
-                failed_move.job_id(),
-                ConflictDecision::RetryWithName(moved_name.clone()),
-            )
-            .expect("revised move should submit")
-        else {
+        let ConflictResolution::Retried(retried_move) = resolve_conflict(
+            &state,
+            failed_move.job_id(),
+            ConflictDecision::RetryWithName(moved_name.clone()),
+        )
+        .expect("revised move should submit") else {
             panic!("move conflict should create a revised retry");
         };
         assert_eq!(retried_move.operation_id(), failed_move.operation_id());
@@ -2845,9 +4129,12 @@ mod tests {
         let rename_destination = fixture.path().join("rename-target");
         fs::write(&rename_source, b"rename-new").expect("rename source fixture");
         fs::write(&rename_destination, b"rename-keep").expect("rename conflict fixture");
-        let failed_rename = state
-            .submit_rename(rename_source.clone(), OsString::from("rename-target"))
-            .expect("conflicting rename should submit");
+        let failed_rename = submit_rename(
+            &state,
+            rename_source.clone(),
+            OsString::from("rename-target"),
+        )
+        .expect("conflicting rename should submit");
         assert_eq!(
             wait_for_terminal(&state, failed_rename.job_id()),
             JobState::Failed
@@ -2858,13 +4145,12 @@ mod tests {
             .expect("rename conflict should be pending");
         assert_eq!(pending.source(), rename_source);
         assert_eq!(pending.destination(), rename_destination);
-        let ConflictResolution::Retried(retried_rename) = state
-            .resolve_conflict(
-                failed_rename.job_id(),
-                ConflictDecision::RetryWithName(OsString::from("renamed-item")),
-            )
-            .expect("revised rename should submit")
-        else {
+        let ConflictResolution::Retried(retried_rename) = resolve_conflict(
+            &state,
+            failed_rename.job_id(),
+            ConflictDecision::RetryWithName(OsString::from("renamed-item")),
+        )
+        .expect("revised rename should submit") else {
             panic!("rename conflict should create a revised retry");
         };
         assert_eq!(retried_rename.operation_id(), failed_rename.operation_id());
@@ -2923,9 +4209,8 @@ mod tests {
     fn phase_5e_trash_conflicts_are_unsupported() {
         let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
             .expect("application state should start");
-        let submission = state
-            .submit_trash(PathBuf::from("/virtual/conflict"))
-            .expect("trash should submit");
+        let submission =
+            submit_trash(&state, PathBuf::from("/virtual/conflict")).expect("trash should submit");
         assert_eq!(
             wait_for_terminal(&state, submission.job_id()),
             JobState::Completed
@@ -2964,9 +4249,8 @@ mod tests {
         state
             .stage_copy_many(sources.clone())
             .expect("all exact paths should stage");
-        let batch = state
-            .submit_paste_batch(&destination_directory)
-            .expect("batch should be accepted");
+        let batch =
+            submit_paste_batch(&state, &destination_directory).expect("batch should be accepted");
         assert_eq!(batch.queued(), sources.len());
 
         for _ in &sources {
@@ -3023,9 +4307,8 @@ mod tests {
         state
             .stage_move_many(sources.clone())
             .expect("move paths should stage");
-        let batch = state
-            .submit_paste_batch(&destination_directory)
-            .expect("move batch should queue");
+        let batch =
+            submit_paste_batch(&state, &destination_directory).expect("move batch should queue");
         assert_eq!(batch.queued(), sources.len());
         assert_eq!(state.staged_transfers(), None);
 
@@ -3054,9 +4337,7 @@ mod tests {
             .collect::<Vec<_>>();
         let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
             .expect("application state should start");
-        let batch = state
-            .submit_trash_batch(sources.clone())
-            .expect("trash batch should queue");
+        let batch = submit_trash_batch(&state, sources.clone()).expect("trash batch should queue");
         assert_eq!(batch.queued(), sources.len());
 
         for _ in &sources {
@@ -3091,7 +4372,7 @@ mod tests {
         state.finish_operation(queued.job_id(), TerminalOutcome::PartialFailure);
 
         assert!(matches!(
-            state.retry_operation(queued.job_id()),
+            retry_operation(&state, queued.job_id()),
             Err(CopyInteractionError::RetryUnsafePartial(job_id)) if job_id == queued.job_id()
         ));
     }
@@ -3125,8 +4406,7 @@ mod tests {
         );
 
         for index in 0..MAX_TERMINAL_HISTORY {
-            let submission = state
-                .submit_trash(PathBuf::from(format!("/virtual/evict-{index}")))
+            let submission = submit_trash(&state, PathBuf::from(format!("/virtual/evict-{index}")))
                 .expect("trash should submit");
             assert_eq!(
                 wait_for_terminal(&state, submission.job_id()),
@@ -3166,9 +4446,8 @@ mod tests {
         state
             .stage_copy_many(sources.clone())
             .expect("copy batch should stage");
-        let batch = state
-            .submit_paste_batch(&destination_directory)
-            .expect("copy batch should submit");
+        let batch =
+            submit_paste_batch(&state, &destination_directory).expect("copy batch should submit");
         state.pause_batch(batch.id()).expect("batch should pause");
 
         let first = state
@@ -3223,9 +4502,7 @@ mod tests {
         state
             .stage_copy_many(vec![first, second, third])
             .expect("batch should stage");
-        let batch = state
-            .submit_paste_batch(&destination)
-            .expect("batch should submit");
+        let batch = submit_paste_batch(&state, &destination).expect("batch should submit");
         let first_conflict = state.batch_active.get().expect("first active job");
         assert_eq!(wait_for_terminal(&state, first_conflict), JobState::Failed);
         state.finish_operation(first_conflict, TerminalOutcome::Conflict);
@@ -3289,9 +4566,7 @@ mod tests {
         state
             .stage_copy_many(vec![first, second])
             .expect("batch should stage");
-        let batch = state
-            .submit_paste_batch(&destination)
-            .expect("batch should submit");
+        let batch = submit_paste_batch(&state, &destination).expect("batch should submit");
         let conflict = state.batch_active.get().expect("active conflict");
         assert_eq!(wait_for_terminal(&state, conflict), JobState::Failed);
         state.finish_operation(conflict, TerminalOutcome::Conflict);
@@ -3312,12 +4587,14 @@ mod tests {
     fn phase_6p_batch_cancel_accepts_current_item_that_already_committed() {
         let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
             .expect("application state");
-        let batch = state
-            .submit_trash_batch(vec![
+        let batch = submit_trash_batch(
+            &state,
+            vec![
                 PathBuf::from("/virtual/first"),
                 PathBuf::from("/virtual/second"),
-            ])
-            .expect("trash batch should submit");
+            ],
+        )
+        .expect("trash batch should submit");
         let first = state
             .batch_active
             .get()
@@ -3389,9 +4666,17 @@ mod tests {
                 .expect("fixture source should retain its raw filename"),
         );
         let state = ApplicationState::new().expect("application state");
-        state.stage_move(source.clone()).expect("move should stage");
+        let move_request = MoveRequest::new(
+            source.clone(),
+            moved_path.clone(),
+            ConflictPolicy::FailIfExists,
+        );
+        let move_authorization = authorize_scope(
+            &state,
+            destructive_scope_for_move(&move_request).expect("move scope"),
+        );
         let moved = state
-            .submit_paste(&destination_directory)
+            .submit_move_authorized(GuardrailAuthorized::new(move_request, move_authorization))
             .expect("move submit");
         assert_eq!(
             wait_for_terminal(&state, moved.job_id()),
@@ -3400,8 +4685,14 @@ mod tests {
         state.finish_operation(moved.job_id(), TerminalOutcome::Completed);
         assert!(state.can_undo(moved.job_id()));
 
+        let undo_authorization = authorize_scope(
+            &state,
+            state
+                .undo_operation_guardrail_scope(moved.job_id())
+                .expect("undo scope"),
+        );
         let undo = state
-            .undo_operation(moved.job_id())
+            .undo_operation_authorized(moved.job_id(), undo_authorization)
             .expect("undo should submit");
         assert_eq!(
             wait_for_terminal(&state, undo.job_id()),
@@ -3452,7 +4743,7 @@ mod tests {
         fs::write(&destination, b"existing").expect("existing destination");
         let state = ApplicationState::new().expect("application state");
         let request = RestoreRequest::new(&trash, &info, &destination).expect("restore request");
-        let failed = state.submit_restore(request).expect("restore submission");
+        let failed = submit_restore(&state, request).expect("restore submission");
         assert_eq!(wait_for_terminal(&state, failed.job_id()), JobState::Failed);
         state.finish_operation(failed.job_id(), TerminalOutcome::Conflict);
         assert_eq!(
@@ -3463,13 +4754,12 @@ mod tests {
             destination
         );
 
-        let ConflictResolution::Retried(retried) = state
-            .resolve_conflict(
-                failed.job_id(),
-                ConflictDecision::RetryWithName(OsString::from("restored-item")),
-            )
-            .expect("safe revised restore")
-        else {
+        let ConflictResolution::Retried(retried) = resolve_conflict(
+            &state,
+            failed.job_id(),
+            ConflictDecision::RetryWithName(OsString::from("restored-item")),
+        )
+        .expect("safe revised restore") else {
             panic!("restore should create revised retry");
         };
         assert_eq!(retried.operation_id(), failed.operation_id());
@@ -3644,7 +4934,7 @@ mod tests {
                 action,
             )
             .expect("drop request");
-            let batch = state.submit_drop(request).expect("drop batch");
+            let batch = submit_drop(&state, request).expect("drop batch");
             assert_eq!(batch.queued(), 1);
             let job_id = state.batch_active.get().expect("active drop job");
             assert_eq!(wait_for_terminal(&state, job_id), JobState::Completed);
@@ -3681,13 +4971,13 @@ mod tests {
         fs::write(&move_source, b"move").expect("move source");
         let state = ApplicationState::new().expect("application state");
 
-        let copy = state
-            .submit_transfer_batch(
-                TransferIntent::Copy,
-                vec![copy_source.clone(), copy_source.clone()],
-                &destination,
-            )
-            .expect("direct copy batch");
+        let copy = submit_transfer_batch(
+            &state,
+            TransferIntent::Copy,
+            vec![copy_source.clone(), copy_source.clone()],
+            &destination,
+        )
+        .expect("direct copy batch");
         assert_eq!(copy.queued(), 1);
         assert_eq!(state.staged_transfers(), None);
         let copy_job = state.batch_active.get().expect("copy job");
@@ -3699,13 +4989,13 @@ mod tests {
         );
         assert!(copy_source.exists());
 
-        let moved = state
-            .submit_transfer_batch(
-                TransferIntent::Move,
-                vec![move_source.clone()],
-                &destination,
-            )
-            .expect("direct move batch");
+        let moved = submit_transfer_batch(
+            &state,
+            TransferIntent::Move,
+            vec![move_source.clone()],
+            &destination,
+        )
+        .expect("direct move batch");
         assert_eq!(moved.queued(), 1);
         assert_eq!(state.staged_transfers(), None);
         let move_job = state.batch_active.get().expect("move job");
@@ -3738,7 +5028,7 @@ mod tests {
                 action,
             )
             .expect("valid split drop");
-            let batch = state.submit_drop(request).expect("queued split drop");
+            let batch = submit_drop(&state, request).expect("queued split drop");
             assert_eq!(batch.queued(), 1);
             let job = state.batch_active.get().expect("active split drop");
             assert_eq!(wait_for_terminal(&state, job), JobState::Completed);
@@ -3752,5 +5042,30 @@ mod tests {
             fs::read_link(destination.join("link.txt")).expect("symbolic link target"),
             fixture.path().join("link.txt")
         );
+    }
+
+    #[test]
+    fn phase_18w_workflow_claims_verified_copy_result_exactly_once() {
+        let fixture = tempdir().expect("temporary fixture");
+        let source = fixture.path().join("source.bin");
+        let destination = fixture.path().join("destination.bin");
+        fs::write(&source, b"verified removable payload").expect("source payload");
+        let state = ApplicationState::new().expect("application state");
+        let submission = state
+            .submit_verified_usb_copy(VerifiedCopyRequest::new(source, destination))
+            .expect("verified removable child submission");
+        let job_id = submission.job_id();
+        assert!(state.is_verified_usb_copy_operation(job_id));
+        assert_eq!(wait_for_terminal(&state, job_id), JobState::Completed);
+
+        let completion = state
+            .finish_verified_copy(job_id)
+            .expect("claimed terminal result");
+        assert!(matches!(
+            completion,
+            VerifiedCopyCompletion::VerifiedUsb(Ok(_))
+        ));
+        assert!(!state.is_verified_usb_copy_operation(job_id));
+        assert!(state.finish_verified_copy(job_id).is_none());
     }
 }

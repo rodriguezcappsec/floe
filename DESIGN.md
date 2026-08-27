@@ -374,6 +374,37 @@ These are current code values, not universal design constants. The system still
 contains local widget spacing and margin values; moving all of those into a
 coherent token scale remains architectural work.
 
+### Implemented icon system
+
+Floe-owned interface chrome uses locally bundled Phosphor Core 2.1.1 Regular
+symbolic SVGs for a consistent rounded outline language. GTK applies the
+foreground color to the complete symbolic glyph; external CSS does not address
+individual SVG paths as it would in a browser DOM. Toolbar controls retain
+stable labels, tooltips, actions, focus, and keyboard equivalents.
+
+File and folder presentation has three live radio-style choices under **File &
+Folder Icons**:
+
+- **Floe Color** keeps the existing full-color semantic file family, including
+  distinct plain-text, office-document, and PDF artwork.
+- **Phosphor Monochrome** uses one recolorable symbolic glyph per entry with
+  semantic folder, media, archive, code, document, and generic color tokens.
+- **System Theme** requests freedesktop MIME/folder names from the active GTK
+  icon theme and follows the desktop where those names exist. Each semantic
+  family ends in a distinct app-owned fallback, so missing host-theme artwork
+  cannot turn PDF and plain text into the same generic glyph.
+
+The icon style is global, persists as one stable version-12 preference, and
+rebinds already-loaded virtualized entries without re-enumerating the
+filesystem. Thumbnails remain authoritative once available. Shape, filename,
+type text, badges, and accessible names must continue carrying meaning without
+depending on color alone.
+
+Recognized extension families remain visually authoritative when FAT/exFAT,
+NTFS, network, or other mounts synthesize execute bits for ordinary files.
+Executable artwork is reserved as a fallback for unknown or extensionless
+executables; presentation never changes actual execution authorization.
+
 Native removes floating-panel borders and shadows. Glass removes libadwaita's
 opaque top-level background and composites its semantic-color header and panels
 over the desktop; file-view backgrounds remain transparent so they do not hide

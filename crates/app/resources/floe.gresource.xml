@@ -6,6 +6,7 @@
     <file alias="icons/scalable/mimetypes/floe-folder-link.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-folder-link-symbolic.svg</file>
     <file alias="icons/scalable/mimetypes/floe-file-generic.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-generic-symbolic.svg</file>
     <file alias="icons/scalable/mimetypes/floe-file-link.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-link-symbolic.svg</file>
+    <file alias="icons/scalable/mimetypes/floe-file-text.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-text-symbolic.svg</file>
     <file alias="icons/scalable/mimetypes/floe-file-document.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-document-symbolic.svg</file>
     <file alias="icons/scalable/mimetypes/floe-file-spreadsheet.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-spreadsheet-symbolic.svg</file>
     <file alias="icons/scalable/mimetypes/floe-file-presentation.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-presentation-symbolic.svg</file>
@@ -16,5 +17,49 @@
     <file alias="icons/scalable/mimetypes/floe-file-code.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-code-symbolic.svg</file>
     <file alias="icons/scalable/mimetypes/floe-file-pdf.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-pdf-symbolic.svg</file>
     <file alias="icons/scalable/mimetypes/floe-file-executable.svg" preprocess="xml-stripblanks">icons/scalable/mimetypes/floe-file-executable-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-arrow-left-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-arrow-left-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-arrow-right-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-arrow-right-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-arrow-up-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-arrow-up-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-eye-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-eye-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-magnifying-glass-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-magnifying-glass-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-folder-open-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-folder-open-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-dots-three-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-dots-three-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-list-bullets-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-list-bullets-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-squares-four-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-squares-four-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-columns-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-columns-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-minus-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-minus-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-plus-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-plus-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-x-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-x-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-stop-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-stop-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-clock-counter-clockwise-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-clock-counter-clockwise-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-house-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-house-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-desktop-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-desktop-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-download-simple-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-download-simple-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-music-notes-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-music-notes-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-image-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-image-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-users-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-users-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-video-camera-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-video-camera-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-trash-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-trash-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-hard-drives-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-hard-drives-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-usb-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-usb-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-eject-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-eject-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-info-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-info-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-warning-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-warning-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-caret-right-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-caret-right-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-folder-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-folder-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-dashed-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-dashed-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-text-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-text-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-txt-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-txt-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-doc-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-doc-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-xls-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-xls-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-presentation-chart-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-presentation-chart-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-image-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-image-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-audio-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-audio-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-video-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-video-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-zip-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-zip-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-code-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-code-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-file-pdf-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-file-pdf-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-terminal-window-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-terminal-window-symbolic.svg</file>
   </gresource>
 </gresources>

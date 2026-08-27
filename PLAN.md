@@ -1,3 +1,230 @@
+# Plan: Floe Phases 18T–18X — Integrity and Data-Loss Safety
+
+## Contract
+
+Implement exactly these five dependency-ordered roadmap leaves:
+
+1. **18T Integrity Tools:** saved SHA-256 fingerprints plus path-safe portable
+   `SHA256SUMS` generation and verification, reusing Phase 10E streaming hashes.
+2. **18U Integrity Monitoring:** explicit local baselines and bounded/coalesced
+   changed, missing, and new-file reporting. This is not intrusion detection.
+3. **18V Verified Copy:** an optional Copy and Verify job that compares
+   revalidated source and destination bytes through SHA-256 after publication.
+4. **18W Verified USB Transfer:** explicit Copy → Verify → Flush → Eject workflow
+   with truthful partial states and no safe-removal claim before successful eject.
+5. **18X Data-Loss Guardrails:** persisted exact-path Protected Folders and
+   thresholded destructive-operation preflight. Protection prevents mistakes;
+   it is not encryption or access control.
+
+Preserve exact `PathBuf`/`OsString` identity, no-follow/no-shell/no-silent-
+overwrite policy, bounded workers and retained state, GTK responsiveness,
+existing operation semantics, and Phase 18A security terminology. Add no Niri,
+Plasma-specific, remote, MTP, encryption, vault, sandbox, recovery-journal, or
+Security Center work. Do not claim authenticity, malware detection, secure
+erase, universal monitoring, or guaranteed safe removal.
+
+## Depth tree and dependency order
+
+```text
+18T–18X root integration
+├── 18T checksum/fingerprint/manifest engine + native UI
+├── 18U baseline/monitor engine + native UI         (depends on 18T)
+├── 18V verified-copy operation + progress/UI       (depends on 18T)
+├── 18W verified-removable workflow + device UI     (depends on 18V)
+└── 18X protected-path/preflight policy + settings/UI
+```
+
+Leaves run in order because later phases reuse earlier types and shared app
+controllers. Each leaf owns `gates/phase-18*.md`; root integration evidence is
+recorded at the top of `GATES.md`. Before each leaf, inspect its existing core,
+worker, command, preference, GTK, and test seams and update the documented file
+ownership if reality differs. Do not overwrite unrelated dirty icon work.
+
+## Permanent testing layers
+
+- Lowest-layer Rust unit/property tests for manifests, raw names, baselines,
+  monitoring diffs/coalescing, verification states, workflow transitions,
+  protected-root matching, and threshold decisions.
+- Filesystem integration tests only below `tempfile` roots for links, races,
+  changed/missing/new files, corrupt manifests, copy corruption, full/partial
+  workflow outcomes, and protected targets. Never use real HOME, Trash, mounts,
+  or removable devices.
+- GTK component/accessibility tests for commands, dialogs, state, progress,
+  confirmation, and non-color wording; ignored by ordinary headless tests.
+- Isolated native Wayland smoke for user-visible actions and clean Quit where
+  the environment permits. Real removable-device gates require explicit
+  disposable media and must otherwise be reported as skipped, never simulated
+  against user storage.
+- Every phase runs focused tests while developing. Root completion requires
+  formatting, workspace check, strict Clippy, complete tests, native build,
+  diff hygiene, gate checker, status documents, and exactly Phase 18Y as NEXT.
+
+## Status log
+
+- `2026-08-27`: Root plan and leaf ledgers created; implementation inspection
+  begins with Phase 18T.
+- `2026-08-27`: Parent reverified Phase 18T at 4/4 gates with all 18 focused
+  tests passing.
+- `2026-08-27`: Parent reverified Phase 18U at 4/4 gates with 13 app and 5 core
+  focused tests passing; monitoring remains explicit, bounded, local, and does
+  not claim intrusion detection.
+- `2026-08-27`: Parent reverified Phase 18V at 4/4 gates with 10 app and 2 core
+  focused tests passing; copied-but-unverified output remains explicit and
+  ordinary Copy semantics are unchanged.
+- `2026-08-27`: Parent reverified Phase 18W at 4/4 gates with all 11 aggregate
+  focused tests passing; real removable-media validation is explicitly skipped
+  because no disposable lab device was provided.
+- `2026-08-27`: Parent reverified Phase 18X at 4/4 gates with 20 app, 21
+  integration, and 7 core focused tests passing. The complete Phase 18 family
+  filter passes 71 app, 21 integration, and 14 core deterministic tests.
+- `2026-08-27`: Root integration formatting, workspace check, strict Clippy,
+  466 app plus 21 integration plus 146 core tests, native build, separate GTK
+  contracts, E2E harness contracts, leaf gate checker, and diff hygiene pass.
+  Native semantic E2E is skipped because Dogtail/pyatspi are unavailable; real
+  USB is skipped because no disposable lab device was provided. An isolated
+  D-Bus lifecycle retry was blocked by portal services closing the disposable
+  bus, so no additional native-lifecycle claim is made.
+
+## Status
+
+COMPLETE. Phases 18T–18X satisfy their 20 leaf gates and root integration
+evidence. Exactly Phase 18Y — Operation Recovery is recommended next and is not
+implemented by this plan.
+
+---
+
+# Plan: Floe Phase 18A — Security Threat Model
+
+## Contract
+
+- Revalidate the implemented Phase 14 baseline and every planned Phase 18
+  security/privacy/integrity family against explicit assets, adversaries,
+  non-protections, authority boundaries, data classes, and failure behavior.
+- Record decisions as **Accepted for later implementation**, **Candidate**,
+  **Deferred**, or **Rejected**. Phase 18A selects no Rust dependency, crypto
+  library, vault backend, credential backend, or sandbox mechanism.
+- Provide dependency rationale and a traceable implementation-time test plan for
+  portable encryption, secrets, vaults, caches/history, provider isolation,
+  suspicious/privacy inspection, integrity, verified transfer, guardrails,
+  recovery, privileged access, and the final security audit.
+- Mark Niri, Plasma-specific integration, remote browsing/recovery, and MTP as
+  deferred while retaining generic Wayland/Plasma compatibility gates.
+- Add no runtime feature, GTK surface, filesystem operation, secret handling,
+  cryptographic claim, dependency, or Phase 18B+ implementation.
+- Preserve exact-path, no-shell, no-overwrite, no-follow, bounded-worker, and
+  truthful-claim rules already implemented.
+
+## Applicable verification layers
+
+- Documentation structure and cross-reference checks for authoritative sources,
+  decision IDs, threat IDs, phase/test mappings, and exactly one roadmap NEXT.
+- Dependency manifest/lockfile audit proving Phase 18A adds no runtime crate.
+- Existing formatting, workspace check, strict Clippy, and complete tests to
+  prove a documentation-only phase did not disturb the verified baseline.
+- Native GTK/Wayland smoke is not applicable because Phase 18A changes no
+  runtime behavior or UI; later user-visible security phases retain those gates.
+
+## Status
+
+COMPLETE. The threat model, 16 stable decisions, and 26-leaf Phase 18 test
+traceability plan are cross-linked from the authoritative project documents.
+All Phase 18A gates and repository regressions pass; Phase 18T is the sole next
+phase and has not started.
+
+---
+
+# Regression plan: post-Phase-14 synthetic execute-bit icon handling
+
+## Contract
+
+- Make recognized extension families authoritative for presentation even when
+  exFAT, FAT, NTFS, network, or other mounts synthesize execute permission bits.
+- Preserve executable presentation for extensionless or unknown executable
+  files, including existing AppImage behavior.
+- Keep the change in app-layer icon policy; perform no MIME/content/filesystem
+  probe and do not alter operation permissions or execution authorization.
+- Add a lowest-layer regression using executable regular-file fixtures.
+- Preserve Phase 15 as the sole roadmap NEXT phase.
+
+## Status
+
+COMPLETE. Known file types now outrank synthetic execute bits for icon
+presentation, while unknown and extensionless executables retain executable
+artwork. Focused/full Rust, strict Clippy, real GTK, native build, diff hygiene,
+and documentation gates pass. Exactly Phase 15 remains the sole roadmap NEXT.
+
+---
+
+# Regression plan: post-Phase-14 file-type icon distinction
+
+## Contract
+
+- Reproduce why distinct PDF and plain-text families render identically or
+  disappear in one or more of Floe Color, Phosphor Monochrome, and System Theme.
+- Keep classification and rendering policy in `floe-app`; preserve exact paths,
+  existing thumbnail precedence, responsive GTK behavior, and live switching.
+- Make every current semantic family resolve to a usable icon, with a distinct
+  PDF/text outcome even when a host icon theme omits or aliases MIME artwork.
+- Reset stale `gtk::Image` state when changing representations and rebind every
+  already-loaded list/grid/search/Miller presentation.
+- Add lowest-layer regression tests plus a real GTK contract and native smoke.
+- Do not start Phase 15 or broaden the supported taxonomy speculatively.
+
+## Applicable testing layers
+
+- Rust policy/resources: extension families, distinct style mappings, registered
+  app-owned resources, bounded System Theme fallback chains.
+- GTK component: resolved paintables, stale-state reset, immediate live rebind.
+- Native Wayland: visible PDF/TXT fixture, three-style switching, persistence,
+  responsiveness, and clean quit.
+
+## Status
+
+COMPLETE. Plain text is separate from office documents and PDF; all fifteen
+families have distinct app-owned fallbacks, stale GTK image storage is cleared,
+focused/full Rust tests, real GTK resolved-paintable checks, E2E contracts, and
+native Wayland switching/liveness/clean-Quit smoke pass. Exactly Phase 15
+remains the sole roadmap NEXT phase.
+
+---
+
+# Plan: Floe post-Phase-14 — Phosphor Icon System
+
+## Contract
+
+- Vendor a reviewed, pinned subset of Phosphor Core 2.1.1 Regular SVGs with its
+  MIT license. Icons remain local resources; Floe performs no runtime download.
+- Use Phosphor symbolic icons for Floe-owned navigation/action/sidebar chrome
+  while preserving stable accessible labels, actions, focus, and keyboard paths.
+- Add one persistent live entry-icon style with exactly three choices: Floe
+  Color, Phosphor Monochrome, and System Theme. Existing thumbnails continue to
+  replace generic icons and exact file paths remain authoritative.
+- Keep icon policy in `floe-app`; add no filesystem I/O, worker, core dependency,
+  compositor branch, MIME probe, or future Phase 15 integration.
+- Rebind the already-loaded virtualized model when style changes. Do not perform
+  synchronous enumeration or icon filesystem work on GTK callbacks.
+- Preserve Phase 15 as the sole roadmap `NEXT` phase.
+
+## Applicable testing layers
+
+- Rust policy/preferences: stable style IDs/order/labels, invalid and legacy
+  fallback, version-12 round trip, semantic icon-family mapping.
+- Resource tests: every vendored Phosphor alias resolves, is symbolic SVG using
+  `currentColor`, and the original Floe Color resources remain available.
+- GTK component/native: menu action state, immediate live rebind, accessible
+  toolbar controls, list/grid generic fallback, thumbnail replacement, clean
+  Wayland launch/action/Quit lifecycle.
+
+## Status
+
+COMPLETE. Stable style policy, version-12 migration, 42 pinned symbolic
+resources, Phosphor interface chrome, live virtualized rebinding, shared toast
+escaping, strict workspace tests, real GTK, and two-launch isolated Plasma
+Wayland action/state/persistence/lifecycle behavior are verified in `GATES.md`.
+Phase 15 remains the sole recommended next phase and has not started.
+
+---
+
 # Plan: Floe Phase 14 — Generic Desktop Integration Framework
 
 ## Contract

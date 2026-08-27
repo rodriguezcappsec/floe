@@ -460,8 +460,8 @@ impl MillerView {
             .build();
         heading.add_css_class("heading");
         let icon_name = match state.surface() {
-            Some(MillerDetailSurface::Preview) => "document-open-symbolic",
-            Some(MillerDetailSurface::Inspector) | None => "dialog-information-symbolic",
+            Some(MillerDetailSurface::Preview) => "floe-phosphor-folder-open-symbolic",
+            Some(MillerDetailSurface::Inspector) | None => "floe-phosphor-info-symbolic",
         };
         let icon = gtk::Image::builder()
             .icon_name(icon_name)
@@ -644,7 +644,7 @@ impl MillerView {
                         }
                     } else {
                         let audio_icon = gtk::Image::builder()
-                            .icon_name("audio-x-generic-symbolic")
+                            .icon_name("floe-phosphor-file-audio-symbolic")
                             .pixel_size(72)
                             .margin_top(24)
                             .margin_bottom(16)

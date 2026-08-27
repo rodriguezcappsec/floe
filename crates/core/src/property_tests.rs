@@ -26,6 +26,10 @@ mod unix {
             }),
             1..64,
         )
+        .prop_filter(
+            "filesystem entries exclude reserved dot components",
+            |name| name.as_slice() != b"." && name.as_slice() != b"..",
+        )
     }
 
     fn entry(name: Vec<u8>, index: usize) -> DirectoryEntry {

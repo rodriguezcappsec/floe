@@ -9,8 +9,8 @@ use std::{
 
 use adw::prelude::*;
 use floe_core::{
-    ArchiveOutcome, JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId, JobProgress,
-    ProgressUnit,
+    ArchiveOutcome, DestructiveScope, JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId,
+    JobProgress, ProgressUnit,
 };
 use gtk::{gio, glib};
 
@@ -18,15 +18,21 @@ use crate::{
     archive_ui::archive_failure_text,
     checksum_executor::ChecksumOutcome,
     checksum_ui::present_checksum,
+    guardrail_controller::GuardrailAuthorizationItem,
+    guardrail_preflight::PreflightEnvironment,
+    guardrail_ui::review_and_authorize,
+    integrity_executor::IntegrityOutcome,
+    integrity_ui::{build_integrity_results_dialog, integrity_title, present_integrity},
     operation_control::{BatchId, BatchSnapshot, BatchStatus, TransferEstimate, TransferTelemetry},
     state::{
         ApplicationState, ConflictDecision, ConflictResolution, TerminalOperation, TerminalOutcome,
-        TrackedOperation, validate_rename_name,
+        TrackedOperation, VerifiedCopyCompletion, validate_rename_name,
     },
     ui::{
         OperationHistoryItem, OperationWidgets, build_checksum_results_dialog,
-        build_conflict_dialog, build_operation_history_dialog,
+        build_conflict_dialog, build_operation_history_dialog, build_verified_copy_result_dialog,
     },
+    verified_copy_executor::{VerifiedCopyResult, present_verified_copy},
 };
 
 const JOB_POLL_INTERVAL: Duration = Duration::from_millis(50);
@@ -107,6 +113,7 @@ pub struct OperationController {
     telemetry: RefCell<HashMap<JobId, JobTelemetry>>,
     indeterminate: Cell<bool>,
     visibility_generation: Rc<Cell<u64>>,
+    guardrail_environment: Box<dyn Fn() -> PreflightEnvironment>,
     on_operation_completed: Box<dyn Fn(&Path)>,
 }
 
@@ -116,6 +123,7 @@ impl OperationController {
         toast_overlay: adw::ToastOverlay,
         widgets: OperationWidgets,
         state: Rc<ApplicationState>,
+        guardrail_environment: impl Fn() -> PreflightEnvironment + 'static,
         on_operation_completed: impl Fn(&Path) + 'static,
     ) -> Rc<Self> {
         Rc::new(Self {
@@ -131,6 +139,7 @@ impl OperationController {
             telemetry: RefCell::new(HashMap::new()),
             indeterminate: Cell::new(false),
             visibility_generation: Rc::new(Cell::new(0)),
+            guardrail_environment: Box::new(guardrail_environment),
             on_operation_completed: Box::new(on_operation_completed),
         })
     }
@@ -180,6 +189,52 @@ impl OperationController {
                 controller.widgets.operation_progress.pulse();
             }
             glib::ControlFlow::Continue
+        });
+    }
+
+    fn review_guardrail(
+        &self,
+        scopes: Vec<DestructiveScope>,
+        on_authorized: impl FnOnce(Vec<GuardrailAuthorizationItem>) + 'static,
+    ) {
+        review_and_authorize(
+            &self.window,
+            Rc::clone(&self.state),
+            scopes,
+            (self.guardrail_environment)(),
+            on_authorized,
+        );
+    }
+
+    fn resolve_conflict_with_review(
+        self: &Rc<Self>,
+        job_id: JobId,
+        decision: ConflictDecision,
+        on_resolved: impl FnOnce(Result<ConflictResolution, crate::state::CopyInteractionError>)
+        + 'static,
+    ) {
+        let scope = match self.state.conflict_guardrail_scope(job_id, &decision) {
+            Ok(scope) => scope,
+            Err(error) => {
+                on_resolved(Err(error));
+                return;
+            }
+        };
+        let Some(scope) = scope else {
+            on_resolved(self.state.resolve_conflict(job_id, decision));
+            return;
+        };
+        let state = Rc::clone(&self.state);
+        let weak_controller = Rc::downgrade(self);
+        self.review_guardrail(vec![scope], move |mut authorizations| {
+            let Some(controller) = weak_controller.upgrade() else {
+                return;
+            };
+            let Some(authorization) = authorizations.pop() else {
+                controller.show_toast("Could not authorize conflict retry", 7);
+                return;
+            };
+            on_resolved(state.resolve_conflict_authorized(job_id, decision, authorization));
         });
     }
 
@@ -301,9 +356,18 @@ impl OperationController {
         let request = self.request(job_id);
         let permission_operation = self.state.is_permission_operation(job_id);
         let checksum_operation = self.state.is_checksum_operation(job_id);
+        let integrity_operation = self.state.is_integrity_operation(job_id);
+        let verified_copy_operation = self.state.is_verified_copy_operation(job_id);
+        let verified_usb_operation = self.state.is_verified_usb_copy_operation(job_id);
         let archive_operation = self.state.is_archive_operation(job_id);
         let batch_rename_operation = self.state.is_batch_rename_operation(job_id);
-        let title = if checksum_operation {
+        let title = if verified_usb_operation {
+            "Verified removable transfer".to_owned()
+        } else if verified_copy_operation {
+            "Copying and verifying".to_owned()
+        } else if integrity_operation {
+            integrity_title(self.state.integrity_request(job_id).as_ref()).to_owned()
+        } else if checksum_operation {
             "Calculating checksums".to_owned()
         } else if permission_operation {
             "Changing permissions".to_owned()
@@ -316,7 +380,13 @@ impl OperationController {
         };
         self.widgets.operation_label.set_label(&title);
         self.widgets.operation_detail.set_label(detail);
-        let cancel_tooltip = if checksum_operation {
+        let cancel_tooltip = if verified_usb_operation {
+            "Cancel verified removable transfer".to_owned()
+        } else if verified_copy_operation {
+            "Cancel Copy and Verify".to_owned()
+        } else if integrity_operation {
+            "Cancel integrity operation".to_owned()
+        } else if checksum_operation {
             "Cancel checksum calculation".to_owned()
         } else if permission_operation {
             "Cancel permission change".to_owned()
@@ -359,6 +429,9 @@ impl OperationController {
         ));
         let permission_operation = self.state.is_permission_operation(job_id);
         let checksum_operation = self.state.is_checksum_operation(job_id);
+        let integrity_operation = self.state.is_integrity_operation(job_id);
+        let verified_copy_operation = self.state.is_verified_copy_operation(job_id);
+        let verified_usb_operation = self.state.is_verified_usb_copy_operation(job_id);
         let archive_operation = self.state.is_archive_operation(job_id);
         let batch_rename_operation = self.state.is_batch_rename_operation(job_id);
         let permission_directories = self.state.permission_affected_directories(job_id);
@@ -367,6 +440,16 @@ impl OperationController {
         let request = self.state.finish_operation(job_id, outcome);
         let checksum_outcome = if checksum_operation {
             self.state.finish_checksum(job_id)
+        } else {
+            None
+        };
+        let integrity_outcome = if integrity_operation {
+            self.state.finish_integrity(job_id)
+        } else {
+            None
+        };
+        let verified_copy_completion = if verified_copy_operation {
+            self.state.finish_verified_copy(job_id)
         } else {
             None
         };
@@ -412,7 +495,11 @@ impl OperationController {
                 }
                 self.show_terminal(
                     request.as_ref(),
-                    if checksum_operation {
+                    if verified_copy_operation {
+                        "Copy verified"
+                } else if integrity_operation {
+                "Integrity operation complete"
+            } else if checksum_operation {
                         "Checksums calculated"
                     } else if permission_operation {
                         "Permissions updated"
@@ -423,7 +510,13 @@ impl OperationController {
                     } else {
                         completed_title(request.as_ref())
                     },
-                    if checksum_operation {
+                    if verified_usb_operation {
+                        "Byte verification completed; preparing the removable-device flush"
+                    } else if verified_copy_operation {
+                        "Destination synced and source/destination bytes matched with SHA-256"
+                } else if integrity_operation {
+                "Integrity results are ready"
+            } else if checksum_operation {
                         "Checksum results are ready"
                     } else if permission_operation {
                         "Selected permission changes completed"
@@ -440,7 +533,13 @@ impl OperationController {
                     },
                     true,
                 );
-                let toast = if checksum_operation {
+                let toast = if verified_usb_operation {
+                    "Copy verified; removable transfer is continuing".to_owned()
+                } else if verified_copy_operation {
+                    "Copy verified".to_owned()
+                } else if integrity_operation {
+                    "Integrity operation complete".to_owned()
+                } else if checksum_operation {
                     "Checksums calculated".to_owned()
                 } else if permission_operation {
                     "Permissions updated".to_owned()
@@ -455,13 +554,20 @@ impl OperationController {
                 if let Some(outcome) = checksum_outcome {
                     self.present_checksum_results(outcome);
                 }
+                if let Some(outcome) = integrity_outcome {
+                    self.present_integrity_results(outcome);
+                }
             }
             TerminalResult::Cancelled => {
                 let permanent_delete =
                     matches!(request.as_ref(), Some(TrackedOperation::PermanentDelete(_)));
                 self.show_terminal(
                     request.as_ref(),
-                    if checksum_operation {
+                    if verified_copy_operation {
+                        "Copy and Verify cancelled"
+                    } else if integrity_operation {
+                        "Integrity operation cancelled"
+                    } else if checksum_operation {
                         "Checksum calculation cancelled"
                     } else if permission_operation {
                         "Permission change cancelled"
@@ -474,7 +580,11 @@ impl OperationController {
                     } else {
                         "Operation cancelled"
                     },
-                    if checksum_operation {
+                    if verified_copy_operation {
+                        "The destination may remain without verification; review the result"
+                    } else if integrity_operation {
+                        "No integrity result was kept"
+                    } else if checksum_operation {
                         "No checksum result was kept"
                     } else if permission_operation {
                         "No permission change was committed"
@@ -490,7 +600,11 @@ impl OperationController {
                     false,
                 );
                 self.show_toast(
-                    if checksum_operation {
+                    if verified_copy_operation {
+                        "Copy and Verify cancelled"
+                    } else if integrity_operation {
+                        "Integrity operation cancelled"
+                    } else if checksum_operation {
                         "Checksum calculation cancelled"
                     } else if permission_operation {
                         "Permission change cancelled before it started"
@@ -524,7 +638,11 @@ impl OperationController {
                 }
                 let archive_failure = archive_operation
                     .then(|| archive_failure_text(failure.kind(), failure.message()));
-                let title = if checksum_operation {
+                let title = if verified_copy_operation {
+                    "Copy and Verify failed"
+                } else if integrity_operation {
+                    "Integrity verification failed"
+                } else if checksum_operation {
                     "Checksum calculation failed"
                 } else if batch_rename_operation {
                     if failure.kind() == JobFailureKind::Conflict {
@@ -586,6 +704,16 @@ impl OperationController {
         if conflict_pending {
             self.present_conflict(job_id);
         }
+        if let Some(completion) = verified_copy_completion {
+            match completion {
+                VerifiedCopyCompletion::Ordinary(result) => {
+                    self.present_verified_copy_result(result);
+                }
+                VerifiedCopyCompletion::VerifiedUsb(result) => {
+                    self.state.dispatch_verified_usb_completion(job_id, result);
+                }
+            }
+        }
     }
 
     fn present_checksum_results(&self, outcome: ChecksumOutcome) {
@@ -609,6 +737,63 @@ impl OperationController {
                     .build(),
             );
         });
+        widgets.dialog.present(Some(&self.window));
+        widgets.close_button.grab_focus();
+    }
+
+    fn present_integrity_results(&self, outcome: IntegrityOutcome) {
+        let presentation = present_integrity(&outcome);
+        let widgets = build_integrity_results_dialog(&presentation);
+        let dialog = widgets.dialog.downgrade();
+        widgets.close_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+        widgets.dialog.present(Some(&self.window));
+        widgets.close_button.grab_focus();
+    }
+
+    fn present_verified_copy_result(&self, result: VerifiedCopyResult) {
+        let presentation = present_verified_copy(&result);
+        let retry_request = result
+            .as_ref()
+            .err()
+            .filter(|_| presentation.retry_enabled)
+            .map(|failure| failure.retry().request().clone());
+        let widgets = build_verified_copy_result_dialog(&presentation);
+        let dialog = widgets.dialog.downgrade();
+        widgets.close_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+        });
+        if let Some(request) = retry_request {
+            let state = Rc::clone(&self.state);
+            let toast_overlay = self.toast_overlay.clone();
+            let dialog = widgets.dialog.downgrade();
+            widgets.retry_button.connect_clicked(move |_| {
+                match state.submit_verified_copy(request.clone()) {
+                    Ok(_) => {
+                        if let Some(dialog) = dialog.upgrade() {
+                            dialog.close();
+                        }
+                        toast_overlay.add_toast(
+                            adw::Toast::builder()
+                                .title("Copy and Verify retry queued")
+                                .timeout(4)
+                                .build(),
+                        );
+                    }
+                    Err(error) => toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not retry Copy and Verify: {error}"))
+                            .timeout(7)
+                            .build(),
+                    ),
+                }
+            });
+        }
         widgets.dialog.present(Some(&self.window));
         widgets.close_button.grab_focus();
     }
@@ -720,24 +905,44 @@ impl OperationController {
                 let Some(controller) = controller.upgrade() else {
                     return;
                 };
-                button.set_sensitive(false);
-                match controller.state.undo_operation(job_id) {
-                    Ok(submission) => {
-                        if let Some(dialog) = dialog.upgrade() {
-                            dialog.close();
-                        }
-                        controller.track_active(submission.job_id());
-                        controller.show_running(
-                            submission.job_id(),
-                            waiting_detail(controller.request(submission.job_id())),
-                            None,
-                        );
-                    }
+                let scope = match controller.state.undo_operation_guardrail_scope(job_id) {
+                    Ok(scope) => scope,
                     Err(error) => {
-                        button.set_sensitive(true);
                         controller.show_toast(&format!("Could not undo operation: {error}"), 7);
+                        return;
                     }
-                }
+                };
+                let state = Rc::clone(&controller.state);
+                let weak_controller = Rc::downgrade(&controller);
+                let button = button.clone();
+                let dialog = dialog.clone();
+                controller.review_guardrail(vec![scope], move |mut authorizations| {
+                    let Some(controller) = weak_controller.upgrade() else {
+                        return;
+                    };
+                    let Some(authorization) = authorizations.pop() else {
+                        controller.show_toast("Could not authorize operation undo", 7);
+                        return;
+                    };
+                    button.set_sensitive(false);
+                    match state.undo_operation_authorized(job_id, authorization) {
+                        Ok(submission) => {
+                            if let Some(dialog) = dialog.upgrade() {
+                                dialog.close();
+                            }
+                            controller.track_active(submission.job_id());
+                            controller.show_running(
+                                submission.job_id(),
+                                waiting_detail(controller.request(submission.job_id())),
+                                None,
+                            );
+                        }
+                        Err(error) => {
+                            button.set_sensitive(true);
+                            controller.show_toast(&format!("Could not undo operation: {error}"), 7);
+                        }
+                    }
+                });
             });
         }
 
@@ -784,10 +989,14 @@ impl OperationController {
     }
 
     fn show_available_terminal_action(&self) {
-        match available_terminal_action(&self.conflicts.borrow(), self.retryable_job.get()) {
+        let action = available_terminal_action(&self.conflicts.borrow(), self.retryable_job.get());
+        match action {
             Some(TerminalAction::ResolveConflict(_)) => self.show_conflict_action(),
             Some(TerminalAction::Retry(job_id)) => self.show_retry(job_id),
-            None => self.schedule_hide(),
+            None => {}
+        }
+        if terminal_action_auto_hides(action) {
+            self.schedule_hide();
         }
     }
 
@@ -809,21 +1018,56 @@ impl OperationController {
         }
     }
 
-    fn retry_terminal_operation(&self) {
+    fn retry_terminal_operation(self: &Rc<Self>) {
         let Some(job_id) = self.retryable_job.get() else {
             return;
         };
-        self.widgets.operation_retry.set_sensitive(false);
-        match self.state.retry_operation(job_id) {
-            Ok(_) => {
-                self.clear_retry();
-                self.widgets.operation_detail.set_label("Retry queued…");
-            }
+        let scope = match self.state.retry_operation_guardrail_scope(job_id) {
+            Ok(scope) => scope,
             Err(error) => {
-                self.widgets.operation_retry.set_sensitive(true);
                 self.show_toast(&format!("Could not retry operation: {error}"), 7);
+                return;
             }
-        }
+        };
+        let Some(scope) = scope else {
+            self.widgets.operation_retry.set_sensitive(false);
+            match self.state.retry_operation(job_id) {
+                Ok(_) => {
+                    self.clear_retry();
+                    self.widgets.operation_detail.set_label("Retry queued…");
+                }
+                Err(error) => {
+                    self.widgets.operation_retry.set_sensitive(true);
+                    self.show_toast(&format!("Could not retry operation: {error}"), 7);
+                }
+            }
+            return;
+        };
+        let state = Rc::clone(&self.state);
+        let weak_controller = Rc::downgrade(self);
+        self.review_guardrail(vec![scope], move |mut authorizations| {
+            let Some(controller) = weak_controller.upgrade() else {
+                return;
+            };
+            let Some(authorization) = authorizations.pop() else {
+                controller.show_toast("Could not authorize operation retry", 7);
+                return;
+            };
+            controller.widgets.operation_retry.set_sensitive(false);
+            match state.retry_operation_authorized(job_id, authorization) {
+                Ok(_) => {
+                    controller.clear_retry();
+                    controller
+                        .widgets
+                        .operation_detail
+                        .set_label("Retry queued…");
+                }
+                Err(error) => {
+                    controller.widgets.operation_retry.set_sensitive(true);
+                    controller.show_toast(&format!("Could not retry operation: {error}"), 7);
+                }
+            }
+        });
     }
 
     fn present_conflict(self: &Rc<Self>, job_id: JobId) {
@@ -944,32 +1188,42 @@ impl OperationController {
             let Some(controller) = controller.upgrade() else {
                 return;
             };
-            button.set_sensitive(false);
-            match controller
-                .state
-                .resolve_conflict(job_id, ConflictDecision::KeepBoth)
-            {
-                Ok(ConflictResolution::Retried(submission)) => {
-                    controller.conflicts.borrow_mut().resolve(job_id);
-                    if let Some(dialog) = dialog.upgrade() {
-                        dialog.close();
+            let weak_controller = Rc::downgrade(&controller);
+            let button = button.clone();
+            let dialog = dialog.clone();
+            controller.resolve_conflict_with_review(
+                job_id,
+                ConflictDecision::KeepBoth,
+                move |result| {
+                    let Some(controller) = weak_controller.upgrade() else {
+                        return;
+                    };
+                    button.set_sensitive(false);
+                    match result {
+                        Ok(ConflictResolution::Retried(submission)) => {
+                            controller.conflicts.borrow_mut().resolve(job_id);
+                            if let Some(dialog) = dialog.upgrade() {
+                                dialog.close();
+                            }
+                            controller.track_active(submission.job_id());
+                            controller.show_running(
+                                submission.job_id(),
+                                waiting_detail(controller.request(submission.job_id())),
+                                None,
+                            );
+                        }
+                        Ok(ConflictResolution::KeptExisting) => {
+                            button.set_sensitive(true);
+                            controller.show_toast("Could not create a Keep Both retry", 7);
+                        }
+                        Err(error) => {
+                            button.set_sensitive(true);
+                            controller
+                                .show_toast(&format!("Could not keep both items: {error}"), 7);
+                        }
                     }
-                    controller.track_active(submission.job_id());
-                    controller.show_running(
-                        submission.job_id(),
-                        waiting_detail(controller.request(submission.job_id())),
-                        None,
-                    );
-                }
-                Ok(ConflictResolution::KeptExisting) => {
-                    button.set_sensitive(true);
-                    controller.show_toast("Could not create a Keep Both retry", 7);
-                }
-                Err(error) => {
-                    button.set_sensitive(true);
-                    controller.show_toast(&format!("Could not keep both items: {error}"), 7);
-                }
-            }
+                },
+            );
         });
 
         let controller = Rc::downgrade(self);
@@ -1021,31 +1275,42 @@ impl OperationController {
                         return;
                     }
                 };
-            button.set_sensitive(false);
-            keep_existing_button.set_sensitive(false);
-            match controller
-                .state
-                .resolve_conflict(job_id, ConflictDecision::RetryWithName(new_name))
-            {
-                Ok(ConflictResolution::Retried(submission)) => {
-                    controller.conflicts.borrow_mut().resolve(job_id);
-                    if let Some(dialog) = dialog.upgrade() {
-                        dialog.close();
+            let weak_controller = Rc::downgrade(&controller);
+            let button = button.clone();
+            let keep_existing_button = keep_existing_button.clone();
+            let dialog = dialog.clone();
+            controller.resolve_conflict_with_review(
+                job_id,
+                ConflictDecision::RetryWithName(new_name),
+                move |result| {
+                    let Some(controller) = weak_controller.upgrade() else {
+                        return;
+                    };
+                    button.set_sensitive(false);
+                    keep_existing_button.set_sensitive(false);
+                    match result {
+                        Ok(ConflictResolution::Retried(submission)) => {
+                            controller.conflicts.borrow_mut().resolve(job_id);
+                            if let Some(dialog) = dialog.upgrade() {
+                                dialog.close();
+                            }
+                            controller.track_active(submission.job_id());
+                            controller.show_running(submission.job_id(), "Retry queued…", None);
+                        }
+                        Ok(ConflictResolution::KeptExisting) => {
+                            button.set_sensitive(true);
+                            keep_existing_button.set_sensitive(true);
+                            controller.show_toast("Could not submit the revised operation", 7);
+                        }
+                        Err(error) => {
+                            button.set_sensitive(true);
+                            keep_existing_button.set_sensitive(true);
+                            controller
+                                .show_toast(&format!("Could not retry with that name: {error}"), 7);
+                        }
                     }
-                    controller.track_active(submission.job_id());
-                    controller.show_running(submission.job_id(), "Retry queued…", None);
-                }
-                Ok(ConflictResolution::KeptExisting) => {
-                    button.set_sensitive(true);
-                    keep_existing_button.set_sensitive(true);
-                    controller.show_toast("Could not submit the revised operation", 7);
-                }
-                Err(error) => {
-                    button.set_sensitive(true);
-                    keep_existing_button.set_sensitive(true);
-                    controller.show_toast(&format!("Could not retry with that name: {error}"), 7);
-                }
-            }
+                },
+            );
         });
 
         let controller = Rc::downgrade(self);
@@ -1189,6 +1454,10 @@ fn available_terminal_action(
         .current()
         .map(TerminalAction::ResolveConflict)
         .or_else(|| retryable_job.map(TerminalAction::Retry))
+}
+
+fn terminal_action_auto_hides(action: Option<TerminalAction>) -> bool {
+    !matches!(action, Some(TerminalAction::ResolveConflict(_)))
 }
 
 fn conflict_retry_name(
@@ -1547,6 +1816,24 @@ mod tests {
             updated_retryable_job(None, completed_job, TerminalOutcome::Failed),
             Some(completed_job)
         );
+    }
+
+    #[test]
+    fn failed_terminal_retry_does_not_make_later_popups_permanent() {
+        let failed_job = JobId::new(NonZeroU64::new(43).expect("non-zero fixture job id"));
+        let later_job = JobId::new(NonZeroU64::new(44).expect("non-zero fixture job id"));
+        let conflicts = ConflictInteractions::default();
+
+        let retryable = updated_retryable_job(None, failed_job, TerminalOutcome::Failed);
+        let failed_action = available_terminal_action(&conflicts, retryable);
+        assert_eq!(failed_action, Some(TerminalAction::Retry(failed_job)));
+        assert!(terminal_action_auto_hides(failed_action));
+
+        let retained_retry =
+            updated_retryable_job(retryable, later_job, TerminalOutcome::Completed);
+        let later_action = available_terminal_action(&conflicts, retained_retry);
+        assert_eq!(later_action, Some(TerminalAction::Retry(failed_job)));
+        assert!(terminal_action_auto_hides(later_action));
     }
 
     #[test]

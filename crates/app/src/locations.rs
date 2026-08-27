@@ -22,42 +22,42 @@ struct LocationDefinition {
 const XDG_LOCATION_DEFINITIONS: [LocationDefinition; 8] = [
     LocationDefinition {
         label: "Desktop",
-        icon_name: "user-desktop-symbolic",
+        icon_name: "floe-phosphor-desktop-symbolic",
         directory: UserDirectory::Desktop,
     },
     LocationDefinition {
         label: "Documents",
-        icon_name: "folder-documents-symbolic",
+        icon_name: "floe-phosphor-file-text-symbolic",
         directory: UserDirectory::Documents,
     },
     LocationDefinition {
         label: "Downloads",
-        icon_name: "folder-download-symbolic",
+        icon_name: "floe-phosphor-download-simple-symbolic",
         directory: UserDirectory::Downloads,
     },
     LocationDefinition {
         label: "Music",
-        icon_name: "folder-music-symbolic",
+        icon_name: "floe-phosphor-music-notes-symbolic",
         directory: UserDirectory::Music,
     },
     LocationDefinition {
         label: "Pictures",
-        icon_name: "folder-pictures-symbolic",
+        icon_name: "floe-phosphor-image-symbolic",
         directory: UserDirectory::Pictures,
     },
     LocationDefinition {
         label: "Public Share",
-        icon_name: "folder-publicshare-symbolic",
+        icon_name: "floe-phosphor-users-symbolic",
         directory: UserDirectory::PublicShare,
     },
     LocationDefinition {
         label: "Templates",
-        icon_name: "folder-templates-symbolic",
+        icon_name: "floe-phosphor-columns-symbolic",
         directory: UserDirectory::Templates,
     },
     LocationDefinition {
         label: "Videos",
-        icon_name: "folder-videos-symbolic",
+        icon_name: "floe-phosphor-video-camera-symbolic",
         directory: UserDirectory::Videos,
     },
 ];
@@ -78,7 +78,7 @@ fn standard_locations_with(
 
     let mut locations = vec![Location {
         label: "Home",
-        icon_name: "user-home-symbolic",
+        icon_name: "floe-phosphor-house-symbolic",
         path: home,
     }];
 
@@ -178,12 +178,12 @@ mod tests {
             vec![
                 Location {
                     label: "Home",
-                    icon_name: "user-home-symbolic",
+                    icon_name: "floe-phosphor-house-symbolic",
                     path: home,
                 },
                 Location {
                     label: "Desktop",
-                    icon_name: "user-desktop-symbolic",
+                    icon_name: "floe-phosphor-desktop-symbolic",
                     path: desktop,
                 },
             ]

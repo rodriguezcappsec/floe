@@ -5,8 +5,10 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 14. Phase 15 is the only
-`NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
+The generic desktop integration baseline is Phase 14; Phase 18A's
+documentation-only security architecture and runtime Phases 18T–18X are
+complete. Phase 18Y is the only `NEXT` phase. Every other future capability
+remains `PLANNED` or `DEFERRED`.
 
 ## Status key
 
@@ -329,7 +331,7 @@ advanced predicates and explicit Match Case control.
 | Tag filters | `DEFERRED` | 19 | No tag model exists. |
 | Glob/regex/case sensitivity | `COMPLETE` | 13C | Text, Glob, and Regex plus explicit Match Case share one query model across Quick Filter and Search Files, including deterministic raw-name fallback. |
 | Search history | `COMPLETE` | 13E | At most 32 exact query definitions are deduplicated in memory for this process only; visible Clear Recent and a suppression policy boundary exist. Nothing implicit is persisted, and no Sensitive Folder or Private Mode claim is made before Phase 18. |
-| Saved searches | `COMPLETE` | 13E | At most 64 explicitly named searches persist in current version-11 private preferences with raw root bytes, kind/scope/mode and every advanced predicate; corrupt, duplicate, invalid, or over-capacity records are skipped independently. |
+| Saved searches | `COMPLETE` | 13E | At most 64 explicitly named searches persist in current version-12 private preferences with raw root bytes, kind/scope/mode and every advanced predicate; corrupt, duplicate, invalid, or over-capacity records are skipped independently. |
 | Search sorting/grouping | `PARTIAL` | 13E | Dedicated result lists support deterministic Name, Modified-newest, or Size-largest ordering with exact-path and content-line tie-breakers. Group headings remain deferred rather than inventing a second grouping model. |
 | Reveal/search-result context actions | `COMPLETE` | 13B | Dedicated filename/containing-folder rows reuse normal exact-path actions; Reveal navigates to the exact parent and selects the exact result. |
 | Optional indexed backend | `COMPLETE` | 13F | Explicit private single-local-root filename/metadata index only. Hidden trees and contents are excluded; exact raw paths, no-follow traversal, same-device/depth/entry/64-MiB bounds, versioned corruption rejection, directory/entry stale checks, `0600` atomic cache, and complete automatic live fallback are verified. No Phase 18 sensitivity/vault claim or content/global/remote/background indexing. |
@@ -432,7 +434,7 @@ advanced predicates and explicit Match Case control.
 | Drives, volumes, mounts, hotplug | `COMPLETE` | 6K | GIO `VolumeMonitor` produces deduplicated application-owned snapshots. |
 | Mount/unmount/eject | `COMPLETE` | 6K | Async actions expose busy/unavailable/failure states. |
 | Password-protected/encrypted mounts | `COMPLETE` | 6K2 | Window-parented `GtkMountOperation`; desktop owns credentials and Floe is credential-opaque. |
-| Safe remove workflow | `PARTIAL` | 6K | Unmount/eject exist; verified copy/flush/eject is Phase 18W. |
+| Safe remove workflow | `COMPLETE` | 6K/18W | Explicit verified copy, exact-mount flush, and revalidated GIO eject/unmount preserves partial states and never claims safe removal before successful removal. |
 | Device label and free space | `COMPLETE` | 6K/6T | Device labels come from GIO; mounted local roots receive bounded generation-checked capacity/free/read-only details. |
 | Sidebar width persistence/reset | `COMPLETE` | 6K2 | 128-480 px, 320 ms debounce, startup restore, appearance-default reset. |
 | Sidebar collapsed mode | `PLANNED` | 20 | Must retain accessible destinations and restore width predictably. |
@@ -447,7 +449,7 @@ advanced predicates and explicit Match Case control.
 | Optional Vim mode | `COMPLETE` | 11D | Explicit persisted opt-in adds h/j/k/l, g/G, and o only on list/grid/Miller file-view controllers; modifiers, entries, search, spin, text views, and dialogs retain native behavior. |
 | Open Terminal Here | `COMPLETE` | 11E | One selected local folder or current local directory launches through a capacity-4 worker using a reviewed absolute executable, no additional arguments, and exact raw working directory; Trash/missing/non-directory/no-provider states fail truthfully. |
 | Embedded terminal | `DEFERRED` | 11E | Requires dependency and security architecture review. |
-| Security-sensitive shortcut guardrails | `COMPLETE` | 11C/18X | Confirmation-required and irreversible command bindings retain reviewed defaults; broader operation-scale guardrails remain Phase 18X. |
+| Security-sensitive shortcut guardrails | `COMPLETE` | 11C/18X | Confirmation-required bindings retain reviewed defaults; all destructive backend dispatches also require fresh exact-scope guardrail authorization. |
 
 ## Remote, external-device, and desktop integration
 
@@ -457,21 +459,21 @@ advanced predicates and explicit Match Case control.
 | Desktop integration status | `COMPLETE` | 14 | Refreshable native command/dialog reports available, limited, and unavailable reasons in text; snapshots are bounded, path/content-free, and memory-only. |
 | Missing optional desktop-service fallback | `COMPLETE` | 14 | Missing session bus, portal, notifications, Secret Service, or reliable lock signals never disable ordinary local browsing, GIO launching, device monitoring, XDG folders, or appearance fallback. |
 | Generic Wayland local behavior | `COMPLETE` | 0-6K2 | Current code uses GTK/GIO/GLib and has no Niri/KDE dependency. |
-| Niri detection/IPC/workspace/output | `PLANNED` | 15 | Optional application-layer enhancement with graceful failure. |
-| Niri spatial launch/Miller enhancements | `PLANNED` | 15 | Depends on generic Miller and integration boundaries; no core dependency. |
-| KDE Plasma capability integration | `PLANNED` | 16 | Standards first; KDE APIs only where they add real capability. |
+| Niri detection/IPC/workspace/output | `DEFERRED` | 15 | User-deferred; optional application-layer enhancement with graceful failure. |
+| Niri spatial launch/Miller enhancements | `DEFERRED` | 15 | User-deferred; generic Miller remains fully available without Niri. |
+| KDE Plasma capability integration | `DEFERRED` | 16 | User-deferred; Plasma remains supported through generic GTK/GIO/Wayland behavior. |
 | KWallet credential integration | `DEFERRED` | 16/18 | Only for machine-local secrets that need it; never required for portable passphrase encryption. |
 | KDE Connect enhancement | `DEFERRED` | 16/17 | Optional after generic device/location behavior. |
-| GIO-backed remote location model | `PLANNED` | 17 | Must preserve GFile/URI authority separately from local `PathBuf`. |
-| SFTP/SMB/WebDAV | `PLANNED` | 17 | Backend-capability review, timeouts, retries, progress, credentials, and offline state. |
-| Recent servers and saved connections | `PLANNED` | 17 | Versioned location records with explicit credential-store separation and Private Mode suppression. |
-| Remote timeout/retry/offline state | `PLANNED` | 17 | Bounded retries, clear offline state, and no indefinite GTK-blocking calls. |
-| Secure remote credential storage | `PLANNED` | 17/18A | Desktop-neutral abstraction first; secret values never enter normal preferences or logs. |
+| GIO-backed remote location model | `DEFERRED` | 17 | User-deferred; local `PathBuf` semantics remain unchanged. |
+| SFTP/SMB/WebDAV | `DEFERRED` | 17 | User-deferred with the remote location model. |
+| Recent servers and saved connections | `DEFERRED` | 17 | User-deferred; no remote location or credential records are added. |
+| Remote timeout/retry/offline state | `DEFERRED` | 17 | User-deferred with remote browsing and recovery. |
+| Secure remote credential storage | `DEFERRED` | 17/18A | User-deferred; Phase 18A records only a desktop-neutral candidate policy. |
 | NFS | `DEFERRED` | 17 | Local mount may already appear as filesystem; dedicated UX only if justified. |
 | FTP | `DEFERRED` | 17 | Support only deliberately with security limitations explicit. |
-| Remote thumbnails | `PLANNED` | 17/18J | Explicit download/cache/privacy limits. |
+| Remote thumbnails | `DEFERRED` | 17/18J | User-deferred with remote browsing; no remote cache is added. |
 | Remote encryption | `DEFERRED` | 17/18B | Requires streaming URI I/O design; never create silent plaintext temp copies. |
-| MTP/Android browsing | `PLANNED` | 17 | Generic transfer, disconnect recovery, and portable encrypted-file behavior. |
+| MTP/Android browsing | `DEFERRED` | 17 | User-deferred; existing local GIO device and mount behavior remains. |
 | Open as Administrator | `PLANNED` | 14/18 | Requires documented GFile/GVfs `admin://`, polkit, visible authority, safe downgrade, and provider/job tests. |
 | Elevate whole Floe process | `NOT APPLICABLE` | Policy | Prohibited; never run the GTK application as root. |
 | Capture administrator/mount passwords in Floe | `NOT APPLICABLE` | Policy | Native desktop/polkit/mount operations own authentication. |
@@ -481,6 +483,9 @@ advanced predicates and explicit Match Case control.
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | Native/Glass/Frosted/Minimal/Compact presets | `COMPLETE` | 0 | Shared tokens and a radio-style header-menu chooser apply all five presets live. |
+| Phosphor interface iconography | `COMPLETE` | post-14 | A pinned local Phosphor Core 2.1.1 Regular subset supplies Floe-owned navigation, action, sidebar, device, status, and detail glyphs; MIT attribution is bundled and no runtime download occurs. |
+| File and folder icon styles | `COMPLETE` | post-14 | Floe Color, Phosphor Monochrome, and System Theme switch live from the header menu and persist through version-12 preferences. Plain text, office documents, and PDF remain distinct; each System Theme family has an app-owned fallback. Known extensions outrank synthetic execute bits from exFAT-like mounts; unknown or extensionless executables retain executable artwork. Existing thumbnails still replace generic icons. |
+| Semantic icon colors | `COMPLETE` | post-14 | Phosphor entry icons are single-color symbolic SVGs; semantic CSS classes distinguish folder, media, archive, code, document, and generic families while text/type labels preserve non-color meaning. |
 | System light/dark semantic colors | `COMPLETE` | 0 | libadwaita semantic colors provide readable light/dark behavior. |
 | Optional transparency with readable fallback | `COMPLETE` | 0 | Glass/Frosted remove only the opaque top-level Adwaita background, use distinct semantic alpha layers, and remain readable without claiming or faking compositor blur; verified on dark and bright native Wayland backdrops. |
 | User-facing appearance settings | `PARTIAL` | 0/20 | Persistent live preset selection is complete; light/dark/system, custom radius/opacity, and reset UI remain Phase 20. |
@@ -508,7 +513,7 @@ advanced predicates and explicit Match Case control.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Threat model and crypto architecture | `PLANNED` | 18A | Select reviewed formats/dependencies and define secrets, caches, claims, and failure behavior before code. |
+| Threat model and security architecture | `COMPLETE` | 18A | Assets, adversaries, authority boundaries, non-protections, 16 decisions, dependency admission policy, and a traceable 18B–18AA test plan are documented; no later runtime protection is implied. |
 | Portable passphrase encryption | `PLANNED` | 18B-18C | Prefer reviewed interoperable `age` after implementation-time review; streaming, authenticated, cancellable, portable. |
 | Portable decryption | `PLANNED` | 18B-18C | Wrong-password, malformed/truncated ciphertext, conflicts, and partial cleanup are mandatory tests. |
 | Huge-file streaming | `PLANNED` | 18B | No whole-file buffering; exact paths and progress use job infrastructure. |
@@ -603,17 +608,17 @@ advanced predicates and explicit Match Case control.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Remember file integrity fingerprint | `PLANNED` | 18T | Store algorithm, digest, and enough identity metadata to explain the baseline. |
-| Verify saved fingerprint | `PLANNED` | 18T | Report match/change precisely; hash evidence is not authenticity. |
-| Portable SHA256SUMS manifest | `PLANNED` | 18T | Recursive option, path-safe format, progress, cancellation, missing/changed/new results. |
+| Remember file integrity fingerprint | `COMPLETE` | 18T | Private versioned raw-path records store SHA-256, identity metadata, and the exact target without reconstructing it from display text. |
+| Verify saved fingerprint | `COMPLETE` | 18T | Reports match, changed, missing, and stale identity precisely; hash evidence is not authenticity or safety. |
+| Portable SHA256SUMS manifest | `COMPLETE` | 18T | Strict GNU-compatible escaping, raw non-UTF-8 names, bounded recursive generation, cancellation, no-overwrite publication, and match/changed/missing/new verification. |
 | Signed integrity manifest | `DEFERRED` | 18T | Only after selecting an established signing system; never invent signatures. |
-| Integrity monitoring | `PLANNED` | 18U | Opt-in baseline plus bounded coalesced watcher and understandable diff. |
+| Integrity monitoring | `COMPLETE` | 18U | Explicit local baseline, private strict storage, bounded same-device no-follow watches, coalescing, rescan-required gaps, cancellation, and understandable diffs. |
 | Intrusion-detection claim | `NOT APPLICABLE` | Policy | Integrity monitoring observes selected files; it does not prove compromise or prevent attacks. |
-| Copy and Verify | `PLANNED` | 18V | Depends on copy engine and streaming hashes; flush appropriately before reporting success. |
-| Copy, Verify, Flush, and Eject | `PLANNED` | 18W | Depends on 18V and existing device actions; partial success and eject failure stay explicit. |
-| Protected Folder | `PLANNED` | 18X | Accidental-change barrier for mass delete/move/rename; explicitly not encryption or attacker protection. |
-| Rich destructive-operation preflight | `PLANNED` | 6M/18X | Show exact item/folder/byte context; stronger thresholds for huge/high-risk targets. |
-| Operation journal | `PLANNED` | 18Y | Persist privacy-aware structured recovery information, never passwords or keys. |
+| Copy and Verify | `COMPLETE` | 18V | Optional bounded job revalidates source and destination after ordinary no-overwrite Copy; copied-but-unverified output is retained and reported truthfully on post-copy failure. |
+| Copy, Verify, Flush, and Eject | `COMPLETE` | 18W | Explicit staged workflow revalidates the exact removable mount/device, flushes off GTK, and reports safe removal only after successful GIO eject/unmount; real USB lab evidence remains skipped without disposable media. |
+| Protected Folder | `COMPLETE` | 18X | Private exact-path accidental-change policy covers destructive source and destination intersections; explicitly not encryption, access control, immutability, or attacker protection. |
+| Rich destructive-operation preflight | `COMPLETE` | 6M/18X | Bounded facts and exact action/item/folder/byte/protected/mount context drive safe auto-allow or accessible review; permanent delete retains its separate irreversible confirmation. |
+| Operation journal | `PLANNED` | 18Y | Sole next roadmap phase; persist privacy-aware structured recovery information, never passwords or keys. |
 | Crash/interrupted-operation recovery | `PLANNED` | 18Y | Review intact source, partial destination, resume/retry/remove options; never delete uncertain data automatically. |
 | Snapshot integration | `DEFERRED` | 18X/19 | Capability-driven Btrfs/ZFS/external-tool integration only; Floe is not a filesystem administrator by default. |
 | Integrity hash described as signature | `NOT APPLICABLE` | Policy | Hashes provide integrity evidence, not signer authenticity. |
@@ -671,7 +676,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Async folder-size calculation | `PLANNED` | 10C | Cancellable bounded traversal. |
 | Sensible tooltips | `PARTIAL` | 0-6K2/20 | Current icon controls and ellipsized names use tooltips; full audit remains. |
 | Minimal confirmation friction | `COMPLETE` | 4F | Recoverable Move to Trash is not needlessly confirmed. |
-| Strong irreversible confirmation | `PLANNED` | 6M/18X | Rich exact-target context, not generic “Are you sure?”. |
+| Strong irreversible confirmation | `COMPLETE` | 6M/18X | Permanent delete retains its irreversible confirmation and adds exact action/scope/risk guardrail review where required. |
 | No focus stealing after jobs | `PARTIAL` | 4B-6K2/20 | Operations Island is non-modal; full notification/recovery audit remains. |
 | Reveal completed destination | `PLANNED` | 6Q/11A | Reuse the Phase 6Q navigation/reveal action and preserve focus. |
 | Configurable single/double click | `PLANNED` | 20 | Default remains conventional double-click/Enter until preference exists. |
@@ -711,8 +716,8 @@ These small behaviors are acceptance requirements, not optional polish.
 | Command palette | `COMPLETE` | 11A-11B | Central command registry and metadata-only palette delegate execution and eligibility to existing GActions. |
 | Archives | `COMPLETE` | 12A-12B | Engine/job lifecycle, native workflows, conflict handling, cancellation, and traversal/bomb/link defenses are complete for reviewed local formats. |
 | Search/indexing and duplicate discovery | `PARTIAL` | 13A-13G | Current-folder filtering and bounded non-indexed filename subtree search are complete; advanced/content/saved/indexed search and duplicate discovery remain later phases. |
-| Niri/Plasma integrations | `PLANNED` | 15-16 | Generic desktop capability boundary in Phase 14. |
-| Remote locations | `PLANNED` | 17 | GFile/URI identity separate from local `PathBuf`; credential and cache policy. |
+| Niri/Plasma integrations | `DEFERRED` | 15-16 | User-deferred; generic desktop capability boundary remains complete in Phase 14. |
+| Remote locations | `DEFERRED` | 17 | User-deferred, including Android/MTP; local browsing and mounted-device support remain. |
 | Portable encryption | `PLANNED` | 18B-18C | Phase 18A threat model plus existing progress/cancellation/conflict jobs. |
 | Encrypt and Trash Original | `PLANNED` | 18C | Authenticated encryption completion plus existing Trash job. |
 | Recipient encryption | `PLANNED` | 18D | Reviewed public identity representation and portable format support. |
@@ -722,7 +727,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Sandboxed Preview | `PLANNED` | 18L | Explicit provider process boundary and enforceable restriction policy. |
 | Open Safely | `PLANNED` | 18M | Defined sandbox policy and truthful failure/unsupported behavior. |
 | Secure Share | `PLANNED` | 18Q | Metadata inspection, sanitization, encryption, recipients, checksum, safe output. |
-| Integrity monitoring | `PLANNED` | 18U | Robust coalesced watcher and baseline model. |
-| Copy and Verify | `PLANNED` | 18V | Existing copy engine plus streaming checksum jobs. |
-| Copy, Verify and Eject | `PLANNED` | 18W | Verified Copy plus device unmount/eject infrastructure. |
+| Integrity monitoring | `COMPLETE` | 18U | Explicit private baselines plus bounded coalesced same-device watcher and rescan-required gaps. |
+| Copy and Verify | `COMPLETE` | 18V | Existing safe copy engine plus source/destination revalidation and reviewed streaming SHA-256. |
+| Copy, Verify and Eject | `COMPLETE` | 18W | Verified Copy plus exact-mount flush and relationship-aware GIO eject/unmount infrastructure. |
 | Crash recovery | `PLANNED` | 18Y | Privacy-aware operation journal and explicit partial-destination semantics. |

@@ -1,8 +1,26 @@
 # Floe Privacy, Security, and Data-Integrity Architecture
 
-Status: authoritative design and threat model. Most capabilities in this document are **PLANNED**, not implemented. This document does not select a cryptographic format, cryptographic library, vault backend, or sandbox mechanism.
+Status: authoritative product-wide security architecture. Phase 18A's threat,
+decision, dependency-admission, and test-plan baseline and runtime Phases
+18T–18X are **COMPLETE**. Cryptography, vaults, private modes, sandboxing,
+recovery journals, and most other security capabilities remain **PLANNED**.
+This document does not select a cryptographic library, vault backend,
+credential backend, or sandbox mechanism.
 
-Last reviewed against the repository: `2026-08-26`, after Phase 14.
+Last reviewed against the repository: `2026-08-27`, after Phase 18X.
+
+Phase 18A evidence is split into three focused records:
+
+- [Threat model](security/THREAT_MODEL.md) — assets, adversaries, authority
+  boundaries, abuse cases, non-protections, data classes, and prohibited claims.
+- [Security decisions](security/PHASE_18A_DECISIONS.md) — stable accepted,
+  candidate, deferred, and rejected architecture decisions and dependency
+  rationale.
+- [Phase 18 test plan](security/PHASE_18_TEST_PLAN.md) — threat/decision/test
+  traceability for every Phase 18B–18AA leaf.
+
+These records do not make encryption, vaults, sandboxing, Private Mode,
+integrity tools, or any other later Phase 18 capability implemented.
 
 ## Status vocabulary and claim discipline
 
@@ -205,9 +223,33 @@ Security state must use text and accessible semantics, never color alone. A fail
 - Current toasts and desktop integration have no complete sensitive-name notification policy. Search indexing, privacy-aware session history, secret clipboard handling, and persistent operation recovery are not implemented.
 - Permanent deletion cannot remove copies retained by snapshots, backups, journal or CoW history, remote services, storage firmware, or another process. It is ordinary filesystem unlink/removal, not forensic erasure.
 
+### Implemented integrity and data-loss safety
+
+Phases 18T–18X implement local integrity fingerprints and manifests, explicit
+integrity baselines, optional verified copy, a verified removable-device
+workflow, and Protected Folder guardrails. They preserve exact raw paths, use
+bounded cancellable workers, avoid following links by default, and do not
+upload hashes, paths, or content.
+
+- SHA-256 equality is integrity evidence only. It does not establish
+  authenticity, authorship, trust, or malware safety.
+- Integrity monitoring starts only for an explicitly selected local baseline,
+  reports stale/overflow/offline gaps, and is not intrusion detection.
+- Verified Copy can retain a completed destination as copied-but-unverified;
+  it never silently upgrades that result to Verified or deletes it.
+- Verified removable transfer reports “safe to remove” only after the exact
+  revalidated mount is flushed and the matching GIO eject/unmount succeeds.
+  Automated tests use mocks and disposable roots; no real USB claim is made
+  without explicit disposable lab media.
+- Protected Folder policy is private, versioned, exact-path, and fail-closed on
+  corruption. Fresh generation-bound single-use permits guard destructive
+  backend dispatch, including queued work, undo/retry, and revised conflict
+  destinations. This prevents mistakes; it is not encryption, access control,
+  immutability, privilege separation, or attacker resistance.
+
 ### PLANNED and unavailable today
 
-Portable encryption, recipient encryption, encrypted vaults, recovery keys, privacy sessions, Sensitive Folders, Private Mode, Privacy Lock, Protected Folders, privacy-safe caches and history, sandboxed providers, Open Safely, suspicious-file analysis, metadata sanitization, permission auditing, sensitive-content scanning, integrity manifests, verified transfer, and operation recovery are all planned. No current Cargo dependency implements cryptography or a sandbox.
+Portable encryption, recipient encryption, encrypted vaults, recovery keys, privacy sessions, Sensitive Folders, Private Mode, Privacy Lock, privacy-safe caches and history, sandboxed providers, Open Safely, suspicious-file analysis, metadata sanitization, permission auditing, sensitive-content scanning, and operation recovery remain planned. No current Cargo dependency implements cryptography or a sandbox.
 
 ## Security objectives and intended protections
 
@@ -437,7 +479,7 @@ indexing require their own later privacy gates.
 
 Phase 13E persists only searches the user explicitly names through Save Search.
 At most 64 definitions share Floe's existing capacity-one private preference
-worker and current version-11 `0600` file. A definition contains the exact raw local
+worker and current version-12 `0600` file. A definition contains the exact raw local
 root, user-visible name, query text, filename/content kind, folder/subtree
 scope, matching mode, hidden inclusion, and every advanced predicate. This is
 sensitive configuration data: same-user processes, backups, and copied config
@@ -517,7 +559,8 @@ session environment required for Wayland and D-Bus; Floe adds no secret values.
 
 ## Sensitive Folder, Private Mode, and Protected Folder
 
-These terms are deliberately distinct and all are **PLANNED**.
+These terms are deliberately distinct. Protected Folders are **COMPLETE**;
+Sensitive Folders and Private Mode remain **PLANNED**.
 
 ### Sensitive Folder
 
@@ -533,7 +576,7 @@ Private Mode is not encryption, anonymity, sandboxing, screen protection, or con
 
 ### Protected Folder
 
-A Protected Folder adds accidental-operation guardrails for rename, move, mass delete, permanent delete, or other configured destructive changes. It is mistake prevention, not access control, immutability, encryption, or attacker resistance. Other tools can modify it.
+A Protected Folder adds accidental-operation guardrails for rename, move, Trash, permanent delete, restore destinations, batch work, undo/retry, and other destructive changes. Floe persists exact roots privately and blocks destructive authorization if that store is corrupt until the user explicitly resets it. This is mistake prevention, not access control, immutability, encryption, privilege separation, or attacker resistance. Other tools can still modify protected data.
 
 `Privacy Lock` may later lock vaults where safe, close sensitive surfaces, clear Floe-owned sensitive memory and clipboard state, and end the privacy session. It never deletes user data and must report anything it could not lock or clear.
 

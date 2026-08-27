@@ -21,6 +21,11 @@ impl DeviceId {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_test(value: &str) -> Self {
+        Self(value.to_owned())
+    }
 }
 
 impl fmt::Display for DeviceId {
@@ -68,6 +73,77 @@ pub enum DeviceAction {
     Mount,
     Unmount,
     Eject,
+}
+
+/// Exact, current GIO-derived removal endpoint for a verified local destination.
+/// The opaque ID and root must be re-resolved immediately before flush/removal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeviceRemovalTarget {
+    id: DeviceId,
+    mount_root: PathBuf,
+    action: DeviceAction,
+}
+
+impl DeviceRemovalTarget {
+    pub fn id(&self) -> &DeviceId {
+        &self.id
+    }
+    pub fn mount_root(&self) -> &Path {
+        &self.mount_root
+    }
+    pub const fn action(&self) -> DeviceAction {
+        self.action
+    }
+    #[cfg(test)]
+    pub(crate) fn new_for_test(id: DeviceId, mount_root: PathBuf, action: DeviceAction) -> Self {
+        Self {
+            id,
+            mount_root,
+            action,
+        }
+    }
+}
+
+/// Selects the deepest enclosing local mount, preferring its stable Eject action
+/// and falling back to Unmount. Call again immediately before every device step.
+pub fn resolve_removal_target(
+    destination: &Path,
+    snapshots: &[DeviceSnapshot],
+) -> Option<DeviceRemovalTarget> {
+    snapshots
+        .iter()
+        .filter_map(|snapshot| {
+            let root = snapshot.local_root()?;
+            if !destination.starts_with(root) {
+                return None;
+            }
+            let action = match snapshot.actions.eject {
+                DeviceActionStatus::Available => DeviceAction::Eject,
+                _ => match snapshot.actions.unmount {
+                    DeviceActionStatus::Available => DeviceAction::Unmount,
+                    _ => return None,
+                },
+            };
+            Some((
+                root.components().count(),
+                DeviceRemovalTarget {
+                    id: snapshot.id.clone(),
+                    mount_root: root.to_path_buf(),
+                    action,
+                },
+            ))
+        })
+        .max_by_key(|(depth, _)| *depth)
+        .map(|(_, target)| target)
+}
+
+/// Requires the same current opaque GIO object, exact root, and preferred
+/// removal action before beginning the final device action.
+pub fn revalidate_removal_target(
+    target: &DeviceRemovalTarget,
+    snapshots: &[DeviceSnapshot],
+) -> bool {
+    resolve_removal_target(target.mount_root(), snapshots).is_some_and(|current| current == *target)
 }
 
 impl DeviceAction {
@@ -383,6 +459,30 @@ impl DeviceMonitor {
         F: FnOnce(DeviceActionOutcome) + 'static,
     {
         self.start_action(id, DeviceAction::Eject, mount_operation, completion)
+    }
+
+    /// Runs only a freshly revalidated target action on the owning GLib context.
+    pub fn remove_verified_target<F>(
+        &self,
+        target: &DeviceRemovalTarget,
+        mount_operation: Option<&gio::MountOperation>,
+        completion: F,
+    ) -> Result<(), DeviceActionStartError>
+    where
+        F: FnOnce(DeviceActionOutcome) + 'static,
+    {
+        if !revalidate_removal_target(target, &self.snapshots()) {
+            return Err(DeviceActionStartError::UnknownDevice);
+        }
+        match target.action() {
+            DeviceAction::Eject => self.eject(target.id(), mount_operation, completion),
+            DeviceAction::Unmount => self.unmount(target.id(), mount_operation, completion),
+            DeviceAction::Mount => Err(DeviceActionStartError::Unavailable {
+                action: DeviceAction::Mount,
+                reason: DeviceActionUnavailable::WrongDeviceKind,
+                message: "A verified removable transfer cannot mount as its removal action.",
+            }),
+        }
     }
 
     fn start_action<F>(
@@ -1009,6 +1109,41 @@ mod tests {
                 .message
                 .starts_with("The storage action was cancelled")
         );
+    }
+
+    #[test]
+    fn phase_18w_safety_resolves_deepest_local_removal_target_and_prefers_eject() {
+        let mount = |id: &str, root: &str, eject, unmount| DeviceSnapshot {
+            id: DeviceId::new_for_test(id),
+            kind: DeviceKind::Mount,
+            name: id.to_owned(),
+            mount_state: DeviceMountState::Mounted,
+            root_kind: DeviceRootKind::Local,
+            removable: true,
+            actions: DeviceActions {
+                mount: DeviceActionStatus::Unavailable(DeviceActionUnavailable::WrongDeviceKind),
+                eject,
+                unmount,
+            },
+            local_root: Some(PathBuf::from(root)),
+        };
+        let outer = mount(
+            "outer",
+            "/tmp/usb",
+            DeviceActionStatus::Unavailable(DeviceActionUnavailable::NotSupported),
+            DeviceActionStatus::Available,
+        );
+        let inner = mount(
+            "inner",
+            "/tmp/usb/nested",
+            DeviceActionStatus::Available,
+            DeviceActionStatus::Available,
+        );
+        let target = resolve_removal_target(Path::new("/tmp/usb/nested/file"), &[outer, inner])
+            .expect("target");
+        assert_eq!(target.id().as_str(), "inner");
+        assert_eq!(target.mount_root(), Path::new("/tmp/usb/nested"));
+        assert_eq!(target.action(), DeviceAction::Eject);
     }
 
     #[test]

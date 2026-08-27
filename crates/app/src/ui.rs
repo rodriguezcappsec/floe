@@ -21,7 +21,7 @@ use crate::{
         DeviceSnapshot,
     },
     drag_drop::{DropDestination, DropDispatcher, install_drop_target},
-    iconography::{EntryIcon, LIST_ICON_EDGE, grid_icon_edge, icon_for_entry},
+    iconography::{EntryIcon, EntryIconStyle, LIST_ICON_EDGE, grid_icon_edge, icon_for_entry},
     launcher::OpenWithOptions,
     locations::Location,
     metadata::{MetadataCache, MetadataDetails, MetadataError, MetadataKey},
@@ -285,10 +285,15 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 26] = [
+pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 31] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
+    ("Copy and Verify…", "win.copy-and-verify"),
+    (
+        "Verified Removable Transfer…",
+        "win.verified-removable-transfer",
+    ),
     ("Cut", "win.cut"),
     ("Duplicate", "win.duplicate"),
     ("Rename…", "win.rename"),
@@ -312,6 +317,9 @@ pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 26] = [
     ("Undo Last Batch Rename", "win.undo-batch-rename"),
     ("Customize Context Menus…", "win.context-menu-settings"),
     ("Reveal in Folder", "win.reveal-in-folder"),
+    ("Protect Folder", "win.protect-folder"),
+    ("Unprotect Folder", "win.unprotect-folder"),
+    ("Protected Folders…", "win.protected-folders"),
 ];
 pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Restore", "win.restore"),
@@ -320,7 +328,7 @@ pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Properties", "win.properties"),
 ];
 #[cfg(test)]
-pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 9] = [
+pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 12] = [
     ("New Folder…", "win.new-folder"),
     ("New Empty File…", "win.new-empty-file"),
     ("New From Template…", "win.new-from-template"),
@@ -330,6 +338,9 @@ pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 9] = [
     ("Edit Location", "win.location"),
     ("Open Terminal Here", "win.open-terminal"),
     ("Customize Context Menus…", "win.context-menu-settings"),
+    ("Protect Folder", "win.protect-folder"),
+    ("Unprotect Folder", "win.unprotect-folder"),
+    ("Protected Folders…", "win.protected-folders"),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -398,10 +409,11 @@ impl ThumbnailPresentationState {
 #[derive(Clone)]
 pub struct ThumbnailPresentation {
     state: Rc<RefCell<ThumbnailPresentationState>>,
+    icon_style: Rc<Cell<EntryIconStyle>>,
 }
 
 impl ThumbnailPresentation {
-    fn new() -> Self {
+    fn new(icon_style: Rc<Cell<EntryIconStyle>>) -> Self {
         Self {
             state: Rc::new(RefCell::new(ThumbnailPresentationState {
                 disabled: false,
@@ -411,6 +423,7 @@ impl ThumbnailPresentation {
                 requests: VecDeque::new(),
                 bindings: Vec::new(),
             })),
+            icon_style,
         }
     }
 
@@ -430,7 +443,7 @@ impl ThumbnailPresentation {
         icon_edge: i32,
     ) {
         image.remove_css_class("floe-thumbnail");
-        apply_entry_icon(image, entry, icon_edge);
+        apply_entry_icon(image, entry, icon_edge, self.icon_style.get());
 
         let mut state = self.state.borrow_mut();
         state
@@ -867,6 +880,12 @@ pub struct ChecksumResultsDialogWidgets {
     pub close_button: gtk::Button,
 }
 
+pub struct VerifiedCopyResultDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub retry_button: gtk::Button,
+    pub close_button: gtk::Button,
+}
+
 pub struct ConflictDialogWidgets {
     pub dialog: adw::Dialog,
     pub name_entry: gtk::Entry,
@@ -922,6 +941,7 @@ pub struct PermanentDeleteDialogWidgets {
 pub struct BrowserWidgets {
     pub window: adw::ApplicationWindow,
     appearance_manager: AppearanceManager,
+    entry_icon_style: Rc<Cell<EntryIconStyle>>,
     pub toast_overlay: adw::ToastOverlay,
     pub back_button: gtk::Button,
     pub forward_button: gtk::Button,
@@ -1135,6 +1155,16 @@ impl BrowserWidgets {
     pub fn apply_appearance(&self, preset: AppearancePreset) {
         self.appearance_manager
             .apply(self.window.upcast_ref(), preset);
+    }
+
+    pub fn entry_icon_style(&self) -> EntryIconStyle {
+        self.entry_icon_style.get()
+    }
+
+    pub fn apply_entry_icon_style(&self, style: EntryIconStyle) {
+        let previous = self.entry_icon_style.replace(style);
+        self.window.remove_css_class(previous.css_class());
+        self.window.add_css_class(style.css_class());
     }
 
     pub fn set_split_presentation(
@@ -1365,9 +1395,9 @@ impl BrowserWidgets {
         self.add_bookmark_button.set_sensitive(!active);
         if let Some(icon) = self.empty_state.first_child().and_downcast::<gtk::Image>() {
             icon.set_icon_name(Some(if active {
-                "user-trash-symbolic"
+                "floe-phosphor-trash-symbolic"
             } else {
-                "folder-symbolic"
+                "floe-phosphor-folder-symbolic"
             }));
             if let Some(label) = icon.next_sibling().and_downcast::<gtk::Label>() {
                 label.set_label(if active {
@@ -1461,25 +1491,39 @@ pub fn build(
         .height_request(480)
         .build();
     window.add_css_class("floe-window");
+    window.add_css_class(preferences.icon_style.css_class());
     let appearance_manager = AppearanceManager::new(window.upcast_ref(), appearance.preset);
+    let entry_icon_style = Rc::new(Cell::new(preferences.icon_style));
 
-    let back_button = icon_button("go-previous-symbolic", "Back (Alt+Left)", "win.back");
-    let forward_button = icon_button("go-next-symbolic", "Forward (Alt+Right)", "win.forward");
-    let parent_button = icon_button("go-up-symbolic", "Parent folder (Alt+Up)", "win.parent");
+    let back_button = icon_button(
+        "floe-phosphor-arrow-left-symbolic",
+        "Back (Alt+Left)",
+        "win.back",
+    );
+    let forward_button = icon_button(
+        "floe-phosphor-arrow-right-symbolic",
+        "Forward (Alt+Right)",
+        "win.forward",
+    );
+    let parent_button = icon_button(
+        "floe-phosphor-arrow-up-symbolic",
+        "Parent folder (Alt+Up)",
+        "win.parent",
+    );
     let hidden_button = gtk::ToggleButton::builder()
-        .icon_name("view-reveal-symbolic")
+        .icon_name("floe-phosphor-eye-symbolic")
         .tooltip_text("Show hidden files (Ctrl+H)")
         .action_name("win.hidden")
         .build();
     set_accessible_label(&hidden_button, "Show hidden files");
     let header_search_button = icon_button(
-        "system-search-symbolic",
+        "floe-phosphor-magnifying-glass-symbolic",
         "Search and filter (Ctrl+F)",
         "win.folder-filter",
     );
     set_accessible_label(&header_search_button, "Search and filter files");
     let open_button = icon_button(
-        "document-open-symbolic",
+        "floe-phosphor-folder-open-symbolic",
         "Open selected item (Enter)",
         "win.open",
     );
@@ -1495,7 +1539,7 @@ pub fn build(
         .orientation(gtk::Orientation::Horizontal)
         .spacing(8)
         .build();
-    path_box.append(&gtk::Image::from_icon_name("folder-symbolic"));
+    path_box.append(&gtk::Image::from_icon_name("floe-phosphor-folder-symbolic"));
     path_box.append(&path_label);
 
     let location_hit_target = gtk::Button::builder()
@@ -1557,6 +1601,51 @@ pub fn build(
     );
     file_actions_model.append(Some("Properties"), Some("win.properties"));
     file_actions_model.append(Some("Calculate Checksums…"), Some("win.checksum"));
+
+    let protected_folders_model = gio::Menu::new();
+    protected_folders_model.append(Some("Protect Folder"), Some("win.protect-folder"));
+    protected_folders_model.append(Some("Unprotect Folder"), Some("win.unprotect-folder"));
+    protected_folders_model.append(Some("Protected Folders…"), Some("win.protected-folders"));
+    file_actions_model.append_submenu(Some("Protected Folders"), &protected_folders_model);
+    let integrity_model = gio::Menu::new();
+    integrity_model.append(
+        Some("Save SHA-256 Fingerprint"),
+        Some("win.save-sha256-fingerprint"),
+    );
+    integrity_model.append(
+        Some("Verify Saved Fingerprint"),
+        Some("win.verify-saved-fingerprint"),
+    );
+    integrity_model.append(Some("Generate SHA256SUMS"), Some("win.generate-sha256sums"));
+    integrity_model.append(
+        Some("Verify Selected Manifest"),
+        Some("win.verify-sha256sums"),
+    );
+    integrity_model.append(
+        Some("Create Integrity Baseline"),
+        Some("win.create-integrity-baseline"),
+    );
+    integrity_model.append(
+        Some("Update Integrity Baseline"),
+        Some("win.update-integrity-baseline"),
+    );
+    integrity_model.append(
+        Some("Verify Integrity Baseline"),
+        Some("win.verify-integrity-baseline"),
+    );
+    integrity_model.append(
+        Some("Start Integrity Monitoring"),
+        Some("win.start-integrity-monitoring"),
+    );
+    integrity_model.append(
+        Some("Stop Integrity Monitoring"),
+        Some("win.stop-integrity-monitoring"),
+    );
+    integrity_model.append(
+        Some("Delete Integrity Baseline"),
+        Some("win.delete-integrity-baseline"),
+    );
+    file_actions_model.append_submenu(Some("Integrity"), &integrity_model);
     let archive_model = gio::Menu::new();
     archive_model.append(Some("Extract Here"), Some("win.extract-here"));
     archive_model.append(Some("Extract To…"), Some("win.extract-to"));
@@ -1567,6 +1656,11 @@ pub fn build(
         Some("win.context-menu-settings"),
     );
     file_actions_model.append(Some("Copy"), Some("win.copy"));
+    file_actions_model.append(Some("Copy and Verify…"), Some("win.copy-and-verify"));
+    file_actions_model.append(
+        Some("Verified Removable Transfer…"),
+        Some("win.verified-removable-transfer"),
+    );
     file_actions_model.append(Some("Move"), Some("win.cut"));
     file_actions_model.append(Some("Duplicate"), Some("win.duplicate"));
     file_actions_model.append(Some("Rename…"), Some("win.rename"));
@@ -1611,6 +1705,17 @@ pub fn build(
     let appearance_section = gio::Menu::new();
     appearance_section.append_submenu(Some("Appearance"), &appearance_model);
     file_actions_model.append_section(None, &appearance_section);
+
+    let icon_style_model = gio::Menu::new();
+    for style in EntryIconStyle::ALL {
+        icon_style_model.append(
+            Some(style.label()),
+            Some(&format!("win.icon-style::{}", style.persisted())),
+        );
+    }
+    let icon_style_section = gio::Menu::new();
+    icon_style_section.append_submenu(Some("File & Folder Icons"), &icon_style_model);
+    file_actions_model.append_section(None, &icon_style_section);
     let file_density_model = gio::Menu::new();
     for (label, value) in [
         ("Compact", "compact"),
@@ -1706,20 +1811,20 @@ pub fn build(
         Some(DESKTOP_INTEGRATION_MENU_ITEM.1),
     );
     let file_actions = gtk::MenuButton::builder()
-        .icon_name("view-more-symbolic")
+        .icon_name("floe-phosphor-dots-three-symbolic")
         .tooltip_text("File and view options")
         .menu_model(&file_actions_model)
         .build();
     set_accessible_label(&file_actions, "File and view options");
 
     let list_view_button = gtk::ToggleButton::builder()
-        .icon_name("view-list-symbolic")
+        .icon_name("floe-phosphor-list-bullets-symbolic")
         .tooltip_text("List view (Ctrl+1)")
         .action_name("win.view-list")
         .build();
     set_accessible_label(&list_view_button, "List view");
     let grid_view_button = gtk::ToggleButton::builder()
-        .icon_name("view-grid-symbolic")
+        .icon_name("floe-phosphor-squares-four-symbolic")
         .tooltip_text("Grid view (Ctrl+2)")
         .action_name("win.view-grid")
         .group(&list_view_button)
@@ -1742,12 +1847,12 @@ pub fn build(
     view_controls.append(&miller_view_button);
 
     let zoom_out_button = icon_button(
-        "zoom-out-symbolic",
+        "floe-phosphor-minus-symbolic",
         "Decrease grid icon size (Ctrl+-)",
         "win.zoom-out",
     );
     let zoom_in_button = icon_button(
-        "zoom-in-symbolic",
+        "floe-phosphor-plus-symbolic",
         "Increase grid icon size (Ctrl++)",
         "win.zoom-in",
     );
@@ -1865,7 +1970,7 @@ pub fn build(
         list_grouping,
         list_factory,
         grid_factory,
-    } = build_directory_panel(preferences.clone(), &drop_dispatcher);
+    } = build_directory_panel(preferences.clone(), &drop_dispatcher, &entry_icon_style);
 
     content.set_width_request(420);
     let active_pane_label = gtk::Label::builder()
@@ -2016,7 +2121,11 @@ pub fn build(
         .child(&tab_bar)
         .build();
     tab_scroller.add_css_class("floe-tab-scroller");
-    let new_tab_button = icon_button("list-add-symbolic", "New Tab (Ctrl+T)", "win.new-tab");
+    let new_tab_button = icon_button(
+        "floe-phosphor-plus-symbolic",
+        "New Tab (Ctrl+T)",
+        "win.new-tab",
+    );
     set_accessible_label(&new_tab_button, "New tab");
     let tab_strip = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -2041,6 +2150,7 @@ pub fn build(
     BrowserWidgets {
         window,
         appearance_manager,
+        entry_icon_style,
         toast_overlay,
         back_button,
         forward_button,
@@ -2333,12 +2443,12 @@ pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDi
         .title("Incoming item")
         .subtitle(source_name)
         .build();
-    source_row.add_prefix(&gtk::Image::from_icon_name("document-open-symbolic"));
+    source_row.add_prefix(&gtk::Image::from_icon_name("floe-phosphor-file-symbolic"));
     let destination_row = adw::ActionRow::builder()
         .title("Existing destination")
         .subtitle(destination)
         .build();
-    destination_row.add_prefix(&gtk::Image::from_icon_name("folder-symbolic"));
+    destination_row.add_prefix(&gtk::Image::from_icon_name("floe-phosphor-folder-symbolic"));
     let context = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .build();
@@ -2956,6 +3066,67 @@ pub fn build_checksum_results_dialog(
     }
 }
 
+pub fn build_verified_copy_result_dialog(
+    presentation: &crate::verified_copy_executor::VerifiedCopyPresentation,
+) -> VerifiedCopyResultDialogWidgets {
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(20)
+        .margin_bottom(20)
+        .margin_start(20)
+        .margin_end(20)
+        .build();
+    let heading = gtk::Label::builder()
+        .label(&presentation.title)
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .build();
+    heading.add_css_class("title-2");
+    content.append(&heading);
+    let detail = gtk::Label::builder()
+        .label(&presentation.detail)
+        .wrap(true)
+        .selectable(true)
+        .halign(gtk::Align::Fill)
+        .xalign(0.0)
+        .build();
+    content.append(&detail);
+    let notice = gtk::Label::builder()
+        .label(presentation.notice)
+        .wrap(true)
+        .halign(gtk::Align::Fill)
+        .xalign(0.0)
+        .build();
+    notice.add_css_class("floe-status");
+    content.append(&notice);
+    let actions = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(8)
+        .halign(gtk::Align::End)
+        .build();
+    let retry_button = gtk::Button::with_label("Retry Copy and Verify");
+    retry_button.set_visible(presentation.retry_enabled);
+    retry_button.update_property(&[gtk::accessible::Property::Label("Retry Copy and Verify")]);
+    let close_button = gtk::Button::with_label("Close");
+    close_button.add_css_class("suggested-action");
+    actions.append(&retry_button);
+    actions.append(&close_button);
+    content.append(&actions);
+    let dialog = adw::Dialog::builder()
+        .title("Copy and Verify Result")
+        .content_width(620)
+        .content_height(360)
+        .child(&content)
+        .build();
+    dialog.update_property(&[gtk::accessible::Property::Label("Copy and Verify Result")]);
+    VerifiedCopyResultDialogWidgets {
+        dialog,
+        retry_button,
+        close_button,
+    }
+}
+
 pub fn build_open_with_dialog(file_name: &str, options: &OpenWithOptions) -> OpenWithDialogWidgets {
     let heading = gtk::Label::builder()
         .label(format!("Open {file_name} with"))
@@ -3099,7 +3270,7 @@ fn build_operations_island() -> OperationWidgets {
     set_accessible_label(&operation_progress, "File operation progress");
 
     let operation_cancel = gtk::Button::builder()
-        .icon_name("process-stop-symbolic")
+        .icon_name("floe-phosphor-stop-symbolic")
         .tooltip_text("Cancel file operation")
         .has_frame(false)
         .build();
@@ -3120,7 +3291,7 @@ fn build_operations_island() -> OperationWidgets {
     operation_pause.add_css_class("operation-text-action");
     set_accessible_label(&operation_pause, "Pause batch after current item");
     let operation_history = gtk::Button::builder()
-        .icon_name("document-open-recent-symbolic")
+        .icon_name("floe-phosphor-clock-counter-clockwise-symbolic")
         .tooltip_text("Operation history")
         .has_frame(false)
         .build();
@@ -3230,7 +3401,7 @@ fn build_sidebar(
         .orientation(gtk::Orientation::Horizontal)
         .spacing(10)
         .build();
-    trash_content.append(&gtk::Image::from_icon_name("user-trash-symbolic"));
+    trash_content.append(&gtk::Image::from_icon_name("floe-phosphor-trash-symbolic"));
     trash_content.append(
         &gtk::Label::builder()
             .label("Trash")
@@ -3253,7 +3424,7 @@ fn build_sidebar(
         .build();
     bookmark_heading.append(&sidebar_heading("Bookmarks"));
     let add_bookmark_button = gtk::Button::builder()
-        .icon_name("list-add-symbolic")
+        .icon_name("floe-phosphor-plus-symbolic")
         .has_frame(false)
         .tooltip_text("Add current folder to Bookmarks")
         .halign(gtk::Align::End)
@@ -3323,6 +3494,7 @@ fn sidebar_heading(label: &str) -> gtk::Label {
 fn build_directory_panel(
     preferences: ViewPreferences,
     drop_dispatcher: &DropDispatcher,
+    entry_icon_style: &Rc<Cell<EntryIconStyle>>,
 ) -> DirectoryPanelWidgets {
     let store = gio::ListStore::new::<glib::BoxedAnyObject>();
     let selection = gtk::MultiSelection::new(Some(store));
@@ -3343,7 +3515,7 @@ fn build_directory_panel(
     let grid_background_menu = gtk::PopoverMenu::from_model(Some(&background_context_model));
     grid_background_menu.set_has_arrow(false);
 
-    let thumbnails = ThumbnailPresentation::new();
+    let thumbnails = ThumbnailPresentation::new(entry_icon_style.clone());
     let metadata = MetadataPresentation::default();
     let list_layout = Rc::new(Cell::new(preferences.columns));
     let list_grouping = Rc::new(Cell::new(preferences.sort.grouping));
@@ -3739,7 +3911,8 @@ fn build_directory_panel(
         .vexpand(true)
         .build();
 
-    let search_factory = build_filename_search_factory(&selection, &search_context_menu);
+    let search_factory =
+        build_filename_search_factory(&selection, &search_context_menu, entry_icon_style);
     let search_results_view =
         gtk::ListView::new(Some(selection.clone()), Some(search_factory.clone()));
     search_results_view.add_css_class("floe-directory-list");
@@ -3779,7 +3952,7 @@ fn build_directory_panel(
     view_stack.set_vexpand(true);
 
     let empty_icon = gtk::Image::builder()
-        .icon_name("folder-symbolic")
+        .icon_name("floe-phosphor-folder-symbolic")
         .pixel_size(48)
         .build();
     empty_icon.add_css_class("dim-label");
@@ -3905,7 +4078,7 @@ fn build_directory_panel(
         .build();
     advanced_filter_box.append(&advanced_filter_flow);
     let search_close_button = icon_button(
-        "window-close-symbolic",
+        "floe-phosphor-x-symbolic",
         "Clear and close search (Escape)",
         "win.close-search-surface",
     );
@@ -4169,6 +4342,7 @@ fn build_directory_panel(
 fn build_filename_search_factory(
     selection: &gtk::MultiSelection,
     context_menu: &gtk::PopoverMenu,
+    entry_icon_style: &Rc<Cell<EntryIconStyle>>,
 ) -> gtk::SignalListItemFactory {
     let factory = gtk::SignalListItemFactory::new();
     let row_selection = selection.clone();
@@ -4249,7 +4423,8 @@ fn build_filename_search_factory(
         row.add_controller(secondary_click);
         list_item.set_child(Some(&row));
     });
-    factory.connect_bind(|_, object| {
+    let icon_style = entry_icon_style.clone();
+    factory.connect_bind(move |_, object| {
         let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
             return;
         };
@@ -4288,7 +4463,7 @@ fn build_filename_search_factory(
                 let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
                 (entry.as_ref().clone(), None)
             };
-        apply_entry_icon(&icon, &entry, LIST_ICON_EDGE);
+        apply_entry_icon(&icon, &entry, LIST_ICON_EDGE, icon_style.get());
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
         name.set_tooltip_text(Some(&display_name));
@@ -4666,6 +4841,11 @@ fn populate_file_context_menu_model(menu: &gio::Menu, preferences: ContextMenuPr
     let editing = gio::Menu::new();
     for (label, action) in [
         ("Copy", "win.copy"),
+        ("Copy and Verify…", "win.copy-and-verify"),
+        (
+            "Verified Removable Transfer…",
+            "win.verified-removable-transfer",
+        ),
         ("Cut", "win.cut"),
         ("Duplicate", "win.duplicate"),
         ("Rename…", "win.rename"),
@@ -4722,6 +4902,43 @@ fn populate_file_context_menu_model(menu: &gio::Menu, preferences: ContextMenuPr
     if preferences.is_visible(ContextMenuGroup::Checksums) {
         let checksums = gio::Menu::new();
         checksums.append(Some("Calculate Checksums…"), Some("win.checksum"));
+        checksums.append(
+            Some("Save SHA-256 Fingerprint"),
+            Some("win.save-sha256-fingerprint"),
+        );
+        checksums.append(
+            Some("Verify Saved Fingerprint"),
+            Some("win.verify-saved-fingerprint"),
+        );
+        checksums.append(Some("Generate SHA256SUMS"), Some("win.generate-sha256sums"));
+        checksums.append(
+            Some("Verify Selected Manifest"),
+            Some("win.verify-sha256sums"),
+        );
+        checksums.append(
+            Some("Create Integrity Baseline"),
+            Some("win.create-integrity-baseline"),
+        );
+        checksums.append(
+            Some("Update Integrity Baseline"),
+            Some("win.update-integrity-baseline"),
+        );
+        checksums.append(
+            Some("Verify Integrity Baseline"),
+            Some("win.verify-integrity-baseline"),
+        );
+        checksums.append(
+            Some("Start Integrity Monitoring"),
+            Some("win.start-integrity-monitoring"),
+        );
+        checksums.append(
+            Some("Stop Integrity Monitoring"),
+            Some("win.stop-integrity-monitoring"),
+        );
+        checksums.append(
+            Some("Delete Integrity Baseline"),
+            Some("win.delete-integrity-baseline"),
+        );
         checksums.append(Some("Check for Duplicates…"), Some("win.check-duplicates"));
         menu.append_section(None, &checksums);
     }
@@ -4730,6 +4947,14 @@ fn populate_file_context_menu_model(menu: &gio::Menu, preferences: ContextMenuPr
     destructive.append(Some("Move to Trash"), Some("win.trash"));
     destructive.append(Some("Delete Permanently…"), Some("win.permanent-delete"));
     menu.append_section(None, &destructive);
+
+    let protection = gio::Menu::new();
+    protection.append(Some("Protect Folder"), Some("win.protect-folder"));
+    protection.append(Some("Unprotect Folder"), Some("win.unprotect-folder"));
+    protection.append(Some("Protected Folders…"), Some("win.protected-folders"));
+    let protection_section = gio::Menu::new();
+    protection_section.append_submenu(Some("Protected Folder"), &protection);
+    menu.append_section(None, &protection_section);
 
     let details = gio::Menu::new();
     details.append(Some("Properties"), Some("win.properties"));
@@ -4777,6 +5002,12 @@ fn populate_background_context_menu_model(menu: &gio::Menu, preferences: Context
         split.append(Some("Widen Primary Pane"), Some("win.widen-primary-pane"));
         menu.append_section(Some("Split View"), &split);
     }
+
+    let protection = gio::Menu::new();
+    protection.append(Some("Protect Folder"), Some("win.protect-folder"));
+    protection.append(Some("Unprotect Folder"), Some("win.unprotect-folder"));
+    protection.append(Some("Protected Folders…"), Some("win.protected-folders"));
+    menu.append_section(Some("Protected Folder"), &protection);
 
     let settings = gio::Menu::new();
     settings.append(
@@ -4829,49 +5060,49 @@ fn build_file_context_menu_model() -> gio::Menu {
     menu.append_section(Some("Other Pane"), &opposite);
 
     let editing = gio::Menu::new();
-    for (label, action) in &FILE_CONTEXT_ACTIONS[2..6] {
+    for (label, action) in &FILE_CONTEXT_ACTIONS[2..8] {
         editing.append(Some(label), Some(action));
     }
     menu.append_section(None, &editing);
 
     let links = gio::Menu::new();
-    for (label, action) in &FILE_CONTEXT_ACTIONS[6..9] {
+    for (label, action) in &FILE_CONTEXT_ACTIONS[8..11] {
         links.append(Some(label), Some(action));
     }
     menu.append_section(None, &links);
 
     let copy_identity = gio::Menu::new();
-    for (label, action) in &FILE_CONTEXT_ACTIONS[9..13] {
+    for (label, action) in &FILE_CONTEXT_ACTIONS[11..15] {
         copy_identity.append(Some(label), Some(action));
     }
     menu.append_section(None, &copy_identity);
 
     let tools = gio::Menu::new();
     tools.append(
-        Some(FILE_CONTEXT_ACTIONS[13].0),
-        Some(FILE_CONTEXT_ACTIONS[13].1),
+        Some(FILE_CONTEXT_ACTIONS[15].0),
+        Some(FILE_CONTEXT_ACTIONS[15].1),
     );
     tools.append(
-        Some(FILE_CONTEXT_ACTIONS[14].0),
-        Some(FILE_CONTEXT_ACTIONS[14].1),
+        Some(FILE_CONTEXT_ACTIONS[16].0),
+        Some(FILE_CONTEXT_ACTIONS[16].1),
     );
     menu.append_section(None, &tools);
 
     let destructive = gio::Menu::new();
     destructive.append(
-        Some(FILE_CONTEXT_ACTIONS[15].0),
-        Some(FILE_CONTEXT_ACTIONS[15].1),
+        Some(FILE_CONTEXT_ACTIONS[17].0),
+        Some(FILE_CONTEXT_ACTIONS[17].1),
     );
     destructive.append(
-        Some(FILE_CONTEXT_ACTIONS[16].0),
-        Some(FILE_CONTEXT_ACTIONS[16].1),
+        Some(FILE_CONTEXT_ACTIONS[18].0),
+        Some(FILE_CONTEXT_ACTIONS[18].1),
     );
     menu.append_section(None, &destructive);
 
     let details = gio::Menu::new();
     details.append(
-        Some(FILE_CONTEXT_ACTIONS[17].0),
-        Some(FILE_CONTEXT_ACTIONS[17].1),
+        Some(FILE_CONTEXT_ACTIONS[19].0),
+        Some(FILE_CONTEXT_ACTIONS[19].1),
     );
     menu.append_section(None, &details);
 
@@ -4993,7 +5224,16 @@ fn set_accessible_label(widget: &impl IsA<gtk::Accessible>, label: &str) {
     widget.update_property(&[gtk::accessible::Property::Label(label)]);
 }
 
-fn apply_entry_icon(image: &gtk::Image, entry: &DirectoryEntry, pixel_size: i32) {
+fn apply_entry_icon(
+    image: &gtk::Image,
+    entry: &DirectoryEntry,
+    pixel_size: i32,
+    style: EntryIconStyle,
+) {
+    // `GtkImage` can retain a paintable, GIcon, or icon-name representation.
+    // Clear the previous representation before a live style switch so a
+    // virtualized row never keeps a stale or missing paintable.
+    image.clear();
     for icon in EntryIcon::ALL {
         image.remove_css_class(icon.css_class());
     }
@@ -5001,7 +5241,11 @@ fn apply_entry_icon(image: &gtk::Image, entry: &DirectoryEntry, pixel_size: i32)
     image.add_css_class("floe-entry-icon");
     image.add_css_class(icon.css_class());
     image.set_pixel_size(pixel_size);
-    image.set_icon_name(Some(icon.icon_name()));
+    if style == EntryIconStyle::System {
+        image.set_from_gicon(&gio::ThemedIcon::from_names(icon.system_icon_names()));
+    } else {
+        image.set_icon_name(Some(icon.icon_name(style)));
+    }
 }
 
 fn apply_thumbnail(image: &gtk::Image, texture: &gtk::gdk::Texture, edge: u16) {
@@ -5355,6 +5599,8 @@ mod tests {
     fn phase_testing_gtk_header_filter_and_operations_accessibility_contract() {
         gtk::init().expect("GTK component gate requires an available display");
         adw::init().expect("libadwaita must initialize in the GTK component gate");
+        let display = gtk::gdk::Display::default().expect("GTK display must be available");
+        crate::iconography::register(&display);
 
         let application = adw::Application::builder()
             .application_id("io.github.floe.FileManager.ComponentTest")
@@ -5367,6 +5613,122 @@ mod tests {
             &[],
             Appearance::for_preset(AppearancePreset::Native),
             ViewPreferences::default(),
+        );
+
+        let icon_fixture = tempfile::tempdir().expect("icon fixture root should be created");
+        let pdf_path = icon_fixture.path().join("manual.pdf");
+        let text_path = icon_fixture.path().join("notes.txt");
+        fs::write(&pdf_path, b"%PDF-1.7\n").expect("PDF fixture should be written");
+        fs::write(&text_path, b"plain text\n").expect("text fixture should be written");
+        let listing = floe_core::enumerate_directory(icon_fixture.path())
+            .expect("icon fixture root should enumerate");
+        let pdf_entry = listing
+            .entries()
+            .iter()
+            .find(|entry| entry.path() == pdf_path)
+            .expect("PDF fixture should enumerate");
+        let text_entry = listing
+            .entries()
+            .iter()
+            .find(|entry| entry.path() == text_path)
+            .expect("text fixture should enumerate");
+        let pdf_image = gtk::Image::new();
+        let text_image = gtk::Image::new();
+        let theme = gtk::IconTheme::for_display(&display);
+
+        for style in [EntryIconStyle::FloeColor, EntryIconStyle::Phosphor] {
+            apply_entry_icon(&pdf_image, pdf_entry, LIST_ICON_EDGE, style);
+            apply_entry_icon(&text_image, text_entry, LIST_ICON_EDGE, style);
+            let pdf_name = pdf_image
+                .icon_name()
+                .expect("app-owned PDF icon name should be installed");
+            let text_name = text_image
+                .icon_name()
+                .expect("app-owned text icon name should be installed");
+            assert_ne!(pdf_name, text_name);
+            let pdf_paintable = theme.lookup_icon(
+                &pdf_name,
+                &[],
+                LIST_ICON_EDGE,
+                1,
+                gtk::TextDirection::Ltr,
+                gtk::IconLookupFlags::empty(),
+            );
+            let text_paintable = theme.lookup_icon(
+                &text_name,
+                &[],
+                LIST_ICON_EDGE,
+                1,
+                gtk::TextDirection::Ltr,
+                gtk::IconLookupFlags::empty(),
+            );
+            assert_ne!(
+                pdf_paintable.file().map(|file| file.uri()),
+                text_paintable.file().map(|file| file.uri()),
+                "PDF and text must resolve to distinct app-owned paintables in {style:?}"
+            );
+        }
+
+        apply_entry_icon(
+            &pdf_image,
+            pdf_entry,
+            LIST_ICON_EDGE,
+            EntryIconStyle::System,
+        );
+        apply_entry_icon(
+            &text_image,
+            text_entry,
+            LIST_ICON_EDGE,
+            EntryIconStyle::System,
+        );
+        assert_eq!(pdf_image.storage_type(), gtk::ImageType::Gicon);
+        assert_eq!(text_image.storage_type(), gtk::ImageType::Gicon);
+        let pdf_gicon = pdf_image
+            .gicon()
+            .expect("system PDF fallback chain should be installed");
+        let text_gicon = text_image
+            .gicon()
+            .expect("system text fallback chain should be installed");
+        assert_ne!(pdf_gicon.to_string(), text_gicon.to_string());
+        let pdf_paintable = theme.lookup_by_gicon(
+            &pdf_gicon,
+            LIST_ICON_EDGE,
+            1,
+            gtk::TextDirection::Ltr,
+            gtk::IconLookupFlags::empty(),
+        );
+        let text_paintable = theme.lookup_by_gicon(
+            &text_gicon,
+            LIST_ICON_EDGE,
+            1,
+            gtk::TextDirection::Ltr,
+            gtk::IconLookupFlags::empty(),
+        );
+        assert_ne!(
+            pdf_paintable.file().map(|file| file.uri()),
+            text_paintable.file().map(|file| file.uri()),
+            "active System Theme must resolve PDF and text distinctly"
+        );
+
+        apply_entry_icon(
+            &pdf_image,
+            pdf_entry,
+            LIST_ICON_EDGE,
+            EntryIconStyle::FloeColor,
+        );
+        assert_eq!(pdf_image.storage_type(), gtk::ImageType::IconName);
+        assert!(pdf_image.gicon().is_none(), "stale System GIcon must clear");
+        assert_eq!(pdf_image.icon_name().as_deref(), Some("floe-file-pdf"));
+
+        assert_eq!(widgets.entry_icon_style(), EntryIconStyle::FloeColor);
+        assert!(widgets.window.has_css_class("icon-style-floe-color"));
+        widgets.apply_entry_icon_style(EntryIconStyle::Phosphor);
+        assert_eq!(widgets.entry_icon_style(), EntryIconStyle::Phosphor);
+        assert!(widgets.window.has_css_class("icon-style-phosphor"));
+        assert!(!widgets.window.has_css_class("icon-style-floe-color"));
+        assert_eq!(
+            widgets.back_button.icon_name().as_deref(),
+            Some("floe-phosphor-arrow-left-symbolic")
         );
 
         for (button, action, tooltip) in [
@@ -5667,6 +6029,28 @@ mod tests {
     }
 
     #[test]
+    fn phase_18x_protected_folder_actions_are_fixed_in_file_and_background_contexts() {
+        let file = build_configured_file_context_menu_model(ContextMenuPreferences::empty());
+        let background =
+            build_configured_background_context_menu_model(ContextMenuPreferences::empty());
+        for actions in [
+            menu_actions(file.upcast_ref()),
+            menu_actions(background.upcast_ref()),
+        ] {
+            for required in [
+                "win.protect-folder",
+                "win.unprotect-folder",
+                "win.protected-folders",
+            ] {
+                assert!(
+                    actions.iter().any(|action| action == required),
+                    "{required}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn phase_12f_context_menu_custom_groups_are_deterministic_and_deduplicated() {
         let preferences =
             ContextMenuPreferences::parse("checksums,copy-details,archives,checksums,unknown");
@@ -5843,7 +6227,8 @@ mod tests {
 
     #[test]
     fn phase_6c_presentation_deduplicates_pending_and_bounds_completed_cache() {
-        let presentation = ThumbnailPresentation::new();
+        let presentation =
+            ThumbnailPresentation::new(Rc::new(Cell::new(EntryIconStyle::FloeColor)));
         let pending_key = ThumbnailKey::for_test(PathBuf::from("/virtual/pending.png"), 1);
         {
             let mut state = presentation.state.borrow_mut();
@@ -5936,6 +6321,9 @@ mod tests {
                 ("Edit Location", "win.location"),
                 ("Open Terminal Here", "win.open-terminal"),
                 ("Customize Context Menus…", "win.context-menu-settings"),
+                ("Protect Folder", "win.protect-folder"),
+                ("Unprotect Folder", "win.unprotect-folder"),
+                ("Protected Folders…", "win.protected-folders"),
             ]
         );
         assert!(BACKGROUND_CONTEXT_ACTIONS.iter().all(|(_, action)| {
@@ -5954,6 +6342,11 @@ mod tests {
                 ("Open", "win.open"),
                 ("Open With…", "win.open-with"),
                 ("Copy", "win.copy"),
+                ("Copy and Verify…", "win.copy-and-verify"),
+                (
+                    "Verified Removable Transfer…",
+                    "win.verified-removable-transfer",
+                ),
                 ("Cut", "win.cut"),
                 ("Duplicate", "win.duplicate"),
                 ("Rename…", "win.rename"),
@@ -5977,6 +6370,9 @@ mod tests {
                 ("Undo Last Batch Rename", "win.undo-batch-rename"),
                 ("Customize Context Menus…", "win.context-menu-settings"),
                 ("Reveal in Folder", "win.reveal-in-folder"),
+                ("Protect Folder", "win.protect-folder"),
+                ("Unprotect Folder", "win.unprotect-folder"),
+                ("Protected Folders…", "win.protected-folders"),
             ]
         );
     }
@@ -6301,5 +6697,39 @@ mod tests {
         assert_eq!(presentation.selection_count, 2);
         assert!(!presentation.open_with_available);
         assert!(presentation.general[0].value.contains("not merged"));
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_18v_ui_gtk_result_dialog_has_semantic_controls() {
+        gtk::init().expect("GTK component gate requires available display");
+        adw::init().expect("libadwaita must initialize in GTK component gate");
+        let presentation = crate::verified_copy_executor::VerifiedCopyPresentation {
+            title: "Copy retained without verification".to_owned(),
+            detail: "The destination remains unverified.".to_owned(),
+            notice: "SHA-256 equality does not prove authenticity.",
+            retry_enabled: true,
+        };
+        let widgets = build_verified_copy_result_dialog(&presentation);
+        assert_eq!(widgets.dialog.title(), "Copy and Verify Result");
+        assert_eq!(
+            widgets.retry_button.accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert_eq!(
+            widgets.close_button.accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert!(widgets.retry_button.is_visible());
+    }
+
+    #[test]
+    fn phase_18w_ui_exposes_verified_removable_action_without_replacing_copy() {
+        assert!(FILE_CONTEXT_ACTIONS.contains(&(
+            "Verified Removable Transfer…",
+            "win.verified-removable-transfer",
+        )));
+        assert!(FILE_CONTEXT_ACTIONS.contains(&("Copy", "win.copy")));
+        assert!(FILE_CONTEXT_ACTIONS.contains(&("Copy and Verify…", "win.copy-and-verify")));
     }
 }

@@ -222,6 +222,7 @@ fn build_window(
         Rc::clone(&application_state),
     );
     let browser = Rc::downgrade(&controller);
+    let browser_for_guardrails = browser.clone();
     let browser_for_shutdown = Rc::downgrade(&controller);
     application.connect_shutdown(move |_| {
         if let Some(browser) = browser_for_shutdown.upgrade() {
@@ -233,6 +234,18 @@ fn build_window(
         operation_toasts,
         operation_widgets,
         application_state,
+        move || {
+            browser_for_guardrails
+                .upgrade()
+                .map(|browser| browser.guardrail_environment())
+                .unwrap_or_else(|| {
+                    crate::guardrail_preflight::PreflightEnvironment::new(
+                        Some(glib::home_dir()),
+                        Vec::new(),
+                    )
+                    .unwrap_or_default()
+                })
+        },
         move |destination| {
             if let Some(browser) = browser.upgrade() {
                 browser.refresh_if_current(destination);
