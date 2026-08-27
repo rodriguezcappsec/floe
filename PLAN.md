@@ -1,4 +1,53 @@
-# Plan: Floe Phase 13F — Optional Search Indexing
+# Plan: Floe Phase 13G — Duplicate Finder
+
+## Contract
+
+- Add a GTK-independent duplicate scan over explicitly selected absolute local
+  files and/or directory roots. Preserve exact `PathBuf`/`OsStr`, cap roots,
+  traversed entries/directories/depth/results/bytes, stay on each root device,
+  and never follow symbolic links.
+- Discover candidates cheaply by exact regular-file size, then stream the
+  reviewed Phase 10E SHA-256 implementation only for same-size candidate sets,
+  and finally compare candidate bytes before calling independent files equal.
+  A digest match alone is never proof.
+- Open inputs no-follow, support cooperative cancellation, and revalidate
+  device/inode/size/mtime/ctime before and after hashing and byte comparison.
+  Report inaccessible, changed, over-limit, mount, link, and sparse/huge-file
+  exclusions truthfully.
+- Distinguish hard-link aliases from independent copies by device/inode. Never
+  count aliases as reclaimable bytes, follow symbolic links, cross mount roots,
+  upload hashes/content, persist results/history, require Phase 13F's index, or
+  delete anything automatically.
+- Add selection-aware **Check for Duplicates…** to useful list/grid/Miller
+  context surfaces and command discovery. Run one bounded application worker;
+  present cancellable progress and accessible native review groups with exact
+  reveal plus explicit ordinary Trash handoff. No filesystem work in GTK
+  callbacks.
+- Exclude automated cleanup, permanent deletion, fuzzy/similar matching,
+  content-defined chunks, background scans/watchers, remote/Trash roots,
+  Phase 14 desktop integration, and unrelated refactors.
+
+## Applicable testing layers
+
+- Core hostile fixtures: size-first pruning, reviewed SHA-256, byte-confirmed
+  collision safety, hard links, raw names, links, mutation, permissions,
+  cancellation, huge/sparse limits, mount/depth/result/root bounds.
+- Application worker: capacity-one generation lifecycle, progress/result
+  bounds, cancellation, exact memory-only outcomes, clean shutdown.
+- GTK/controller: context/menu/action parity, explicit-root planning, accessible
+  review/reveal/Trash policy, native Wayland action/liveness/Quit smoke.
+
+## Status
+
+COMPLETE. Size/hash/byte-confirmed core discovery, reviewed SHA-256 application
+worker, cancellation, hard-link accounting, context/command integration, native
+review/reveal/Trash handoff, strict workspace suite, real GTK gate, and isolated
+Wayland action/lifecycle smoke are verified in `GATES.md`. Exactly Phase 14 is
+recommended next.
+
+---
+
+# Archived plan: Floe Phase 13F — Optional Search Indexing
 
 ## Contract
 

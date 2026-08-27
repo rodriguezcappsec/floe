@@ -537,6 +537,21 @@ private local-root cache; **Clear index** removes it. Building, validation, and
 cache I/O remain worker-owned. Indexed/live/stale status is textual and does not
 rely on color. Search Contents never presents or uses index controls.
 
+#### Duplicate review
+
+Phase 13G exposes **Check for Duplicates…** through the default file-tools
+context group and command discovery whenever one or more ordinary local entries
+are selected. A non-modal progress surface names size grouping, SHA-256, final
+byte comparison, link exclusion, and offers a visible Cancel Scan control.
+
+Completed groups are ordered by reclaimable bytes and show exact lossy-display
+paths, size, independent-copy count, reclaimable estimate, and a distinct
+hard-link alias label. Every Trash checkbox starts clear. Reveal retains the
+exact path; Move selected to Trash hands only explicitly checked exact paths to
+the normal recoverable batch. Empty, cancelled, truncated, changed, skipped,
+and failed outcomes remain textual and non-color-only. No automatic cleanup or
+permanent-delete affordance appears in this review.
+
 ### Tabs
 
 Phase 7B adds a compact horizontally scrollable native tab strip between the

@@ -1318,8 +1318,24 @@ Last updated:
 Current phase:
 
 ```text
-Phase 13 — Filter and search (Phase 13F complete)
+Phase 13 — Filter and search (Phase 13G complete)
 ```
+
+Phase 13G adds explicit Check for Duplicates over selected local files/folders.
+The GTK-independent engine preserves exact raw paths, groups by exact size,
+hashes only candidate identities through the existing reviewed Phase 10E
+SHA-256 implementation, then confirms independent copies byte-for-byte before
+calling them equal. No-follow same-device traversal, root/file/directory/depth/
+group/result/byte bounds, cancellation, identity revalidation, collision tests,
+and hard-link alias/reclaimable accounting are verified. One capacity-one
+application worker retains progress/results in memory only. Default file-tools
+context and command discovery expose the action; a native progress/review window
+defaults every Trash checkbox off, labels aliases, reveals exact paths, and
+hands only explicitly checked paths to ordinary recoverable Trash. Strict
+workspace, real GTK, and isolated Wayland action/liveness gates pass. No index
+dependency, remote/Trash roots, persistence, upload, automatic/permanent
+deletion, or secure-erasure claim was added. Phase 14 generic desktop integration
+is the sole recommended next phase.
 
 Phase 13F adds one explicit optional filename/metadata index for one local root.
 The GTK-independent build/codec/query boundary preserves exact raw paths,
@@ -1333,8 +1349,7 @@ stale, corrupt, ineligible, or unavailable indexes automatically replay the
 unchanged request through complete live Search Files; Search Contents never uses
 the index. Strict workspace, real GTK, and isolated Wayland cache/action/liveness
 gates pass. No content, hidden/sensitive override, remote/global, background
-watcher rebuild, or Phase 18 privacy claim was added. Phase 13G duplicate finder
-is the sole recommended next phase.
+watcher rebuild, or Phase 18 privacy claim was added.
 
 Phase 13E adds a validated GTK-independent saved-query catalog and session
 recent-search model. At most 64 explicitly named definitions persist through
