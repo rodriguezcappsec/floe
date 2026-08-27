@@ -515,6 +515,10 @@ pub struct BrowserController {
     filename_search_root: RefCell<Option<PathBuf>>,
     pending_filename_search: RefCell<Option<FilenameSearchRequest>>,
     filename_search_summary: RefCell<Option<FilenameSearchSummary>>,
+    search_index_worker: RefCell<Option<crate::search_index::SearchIndexWorker>>,
+    search_index_generation: Cell<u64>,
+    search_index_query_active: Cell<bool>,
+    search_index_fallback_note: RefCell<Option<String>>,
     content_search_worker: RefCell<Option<crate::content_search::ContentSearchWorker>>,
     content_search_generation: Cell<u64>,
     content_search_active: Cell<bool>,
@@ -666,6 +670,13 @@ impl BrowserController {
                 None
             }
         };
+        let search_index_worker = match crate::search_index::SearchIndexWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start optional search index worker");
+                None
+            }
+        };
         widgets.miller_view.set_vim_mode(view_preferences.vim_mode);
         Rc::new(Self {
             widgets,
@@ -712,6 +723,10 @@ impl BrowserController {
             filename_search_root: RefCell::new(None),
             pending_filename_search: RefCell::new(None),
             filename_search_summary: RefCell::new(None),
+            search_index_worker: RefCell::new(search_index_worker),
+            search_index_generation: Cell::new(0),
+            search_index_query_active: Cell::new(false),
+            search_index_fallback_note: RefCell::new(None),
             content_search_worker: RefCell::new(content_search_worker),
             content_search_generation: Cell::new(0),
             content_search_active: Cell::new(false),
@@ -778,6 +793,7 @@ impl BrowserController {
         self.install_actions(application);
         self.install_filter_signals();
         self.install_saved_search_signals();
+        self.install_search_index_signals();
         self.install_filename_search_signals();
         let clipboard = self.widgets.window.clipboard();
         let controller = Rc::downgrade(self);
@@ -1632,6 +1648,7 @@ impl BrowserController {
             controller.drain_worker();
             controller.drain_folder_filter_worker();
             controller.drain_filename_search_worker();
+            controller.drain_search_index_worker();
             controller.drain_content_search_worker();
             controller.drain_bookmark_worker();
             controller.pump_pending_entries();
@@ -1874,6 +1891,34 @@ impl BrowserController {
             });
     }
 
+    fn install_search_index_signals(self: &Rc<Self>) {
+        let controller = Rc::downgrade(self);
+        self.widgets
+            .search_index_toggle
+            .connect_toggled(move |toggle| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                let enabled = toggle.is_active();
+                if controller.current_preferences.borrow().search_index_enabled == enabled {
+                    return;
+                }
+                controller
+                    .current_preferences
+                    .borrow_mut()
+                    .search_index_enabled = enabled;
+                controller.queue_preferences();
+                controller.show_toast(
+                    if enabled {
+                        "Optional search index enabled; live search remains the fallback"
+                    } else {
+                        "Optional search index disabled"
+                    },
+                    4,
+                );
+            });
+    }
+
     fn refresh_search_catalog_controls(&self) {
         let saved_labels = std::iter::once("Saved searches".to_owned())
             .chain(
@@ -2035,6 +2080,73 @@ impl BrowserController {
         self.recent_searches.borrow_mut().clear();
         self.refresh_search_catalog_controls();
         self.show_toast("Recent searches cleared", 4);
+    }
+
+    fn next_search_index_generation(&self) -> u64 {
+        let generation = self.search_index_generation.get().wrapping_add(1).max(1);
+        self.search_index_generation.set(generation);
+        generation
+    }
+
+    fn build_search_index(&self) {
+        if self.trash_active.get() {
+            self.show_toast("Search indexes are available only for local folders", 5);
+            return;
+        }
+        if self.filename_search_running.get() || self.content_search_running.get() {
+            self.show_toast("Stop the current search before building an index", 5);
+            return;
+        }
+        let root = self.tabs.borrow().active().current().path().to_path_buf();
+        let request = match floe_core::SearchIndexBuildRequest::new(root) {
+            Ok(request) => request,
+            Err(error) => {
+                self.show_toast(&error.to_string(), 6);
+                return;
+            }
+        };
+        let generation = self.next_search_index_generation();
+        let result = self.search_index_worker.borrow().as_ref().map_or(
+            Err(crate::search_index::SearchIndexSubmitError::Stopped),
+            |worker| worker.build(generation, request),
+        );
+        match result {
+            Ok(()) => self.show_toast(
+                "Building a private filename/metadata index; hidden entries and contents are excluded",
+                6,
+            ),
+            Err(crate::search_index::SearchIndexSubmitError::Busy) => {
+                self.show_toast("Search index worker is busy", 5)
+            }
+            Err(crate::search_index::SearchIndexSubmitError::Stopped) => {
+                self.show_toast("Search index worker is unavailable", 5)
+            }
+        }
+    }
+
+    fn clear_search_index(&self) {
+        if self.filename_search_running.get() {
+            self.show_toast("Stop the current search before clearing the index", 5);
+            return;
+        }
+        let generation = self.next_search_index_generation();
+        let result = self.search_index_worker.borrow().as_ref().map_or(
+            Err(crate::search_index::SearchIndexSubmitError::Stopped),
+            |worker| worker.clear(generation),
+        );
+        if let Err(error) = result {
+            self.show_toast(
+                match error {
+                    crate::search_index::SearchIndexSubmitError::Busy => {
+                        "Search index worker is busy"
+                    }
+                    crate::search_index::SearchIndexSubmitError::Stopped => {
+                        "Search index worker is unavailable"
+                    }
+                },
+                5,
+            );
+        }
     }
 
     fn replay_search(&self, query: SearchQuery) {
@@ -2408,6 +2520,10 @@ impl BrowserController {
         self.widgets
             .clear_recent_searches_button
             .set_visible(disk_search);
+        let filename_search = mode == 1;
+        self.widgets
+            .search_index_menu_button
+            .set_visible(filename_search);
         if !disk_search {
             self.widgets.filter_entry.set_sensitive(true);
             self.widgets.search_scope.set_sensitive(true);
@@ -2835,9 +2951,25 @@ impl BrowserController {
         self.widgets.selection.set_model(Some(&store));
         self.filename_search_store.replace(Some(store));
         self.widgets.empty_state.set_visible(false);
-        self.pending_filename_search.replace(Some(request));
         self.set_filename_search_running(true);
-        self.set_search_feedback("Searching filenames…", false);
+        self.search_index_fallback_note.borrow_mut().take();
+        if self.current_preferences.borrow().search_index_enabled {
+            let index_generation = self.next_search_index_generation();
+            let submitted = self
+                .search_index_worker
+                .borrow()
+                .as_ref()
+                .is_some_and(|worker| worker.query(index_generation, request.clone()).is_ok());
+            if submitted {
+                self.search_index_query_active.set(true);
+                self.set_search_feedback("Checking optional filename index…", false);
+                return;
+            }
+            self.search_index_fallback_note
+                .replace(Some("index unavailable".to_owned()));
+        }
+        self.pending_filename_search.replace(Some(request));
+        self.set_search_feedback("Searching filenames live…", false);
         self.try_submit_pending_filename_search();
     }
 
@@ -2858,6 +2990,106 @@ impl BrowserController {
             Err(crate::filename_search::FilenameSearchSubmitError::Stopped) => {
                 self.set_filename_search_running(false);
                 self.set_search_feedback("Filename search worker is unavailable", true);
+            }
+        }
+    }
+
+    fn drain_search_index_worker(&self) {
+        loop {
+            let event = self
+                .search_index_worker
+                .borrow()
+                .as_ref()
+                .and_then(crate::search_index::SearchIndexWorker::try_event);
+            let Some(event) = event else {
+                break;
+            };
+            if event.generation != self.search_index_generation.get() {
+                continue;
+            }
+            match event.kind {
+                crate::search_index::SearchIndexEventKind::Built(summary) => {
+                    self.show_toast(
+                        &format!(
+                            "Search index ready: {} visible items in {} folders; {} hidden items excluded",
+                            summary.indexed_entries,
+                            summary.indexed_directories,
+                            summary.excluded_hidden
+                        ),
+                        6,
+                    );
+                }
+                crate::search_index::SearchIndexEventKind::Batch(entries, summary) => {
+                    if !self.filename_search_active.get() || !self.search_index_query_active.get() {
+                        continue;
+                    }
+                    if let Some(store) = self.filename_search_store.borrow().as_ref() {
+                        for entry in &entries {
+                            store.append(&glib::BoxedAnyObject::new(entry.clone()));
+                        }
+                    }
+                    self.filename_search_results.borrow_mut().extend(entries);
+                    self.filename_search_summary.replace(Some(summary));
+                    self.widgets.empty_state.set_visible(false);
+                    self.set_search_feedback(
+                        &format!(
+                            "{} Using current index.",
+                            filename_search_feedback(summary, false, false)
+                        ),
+                        false,
+                    );
+                    self.refresh_status();
+                }
+                crate::search_index::SearchIndexEventKind::Finished(summary) => {
+                    if !self.filename_search_active.get()
+                        || !self.search_index_query_active.replace(false)
+                    {
+                        continue;
+                    }
+                    self.filename_search_summary.replace(Some(summary));
+                    self.set_filename_search_running(false);
+                    let empty = self.filename_search_results.borrow().is_empty();
+                    self.widgets.empty_state.set_visible(empty);
+                    if empty {
+                        self.widgets
+                            .empty_label
+                            .set_label("No indexed filename matches");
+                    }
+                    self.set_search_feedback(
+                        &format!(
+                            "{} Used current index.",
+                            filename_search_feedback(summary, true, false)
+                        ),
+                        false,
+                    );
+                    self.apply_search_result_order();
+                    self.refresh_status();
+                }
+                crate::search_index::SearchIndexEventKind::Fallback { request, reason } => {
+                    if !self.filename_search_active.get()
+                        || !self.search_index_query_active.replace(false)
+                    {
+                        continue;
+                    }
+                    self.search_index_fallback_note
+                        .replace(Some(reason.description().to_owned()));
+                    self.pending_filename_search.replace(Some(*request));
+                    self.set_search_feedback(
+                        &format!(
+                            "Searching live because {}; complete live fallback remains active.",
+                            reason.description()
+                        ),
+                        false,
+                    );
+                    self.try_submit_pending_filename_search();
+                }
+                crate::search_index::SearchIndexEventKind::Cleared => {
+                    self.show_toast("Search index cache cleared", 4);
+                }
+                crate::search_index::SearchIndexEventKind::Failed(error) => {
+                    self.search_index_query_active.set(false);
+                    self.show_toast(&format!("Search index operation failed: {error}"), 6);
+                }
             }
         }
     }
@@ -2887,10 +3119,15 @@ impl BrowserController {
                     self.filename_search_results.borrow_mut().extend(entries);
                     self.filename_search_summary.replace(Some(summary));
                     self.widgets.empty_state.set_visible(false);
-                    self.set_search_feedback(
-                        &filename_search_feedback(summary, true, false),
-                        false,
-                    );
+                    let feedback = filename_search_feedback(summary, true, false);
+                    let feedback = self
+                        .search_index_fallback_note
+                        .borrow()
+                        .as_ref()
+                        .map_or(feedback.clone(), |reason| {
+                            format!("{feedback} Live fallback used because {reason}.")
+                        });
+                    self.set_search_feedback(&feedback, false);
                     self.refresh_status();
                 }
                 crate::filename_search::FilenameSearchEventKind::Finished(summary) => {
@@ -2924,6 +3161,11 @@ impl BrowserController {
         }
         let generation = self.filename_search_generation.get().wrapping_add(1).max(1);
         self.filename_search_generation.set(generation);
+        let index_generation = self.next_search_index_generation();
+        if let Some(worker) = self.search_index_worker.borrow().as_ref() {
+            worker.cancel(index_generation);
+        }
+        self.search_index_query_active.set(false);
         if let Some(worker) = self.filename_search_worker.borrow().as_ref() {
             worker.cancel(generation);
         }
@@ -2942,6 +3184,11 @@ impl BrowserController {
     fn deactivate_filename_search(&self, restore_listing: bool) {
         let generation = self.filename_search_generation.get().wrapping_add(1).max(1);
         self.filename_search_generation.set(generation);
+        let index_generation = self.next_search_index_generation();
+        if let Some(worker) = self.search_index_worker.borrow().as_ref() {
+            worker.cancel(index_generation);
+        }
+        self.search_index_query_active.set(false);
         if let Some(worker) = self.filename_search_worker.borrow().as_ref() {
             worker.cancel(generation);
         }
@@ -2968,6 +3215,10 @@ impl BrowserController {
         self.widgets.search_stop_button.set_sensitive(running);
         self.widgets.filter_entry.set_sensitive(!running);
         self.widgets.search_scope.set_sensitive(!running);
+        self.widgets.search_index_toggle.set_sensitive(!running);
+        self.widgets
+            .search_index_menu_button
+            .set_sensitive(!running);
     }
 
     fn set_search_feedback(&self, message: &str, error: bool) {
@@ -3097,6 +3348,12 @@ impl BrowserController {
         });
         self.add_action("clear-recent-searches", |controller| {
             controller.clear_recent_searches();
+        });
+        self.add_action("build-search-index", |controller| {
+            controller.build_search_index();
+        });
+        self.add_action("clear-search-index", |controller| {
+            controller.clear_search_index();
         });
         let reveal = self.add_action("reveal-in-folder", |controller| {
             controller.reveal_search_result();

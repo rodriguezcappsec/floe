@@ -1,4 +1,53 @@
-# Plan: Floe Phase 13E — Saved Searches
+# Plan: Floe Phase 13F — Optional Search Indexing
+
+## Contract
+
+- Add a GTK-independent, versioned filename/metadata index for one explicitly
+  chosen local root. Preserve exact `PathBuf`/`OsStr` bytes, directory
+  fingerprints, no-follow file identity, and all metadata required by Phase
+  13C predicates. The index must never contain file contents or snippets.
+- Index building is explicit and optional, runs on one bounded application
+  worker, stays on the root filesystem, never descends symbolic links, and
+  excludes hidden entries/directories conservatively because Phase 18
+  Sensitive Folder, Private Mode, and vault classification do not yet exist.
+- Persist the optional index only in a private (`0600`) bounded cache file via
+  atomic sibling replacement. Reject relative/Trash/remote/symbolic roots,
+  malformed records, excessive paths/records/bytes, and unknown versions.
+- Accelerate eligible subtree **Search Files** requests only. Before returning
+  indexed results, validate the root and every recorded directory fingerprint;
+  validate matching entries no-follow before presentation. A missing, corrupt,
+  stale, policy-ineligible, or busy index must automatically run the existing
+  bounded non-indexed search with truthful status feedback.
+- Expose accessible native Enable, Build/Rebuild, and Clear controls with a
+  clear capability description: filenames and metadata only, hidden content
+  excluded, no content-search acceleration. Persist only the reviewed enabled
+  boolean in preferences; explicit saved searches remain independent.
+- Exclude content indexing, background filesystem watching/rebuilds, global or
+  remote indexes, hidden/sensitive overrides, tags, Phase 13G duplicates,
+  Phase 14 desktop integration, Phase 18 privacy claims, and unrelated refactors.
+
+## Applicable testing layers
+
+- Core fixtures: bounded traversal, raw names, symlink/mount/hidden policy,
+  codec corruption/version/capacity, directory and entry stale detection,
+  predicates, ordering, cancellation, and live-search fallback signal.
+- Application worker/persistence: bounded request/event channels, private
+  atomic cache, load/build/query/clear lifecycle, generation supersession,
+  corrupt/missing/stale fallback, clean shutdown.
+- GTK/controller: accessible capability controls, enable/build/clear actions,
+  indexed/live status, saved-search compatibility, native Wayland D-Bus health
+  and clean Quit.
+
+## Status
+
+COMPLETE. Core index policy/codec/query, bounded application persistence worker,
+compact native controls, automatic live fallback, strict workspace suite, real
+GTK component gate, and isolated Wayland cache/action/lifecycle smoke are all
+verified in `GATES.md`. Exactly Phase 13G is recommended next.
+
+---
+
+# Archived plan: Floe Phase 13E — Saved Searches
 
 ## Contract
 
