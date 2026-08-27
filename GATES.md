@@ -1,4 +1,47 @@
-# Gates: Floe Phase 13F — Optional Search Indexing
+# Gates: Floe Phase 13G — Duplicate Finder
+
+Scope: Explicit bounded size/hash/byte-confirmed duplicate review with hard-link
+distinction, cancellation, reveal/Trash handoff, and no automatic deletion.
+
+- [x] G1: Core duplicate scan is exact-path, bounded, cancellable, no-follow,
+  same-device, size-first, reviewed-hash, byte-confirmed, and change-safe.
+  CHECK: cargo test -p floe-core phase_13g -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Three focused core tests pass explicit/raw roots, same-device no-follow traversal, size-first pruning, injected reviewed 32-byte hash boundary, byte comparison, cancellation, root/file/directory/depth/group/result/logical-byte limits, inaccessible/over-limit/change handling, and digest-collision rejection.
+
+- [x] G2: Hard-link aliases are distinct from independent copies and never
+  inflate reclaimable-byte estimates; digest matches alone are not proof.
+  CHECK: cargo test -p floe-core phase_13g_duplicate_identity -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused identity test passes one inode/two paths plus one independent copy under forced digest collision: alias is labelled, three paths remain, independent count is two, reclaimable estimate counts one copy only, byte-different collision is excluded.
+
+- [x] G3: Application worker bounds requests/events/results, streams progress,
+  cancels by generation, retains outcomes memory-only, and shuts down cleanly.
+  CHECK: cargo test -p floe-app phase_13g_duplicate_worker -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Two focused application tests pass capacity-one requests/capacity-32 events, existing reviewed Phase 10E GLib SHA-256 execution, progress/final memory-only outcome, generation cancellation, bounded backpressure, and clean Drop join.
+
+- [x] G4: Selection-aware context/command/native review UI exposes truthful
+  cancellation, hard-link labels, reveal, and explicit ordinary Trash handoff.
+  CHECK: cargo test -p floe-app phase_13g_duplicate_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused UI contract passes review-first/no-auto-delete/hard-link/Trash wording. Full context and registry suites pass default file-tools submenu plus human command discovery. Controller compiles authoritative selection/running action state, non-modal progress Cancel, exact Reveal, default-off review checkboxes, and ordinary recoverable Trash batch handoff.
+
+- [x] G5: Formatting, workspace check, strict Clippy, complete tests, native
+  build, diff hygiene, and real GTK component gate pass.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: Final formatting check, workspace check, strict all-target/all-feature Clippy warnings denied, 387 app tests (386 passed plus one intentional graphical ignore), 132 core tests, native app build, and diff hygiene pass. Real GTK component gate passes.
+
+- [x] G6: Native Wayland action/liveness/Quit smoke and persistent documents
+  mark only verified 13G complete with exactly Phase 14 NEXT.
+  CHECK: rg -n 'Status: \*\*NEXT\*\*|\| .*NEXT' docs/ROADMAP.md
+  EXPECT: Phase 14
+  EVIDENCE: Isolated Plasma Wayland launch exports check-duplicates and cancel-duplicate-scan, answers Peer.Ping, and Quit exits 0. Standalone AT-SPI bus unavailable is recorded without semantic E2E claim. AGENTS, DESIGN, ROADMAP, FEATURE_MATRIX, PRIVACY_SECURITY, DEVELOPMENT, PLAN, and GATES mark only verified Phase 13G complete and exactly Phase 14 NEXT.
+
+---
+
+# Archived gates: Floe Phase 13F — Optional Search Indexing
 
 Scope: Explicit private filename/metadata index with conservative eligibility,
 stale detection, and mandatory live-search fallback; no content index.

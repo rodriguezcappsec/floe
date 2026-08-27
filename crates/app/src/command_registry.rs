@@ -196,6 +196,15 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [F, T, H]
     ),
     command!(
+        "check-duplicates",
+        "Check for Duplicates…",
+        "Find byte-for-byte duplicate files in the explicit selection",
+        Files,
+        ["duplicates", "same files", "hash", "reclaim space"],
+        [],
+        [F, H]
+    ),
+    command!(
         "extract-here",
         "Extract Here",
         "Extract one supported archive beside its source",

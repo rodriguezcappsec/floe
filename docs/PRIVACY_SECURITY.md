@@ -693,7 +693,7 @@ False positives and false negatives are expected. The scanner is not malware det
 
 ## Duplicate discovery
 
-Status: **PLANNED** for Phase 13G.
+Status: **COMPLETE** for Phase 13G.
 
 “Check for Duplicates…” operates only on explicitly selected files or roots. It
 first groups candidates by exact byte size, then uses the reviewed streaming hash
@@ -712,6 +712,22 @@ Candidate paths, digests, and results are memory-only by default. Any future
 persistence must obey Private Mode, Sensitive Folder, and locked-vault policies.
 The result surface supports review, reveal, and ordinary explicit file actions;
 it never automatically deletes a copy or claims that deletion is secure erase.
+
+Phase 13G implements this boundary with explicit caps: 4,096 roots, one million
+files, 100,000 directories, depth 128, 256 GiB per hashed file, one TiB total
+logical hash bytes, 10,000 groups, and 100,000 result paths. Each root stays on
+its starting filesystem device. Exact candidate paths, digests, progress, and
+results remain memory-only for the process; no file content or hash is uploaded.
+Unreachable, over-limit, or changed inputs are skipped or failed rather than
+called equal.
+
+The native result surface defaults every Trash checkbox off, labels hard-link
+aliases as using no extra file data, presents exact-path Reveal, and sends only
+explicitly checked paths to Floe's ordinary recoverable Trash batch. It never
+automatically deletes a copy, offers permanent deletion from the result window,
+persists scan history, requires the Phase 13F index, or claims Trash is secure
+erase. Same-user processes, ordinary display observation, backups, snapshots,
+and filesystem journals remain outside Floe's confidentiality/deletion boundary.
 
 ## Integrity, verified transfer, and recovery
 

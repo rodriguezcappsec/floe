@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 13F. Phase 13G is the only
+The implementation baseline for this matrix is Phase 13G. Phase 14 is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -334,7 +334,7 @@ advanced predicates and explicit Match Case control.
 | Reveal/search-result context actions | `COMPLETE` | 13B | Dedicated filename/containing-folder rows reuse normal exact-path actions; Reveal navigates to the exact parent and selects the exact result. |
 | Optional indexed backend | `COMPLETE` | 13F | Explicit private single-local-root filename/metadata index only. Hidden trees and contents are excluded; exact raw paths, no-follow traversal, same-device/depth/entry/64-MiB bounds, versioned corruption rejection, directory/entry stale checks, `0600` atomic cache, and complete automatic live fallback are verified. No Phase 18 sensitivity/vault claim or content/global/remote/background indexing. |
 | Locked-vault search leakage prevention | `PLANNED` | 18J | Locked names/content must not enter global or Floe indexes. |
-| Check for Duplicates / duplicate finder | `PLANNED` | 13G | Explicit selected files/roots; group by exact size, stream candidate hashes, then confirm byte-for-byte before calling files identical. Results distinguish hard-link aliases and never delete automatically. |
+| Check for Duplicates / duplicate finder | `COMPLETE` | 13G | Explicit local selected files/roots only; bounded same-device no-follow traversal groups exact size, hashes unique identities through reviewed Phase 10E SHA-256, confirms byte-for-byte, revalidates changes, distinguishes hard-link aliases, and counts only independent copies as reclaimable. Capacity-one cancellable worker, memory-only accessible review, exact Reveal, and explicit recoverable Trash handoff are verified. No index dependency, remote/Trash roots, persistence, upload, automatic/permanent deletion, or digest-only proof. |
 
 ## Thumbnails
 
