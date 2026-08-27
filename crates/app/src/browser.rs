@@ -474,6 +474,7 @@ pub struct BrowserController {
     widgets: BrowserWidgets,
     command_palette: crate::command_palette::CommandPalette,
     keyboard_shortcuts: crate::keyboard_shortcuts::KeyboardShortcuts,
+    desktop_integration: Rc<crate::integration::DesktopIntegrationController>,
     context_menu_editor: crate::context_menu::ContextMenuEditor,
     terminal_chooser: crate::terminal_ui::TerminalChooser,
     tabs: Rc<RefCell<BrowserTabs>>,
@@ -637,6 +638,8 @@ impl BrowserController {
         let initial_view = tabs.active().current().view();
         let command_palette = crate::command_palette::CommandPalette::new(&widgets.window);
         let keyboard_shortcuts = crate::keyboard_shortcuts::KeyboardShortcuts::new(&widgets.window);
+        let desktop_integration =
+            crate::integration::DesktopIntegrationController::new(&widgets.window);
         let context_menu_editor = crate::context_menu::ContextMenuEditor::new(&widgets.window);
         let terminal_chooser = crate::terminal_ui::TerminalChooser::new(&widgets.window);
         let terminal_worker = match crate::terminal::TerminalWorker::spawn() {
@@ -693,6 +696,7 @@ impl BrowserController {
             widgets,
             command_palette,
             keyboard_shortcuts,
+            desktop_integration,
             context_menu_editor,
             terminal_chooser,
             tabs: Rc::new(RefCell::new(tabs)),
@@ -3289,6 +3293,9 @@ impl BrowserController {
                         controller.apply_keybinding_overrides(keybindings);
                     }
                 });
+        });
+        self.add_action("desktop-integration-status", |controller| {
+            controller.desktop_integration.present();
         });
         self.add_action("context-menu-settings", |controller| {
             let current = controller.current_preferences.borrow().context_menu;

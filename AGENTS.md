@@ -1318,8 +1318,21 @@ Last updated:
 Current phase:
 
 ```text
-Phase 13 — Filter and search (Phase 13G complete)
+Phase 14 — Generic desktop integration framework (complete)
 ```
+
+Phase 14 adds an app-only generic `DesktopIntegration` capability boundary for
+GIO launch, mounts/volumes, XDG user folders, portals, notifications, Share
+availability, GTK/libadwaita theme signals, Secret Service presence, and
+reliable session-lock signals. One capacity-one generation-safe worker performs
+bounded session-bus ownership probes and returns path/content-free memory-only
+snapshots. A native refreshable Desktop Integration command/dialog reports
+Available, Limited, or Unavailable with explicit text reasons. Missing optional
+services preserve local browsing and existing GIO/device/location/appearance
+behavior. No compositor branch, desktop type in core, secret read,
+notification/share transmission, or lock control was added. Strict workspace,
+real GTK, and isolated Wayland lifecycle gates pass. Phase 15 Niri integration
+is the sole recommended next phase.
 
 Phase 13G adds explicit Check for Duplicates over selected local files/folders.
 The GTK-independent engine preserves exact raw paths, groups by exact size,
@@ -2774,9 +2787,10 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-11c-keybindings` and implement validated persistent custom
-shortcuts, conflict detection, conservative destructive-action guardrails,
-individual/all reset, and complete shortcut discoverability. Do not add Vim mode.
+Create `phase-15-niri-integration` and add optional Niri detection/IPC,
+output/workspace awareness, and bounded spatial enhancements behind the Phase
+14 application-layer capability boundary. Missing or stale Niri IPC must retain
+the complete generic fallback; do not add Niri types to `floe-core`.
 ```
 
 ---

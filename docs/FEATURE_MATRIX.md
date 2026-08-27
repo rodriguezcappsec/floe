@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 13G. Phase 14 is the only
+The implementation baseline for this matrix is Phase 14. Phase 15 is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -453,7 +453,9 @@ advanced predicates and explicit Match Case control.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Generic desktop capability boundary | `PLANNED` | 14 | Isolate GIO/XDG/portal capabilities from filesystem core before compositor backends. |
+| Generic desktop capability boundary | `COMPLETE` | 14 | App-only stable inventory covers GIO launch, mounts/volumes, XDG folders, portals, notifications, Share availability, theme signals, Secret Service presence, and session-lock reliability without desktop types in core. |
+| Desktop integration status | `COMPLETE` | 14 | Refreshable native command/dialog reports available, limited, and unavailable reasons in text; snapshots are bounded, path/content-free, and memory-only. |
+| Missing optional desktop-service fallback | `COMPLETE` | 14 | Missing session bus, portal, notifications, Secret Service, or reliable lock signals never disable ordinary local browsing, GIO launching, device monitoring, XDG folders, or appearance fallback. |
 | Generic Wayland local behavior | `COMPLETE` | 0-6K2 | Current code uses GTK/GIO/GLib and has no Niri/KDE dependency. |
 | Niri detection/IPC/workspace/output | `PLANNED` | 15 | Optional application-layer enhancement with graceful failure. |
 | Niri spatial launch/Miller enhancements | `PLANNED` | 15 | Depends on generic Miller and integration boundaries; no core dependency. |
@@ -625,7 +627,7 @@ advanced predicates and explicit Match Case control.
 | Custom commands/scripts | `DEFERRED` | 19 | Never shell-interpolate filenames; security permissions are required before general scripting. |
 | File-type actions and external tools | `PLANNED` | 19 | User-added actions are separate from MIME default application choices. |
 | Templates | `PARTIAL` | 6Q/12D/19 | Safe native template selection and bounded no-overwrite creation are implemented; discovery, management, and broader extensibility remain planned. || Safe bounded XDG discovery, native selection/management, non-executable no-overwrite creation, and post-refresh naming are complete; user-defined categories and broader extensibility remain Phase 19. |
-| Share actions | `PLANNED` | 14/19 | Prefer standards/portals and integrate privacy warnings later. |
+| Share actions | `PLANNED` | 14/19 | Phase 14 reports generic Share availability conservatively but transmits nothing; an explicit action remains future standards/portal work. |
 | Plugin runtime | `DEFERRED` | 19 | Only after demonstrated demand and capability/isolation design; no automatic vault access. |
 | Git repository/status badges | `DEFERRED` | 19 | Must remain cheap when unused and respect ignored/private content. |
 | Repository terminal/copy-relative-path | `DEFERRED` | 11E/19 | Depends on terminal integration and repository detection. |
