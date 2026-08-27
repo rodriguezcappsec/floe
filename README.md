@@ -17,6 +17,7 @@ and a safety-first Rust core.
 </p>
 
 <p>
+<a href="./docs/USER_GUIDE.md">User Guide</a> ·
 <a href="#what-floe-can-do">Features</a> ·
 <a href="#build-and-run">Run Floe</a> ·
 <a href="#keyboard-first-by-design">Keyboard</a> ·
@@ -225,6 +226,7 @@ filters cover type, extension, MIME, size, date, owner, hidden state, and case.
 
 The project tracks scope and verification explicitly:
 
+- [User guide](./docs/USER_GUIDE.md) — how to use current Floe features
 - [Roadmap](./docs/ROADMAP.md) — ordered phases and exactly one recommended next milestone
 - [Feature matrix](./docs/FEATURE_MATRIX.md) — capability and verification ledger
 - [Design language](./DESIGN.md) — visual system and interaction rules
