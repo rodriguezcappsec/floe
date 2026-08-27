@@ -681,6 +681,21 @@ responsive, and Quit exited 0. The standalone AT-SPI bus remained unavailable,
 so semantic automation beyond the real-widget component contract is not
 claimed.
 
+Phase 13G focused verification is:
+
+```bash
+cargo test -p floe-core phase_13g -- --nocapture
+cargo test -p floe-app phase_13g -- --nocapture
+```
+
+The final suite passes 387 application tests (386 passed plus one intentional
+graphical ignore) and 132 core tests with strict all-target/all-feature Clippy.
+The real GTK component gate passes. An isolated Plasma Wayland launch exported
+`check-duplicates` and `cancel-duplicate-scan`, answered
+`org.freedesktop.DBus.Peer.Ping`, and exited status 0 through Quit. Standalone
+AT-SPI remained unavailable, so the native claim is action/lifecycle plus the
+real-widget component contract, not semantic AT-SPI E2E.
+
 Phase 13F focused verification is:
 
 ```bash

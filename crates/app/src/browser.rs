@@ -519,6 +519,10 @@ pub struct BrowserController {
     search_index_generation: Cell<u64>,
     search_index_query_active: Cell<bool>,
     search_index_fallback_note: RefCell<Option<String>>,
+    duplicate_worker: RefCell<Option<crate::duplicate_finder::DuplicateFinderWorker>>,
+    duplicate_generation: Cell<u64>,
+    duplicate_running: Cell<bool>,
+    duplicate_progress: RefCell<Option<crate::duplicate_ui::DuplicateProgressDialog>>,
     content_search_worker: RefCell<Option<crate::content_search::ContentSearchWorker>>,
     content_search_generation: Cell<u64>,
     content_search_active: Cell<bool>,
@@ -677,6 +681,13 @@ impl BrowserController {
                 None
             }
         };
+        let duplicate_worker = match crate::duplicate_finder::DuplicateFinderWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start duplicate finder worker");
+                None
+            }
+        };
         widgets.miller_view.set_vim_mode(view_preferences.vim_mode);
         Rc::new(Self {
             widgets,
@@ -727,6 +738,10 @@ impl BrowserController {
             search_index_generation: Cell::new(0),
             search_index_query_active: Cell::new(false),
             search_index_fallback_note: RefCell::new(None),
+            duplicate_worker: RefCell::new(duplicate_worker),
+            duplicate_generation: Cell::new(0),
+            duplicate_running: Cell::new(false),
+            duplicate_progress: RefCell::new(None),
             content_search_worker: RefCell::new(content_search_worker),
             content_search_generation: Cell::new(0),
             content_search_active: Cell::new(false),
@@ -1649,6 +1664,7 @@ impl BrowserController {
             controller.drain_folder_filter_worker();
             controller.drain_filename_search_worker();
             controller.drain_search_index_worker();
+            controller.drain_duplicate_worker();
             controller.drain_content_search_worker();
             controller.drain_bookmark_worker();
             controller.pump_pending_entries();
@@ -3700,6 +3716,14 @@ impl BrowserController {
         let checksum_action =
             self.add_action("checksum", |controller| controller.show_checksum_dialog());
         checksum_action.set_enabled(false);
+        let duplicates_action = self.add_action("check-duplicates", |controller| {
+            controller.start_duplicate_scan();
+        });
+        duplicates_action.set_enabled(false);
+        let cancel_duplicates = self.add_action("cancel-duplicate-scan", |controller| {
+            controller.cancel_duplicate_scan();
+        });
+        cancel_duplicates.set_enabled(false);
         let extract_here_action =
             self.add_action("extract-here", |controller| controller.extract_here());
         extract_here_action.set_enabled(false);
@@ -6389,6 +6413,7 @@ impl BrowserController {
         }
         let state = selection_action_state(&selected_entries);
         let folder_tab = folder_tab_eligible(&selected_entries, self.trash_active.get());
+        let duplicate_eligible = !selected_entries.is_empty() && !self.trash_active.get();
         self.selected_entries.replace(selected_entries);
         self.set_open_enabled(state.single);
         self.set_open_with_enabled(state.open_with);
@@ -6397,6 +6422,14 @@ impl BrowserController {
             (self.filename_search_active.get() || self.content_search_active.get()) && state.single,
         );
         self.set_checksum_enabled(state.checksum);
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("check-duplicates")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(duplicate_eligible && !self.duplicate_running.get());
+        }
         self.set_archive_actions_enabled();
         self.set_batch_rename_enabled();
         self.set_selection_actions_enabled(state.transfer, state.rename, state.trash);
@@ -6614,6 +6647,203 @@ impl BrowserController {
             .and_downcast::<gio::SimpleAction>()
         {
             action.set_enabled(enabled);
+        }
+    }
+
+    fn start_duplicate_scan(self: &Rc<Self>) {
+        if self.trash_active.get() {
+            self.show_toast("Duplicate scans are unavailable inside Trash", 5);
+            return;
+        }
+        if self.duplicate_running.get() {
+            self.show_toast("A duplicate scan is already running", 4);
+            return;
+        }
+        let request = match floe_core::DuplicateScanRequest::new(self.selected_paths()) {
+            Ok(request) => request,
+            Err(error) => {
+                self.show_toast(&error.to_string(), 6);
+                return;
+            }
+        };
+        let generation = self.duplicate_generation.get().wrapping_add(1).max(1);
+        self.duplicate_generation.set(generation);
+        let outcome = self.duplicate_worker.borrow().as_ref().map_or(
+            Err(crate::duplicate_finder::DuplicateFinderSubmitError::Stopped),
+            |worker| worker.submit(generation, request),
+        );
+        match outcome {
+            Ok(()) => {
+                self.duplicate_running.set(true);
+                if let Some(action) = self
+                    .widgets
+                    .window
+                    .lookup_action("check-duplicates")
+                    .and_downcast::<gio::SimpleAction>()
+                {
+                    action.set_enabled(false);
+                }
+                if let Some(action) = self
+                    .widgets
+                    .window
+                    .lookup_action("cancel-duplicate-scan")
+                    .and_downcast::<gio::SimpleAction>()
+                {
+                    action.set_enabled(true);
+                }
+                let weak = Rc::downgrade(self);
+                let dialog = crate::duplicate_ui::DuplicateProgressDialog::present(
+                    &self.widgets.window,
+                    move || {
+                        if let Some(controller) = weak.upgrade() {
+                            controller.cancel_duplicate_scan();
+                        }
+                    },
+                );
+                self.duplicate_progress.replace(Some(dialog));
+            }
+            Err(crate::duplicate_finder::DuplicateFinderSubmitError::Busy) => {
+                self.show_toast("Duplicate finder is busy", 5)
+            }
+            Err(crate::duplicate_finder::DuplicateFinderSubmitError::Stopped) => {
+                self.show_toast("Duplicate finder worker is unavailable", 6)
+            }
+        }
+    }
+
+    fn cancel_duplicate_scan(&self) {
+        if !self.duplicate_running.replace(false) {
+            return;
+        }
+        let generation = self.duplicate_generation.get().wrapping_add(1).max(1);
+        self.duplicate_generation.set(generation);
+        if let Some(worker) = self.duplicate_worker.borrow().as_ref() {
+            worker.cancel(generation);
+        }
+        if let Some(dialog) = self.duplicate_progress.borrow_mut().take() {
+            dialog.close();
+        }
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("cancel-duplicate-scan")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(false);
+        }
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("check-duplicates")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(
+                !self.selected_entries.borrow().is_empty() && !self.trash_active.get(),
+            );
+        }
+        self.show_toast("Duplicate scan cancelled; no files were changed", 4);
+    }
+
+    fn drain_duplicate_worker(self: &Rc<Self>) {
+        loop {
+            let event = self
+                .duplicate_worker
+                .borrow()
+                .as_ref()
+                .and_then(crate::duplicate_finder::DuplicateFinderWorker::try_event);
+            let Some(event) = event else {
+                break;
+            };
+            if event.generation != self.duplicate_generation.get() || !self.duplicate_running.get()
+            {
+                continue;
+            }
+            match event.kind {
+                crate::duplicate_finder::DuplicateFinderEventKind::Progress(summary) => {
+                    if let Some(dialog) = self.duplicate_progress.borrow().as_ref() {
+                        dialog.update(summary);
+                    }
+                }
+                crate::duplicate_finder::DuplicateFinderEventKind::Finished(outcome) => {
+                    self.duplicate_running.set(false);
+                    if let Some(dialog) = self.duplicate_progress.borrow_mut().take() {
+                        dialog.close();
+                    }
+                    if let Some(action) = self
+                        .widgets
+                        .window
+                        .lookup_action("cancel-duplicate-scan")
+                        .and_downcast::<gio::SimpleAction>()
+                    {
+                        action.set_enabled(false);
+                    }
+                    if let Some(action) = self
+                        .widgets
+                        .window
+                        .lookup_action("check-duplicates")
+                        .and_downcast::<gio::SimpleAction>()
+                    {
+                        action.set_enabled(
+                            !self.selected_entries.borrow().is_empty() && !self.trash_active.get(),
+                        );
+                    }
+                    let weak_reveal = Rc::downgrade(self);
+                    let weak_trash = Rc::downgrade(self);
+                    crate::duplicate_ui::present_duplicate_review(
+                        &self.widgets.window,
+                        outcome,
+                        move |path| {
+                            if let Some(controller) = weak_reveal.upgrade() {
+                                controller.navigate_to_revealing(path);
+                            }
+                        },
+                        move |paths| {
+                            let Some(controller) = weak_trash.upgrade() else {
+                                return;
+                            };
+                            let count = paths.len();
+                            match controller.application_state.submit_trash_batch(paths) {
+                                Ok(_) => controller.show_toast(
+                                    &format!(
+                                        "Queued {} for Trash after explicit duplicate review",
+                                        item_count_text(count)
+                                    ),
+                                    5,
+                                ),
+                                Err(error) => controller.show_toast(
+                                    &format!("Could not queue duplicate paths for Trash: {error}"),
+                                    7,
+                                ),
+                            }
+                        },
+                    );
+                }
+                crate::duplicate_finder::DuplicateFinderEventKind::Failed(error) => {
+                    self.duplicate_running.set(false);
+                    if let Some(dialog) = self.duplicate_progress.borrow_mut().take() {
+                        dialog.close();
+                    }
+                    if let Some(action) = self
+                        .widgets
+                        .window
+                        .lookup_action("cancel-duplicate-scan")
+                        .and_downcast::<gio::SimpleAction>()
+                    {
+                        action.set_enabled(false);
+                    }
+                    if let Some(action) = self
+                        .widgets
+                        .window
+                        .lookup_action("check-duplicates")
+                        .and_downcast::<gio::SimpleAction>()
+                    {
+                        action.set_enabled(
+                            !self.selected_entries.borrow().is_empty() && !self.trash_active.get(),
+                        );
+                    }
+                    self.show_toast(&format!("Duplicate scan failed: {error}"), 7);
+                }
+            }
         }
     }
 
