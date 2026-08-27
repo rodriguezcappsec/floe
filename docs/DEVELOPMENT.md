@@ -672,6 +672,24 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+Phase 14 focused verification is:
+
+```bash
+cargo test -p floe-app phase_14_integration_model -- --nocapture
+cargo test -p floe-app phase_14_integration_worker -- --nocapture
+cargo test -p floe-app phase_14_generic_fallback -- --nocapture
+cargo test -p floe-app phase_14_integration_ui -- --nocapture
+```
+
+The generic integration boundary is application-only and adds no dependency.
+Runtime probing uses one capacity-one worker and GIO session-bus calls with a
+1.5-second per-call timeout. It records only aggregate booleans in a memory-only
+snapshot; do not add paths, notification contents, credentials, or compositor
+types. Missing optional services must retain existing GIO launcher, device,
+XDG-location, appearance, and local browsing behavior. Real GTK verification
+uses the ignored `phase_14_integration_ui_real_gtk` component test under a live
+display.
+
 Phase 13E passes four focused core saved-query/history/order tests, three app
 persistence/UI/order contract tests, the complete workspace suite, strict
 Clippy, and the opt-in real GTK component gate. An isolated Plasma Wayland

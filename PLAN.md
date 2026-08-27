@@ -1,4 +1,48 @@
-# Plan: Floe Phase 13G — Duplicate Finder
+# Plan: Floe Phase 14 — Generic Desktop Integration Framework
+
+## Contract
+
+- Create one application-layer `DesktopIntegration` capability boundary that
+  inventories generic Linux desktop services without leaking GIO/GTK, desktop,
+  compositor, or environment-specific types into `floe-core`.
+- Represent standards-backed capabilities for local/URI launch, GIO mounts and
+  volumes, XDG user directories, portals, notifications, Share, theme signals,
+  credential service, and reliable session-lock signals. Capabilities must
+  distinguish available, unavailable, and degraded/unknown with a human reason.
+- Detect asynchronously on one bounded application worker. Missing session bus,
+  portal, Secret Service, notification, theme, or lock service is normal and
+  must preserve browsing, local paths, GIO launch, and existing device behavior.
+  No GTK callback may perform blocking capability probing.
+- Route existing generic launcher/device/location/theme facts through the
+  boundary where coherent, expose a native **Desktop Integration** status dialog
+  and human command, and keep all fallbacks truthful under generic Wayland,
+  Plasma, Niri, and no-specialized-backend environments.
+- Use standard GLib/GIO/XDG/session-bus signals only. Add no Niri IPC, KDE
+  Framework, Plasma type, compositor conditional branches, credential reads,
+  notification contents, Share transmission, session-lock control, or remote
+  filesystem phase work.
+- Keep capability snapshots memory-only and path/content-free. Do not log bus
+  names, account identifiers, filenames, secrets, notification bodies, or user
+  paths merely to report capabilities.
+
+## Applicable testing layers
+
+- Pure application policy tests: stable capability IDs/order/status/fallback,
+  no-specialized-backend behavior, missing/malformed service probes.
+- Worker tests: bounded request/result channel, generation supersession, clean
+  shutdown, memory-only snapshots, no GTK-thread blocking.
+- Integration/UI: native accessible status dialog and command, existing
+  launcher/device/location/theme regressions, isolated generic Wayland plus
+  first-class Plasma smoke, D-Bus health and clean Quit.
+
+## Status
+
+COMPLETE. Acceptance evidence is recorded in `GATES.md`. Phase 15 is the sole
+recommended next phase and has not started.
+
+---
+
+# Archived plan: Floe Phase 13G — Duplicate Finder
 
 ## Contract
 

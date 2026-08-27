@@ -2,7 +2,7 @@
 
 Status: authoritative design and threat model. Most capabilities in this document are **PLANNED**, not implemented. This document does not select a cryptographic format, cryptographic library, vault backend, or sandbox mechanism.
 
-Last reviewed against the repository: `2026-08-25`, after Phase 12F.
+Last reviewed against the repository: `2026-08-26`, after Phase 14.
 
 ## Status vocabulary and claim discipline
 
@@ -15,6 +15,16 @@ Last reviewed against the repository: `2026-08-25`, after Phase 12F.
 Security state must use text and accessible semantics, never color alone. A failed or unavailable protection must not silently fall back to an unprotected path under the same action name.
 
 ## Current security and privacy baseline
+
+- Phase 14 retains one path/content-free desktop-capability snapshot in memory.
+  Its capacity-one worker checks only reviewed session-bus service ownership for
+  portals, freedesktop notifications, and Secret Service, with a bounded call
+  timeout. It does not read secrets, send notification or Share payloads,
+  request a lock, persist results, enumerate account identifiers, or log bus
+  names. A service owner proves only current availability, not trust, safety, or
+  that Floe invoked the service. Reliable cross-desktop lock signals remain
+  explicitly Limited or Unavailable until a later phase establishes and tests
+  a real signal lifecycle.
 
 - Phase 7C/7D normally persist bounded ordered live tabs, active tab, recently
   closed tabs, up to two pane sessions per tab, exact paths, history, selection,
