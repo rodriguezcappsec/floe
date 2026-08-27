@@ -93,6 +93,7 @@ pub struct ViewPreferences {
     pub context_menu: ContextMenuPreferences,
     pub appearance: AppearancePreset,
     pub saved_searches: SavedSearchCatalog,
+    pub search_index_enabled: bool,
     folder_views: Vec<FolderViewOverride>,
 }
 
@@ -116,6 +117,7 @@ impl Default for ViewPreferences {
             context_menu: ContextMenuPreferences::default(),
             appearance: AppearancePreset::Frosted,
             saved_searches: SavedSearchCatalog::default(),
+            search_index_enabled: false,
             folder_views: Vec::new(),
         }
     }
@@ -267,6 +269,9 @@ impl ViewPreferences {
                         let _ = preferences.saved_searches.add(saved);
                     }
                 }
+                "search-index-enabled" => {
+                    preferences.search_index_enabled = value == "true";
+                }
                 "folder" => {
                     if let Some(folder) = parse_folder_override(value) {
                         preferences
@@ -286,7 +291,7 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=10\nappearance={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\n",
+            "version=11\nappearance={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\n",
             self.appearance.persisted(),
             self.mode.persisted(),
             self.grid_size.edge(),
@@ -303,6 +308,7 @@ impl ViewPreferences {
             self.remember_per_folder,
             self.vim_mode,
             self.context_menu.persisted(),
+            self.search_index_enabled,
         );
         if let Some(width) = self.sidebar_width {
             serialized.push_str(&format!("sidebar-width={}\n", clamp_sidebar_width(width)));
@@ -640,7 +646,7 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=10\n"));
+        assert!(serialized.starts_with("version=11\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
     }
@@ -659,7 +665,7 @@ mod tests {
         );
         assert_eq!(customized.context_menu.persisted(), "archives,checksums");
         let serialized = customized.serialize();
-        assert!(serialized.starts_with("version=10\n"));
+        assert!(serialized.starts_with("version=11\n"));
         assert!(serialized.contains("context-menu-groups=archives,checksums\n"));
         assert_eq!(ViewPreferences::parse(&serialized), customized);
 
@@ -682,7 +688,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=10\n"));
+        assert!(serialized.starts_with("version=11\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,
@@ -695,7 +701,7 @@ mod tests {
         let legacy = ViewPreferences::parse("version=8\nview=grid\n");
         assert_eq!(legacy.appearance, AppearancePreset::Frosted);
         assert_eq!(
-            ViewPreferences::parse("version=10\nappearance=unknown\n").appearance,
+            ViewPreferences::parse("version=11\nappearance=unknown\n").appearance,
             AppearancePreset::Frosted
         );
 
@@ -705,7 +711,7 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=10\n"));
+            assert!(serialized.starts_with("version=11\n"));
             assert!(serialized.contains(&format!("appearance={}\n", preset.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).appearance, preset);
         }
@@ -738,7 +744,7 @@ mod tests {
         let mut preferences = ViewPreferences::default();
         preferences.saved_searches.add(saved).expect("catalog add");
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=10\n"));
+        assert!(serialized.starts_with("version=11\n"));
         assert!(serialized.contains("saved-search="));
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored.saved_searches, preferences.saved_searches);
@@ -749,7 +755,7 @@ mod tests {
             raw
         );
         let corrupt = ViewPreferences::parse(&format!(
-            "version=10\nsaved-search=bad\n{}",
+            "version=11\nsaved-search=bad\n{}",
             serialized
                 .lines()
                 .find(|line| line.starts_with("saved-search="))
@@ -774,6 +780,19 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn phase_13f_search_index_opt_in_is_versioned_and_defaults_off() {
+        let defaults = ViewPreferences::parse("version=10\n");
+        assert!(!defaults.search_index_enabled);
+        let mut enabled = defaults;
+        enabled.search_index_enabled = true;
+        let serialized = enabled.serialize();
+        assert!(serialized.starts_with("version=11\n"));
+        assert!(serialized.contains("search-index-enabled=true\n"));
+        assert!(ViewPreferences::parse(&serialized).search_index_enabled);
+        assert!(!ViewPreferences::parse("search-index-enabled=invalid\n").search_index_enabled);
+    }
+
     #[test]
     fn phase_6t_preferences_preserve_raw_folder_paths_and_bound_history() {
         let raw = PathBuf::from("/tmp").join(OsString::from_vec(vec![b'f', 0x80]));

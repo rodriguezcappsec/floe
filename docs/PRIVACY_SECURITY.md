@@ -427,7 +427,7 @@ indexing require their own later privacy gates.
 
 Phase 13E persists only searches the user explicitly names through Save Search.
 At most 64 definitions share Floe's existing capacity-one private preference
-worker and version-10 `0600` file. A definition contains the exact raw local
+worker and current version-11 `0600` file. A definition contains the exact raw local
 root, user-visible name, query text, filename/content kind, folder/subtree
 scope, matching mode, hidden inclusion, and every advanced predicate. This is
 sensitive configuration data: same-user processes, backups, and copied config
@@ -446,6 +446,34 @@ suppression policy boundary is tested, but Sensitive Folder and Private Mode do
 not exist yet and Floe makes no Phase 18 privacy claim. Results, snippets,
 counters, selections, and usage are not saved. Phase 13E adds no index, upload,
 remote/global search, tag database, or background content scan.
+
+## Optional search index
+
+Phase 13F adds one explicitly built, optional index for one absolute local
+folder root. It stores exact raw path bytes plus no-follow filename metadata and
+directory/file fingerprints; it never stores file contents, snippets, query
+text, search results, usage, MIME guesses, hashes, or saved-search definitions.
+The index is written by one bounded application worker to Floe's cache as a
+versioned file with mode `0600`, private parent creation, synchronized temporary
+file, and atomic sibling replacement. The reviewed encoded capacity is 64 MiB.
+
+Builds never follow symbolic links or cross the root filesystem device, cap
+entries/directories/depth/path bytes, and exclude every hidden entry or hidden
+subtree. That conservative hidden policy reduces exposure but is not a
+Sensitive Folder, Private Mode, locked-vault, or encryption guarantee: those
+Phase 18 classifications do not exist yet. There is no override to index hidden
+content. Only explicit Build/Rebuild replaces the cache; no watcher or
+background content scan silently updates it.
+
+An enabled index accelerates eligible Search Files requests only. Before any
+indexed result is presented, Floe revalidates every recorded directory
+fingerprint and each matching entry no-follow; advanced metadata searches
+revalidate all indexed entries. Missing, stale, corrupt, policy-ineligible, or
+busy indexes automatically submit the unchanged exact request to the existing
+bounded live traversal and say why. A stale derived cache is discarded. Search
+Contents always uses its ordinary bounded live engine. Clear Index removes
+Floe's cache but cannot erase copies retained by backups, snapshots, journals,
+or another same-user process.
 
 ## Command history
 

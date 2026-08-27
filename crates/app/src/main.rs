@@ -40,6 +40,7 @@ mod preferences;
 pub mod preview;
 mod properties;
 pub mod restore_executor;
+mod search_index;
 mod session_store;
 pub mod state;
 mod storage;

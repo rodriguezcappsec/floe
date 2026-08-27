@@ -5,7 +5,7 @@ actually implements, what has only a safe foundation, and where remaining work
 belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
-The implementation baseline for this matrix is Phase 13E. Phase 13F is the only
+The implementation baseline for this matrix is Phase 13F. Phase 13G is the only
 `NEXT` phase. Every other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -329,10 +329,10 @@ advanced predicates and explicit Match Case control.
 | Tag filters | `DEFERRED` | 19 | No tag model exists. |
 | Glob/regex/case sensitivity | `COMPLETE` | 13C | Text, Glob, and Regex plus explicit Match Case share one query model across Quick Filter and Search Files, including deterministic raw-name fallback. |
 | Search history | `COMPLETE` | 13E | At most 32 exact query definitions are deduplicated in memory for this process only; visible Clear Recent and a suppression policy boundary exist. Nothing implicit is persisted, and no Sensitive Folder or Private Mode claim is made before Phase 18. |
-| Saved searches | `COMPLETE` | 13E | At most 64 explicitly named searches persist in version-10 private preferences with raw root bytes, kind/scope/mode and every advanced predicate; corrupt, duplicate, invalid, or over-capacity records are skipped independently. |
+| Saved searches | `COMPLETE` | 13E | At most 64 explicitly named searches persist in current version-11 private preferences with raw root bytes, kind/scope/mode and every advanced predicate; corrupt, duplicate, invalid, or over-capacity records are skipped independently. |
 | Search sorting/grouping | `PARTIAL` | 13E | Dedicated result lists support deterministic Name, Modified-newest, or Size-largest ordering with exact-path and content-line tie-breakers. Group headings remain deferred rather than inventing a second grouping model. |
 | Reveal/search-result context actions | `COMPLETE` | 13B | Dedicated filename/containing-folder rows reuse normal exact-path actions; Reveal navigates to the exact parent and selects the exact result. |
-| Optional indexed backend | `DEFERRED` | 13F | Must have non-indexed fallback and exclude private/sensitive content safely. |
+| Optional indexed backend | `COMPLETE` | 13F | Explicit private single-local-root filename/metadata index only. Hidden trees and contents are excluded; exact raw paths, no-follow traversal, same-device/depth/entry/64-MiB bounds, versioned corruption rejection, directory/entry stale checks, `0600` atomic cache, and complete automatic live fallback are verified. No Phase 18 sensitivity/vault claim or content/global/remote/background indexing. |
 | Locked-vault search leakage prevention | `PLANNED` | 18J | Locked names/content must not enter global or Floe indexes. |
 | Check for Duplicates / duplicate finder | `PLANNED` | 13G | Explicit selected files/roots; group by exact size, stream candidate hashes, then confirm byte-for-byte before calling files identical. Results distinguish hard-link aliases and never delete automatically. |
 
