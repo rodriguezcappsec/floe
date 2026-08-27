@@ -67,8 +67,8 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 | **Preview** | Space-bar Quick Preview for images, bounded text/code, PDF and office documents, audio/video, fonts, and archive listings |
 | **Inspect** | Properties, folder totals, filesystem details, permissions and ownership editing, checksums, EXIF, and media metadata |
 | **Archives** | Create and extract ZIP, tar, tar.gz, tar.xz, and reviewed 7z archives through bounded background jobs |
-| **Work faster** | Searchable command palette, customizable shortcuts, optional Vim navigation, safe “Open Terminal Here,” batch rename, and customizable context menus |
-| **Desktop integration** | XDG Places, bookmarks, drives and removable media, native mount prompts, GIO Open With/default apps, external clipboard files, and live file watching |
+| **Work faster** | Unified quick filtering, filename/content search, saved searches, optional indexing, duplicate finding, command palette, customizable shortcuts, optional Vim navigation, batch rename, and customizable context menus |
+| **Desktop integration** | XDG Places, bookmarks, drives and removable media, native mount prompts, GIO Open With/default apps, live file watching, and a truthful desktop-capability status surface |
 | **Appearance** | Native, Glass, Frosted, Minimal, and Compact presets; adjustable sidebar density and width; optional translucent floating surfaces |
 
 Glass uses real top-level alpha composition, while Frosted uses a stronger
@@ -198,9 +198,16 @@ standards-based path.
 
 ## Project status
 
-Floe has completed the foundation through **Phase 12F**, including its archive,
-productivity, command, preview, metadata, tab, split-view, and Miller-column
-milestones. The next bounded milestone is **Phase 13A — Folder Filter**.
+Floe has completed the bounded roadmap through **Phase 14**, including archive,
+productivity, command, preview, metadata, tabs, split view, Miller columns,
+advanced search, saved searches, optional indexing, duplicate finding, and the
+generic desktop-integration framework. The next bounded milestone is
+**Phase 15 — Niri Integration**.
+
+Search is presented as one coherent workflow: `Ctrl+F` opens **Quick Filter**,
+the visible mode selector switches between filtering, filename search, and
+content search, and `Ctrl+Shift+F` opens **Search Files** directly. Reviewed
+filters cover type, extension, MIME, size, date, owner, hidden state, and case.
 
 The project tracks scope and verification explicitly:
 
