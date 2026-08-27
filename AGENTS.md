@@ -1318,8 +1318,23 @@ Last updated:
 Current phase:
 
 ```text
-Phase 13 — Filter and search (Phase 13D complete)
+Phase 13 — Filter and search (Phase 13E complete)
 ```
+
+Phase 13E adds a validated GTK-independent saved-query catalog and session
+recent-search model. At most 64 explicitly named definitions persist through
+version-10 private preferences on the existing capacity-one worker; raw roots,
+Search Files/Search Contents kind, scope, Text/Glob/Regex, hidden inclusion,
+and every advanced predicate round-trip exactly. Invalid, corrupt, duplicate,
+or over-capacity records are skipped independently. At most 32 recent executed
+queries remain deduplicated and memory-only with visible Clear Recent and a
+tested suppression boundary. Native controls save, list, exact-root replay,
+delete, and clear without reconstructing paths from labels. Dedicated results
+can order by Name, Modified newest, or Size largest while content matches for
+one file retain line order. Group headings, indexing, tags, remote/global roots,
+Sensitive Folder, Private Mode, and duplicate finding remain excluded. Strict
+workspace, real GTK, and isolated Wayland lifecycle evidence is in `GATES.md`.
+Phase 13F optional indexing is the sole recommended next phase.
 
 Phase 13D adds explicit Search Contents to the unified search surface. One
 capacity-one application worker submits typed requests to a GTK-independent

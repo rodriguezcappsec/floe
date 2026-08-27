@@ -423,6 +423,30 @@ phase. Ordinary filesystem, process-memory, display, and applications opened by
 the user remain outside Floe's confidentiality boundary. Saved searches and
 indexing require their own later privacy gates.
 
+## Saved and recent searches
+
+Phase 13E persists only searches the user explicitly names through Save Search.
+At most 64 definitions share Floe's existing capacity-one private preference
+worker and version-10 `0600` file. A definition contains the exact raw local
+root, user-visible name, query text, filename/content kind, folder/subtree
+scope, matching mode, hidden inclusion, and every advanced predicate. This is
+sensitive configuration data: same-user processes, backups, and copied config
+files may reveal it. Deleting a saved search removes it from Floe's next
+preference write but cannot erase external copies.
+
+Parsing validates every definition through the ordinary search constructors.
+Malformed, unknown, duplicate, relative-root, invalid-filter, and over-capacity
+records are skipped independently. Lossy root labels are presentation only;
+replay uses decoded `PathBuf` bytes and never substitutes the current folder
+when the saved root is missing.
+
+Implicit recent history remains memory-only: at most 32 exact query definitions
+are deduplicated for this process and discarded on Clear Recent or exit. A
+suppression policy boundary is tested, but Sensitive Folder and Private Mode do
+not exist yet and Floe makes no Phase 18 privacy claim. Results, snippets,
+counters, selections, and usage are not saved. Phase 13E adds no index, upload,
+remote/global search, tag database, or background content scan.
+
 ## Command history
 
 Phase 11B command-palette search examines only static command metadata. It does

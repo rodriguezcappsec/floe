@@ -18,6 +18,7 @@ mod move_operation;
 mod navigation;
 mod permanent_delete;
 mod permissions;
+mod saved_search;
 mod session;
 mod sorting;
 mod split;
@@ -96,6 +97,11 @@ pub use permanent_delete::{
 pub use permissions::{
     PERMISSION_IDENTITY_NAME_CAPACITY, PERMISSION_TARGET_CAPACITY, PermissionChange,
     PermissionIdentity, PermissionRequest, PermissionRequestError, PermissionScope,
+};
+pub use saved_search::{
+    RECENT_SEARCH_CAPACITY, RecentSearches, SAVED_SEARCH_CAPACITY, SAVED_SEARCH_NAME_CAPACITY,
+    SavedSearch, SavedSearchCatalog, SavedSearchError, SearchHistoryPolicy, SearchKind,
+    SearchQuery, SearchResultOrder,
 };
 pub use session::{
     BrowserSession, BrowserSessionId, SESSION_HISTORY_CAPACITY, SESSION_MAX_PATH_BYTES,

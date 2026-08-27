@@ -507,6 +507,26 @@ mode cancels the worker and discards content-derived state. The UI does not
 claim binary, unsupported, remote, linked, changed, or over-limit files were
 searched.
 
+#### Saved and recent searches
+
+Phase 13E keeps saved-search controls inside the unified on-disk search row and
+hides them from Quick Filter. **Save search** opens a native naming prompt with
+plain disclosure that only explicit saves persist. Saved and recent dropdowns
+show the query and a lossy display-only root; replay always uses the retained
+exact root. **Delete saved** removes the last explicitly chosen saved item, and
+**Clear recent** clears only the bounded in-memory session list.
+
+Recent searches are labelled “this session” wherever shown. They are capped,
+deduplicated, never written to preferences, and have an explicit suppression
+boundary for later privacy policies. Saved definitions include kind, root,
+scope, matching mode, hidden policy, and all advanced predicates. Missing roots
+surface ordinary search failure and are never rewritten to the current folder.
+
+Search-result ordering offers Name, Modified (newest), and Size (largest).
+Ordering compares metadata already held in each exact result; content matches
+for the same file retain line-number order. It does not read files, change
+files, or imply index relevance. Group headings remain deferred.
+
 ### Tabs
 
 Phase 7B adds a compact horizontally scrollable native tab strip between the

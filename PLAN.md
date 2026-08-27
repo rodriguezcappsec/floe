@@ -1,4 +1,50 @@
-# Plan: Floe Phase 13D — Content Search
+# Plan: Floe Phase 13E — Saved Searches
+
+## Contract
+
+- Add a GTK-independent validated saved-query model for Search Files and Search
+  Contents. Preserve exact absolute `PathBuf` roots, explicit folder/subtree
+  scope, Text/Glob/Regex, Match Case, hidden policy, and every Phase 13C
+  predicate. Reject relative roots, empty names, invalid queries, malformed
+  filters, duplicates, and over-capacity data.
+- Persist only searches the user explicitly names and saves. Use a versioned,
+  private (`0600`), bounded file written by one capacity-one application worker
+  with atomic sibling replacement. Preserve non-UTF-8 root bytes on Unix; never
+  reconstruct a path from display text. Corrupt/unknown records are skipped
+  independently without discarding valid records.
+- Keep recent executed searches bounded, deduplicated, and memory-only for the
+  current process. Provide visible Clear Recent control. Do not persist implicit
+  history, snippets, results, counters, selection, or usage.
+- Add accessible native Save Search and Saved Searches controls to the unified
+  search surface. The manager must distinguish saved and recent entries, run a
+  selected query against its exact saved root, and delete saved entries only
+  after explicit activation. Missing/unavailable roots fail through ordinary
+  search feedback; they are not silently rewritten to the current folder.
+- Add deterministic result ordering by Name, Modified, or Size without changing
+  exact-path identity or performing filesystem work on GTK callbacks. Content
+  matches for one file retain stable line order.
+- Exclude Phase 13F indexing, Phase 13G duplicate finding, Phase 14 desktop
+  integration, tags, global/remote roots, Private Mode/Sensitive Folder claims,
+  persistent implicit history, result export, and unrelated refactors.
+
+## Applicable testing layers
+
+- Core model/catalog tests: validation, capacity, deduplication, exact raw roots,
+  all filter fields, session history suppression/clear, deterministic ordering.
+- Application persistence tests: versioned round trip, migration, corruption,
+  `0600` mode, atomic replace, capacity-one latest-save behavior and shutdown.
+- UI/controller tests: accessible labels, saved/recent manager policy, exact-root
+  replay, delete/clear actions, filename/content mode restoration.
+- Strict workspace gates and isolated native Wayland D-Bus/lifecycle smoke.
+
+## Status
+
+COMPLETE. Every Phase 13E gate has measured evidence in `GATES.md`. Exactly
+Phase 13F optional indexing is recommended next; later phases remain excluded.
+
+---
+
+# Archived plan: Floe Phase 13D — Content Search
 
 ## Contract
 

@@ -1,4 +1,46 @@
-# Gates: Floe Phase 13D — Content Search
+# Gates: Floe Phase 13E — Saved Searches
+
+Scope: Explicit versioned saved queries, session-only clearable recents, exact
+roots, deterministic result ordering, and no indexing.
+
+- [x] E1: Saved-query and recent-history models are bounded, validated, exact,
+    and deterministic.
+  CHECK: cargo test -p floe-core phase_13e -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Four focused core tests pass names/IDs/catalog capacity, validation, exact raw roots and every filter field, 32-entry deduplicated/suppressible/clearable recents, complete versioned record round trip, and three deterministic result orders.
+
+- [x] E2: Explicit saved-query persistence is private, versioned, atomic,
+    corruption-tolerant, capacity-one, and cleanly shut down.
+  CHECK: cargo test -p floe-app phase_13e_saved_search -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused preference test passes version-10 round trip, independent corrupt-record skipping, exact non-UTF-8 roots, existing capacity-one worker path, atomic sibling replacement, 0600 mode, load, and shutdown-backed full suite.
+
+- [x] E3: Native UI can save, list, replay, delete, and clear recent searches
+    with accessible non-color-only controls and exact-root behavior.
+  CHECK: cargo test -p floe-app phase_13e_saved_search_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Two focused UI/persistence tests pass explicit Save/Delete/Clear labels, session-only disclosure, accessible dropdown/order labels, and exact query persistence. Controller compiles and native actions export for named save, exact-root replay, delete, and clear.
+
+- [x] E4: Filename and content results use deterministic Name/Modified/Size
+    ordering without changing exact path identity or content-line stability.
+  CHECK: cargo test -p floe-app phase_13e_search_result_order -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Core comparator test and app label contract pass Name ascending, Modified newest, Size largest, deterministic raw-path tie-breaks, and content line-number tie-breaks without filesystem reads.
+
+- [x] E5: Strict workspace gates and isolated native Wayland lifecycle pass.
+  CHECK: git diff --check
+  EXPECT: /^$/
+  EVIDENCE: Formatting, workspace check, strict all-target/all-feature Clippy, 380 app tests (379 passed plus one intentional graphical ignore), 126 core tests, native build, and diff hygiene pass. Real GTK component gate passes; isolated Plasma Wayland exports new actions, activates Clear Recent, answers Peer.Ping, and Quit exits 0.
+
+- [x] E6: Persistent documents mark only verified Phase 13E complete and set
+    exactly Phase 13F NEXT without claiming indexing or duplicate finding.
+  CHECK: rg -n '\| .*NEXT' docs/ROADMAP.md
+  EXPECT: 13F — Optional indexing | NEXT
+  EVIDENCE: AGENTS, DESIGN, ROADMAP, FEATURE_MATRIX, PRIVACY_SECURITY, DEVELOPMENT, PLAN, and this ledger record the verified boundary; exactly Phase 13F is NEXT while indexing and duplicates remain unimplemented.
+
+---
+
+# Archived gates: Floe Phase 13D — Content Search
 
 Scope: Explicit bounded local text-content search with worker-owned reads,
 exact paths, truthful limits, and no persistence/indexing.
