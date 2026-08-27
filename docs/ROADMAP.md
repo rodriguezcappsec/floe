@@ -207,12 +207,16 @@ Miller mode is generic Wayland functionality and must never require Niri.
 
 ## Phase 13 — Filter and search
 
+Quick Filter and Search Files share one `Ctrl+F` surface and one header button;
+`Ctrl+Shift+F` opens Search Files directly. Phase 13C adds one shared optional
+advanced-filter section and case control without merging the two bounded engines.
+
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
 | 13A — Folder filter | COMPLETE | `phase-13a-folder-filter` | Instant text/glob/regex filtering, count and Escape clear. | Verified 256-scalar queries, Unicode/raw-byte policy, compile-once patterns, capacity-1 generation-superseding worker/latest-result mailbox, stable order, exact visible selection, refresh/sort/watch reapplication, location clearing, accessible native controls, 100,000-entry test and Wayland lifecycle. No recursion, filesystem/content reads, persistence or history. |
-| 13B — Filename search | NEXT | `phase-13b-filename-search` | Streaming cancellable folder/subtree/location name search and reveal. | Worker boundary; no content scan; verify symlinks, permission and huge trees. |
-| 13C — Advanced filters | PLANNED | `phase-13c-search-filters` | Type, MIME, extension, size, date, owner, hidden and tag-ready filters. | 13B/10B; verify combined predicates and lazy metadata. |
-| 13D — Content search | PLANNED | `phase-13d-content-search` | Opt-in bounded text search with glob/regex/case controls. | 13B; no binary/secret upload; verify encodings, permission and cancellation. |
+| 13B — Filename search | COMPLETE | `phase-13b-filename-search` | Streaming cancellable current-folder/subtree filename search and reveal. | Verified exact raw-path results, Unicode/raw-byte matching, no-follow/no-mount-crossing traversal, explicit inaccessible/depth/cap feedback, 100,000-result/1,000,000-entry bounds, capacity-1 generation-safe worker, batches of 128, native Search/Stop/Close/results/reveal actions, supplied app icon, and isolated Wayland D-Bus lifecycle. No contents, remote roots, history, persistence, indexing, or search sorting/filtering. |
+| 13C — Advanced filters | COMPLETE | `phase-13c-search-filters` | Type, MIME, extension, size, date, owner, hidden and tag-ready filters. | Verified structured combined predicates, Text/Glob/Regex plus case control in both modes, predicate-only search, exact raw identity, explicit unknown-metadata exclusion, cheap-first lazy GIO MIME/no-follow Unix owner resolution on capacity-1 workers, hidden policy, accessible wrapping controls, strict workspace gates and native Wayland lifecycle. Tags, persistence, content search, remote roots, and search-specific sorting/grouping remain excluded. |
+| 13D — Content search | NEXT | `phase-13d-content-search` | Opt-in bounded text search with glob/regex/case controls. | 13B; no binary/secret upload; verify encodings, permission and cancellation. |
 | 13E — Saved searches | PLANNED | `phase-13e-saved-searches` | Versioned saved queries and privacy-aware history. | 13C/13D; verify migration, corruption and private suppression. |
 | 13F — Optional indexing | PLANNED | `phase-13f-search-indexing` | Capability-reviewed index with complete non-indexed fallback. | 13E/18J/18K; exclude locked/sensitive content by default; verify stale/fallback. |
 | 13G — Duplicate finder | PLANNED | `phase-13g-duplicate-finder` | “Check for Duplicates…” over explicit files or roots with size-first candidate grouping, streaming hashes, byte-for-byte confirmation, and review/reveal/Trash actions. | 10E/job boundary; no index requirement, symlink following, or automatic deletion; distinguish hard-link aliases, revalidate changing files, and verify cancellation, raw paths, permissions, huge/sparse files, mount boundaries, and hash-collision safety. |

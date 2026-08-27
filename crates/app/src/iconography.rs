@@ -4,7 +4,11 @@ use floe_core::{DirectoryEntry, EntryKind};
 use gtk::{gdk, gio};
 
 pub const LIST_ICON_EDGE: i32 = 28;
+pub const APPLICATION_ICON_NAME: &str = "io.github.floe.FileManager";
 const ICON_RESOURCE_ROOT: &str = "/io/github/floe/FileManager/icons";
+#[cfg(test)]
+const APPLICATION_ICON_RESOURCE: &str =
+    "/io/github/floe/FileManager/icons/512x512/apps/io.github.floe.FileManager.png";
 
 static RESOURCE_REGISTRATION: OnceLock<()> = OnceLock::new();
 
@@ -80,6 +84,7 @@ impl EntryIcon {
 pub fn register(display: &gdk::Display) {
     ensure_resources();
     gtk::IconTheme::for_display(display).add_resource_path(ICON_RESOURCE_ROOT);
+    gtk::Window::set_default_icon_name(APPLICATION_ICON_NAME);
 }
 
 pub fn icon_for_entry(entry: &DirectoryEntry) -> EntryIcon {
@@ -288,5 +293,15 @@ mod phase_6g_tests {
             assert!(!bytes.is_empty());
             assert!(bytes.as_ref().contains(&b'#'));
         }
+    }
+
+    #[test]
+    fn phase_13b_application_icon_uses_supplied_rgba_png_under_stable_name() {
+        ensure_resources();
+        assert_eq!(APPLICATION_ICON_NAME, "io.github.floe.FileManager");
+        let bytes =
+            gio::resources_lookup_data(APPLICATION_ICON_RESOURCE, gio::ResourceLookupFlags::NONE)
+                .expect("compiled application icon should be registered");
+        assert!(bytes.as_ref().starts_with(b"\x89PNG\r\n\x1a\n"));
     }
 }

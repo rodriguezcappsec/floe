@@ -548,6 +548,41 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+Phase 13C was rebuilt and launched with isolated XDG config/data/cache/state
+roots in the active Wayland session. The native window exported 152 GTK actions;
+`folder-filter`, `filename-search`, `start-filename-search`,
+`stop-filename-search`, and `close-search-surface` all activated successfully.
+Both search entry actions remained enabled, `org.freedesktop.DBus.Peer.Ping`
+responded, and Quit exited 0. The host emitted only its known RADV and unavailable
+accessibility-bus warnings. The screenshot utility captured another workspace,
+so no pixel-level claim is made; focused UI contracts verify the wrapping,
+plain-language, accessible advanced controls.
+
+The post-13B unified-search smoke rebuilt Floe and launched it with isolated XDG
+config/data/cache roots in the active Wayland session. Native captures verified
+one aligned two-row surface: Quick Filter exposed Text/Glob/Regex and loaded
+item count; Search Files exposed scope, Search, Stop, and result state without
+clipping. D-Bus exported and activated `folder-filter`, `filename-search`,
+`start-filename-search`, `stop-filename-search`, and `close-search-surface`;
+repeated mode changes produced no focus warning after deferred focus restore.
+`org.freedesktop.DBus.Peer.Ping` responded and Quit exited 0. The host emitted
+only its documented RADV and unavailable accessibility-bus warnings.
+
+Phase 13B built the native application and launched it with isolated HOME/XDG
+config/data/cache roots in the active Wayland session. The live window exported
+enabled `filename-search`, `start-filename-search`, `stop-filename-search`, and
+`clear-filename-search` actions plus disabled-without-selection
+`reveal-in-folder`; activating Search, Stop, and Close succeeded,
+`org.freedesktop.DBus.Peer.Ping` responded, and application Quit exited 0. The
+supplied RGBA PNG was embedded under `io.github.floe.FileManager` and selected
+as the GTK application/window icon. The host screenshot tool captured the
+current workspace rather than Floe's compositor workspace, and no Wayland input
+injector was installed, so pixel/typed-query interaction was not claimed from
+automation. Focused tests cover both scopes, raw non-UTF-8 names, no symlink or
+mount traversal, cancellation, explicit limits/truncation, streamed worker
+supersession, UI feedback contracts, command discovery, context mapping, and
+the icon resource.
+
 Phase 13A built the local application and launched it with isolated HOME/XDG config/data/cache roots in the active Wayland session. The rendered window exposed the visible Text/Glob/Regex filter row; native D-Bus described enabled `folder-filter` and `clear-folder-filter` actions, activating each succeeded, `org.freedesktop.DBus.Peer.Ping` responded, and application Quit exited cleanly. The host emitted only its documented RADV warning. Focused tests additionally cover invalid patterns, raw non-UTF-8 names, exact visible-selection restoration, latest-generation supersession, bounded queue pressure, and 100,000 loaded entries.
 
 Phase 12E rebuilt the native app and repeated the active Wayland D-Bus lifecycle smoke after adding the accessible relative/absolute symbolic-link choice. Filesystem planning/execution remains in the typed core and bounded create executor.
