@@ -168,18 +168,18 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Home | `COMPLETE` | 1/6K | Home is a sidebar Place and initial location. |
 | Editable location entry | `COMPLETE` | 6H | Pointer/Ctrl+L entry validates explicit absolute local paths off the GTK callback. |
 | Failed-location rollback | `COMPLETE` | 6H | Exact prior `NavigationState` is restored after missing, unreadable, or non-directory submissions. |
-| Breadcrumbs | `PLANNED` | 7/20 | Resting path is currently one button, not segment-based keyboard-accessible breadcrumbs. |
-| Path completion | `PLANNED` | 7/20 | Must be asynchronous, path-safe, and not expose sensitive histories. |
-| Persistent/recent location history | `PLANNED` | 7C | Depends on serializable sessions and later privacy-safe history rules. |
-| Recent locations surface | `PLANNED` | 7C/14 | Reuse bounded navigation history and suppress persistence in Sensitive/Private modes. |
-| CLI path opening | `PLANNED` | 14 | Requires validated command-line/GApplication routing for file and folder targets. |
-| Reveal file in folder | `PLANNED` | 7A/14 | Needs navigation plus exact post-load selection and scroll restoration. |
+| Breadcrumbs | `COMPLETE` | 7G | Exact raw ancestor paths back keyboard-accessible segment buttons inside a responsive horizontal surface; Trash remains a truthful virtual label. |
+| Path completion | `COMPLETE` | 7G | Absolute local folder completion uses a bounded superseding worker, scans at most 4,096 entries, returns at most 64 exact-path candidates, and never navigates from lossy text. |
+| Persistent/recent location history | `COMPLETE` | 7A/7C/7G | Existing bounded restorable session current/back/forward state is authoritative; no second history store was added. |
+| Recent locations surface | `COMPLETE` | 7G | `Alt+Down` and the header action show a bounded exact-path deduplicated list following existing Sensitive/Private session persistence policy. |
+| CLI path opening | `COMPLETE` | 7G | GApplication accepts exactly one local target; bounded validation routes folders or a regular file's exact parent/reveal and reports other inputs. |
+| Reveal file in folder | `COMPLETE` | 6Q/7G | Existing exact post-load reveal is reused for local command-line regular files. |
 | Restore selection after sorting | `COMPLETE` | 6B/6J | Every selected entry is restored by exact `PathBuf`, including colliding lossy names. |
 | Restore selection after refresh | `COMPLETE` | 6S | Manual/job/watcher refresh reconciles exact selected paths and translates bounded rename chains. |
 | Restore scroll after refresh | `COMPLETE` | 6S | A stable exact path plus index fallback restores the virtualized view only after 256-entry insertion completes. |
 | Back restores prior selection | `PARTIAL` | 7A/7B | Core session history preserves exact multi-selection; Phase 7B wires it to tabs and GTK. |
 | Back restores prior scroll | `PARTIAL` | 7A/7B | Core session history preserves exact path/index anchors; Phase 7B wires restoration to the browser. |
-| Keyboard-accessible breadcrumbs | `PLANNED` | 7/20 | Required when breadcrumb segments are introduced. |
+| Keyboard-accessible breadcrumbs | `COMPLETE` | 7G | Segment buttons expose meaningful GTK labels/descriptions, action targets, keyboard activation, and responsive horizontal overflow. |
 
 ## Tabs
 

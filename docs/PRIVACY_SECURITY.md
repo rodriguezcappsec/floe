@@ -607,6 +607,13 @@ No claim is made that shutdown writes survive crashes before atomic publication
 or that deleting the file erases backups, snapshots, journals, or prior storage
 blocks.
 
+Phase 7G's Recent Locations surface reads only that authoritative in-memory
+current/back/forward state, caps and deduplicates the displayed paths, and adds
+no second persistent history. Location completion enumerates only the parent of
+an explicitly entered absolute local path on a bounded worker; its candidates
+are not persisted. Local GApplication open targets are validated and routed by
+exact path without logging them at normal levels.
+
 ### Logging and diagnostics
 
 Passwords, keys, recovery material, plaintext content, decrypted vault names, administrator URIs, and scanner matches are prohibited in logs. Normal logs prefer operation IDs and classified outcomes with redacted paths. Debug diagnostics that include paths require explicit, time-limited consent and remain incompatible with Private Mode unless separately authorized. Secret wrappers do not derive `Debug`.

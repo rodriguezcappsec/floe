@@ -1,4 +1,41 @@
-# Plan: Floe Phase 20A — Settings Center
+# Plan: Floe Phase 7G — Navigation Upgrades
+
+## Contract
+
+Upgrade local navigation with keyboard-accessible exact-path breadcrumbs,
+bounded asynchronous location completion, a bounded recent-location surface
+over application-owned history, restored back/forward history, and validated
+GApplication command-line file/folder routing. Preserve `NavigationState` and
+`BrowserSession` as authoritative; never reconstruct a path from lossy labels.
+
+Directory probing and completion enumeration stay off GTK. History persistence
+continues to obey existing Private/Sensitive session policy. This phase adds no
+remote browsing, file associations, external tools, or administrator access.
+
+## Implementation order
+
+1. Freeze breadcrumb, completion, recent-location, and CLI routing models with
+   raw-path, capacity, privacy, and file-versus-folder contracts.
+2. Extend core navigation/session accessors and existing private workspace
+   restoration without adding another history store.
+3. Add native breadcrumb/recent controls and a bounded superseding completion
+   worker around the existing location editor.
+4. Route GApplication file arguments to exact folder navigation or parent plus
+   exact reveal after the browser controller exists.
+5. Add deterministic/raw-path, worker, CLI, GTK accessibility, full workspace,
+   README/user/status, and exactly-one-next-phase gates.
+
+## Status
+
+**COMPLETE.** Phase 7G passes deterministic exact-path, bounded worker,
+GApplication routing, real-GTK accessibility, full workspace, isolated native
+Wayland/D-Bus, E2E harness, documentation, and diff-hygiene gates. The sole
+recommended next phase is 19B — Associations and Custom Actions. Stop before
+implementing it on this branch.
+
+---
+
+# Archived plan: Floe Phase 20A — Settings Center
 
 ## Contract
 

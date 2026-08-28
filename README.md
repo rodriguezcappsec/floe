@@ -65,7 +65,7 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 | --- | --- |
 | **Customize** | Searchable Settings Center, five live appearance presets, three icon styles, default views, grid/sidebar/file density, per-folder view memory, private index toggle, and links to specialized editors |
 | **Browse** | Virtualized list and grid views, adjustable grid size, sorting, grouping, optional metadata columns, hidden files, and large-folder-friendly loading |
-| **Navigate** | Editable location bar, back/forward/parent history, tabs, restored sessions, split panes, and spatial Miller columns |
+| **Navigate** | Exact-path breadcrumbs, editable location completion, recent locations, back/forward/parent history, tabs, restored sessions, split panes, spatial Miller columns, and local CLI folder/file routing |
 | **Select and organize** | Desktop-style multi-selection, drag and drop, copy, cut, paste, move, rename, duplicate, links, folders, empty files, FIFOs, and templates |
 | **Trash and recovery** | Standards-compatible Trash browsing, restore, empty Trash, confirmed permanent deletion, conflict handling, operation history, private interrupted-operation journal and conservative Recovery Center |
 | **Preview** | Space-bar Quick Preview for images, bounded text/code, PDF and office documents, audio/video, fonts, and archive listings |
@@ -111,6 +111,17 @@ git clone https://github.com/rodriguezcappsec/floe.git
 cd floe
 cargo run -p floe-app
 ```
+
+You can also open one local folder or reveal one local file from the command
+line. Floe routes the request to its existing window when one is already open:
+
+```bash
+cargo run -p floe-app -- /path/to/folder
+cargo run -p floe-app -- /path/to/file.pdf
+```
+
+Each invocation accepts one local target. Remote URIs and multi-target launches
+are rejected explicitly rather than being guessed or partly opened.
 
 Frosted is the current default appearance. Press `Ctrl+,` or choose
 **Main menu → Settings…**, then search for **Appearance preset** to switch
@@ -217,9 +228,11 @@ malware safety, monitoring is not intrusion detection, and recovery is not a
 transaction or rollback guarantee. Real removable-device verification remains
 unclaimed without disposable lab media. Niri, Plasma-specific, remote, and
 Android/MTP integration remain deferred. The next bounded milestone is
-**Phase 7G — Navigation Upgrades**: breadcrumbs, asynchronous path completion,
-bounded recent locations, restored history, and command-line file/folder
-routing without weakening exact-path or privacy rules.
+**Phase 7G — Navigation Upgrades** is complete: the header now provides
+keyboard-accessible exact-path breadcrumbs, bounded asynchronous local-folder
+completion, `Alt+Down` recent locations over restored application history, and
+single-target command-line folder/file routing without weakening exact-path or
+privacy rules.
 
 Application chrome now uses a pinned local Phosphor icon subset, while file
 entries switch live between **Floe Color**, **Phosphor Monochrome**, and the

@@ -683,6 +683,15 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [W, H]
     ),
     command!(
+        "recent-locations",
+        "Recent Locations",
+        "Review and reopen bounded locations from this tab's navigation history",
+        Navigation,
+        ["history", "folders", "back", "forward", "path"],
+        ["<Alt>Down"],
+        [W]
+    ),
+    command!(
         "filename-search",
         "Search Files…",
         "Open Search in file-search mode for this folder or its subfolders",

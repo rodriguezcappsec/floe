@@ -85,7 +85,9 @@ Settings Center and selection-aware context menus.
 | Open a folder | Double-click it, select it and press `Enter`, or use **Open** |
 | Go back / forward | `Alt+Left` / `Alt+Right` |
 | Go to the parent folder | `Alt+Up` |
-| Enter a path directly | Press `Ctrl+L`, enter an absolute path, then press `Enter` |
+| Open a breadcrumb ancestor | Activate its named segment in the header |
+| Enter a path directly | Press `Ctrl+L`, enter an absolute path, choose an exact folder suggestion if useful, then press `Enter` |
+| Open recent locations | Press `Alt+Down` or use the clock button beside the breadcrumbs |
 | Cancel location editing | Press `Escape` |
 | Refresh the folder | Use **Refresh** from the background menu or Command Palette |
 | Show hidden files | Press `Ctrl+H` or use the hidden-files header control |
@@ -93,6 +95,27 @@ Settings Center and selection-aware context menus.
 The location field always navigates using the original filesystem path. Text
 shown for an unusual Linux filename may be lossy, but Floe does not rebuild the
 real path from that display text.
+
+Location completion scans only the parent folder implied by the absolute path,
+uses a bounded background worker, and suggests folders only. The recent list is
+bounded and deduplicated over Floe's authoritative current/back/forward session
+history; it does not create a second history database and therefore follows the
+same Private/Sensitive session-persistence policy.
+
+### Open from the command line
+
+An installed `floe` executable, or the development binary, accepts exactly one
+local target per invocation:
+
+```bash
+floe /path/to/folder
+floe /path/to/file.pdf
+```
+
+A folder becomes the current location. A regular file opens its parent and is
+revealed by exact path after loading. If Floe is already running, the request is
+routed to that window. Missing paths, non-local URIs, unsupported file types,
+and multiple targets produce explicit feedback.
 
 ### Places, bookmarks, and devices
 
@@ -435,6 +458,7 @@ dialogs, and other input controls keep standard editing behavior.
 | `Ctrl+Shift+P` | Command Palette |
 | `Ctrl+?` | Browse/customize Keyboard Shortcuts |
 | `Alt+Left` / `Alt+Right` / `Alt+Up` | Back / Forward / Parent |
+| `Alt+Down` | Recent locations |
 | `Ctrl+L` | Edit location |
 | `Ctrl+F` | Unified Search in Quick Filter mode |
 | `Ctrl+Shift+F` | Unified Search in Search Files mode |

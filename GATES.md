@@ -1,4 +1,56 @@
-# Gates: Floe Phase 20A — Settings Center
+# Gates: Floe Phase 7G — Navigation Upgrades
+
+Scope: exact local navigation improvements only; no remote, association,
+external-action, or privileged-location work.
+
+- [x] N1: Breadcrumb segments preserve exact raw component paths, expose root
+  and ancestors with keyboard/action semantics, and collapse responsively
+  without using display text as identity.
+  CHECK: `cargo test --workspace phase_7g_breadcrumb -- --nocapture`
+EVIDENCE: Three `floe-core` Phase 7G tests pass, including raw non-UTF-8
+identity and root/ancestor ordering; the GTK surface uses exact action indices,
+a bounded horizontal scroller, and a non-actionable truthful Trash label.
+- [x] N2: Location completion enumerates only the submitted parent on a bounded
+  superseding worker, preserves non-UTF-8 identity, and handles missing,
+  inaccessible, huge, and changed directories without blocking GTK.
+  CHECK: `cargo test -p floe-app phase_7g_completion -- --nocapture`
+EVIDENCE: Three completion tests pass for directory-only matching, raw
+non-UTF-8 identity, 4,096-entry/64-result limits, errors, and supersession.
+- [x] N3: Recent locations are bounded/deduplicated over authoritative
+  navigation history; workspace restore retains back/forward state and existing
+  Private/Sensitive policies suppress owned persistence.
+  CHECK: `cargo test --workspace phase_7g_recent -- --nocapture`
+EVIDENCE: Core and application recent-history tests pass; the list reuses the
+restorable current/back/forward session and adds no persistence store.
+- [x] N4: GApplication command-line local folder and file targets route to exact
+  navigation or parent plus reveal; malformed, non-local, missing, multi-target,
+  and non-UTF-8 identities have deterministic truthful behavior.
+  CHECK: `cargo test -p floe-app phase_7g_cli -- --nocapture`
+EVIDENCE: Six CLI/application tests pass for one local target, folder, exact
+file parent/reveal, raw names, missing/unsupported/non-local/multiple targets,
+and worker supersession. Isolated native Wayland/D-Bus folder then file launch,
+Peer.Ping, second-instance routing, Quit, and clean exit pass.
+- [x] N5: Native controls expose meaningful roles, labels, descriptions,
+  focus/order, keyboard alternatives, and clean real-GTK component behavior.
+  CHECK: `cargo test -p floe-app phase_testing_gtk_phase_7g -- --ignored --nocapture`
+EVIDENCE: Real-display `phase_testing_gtk_phase_7g` passes breadcrumb group,
+recent button, location textbox, suggestion list, action, label, and tooltip
+contracts. The host still emits its documented external libadwaita dark-setting
+warning; Floe does not set that unsupported GTK property.
+- [x] N6: Formatting, workspace check, strict Clippy, workspace tests, native
+  build, applicable E2E/Wayland gates, diff hygiene, README/user/project docs,
+  and exactly one next phase pass.
+EVIDENCE: `cargo fmt --all -- --check`, workspace check, strict all-target/all-
+feature Clippy, 510 app tests (503 passed, seven intentional graphical ignores),
+21 app integration tests, 150 core tests, six duplicate workflow tests, native
+build, and `git diff --check` pass. E2E harness has three contract tests pass;
+native Dogtail workflows skip because Python Dogtail and pyatspi/AT-SPI are
+unavailable. README, User Guide, privacy/status ledgers, and exactly one Phase
+19B `NEXT` are updated.
+
+---
+
+# Archived gates: Floe Phase 20A — Settings Center
 
 Scope: one organized native settings surface over existing preference and
 action boundaries. No later roadmap feature is in scope.

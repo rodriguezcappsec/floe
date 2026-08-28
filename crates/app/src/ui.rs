@@ -969,9 +969,13 @@ pub struct BrowserWidgets {
     pub parent_button: gtk::Button,
     pub hidden_button: gtk::ToggleButton,
     pub path_label: gtk::Label,
+    pub breadcrumb_box: gtk::Box,
+    pub recent_locations_button: gtk::Button,
     pub path_stack: gtk::Stack,
     pub location_entry: gtk::Entry,
     pub location_error: gtk::Label,
+    pub location_suggestions: gtk::Popover,
+    pub location_suggestions_box: gtk::ListBox,
     pub tab_bar: gtk::Box,
     pub selection: gtk::MultiSelection,
     pub list_view: gtk::ListView,
@@ -1574,21 +1578,50 @@ pub fn build(
         .single_line_mode(true)
         .build();
     path_label.add_css_class("floe-path");
-    let path_box = gtk::Box::builder()
+    path_label.set_visible(false);
+    let breadcrumb_box = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(8)
+        .spacing(2)
+        .hexpand(true)
         .build();
-    path_box.append(&gtk::Image::from_icon_name("floe-phosphor-folder-symbolic"));
-    path_box.append(&path_label);
-
-    let location_hit_target = gtk::Button::builder()
-        .child(&path_box)
+    breadcrumb_box.set_accessible_role(gtk::AccessibleRole::Group);
+    breadcrumb_box.update_property(&[
+        gtk::accessible::Property::Label("Current folder breadcrumbs"),
+        gtk::accessible::Property::Description(
+            "Activate a folder segment to navigate directly to that ancestor",
+        ),
+    ]);
+    let recent_locations_button = icon_button(
+        "floe-phosphor-clock-counter-clockwise-symbolic",
+        "Recent locations",
+        "win.recent-locations",
+    );
+    set_accessible_label(&recent_locations_button, "Recent locations");
+    let edit_location_button = gtk::Button::builder()
+        .label("Edit")
         .action_name("win.location")
         .tooltip_text("Edit location (Ctrl+L)")
         .has_frame(false)
         .build();
-    location_hit_target.add_css_class("floe-location-hit-target");
-    set_accessible_label(&location_hit_target, "Edit location");
+    set_accessible_label(&edit_location_button, "Edit folder location");
+    let breadcrumb_scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Never)
+        .propagate_natural_width(false)
+        .min_content_width(160)
+        .max_content_width(560)
+        .hexpand(true)
+        .child(&breadcrumb_box)
+        .build();
+    let path_box = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(4)
+        .hexpand(true)
+        .build();
+    path_box.append(&breadcrumb_scroll);
+    path_box.append(&path_label);
+    path_box.append(&recent_locations_button);
+    path_box.append(&edit_location_button);
 
     let location_entry = gtk::Entry::builder()
         .placeholder_text("Enter a local path")
@@ -1608,6 +1641,28 @@ pub fn build(
     location_error.set_accessible_role(gtk::AccessibleRole::Alert);
     location_error.add_css_class("error");
     location_error.add_css_class("caption");
+    let location_suggestions_box = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .css_classes(["boxed-list"])
+        .build();
+    location_suggestions_box.update_property(&[
+        gtk::accessible::Property::Label("Folder location suggestions"),
+        gtk::accessible::Property::Description(
+            "Matching local folders; activate one to navigate to its exact path",
+        ),
+    ]);
+    let location_suggestions_scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .max_content_height(280)
+        .propagate_natural_height(true)
+        .child(&location_suggestions_box)
+        .build();
+    let location_suggestions = gtk::Popover::builder()
+        .autohide(true)
+        .has_arrow(false)
+        .child(&location_suggestions_scroll)
+        .build();
+    location_suggestions.set_parent(&location_entry);
 
     let location_editor = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -1619,7 +1674,7 @@ pub fn build(
 
     let path_stack = gtk::Stack::new();
     path_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-    path_stack.add_named(&location_hit_target, Some("path"));
+    path_stack.add_named(&path_box, Some("path"));
     path_stack.add_named(&location_editor, Some("entry"));
     path_stack.set_visible_child_name("path");
 
@@ -2224,9 +2279,13 @@ pub fn build(
         parent_button,
         hidden_button,
         path_label,
+        breadcrumb_box,
+        recent_locations_button,
         path_stack,
         location_entry,
         location_error,
+        location_suggestions,
+        location_suggestions_box,
         tab_bar,
         selection,
         list_view,
@@ -5812,7 +5871,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires graphical GTK session; run documented GTK component gate"]
-    fn phase_testing_gtk_header_filter_and_operations_accessibility_contract() {
+    fn phase_testing_gtk_phase_7g_header_filter_and_operations_accessibility_contract() {
         gtk::init().expect("GTK component gate requires an available display");
         adw::init().expect("libadwaita must initialize in the GTK component gate");
         let display = gtk::gdk::Display::default().expect("GTK display must be available");
@@ -5976,6 +6035,26 @@ mod tests {
         assert_eq!(
             widgets.location_entry.accessible_role(),
             gtk::AccessibleRole::TextBox
+        );
+        assert_eq!(
+            widgets.breadcrumb_box.accessible_role(),
+            gtk::AccessibleRole::Group
+        );
+        assert_eq!(
+            widgets.recent_locations_button.accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert_eq!(
+            widgets.recent_locations_button.action_name().as_deref(),
+            Some("win.recent-locations")
+        );
+        assert_eq!(
+            widgets.recent_locations_button.tooltip_text().as_deref(),
+            Some("Recent locations")
+        );
+        assert_eq!(
+            widgets.location_suggestions_box.accessible_role(),
+            gtk::AccessibleRole::List
         );
         assert_eq!(
             widgets.filter_entry.accessible_role(),
