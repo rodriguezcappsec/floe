@@ -28,6 +28,28 @@ Press `Ctrl+?` or choose **Keyboard Shortcuts…** from the three-dot header men
 to browse every command, search its description, change its shortcut, reset
 one shortcut, or restore all defaults.
 
+## Change settings
+
+Press `Ctrl+,` or choose **Main menu → Settings…**. The Settings Center keeps
+related options in eight plain-language sections: Appearance, Browsing, Views
+& Layout, Search & Preview, Operations & Safety, Applications, Shortcuts &
+Menus, and Accessibility. Type in **Search settings** to filter by a setting's
+name, description, category, or familiar phrases such as “right click”,
+“folder icons”, or “reduce animation”.
+
+Appearance, icon style, default view, per-folder view memory, Vim navigation,
+grid size, file/sidebar density, and the optional private filename index apply
+immediately and continue to use Floe's existing bounded preferences. Settings
+does not create a second configuration store. Detailed editors remain focused:
+use their **Open** buttons for Keyboard Shortcuts, Context Menu Contents, the
+preferred terminal, operation history, Recovery Center, Protected Folders, and
+desktop integration. Irreversible-operation confirmations cannot be disabled.
+
+Floe follows GTK and desktop settings for system text, contrast, focus,
+assistive technology, and reduced motion. The broader Orca, high-contrast,
+font-scaling, localization, RTL, and fractional-scaling audit remains future
+work; the Settings Center does not claim those audits are complete.
+
 ## The main window
 
 - The header contains Back, Forward, Parent, the editable location, Search,
@@ -52,8 +74,9 @@ The Main menu uses task groups instead of one long option list:
 - **View & Layout** — sidebar, appearance, icons, browser view, and split view.
 - **Tools & Safety** — checksums, Protected Folders, integrity, and archives.
 
-Context-menu customization, operation history, keyboard shortcuts, and desktop
-integration remain in the final utility section.
+Settings, operation history, keyboard shortcuts, and desktop integration remain
+in the final utility section. Context-menu customization is available from the
+Settings Center and selection-aware context menus.
 
 ## Navigate folders
 

@@ -124,6 +124,22 @@ pub static COMMANDS: &[CommandDefinition] = &[
         searchable: false,
     },
     command!(
+        "settings",
+        "Settings",
+        "Search and customize Floe settings",
+        Operations,
+        [
+            "preferences",
+            "appearance",
+            "layout",
+            "applications",
+            "shortcuts",
+            "accessibility"
+        ],
+        ["<Control>comma"],
+        [H, W]
+    ),
+    command!(
         "keyboard-shortcuts",
         "Keyboard Shortcuts",
         "View and customize every Floe keyboard shortcut",
@@ -952,6 +968,15 @@ pub static COMMANDS: &[CommandDefinition] = &[
         Preview,
         ["space", "peek"],
         ["space"],
+        [S]
+    ),
+    command!(
+        "preview-clear-cache",
+        "Clear Preview Memory",
+        "Discard Floe's memory-only Quick Preview cache",
+        Preview,
+        ["cache", "reset", "thumbnail", "privacy"],
+        [],
         [S]
     ),
     command!(

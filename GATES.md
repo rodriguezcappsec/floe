@@ -1,4 +1,47 @@
-# Gates: Daily-Driver Priority Program
+# Gates: Floe Phase 20A — Settings Center
+
+Scope: one organized native settings surface over existing preference and
+action boundaries. No later roadmap feature is in scope.
+
+- [x] S1: `win.settings` opens one searchable native Settings Center whose
+  categories cover Appearance, Browsing, Views & Layout, Search & Preview,
+  Operations & Safety, Applications, Shortcuts & Menus, and Accessibility.
+  CHECK: `cargo test -p floe-app settings_center_model -- --nocapture`
+  EXPECT: `test result: ok`
+EVIDENCE: Four deterministic Phase 20A model/search/action/preference tests pass; the model contains exactly eight non-empty sections and 20 unique settings.
+- [x] S2: Safe controls apply live through existing BrowserController methods,
+  update authoritative `ViewPreferences`, and persist through the bounded
+  writer without a second settings store.
+  CHECK: `cargo test -p floe-app settings_center_preferences -- --nocapture`
+  EXPECT: `test result: ok`
+EVIDENCE: Appearance, icons, default view, per-folder memory, Vim mode, grid size, file/sidebar density, and filename index route to existing stateful actions or controller methods and `queue_preferences`; the 20-test preference migration/persistence slice passes.
+- [x] S3: Existing Keyboard Shortcuts, Context Menu, and Terminal editors remain
+  the only detailed editors and are reachable from Settings; irreversible
+  safety confirmations remain unchanged.
+  CHECK: `cargo test -p floe-app settings_center_actions -- --nocapture`
+  EXPECT: `test result: ok`
+EVIDENCE: Focused action-link test verifies every Settings action is registered, including keyboard/context/terminal/recovery/protection/preview surfaces; no destructive confirmation preference was added.
+- [x] S4: Search is case-insensitive across labels, descriptions, and category
+  language; empty and no-result states remain clear and keyboard usable.
+  CHECK: `cargo test -p floe-app settings_center_search -- --nocapture`
+  EXPECT: `test result: ok`
+EVIDENCE: Multi-term search regression covers case-insensitive Frosted, right-click, reduced-animation, empty-query, and no-result behavior.
+- [x] S5: Interactive controls expose meaningful labels, descriptions, states,
+  and keyboard focus; the ignored real-GTK component contract passes with a
+  display or its unavailable environment is reported exactly.
+  CHECK: `cargo test -p floe-app settings_center_gtk -- --ignored --nocapture`
+  EXPECT: `test result: ok`, or exact graphical-environment skip reason
+EVIDENCE: Focused real-GTK Settings Center accessibility contract passes on the native display after correcting escaped libadwaita group-title markup; dialog, SearchBox, ComboBox, Switch, Button, and Status roles are verified.
+- [x] S6: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, native build, E2E preflight/applicable native workflows,
+  diff hygiene, README/user/project docs, and exactly one roadmap `NEXT` pass.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check`
+  EXPECT: all available deterministic gates pass
+EVIDENCE: Formatting, workspace check, strict Clippy, 500 app tests (493 passed, seven intentional graphical ignores), 21 app integration, 147 core, six duplicate workflow tests, native build, E2E harness contract, diff hygiene, README/user guide/status ledgers, and exactly one Phase 7G NEXT pass. Native Dogtail workflows skip because Python Dogtail and pyatspi/AT-SPI are unavailable.
+
+---
+
+# Archived gates: Daily-Driver Priority Program
 
 Scope: recovery, Settings, navigation, application tools, and administrator
 locations are complete only when their real native workflows and failure

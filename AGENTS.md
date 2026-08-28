@@ -1318,10 +1318,33 @@ Last updated:
 Current phase:
 
 ```text
-Phase 18Y — Operation Recovery (implementation complete; native display gate skipped in this shell)
+Phase 20A — Settings Center (complete)
 ```
 
-Phase 18Y adds a private bounded XDG-state journal written by copy, move,
+Phase 20A adds one searchable native Settings Center with eight plain-language
+sections, `Ctrl+,`, case-insensitive multi-term search, and a clear no-results
+state. Appearance, icon style, default view, per-folder view memory, Vim
+navigation, grid size, file/sidebar density, and the optional private filename
+index apply live through existing BrowserController and `ViewPreferences`
+boundaries. Keyboard Shortcuts, Context Menu Contents, terminal selection,
+operation history, Recovery Center, Protected Folders, command palette, Preview
+cache clearing, and desktop integration reuse their existing actions rather
+than duplicate detailed editors. System accessibility and reduced-motion rows
+describe GTK/desktop ownership without claiming the broader Phase 20B audit.
+Irreversible confirmations remain fixed.
+
+Focused Phase 20A tests, formatting, workspace check, strict all-target/all-
+feature Clippy, 500 application tests (493 passed, seven intentional graphical
+ignores), 21 application integration tests, 147 core tests, six duplicate
+workflow tests, native build, clean real-GTK Settings component gate, E2E
+harness preflight, and diff hygiene pass. Native Dogtail workflows remain
+skipped because Python Dogtail and pyatspi/AT-SPI are unavailable.
+
+The sole recommended next phase is **7G — Navigation Upgrades** on
+`phase-7g-navigation-upgrades`: accessible breadcrumbs, asynchronous path
+completion, bounded recent/history restoration, and CLI file/folder routing.
+
+Previous Phase 18Y adds a private bounded XDG-state journal written by copy, move,
 rename, and create workers before filesystem mutation. Successful or safely
 absent failed outputs clear their records. Corrupt, symlinked, insecure, or
 unavailable storage leaves browsing usable but blocks journaled mutations until
@@ -1340,8 +1363,8 @@ Deterministic Phase 18Y tests, complete `floe-app` tests, formatting, workspace
 check, strict Clippy, workspace tests, native build, E2E preflight, and diff
 hygiene are the required completion evidence. The graphical GTK component gate
 must be recorded as skipped when no usable display exists; never claim it ran.
-The sole recommended next phase is **20A — Settings Center** on
-`phase-20a-settings-center`.
+That Phase 18Y checkpoint handed off to Phase 20A, which is now complete as
+recorded above.
 
 ## Historical checkpoints (non-authoritative)
 

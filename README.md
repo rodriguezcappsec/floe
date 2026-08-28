@@ -54,15 +54,16 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 - **Safe by design.** Original `PathBuf` values are preserved, shell
   interpolation is avoided, symlink behavior is explicit, and destructive
   operations require deliberate confirmation.
-- **Yours to shape.** A task-organized Main menu keeps creation, file
-  operations, view/layout, and safety tools discoverable; appearance presets,
-  view density, grid size, columns, shortcuts, sidebar sizing, and context-menu
-  groups are configurable.
+- **Yours to shape.** A searchable native Settings Center organizes appearance,
+  browsing, layout, search, safety, applications, shortcuts, menus, and
+  accessibility behavior. Safe choices apply live and use Floe's existing
+  bounded preference storage.
 
 ## What Floe can do
 
 | Area | Current highlights |
 | --- | --- |
+| **Customize** | Searchable Settings Center, five live appearance presets, three icon styles, default views, grid/sidebar/file density, per-folder view memory, private index toggle, and links to specialized editors |
 | **Browse** | Virtualized list and grid views, adjustable grid size, sorting, grouping, optional metadata columns, hidden files, and large-folder-friendly loading |
 | **Navigate** | Editable location bar, back/forward/parent history, tabs, restored sessions, split panes, and spatial Miller columns |
 | **Select and organize** | Desktop-style multi-selection, drag and drop, copy, cut, paste, move, rename, duplicate, links, folders, empty files, FIFOs, and templates |
@@ -111,10 +112,11 @@ cd floe
 cargo run -p floe-app
 ```
 
-Frosted is the current default appearance. While Floe is open, choose
-**Main menu → View & Layout → Appearance** to switch between Native, Glass,
-Frosted, Minimal, and Compact. The change is immediate and remembered for the
-next launch.
+Frosted is the current default appearance. Press `Ctrl+,` or choose
+**Main menu → Settings…**, then search for **Appearance preset** to switch
+between Native, Glass, Frosted, Minimal, and Compact. The change is immediate
+and remembered for the next launch. The focused **View & Layout → Appearance**
+menu remains available for quick switching.
 
 To override the stored preset for one launch:
 
@@ -140,6 +142,7 @@ discoverable and customizable.
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl` + `Shift` + `P` | Open the command palette |
+| `Ctrl` + `,` | Open the searchable Settings Center |
 | `Ctrl` + `?` | Browse and customize keyboard shortcuts |
 | `Ctrl` + `L` | Edit the current location |
 | `Ctrl` + `T` / `Ctrl` + `W` | Open / close a tab |
@@ -205,7 +208,8 @@ standards-based path.
 Floe has completed the generic desktop integration baseline through **Phase
 14**, the documentation-only **Phase 18A Security Threat Model**, and runtime
 **Phases 18T–18Y** for integrity, data-loss safety, and interrupted-operation
-recovery. Floe journals copy, move, rename, and create work privately before
+recovery, and **Phase 20A's searchable Settings Center**. Floe journals copy,
+move, rename, and create work privately before
 mutation, then offers conservative restart review without deleting uncertain
 output. Safe Create Undo revalidates identity and uses recoverable Trash; new
 contents inside a created directory block Undo. Hashes are not authenticity or
@@ -213,7 +217,9 @@ malware safety, monitoring is not intrusion detection, and recovery is not a
 transaction or rollback guarantee. Real removable-device verification remains
 unclaimed without disposable lab media. Niri, Plasma-specific, remote, and
 Android/MTP integration remain deferred. The next bounded milestone is
-**Phase 20A — Settings Center**.
+**Phase 7G — Navigation Upgrades**: breadcrumbs, asynchronous path completion,
+bounded recent locations, restored history, and command-line file/folder
+routing without weakening exact-path or privacy rules.
 
 Application chrome now uses a pinned local Phosphor icon subset, while file
 entries switch live between **Floe Color**, **Phosphor Monochrome**, and the

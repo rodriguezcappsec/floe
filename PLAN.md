@@ -1,4 +1,59 @@
-# Plan: Daily-Driver Priority Program
+# Plan: Floe Phase 20A — Settings Center
+
+## Contract
+
+Create one native, searchable Settings Center that organizes Floe's existing
+preferences and specialized editors without duplicating preference state. The
+center uses `ViewPreferences` and existing application actions as the
+authoritative boundary, applies safe options live, persists through the
+existing bounded writer, and exposes meaningful GTK accessibility metadata.
+
+This phase does not implement navigation upgrades, MIME association editing,
+custom actions, administrator browsing, or any later roadmap item. Filesystem
+work remains outside GTK callbacks and irreversible confirmations are
+unchanged.
+
+## Depth tree
+
+```text
+Phase 20A Settings Center
+├── Information architecture
+│   ├── searchable plain-language categories
+│   ├── progressive disclosure for dense controls
+│   └── links to existing specialized editors
+├── Authoritative preferences
+│   ├── live appearance, browsing, view and search controls
+│   ├── existing queue-based persistence
+│   └── bounded backward-compatible preference parsing
+├── Native interaction
+│   ├── one win.settings action and discoverable menu entry
+│   ├── stable labels, descriptions, roles and keyboard access
+│   └── focused model and ignored real-GTK contracts
+└── Verification and handoff
+    ├── focused/full Rust and native build gates
+    ├── README, user guide, matrix, roadmap and status updates
+    └── exactly one next phase
+```
+
+## Implementation order
+
+1. Inventory the preference, controller, action, menu, and specialized-editor
+   boundaries.
+2. Implement a focused settings model and native settings surface.
+3. Wire safe live controls and links through existing authoritative actions.
+4. Add deterministic search/action tests and a real-GTK accessibility gate.
+5. Run all available gates and update README plus persistent project docs.
+
+## Status
+
+**COMPLETE.** One searchable native Settings Center now reuses authoritative
+preferences and specialized actions. Focused/full deterministic tests, strict
+Clippy, native build, clean real-GTK accessibility gate, E2E preflight, diff
+hygiene, README/user/project documentation, and sole Phase 7G `NEXT` pass.
+
+---
+
+# Archived plan: Daily-Driver Priority Program
 
 ## Contract
 
