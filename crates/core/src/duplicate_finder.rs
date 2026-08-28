@@ -3,9 +3,12 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     fs::{self, File},
-    io::Read,
+    hash::{DefaultHasher, Hash, Hasher},
+    io::{Read, Seek, SeekFrom},
     os::unix::fs::MetadataExt,
     path::{Component, Path, PathBuf},
+    sync::{Condvar, Mutex},
+    thread,
 };
 
 use rustix::fs::{FileType, Mode, OFlags};
@@ -20,10 +23,13 @@ pub const DUPLICATE_RESULT_PATH_CAPACITY: usize = 100_000;
 pub const DUPLICATE_FILE_BYTES: u64 = 256 * 1024 * 1024 * 1024;
 pub const DUPLICATE_TOTAL_HASH_BYTES: u64 = 1024 * 1024 * 1024 * 1024;
 const COMPARE_CHUNK_BYTES: usize = 1024 * 1024;
+const QUICK_SAMPLE_BYTES: usize = 64 * 1024;
+pub const DUPLICATE_HASH_WORKERS: usize = 4;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DuplicateScanRequest {
     roots: Vec<PathBuf>,
+    reference: Option<PathBuf>,
 }
 
 impl DuplicateScanRequest {
@@ -47,11 +53,28 @@ impl DuplicateScanRequest {
                 return Err(DuplicateScanError::DuplicateRoot(root.clone()));
             }
         }
-        Ok(Self { roots })
+        Ok(Self {
+            roots,
+            reference: None,
+        })
+    }
+
+    pub fn for_folder(root: PathBuf) -> Result<Self, DuplicateScanError> {
+        Self::new(vec![root])
+    }
+
+    pub fn for_reference(reference: PathBuf, folder: PathBuf) -> Result<Self, DuplicateScanError> {
+        let mut request = Self::new(vec![reference.clone(), folder])?;
+        request.reference = Some(reference);
+        Ok(request)
     }
 
     pub fn roots(&self) -> &[PathBuf] {
         &self.roots
+    }
+
+    pub fn reference(&self) -> Option<&Path> {
+        self.reference.as_deref()
     }
 }
 
@@ -141,12 +164,26 @@ impl DuplicateGroup {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum DuplicateScanPhase {
+    #[default]
+    Discovering,
+    QuickFiltering,
+    Hashing,
+    Confirming,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DuplicateScanSummary {
+    pub phase: DuplicateScanPhase,
     pub examined_files: usize,
     pub examined_directories: usize,
     pub candidate_files: usize,
+    pub quick_checked_files: usize,
+    pub quick_read_bytes: u64,
     pub hashed_files: usize,
     pub hashed_bytes: u64,
+    pub reused_hashes: usize,
+    pub reused_hash_bytes: u64,
     pub compared_bytes: u64,
     pub skipped_entries: usize,
     pub skipped_directories: usize,
@@ -189,6 +226,7 @@ pub struct DuplicateScanLimits {
     pub result_paths: usize,
     pub file_bytes: u64,
     pub total_hash_bytes: u64,
+    pub hash_workers: usize,
 }
 
 impl Default for DuplicateScanLimits {
@@ -201,7 +239,38 @@ impl Default for DuplicateScanLimits {
             result_paths: DUPLICATE_RESULT_PATH_CAPACITY,
             file_bytes: DUPLICATE_FILE_BYTES,
             total_hash_bytes: DUPLICATE_TOTAL_HASH_BYTES,
+            hash_workers: DUPLICATE_HASH_WORKERS,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DuplicateHashResult {
+    digest: [u8; 32],
+    reused: bool,
+}
+
+impl DuplicateHashResult {
+    pub const fn computed(digest: [u8; 32]) -> Self {
+        Self {
+            digest,
+            reused: false,
+        }
+    }
+
+    pub const fn reused(digest: [u8; 32]) -> Self {
+        Self {
+            digest,
+            reused: true,
+        }
+    }
+
+    pub const fn digest(self) -> [u8; 32] {
+        self.digest
+    }
+
+    pub const fn was_reused(self) -> bool {
+        self.reused
     }
 }
 
@@ -223,6 +292,8 @@ pub enum DuplicateScanError {
     UnsafeRoot(PathBuf),
     #[error("duplicate scan root was repeated: {}", .0.display())]
     DuplicateRoot(PathBuf),
+    #[error("reference file is unavailable or is not a regular local file: {}", .0.display())]
+    ReferenceUnavailable(PathBuf),
     #[error("duplicate scan limits must be non-zero")]
     InvalidLimits,
     #[error("duplicate scan cancelled")]
@@ -238,8 +309,8 @@ pub enum DuplicateScanError {
 pub fn find_duplicates(
     request: &DuplicateScanRequest,
     limits: DuplicateScanLimits,
-    mut is_cancelled: impl FnMut() -> bool,
-    mut hash_file: impl FnMut(&Path) -> Result<[u8; 32], DuplicateHashError>,
+    is_cancelled: impl Fn() -> bool + Sync,
+    hash_file: impl Fn(&Path) -> Result<DuplicateHashResult, DuplicateHashError> + Sync,
     mut on_progress: impl FnMut(DuplicateScanSummary),
 ) -> Result<DuplicateScanOutcome, DuplicateScanError> {
     if limits.files == 0
@@ -248,6 +319,7 @@ pub fn find_duplicates(
         || limits.result_paths == 0
         || limits.file_bytes == 0
         || limits.total_hash_bytes == 0
+        || limits.hash_workers == 0
     {
         return Err(DuplicateScanError::InvalidLimits);
     }
@@ -352,6 +424,20 @@ pub fn find_duplicates(
         }
     }
 
+    let reference_size = request
+        .reference()
+        .map(|reference| {
+            candidates
+                .iter()
+                .find(|candidate| candidate.path == reference)
+                .map(|candidate| candidate.fingerprint.size)
+                .ok_or_else(|| DuplicateScanError::ReferenceUnavailable(reference.to_path_buf()))
+        })
+        .transpose()?;
+    if let Some(reference_size) = reference_size {
+        candidates.retain(|candidate| candidate.fingerprint.size == reference_size);
+    }
+
     let mut by_size: HashMap<u64, Vec<Candidate>> = HashMap::new();
     for candidate in candidates {
         by_size
@@ -391,6 +477,109 @@ pub fn find_duplicates(
             }
             continue;
         }
+        summary.phase = DuplicateScanPhase::QuickFiltering;
+        on_progress(summary);
+        let mut by_quick: HashMap<[u64; 2], Vec<Vec<Candidate>>> = HashMap::new();
+        let mut identities = by_identity.into_values().collect::<Vec<_>>();
+        identities.sort_by(|left, right| {
+            left.first()
+                .map(|candidate| &candidate.path)
+                .cmp(&right.first().map(|candidate| &candidate.path))
+        });
+        for aliases in identities {
+            let Some(first) = aliases.first() else {
+                continue;
+            };
+            if size > limits.file_bytes {
+                summary.skipped_over_limit =
+                    summary.skipped_over_limit.saturating_add(aliases.len());
+                continue;
+            }
+            match quick_signature(first, &is_cancelled, &mut summary) {
+                Ok(signature) if aliases_current(&aliases) => {
+                    by_quick.entry(signature).or_default().push(aliases);
+                }
+                Ok(_) => {
+                    summary.changed_files = summary.changed_files.saturating_add(aliases.len());
+                }
+                Err(DuplicateScanError::Cancelled) => {
+                    return Err(DuplicateScanError::Cancelled);
+                }
+                Err(_) => {
+                    summary.skipped_entries = summary.skipped_entries.saturating_add(aliases.len());
+                }
+            }
+        }
+        on_progress(summary);
+
+        let mut planned_bytes = 0_u64;
+        let mut hash_jobs = Vec::new();
+        let mut quick_groups = by_quick
+            .into_values()
+            .filter(|items| items.len() >= 2)
+            .collect::<Vec<_>>();
+        for identities in &mut quick_groups {
+            identities.sort_by(|left, right| {
+                left.first()
+                    .map(|candidate| &candidate.path)
+                    .cmp(&right.first().map(|candidate| &candidate.path))
+            });
+        }
+        quick_groups.sort_by(|left, right| {
+            left.first()
+                .and_then(|aliases| aliases.first())
+                .map(|candidate| &candidate.path)
+                .cmp(
+                    &right
+                        .first()
+                        .and_then(|aliases| aliases.first())
+                        .map(|candidate| &candidate.path),
+                )
+        });
+        for identities in quick_groups {
+            for aliases in identities {
+                if summary
+                    .hashed_bytes
+                    .saturating_add(planned_bytes)
+                    .saturating_add(size)
+                    > limits.total_hash_bytes
+                {
+                    summary.skipped_over_limit =
+                        summary.skipped_over_limit.saturating_add(aliases.len());
+                    continue;
+                }
+                planned_bytes = planned_bytes.saturating_add(size);
+                hash_jobs.push(aliases);
+            }
+        }
+        summary.phase = DuplicateScanPhase::Hashing;
+        on_progress(summary);
+        let devices = hash_jobs
+            .iter()
+            .filter_map(|aliases| aliases.first())
+            .map(|candidate| candidate.fingerprint.identity.device)
+            .collect::<HashSet<_>>()
+            .len();
+        let workers = limits
+            .hash_workers
+            .min(devices.saturating_mul(2).max(1))
+            .max(1);
+        let hash_results = hash_in_parallel(&hash_jobs, workers, &is_cancelled, &hash_file);
+        let mut prehashed = hash_jobs
+            .iter()
+            .filter_map(|aliases| aliases.first())
+            .map(|candidate| candidate.fingerprint.identity)
+            .zip(hash_results)
+            .collect::<HashMap<_, _>>();
+        let by_identity = hash_jobs
+            .into_iter()
+            .filter_map(|aliases| {
+                aliases
+                    .first()
+                    .map(|candidate| (candidate.fingerprint.identity, aliases.clone()))
+            })
+            .collect::<HashMap<_, _>>();
+
         let mut by_digest: HashMap<[u8; 32], Vec<Vec<Candidate>>> = HashMap::new();
         for aliases in by_identity.into_values() {
             let Some(first) = aliases.first() else {
@@ -403,8 +592,14 @@ pub fn find_duplicates(
                     summary.skipped_over_limit.saturating_add(aliases.len());
                 continue;
             }
-            let digest = match hash_file(&first.path) {
-                Ok(digest) => digest,
+            let value = match prehashed
+                .remove(&first.fingerprint.identity)
+                .unwrap_or_else(|| {
+                    Err(DuplicateHashError::Failed(
+                        "parallel hash result was unavailable".to_owned(),
+                    ))
+                }) {
+                Ok(value) => value,
                 Err(DuplicateHashError::Cancelled) => return Err(DuplicateScanError::Cancelled),
                 Err(DuplicateHashError::Failed(_)) => {
                     summary.skipped_entries = summary.skipped_entries.saturating_add(aliases.len());
@@ -415,11 +610,18 @@ pub fn find_duplicates(
                 summary.changed_files = summary.changed_files.saturating_add(aliases.len());
                 continue;
             }
-            summary.hashed_files = summary.hashed_files.saturating_add(1);
-            summary.hashed_bytes = summary.hashed_bytes.saturating_add(size);
-            by_digest.entry(digest).or_default().push(aliases);
+            if value.was_reused() {
+                summary.reused_hashes = summary.reused_hashes.saturating_add(1);
+                summary.reused_hash_bytes = summary.reused_hash_bytes.saturating_add(size);
+            } else {
+                summary.hashed_files = summary.hashed_files.saturating_add(1);
+                summary.hashed_bytes = summary.hashed_bytes.saturating_add(size);
+            }
+            by_digest.entry(value.digest()).or_default().push(aliases);
             on_progress(summary);
         }
+        summary.phase = DuplicateScanPhase::Confirming;
+        on_progress(summary);
         for identities in by_digest.into_values().filter(|items| items.len() >= 2) {
             let mut confirmed: Vec<Vec<Vec<Candidate>>> = Vec::new();
             for aliases in identities {
@@ -429,7 +631,7 @@ pub fn find_duplicates(
                 let mut placed = false;
                 for equal_set in &mut confirmed {
                     let representative = &equal_set[0][0];
-                    if compare_files(representative, first, &mut is_cancelled, &mut summary)? {
+                    if compare_files(representative, first, &is_cancelled, &mut summary)? {
                         equal_set.push(aliases.clone());
                         placed = true;
                         break;
@@ -467,6 +669,9 @@ pub fn find_duplicates(
             .cmp(&left.reclaimable_bytes())
             .then_with(|| left.items[0].path.cmp(&right.items[0].path))
     });
+    if let Some(reference) = request.reference() {
+        groups.retain(|group| group.items.iter().any(|item| item.path == reference));
+    }
     on_progress(summary);
     Ok(DuplicateScanOutcome { groups, summary })
 }
@@ -496,6 +701,217 @@ fn add_candidate(
         path,
         fingerprint: FileFingerprint::from_metadata(metadata),
     });
+}
+
+fn quick_signature(
+    candidate: &Candidate,
+    is_cancelled: &(impl Fn() -> bool + Sync),
+    summary: &mut DuplicateScanSummary,
+) -> Result<[u64; 2], DuplicateScanError> {
+    if is_cancelled() {
+        return Err(DuplicateScanError::Cancelled);
+    }
+    let mut file = open_validated(candidate)?;
+    let sample_capacity =
+        QUICK_SAMPLE_BYTES.min(usize::try_from(candidate.fingerprint.size).unwrap_or(usize::MAX));
+    let mut first = vec![0_u8; sample_capacity];
+    file.read_exact(&mut first)
+        .map_err(|error| DuplicateScanError::Compare {
+            path: candidate.path.clone(),
+            message: error.to_string(),
+        })?;
+
+    let mut last = Vec::new();
+    if candidate.fingerprint.size > u64::try_from(QUICK_SAMPLE_BYTES).unwrap_or(u64::MAX) {
+        if is_cancelled() {
+            return Err(DuplicateScanError::Cancelled);
+        }
+        let tail_bytes = QUICK_SAMPLE_BYTES
+            .min(usize::try_from(candidate.fingerprint.size).unwrap_or(usize::MAX));
+        let tail_start = candidate
+            .fingerprint
+            .size
+            .saturating_sub(u64::try_from(tail_bytes).unwrap_or(u64::MAX));
+        file.seek(SeekFrom::Start(tail_start))
+            .map_err(|error| DuplicateScanError::Compare {
+                path: candidate.path.clone(),
+                message: error.to_string(),
+            })?;
+        last.resize(tail_bytes, 0);
+        file.read_exact(&mut last)
+            .map_err(|error| DuplicateScanError::Compare {
+                path: candidate.path.clone(),
+                message: error.to_string(),
+            })?;
+    }
+    revalidate(candidate)?;
+
+    let mut left = DefaultHasher::new();
+    0x464c_4f45_4455_5031_u64.hash(&mut left);
+    candidate.fingerprint.size.hash(&mut left);
+    first.hash(&mut left);
+    last.hash(&mut left);
+    let mut right = DefaultHasher::new();
+    0x464c_4f45_4455_5032_u64.hash(&mut right);
+    last.hash(&mut right);
+    first.hash(&mut right);
+    candidate.fingerprint.size.hash(&mut right);
+
+    let read_bytes = first.len().saturating_add(last.len());
+    summary.quick_checked_files = summary.quick_checked_files.saturating_add(1);
+    summary.quick_read_bytes = summary
+        .quick_read_bytes
+        .saturating_add(u64::try_from(read_bytes).unwrap_or(u64::MAX));
+    Ok([left.finish(), right.finish()])
+}
+
+fn hash_in_parallel(
+    jobs: &[Vec<Candidate>],
+    workers: usize,
+    is_cancelled: &(impl Fn() -> bool + Sync),
+    hash_file: &(impl Fn(&Path) -> Result<DuplicateHashResult, DuplicateHashError> + Sync),
+) -> Vec<Result<DuplicateHashResult, DuplicateHashError>> {
+    struct DeviceJobs {
+        pending: VecDeque<usize>,
+        active: usize,
+        ready: bool,
+    }
+
+    struct Schedule {
+        devices: HashMap<u64, DeviceJobs>,
+        ready: VecDeque<u64>,
+        pending_jobs: usize,
+        cancelled: bool,
+    }
+
+    impl Schedule {
+        fn new(jobs: &[Vec<Candidate>]) -> Self {
+            let mut devices = HashMap::<u64, DeviceJobs>::new();
+            let mut ready = VecDeque::new();
+            for (index, aliases) in jobs.iter().enumerate() {
+                let device = aliases
+                    .first()
+                    .map_or(u64::MAX, |candidate| candidate.fingerprint.identity.device);
+                let queue = devices.entry(device).or_insert_with(|| {
+                    ready.push_back(device);
+                    DeviceJobs {
+                        pending: VecDeque::new(),
+                        active: 0,
+                        ready: true,
+                    }
+                });
+                queue.pending.push_back(index);
+            }
+            Self {
+                devices,
+                ready,
+                pending_jobs: jobs.len(),
+                cancelled: false,
+            }
+        }
+
+        fn take(&mut self) -> Option<(usize, u64)> {
+            while let Some(device) = self.ready.pop_front() {
+                let queue = self.devices.get_mut(&device)?;
+                queue.ready = false;
+                let Some(index) = queue.pending.pop_front() else {
+                    continue;
+                };
+                queue.active = queue.active.saturating_add(1);
+                self.pending_jobs = self.pending_jobs.saturating_sub(1);
+                if !queue.pending.is_empty() && queue.active < 2 {
+                    queue.ready = true;
+                    self.ready.push_back(device);
+                }
+                return Some((index, device));
+            }
+            None
+        }
+
+        fn finish(&mut self, device: u64) {
+            let Some(queue) = self.devices.get_mut(&device) else {
+                return;
+            };
+            queue.active = queue.active.saturating_sub(1);
+            if !queue.pending.is_empty() && queue.active < 2 && !queue.ready {
+                queue.ready = true;
+                self.ready.push_back(device);
+            }
+        }
+    }
+
+    let results = Mutex::new(
+        std::iter::repeat_with(|| None)
+            .take(jobs.len())
+            .collect::<Vec<Option<Result<DuplicateHashResult, DuplicateHashError>>>>(),
+    );
+    let schedule = (Mutex::new(Schedule::new(jobs)), Condvar::new());
+    thread::scope(|scope| {
+        for _ in 0..workers.min(jobs.len()) {
+            scope.spawn(|| {
+                loop {
+                    if is_cancelled() {
+                        let (state, wake) = &schedule;
+                        let mut state = state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        state.cancelled = true;
+                        wake.notify_all();
+                        break;
+                    }
+                    let (index, device) = {
+                        let (state, wake) = &schedule;
+                        let mut state = state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        loop {
+                            if state.cancelled || state.pending_jobs == 0 {
+                                return;
+                            }
+                            if let Some(job) = state.take() {
+                                break job;
+                            }
+                            state = wake
+                                .wait(state)
+                                .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        }
+                    };
+                    let Some(aliases) = jobs.get(index) else {
+                        let (state, wake) = &schedule;
+                        state
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .finish(device);
+                        wake.notify_all();
+                        continue;
+                    };
+                    let result = aliases.first().map_or_else(
+                        || {
+                            Err(DuplicateHashError::Failed(
+                                "empty candidate identity".to_owned(),
+                            ))
+                        },
+                        |candidate| hash_file(&candidate.path),
+                    );
+                    results
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)[index] = Some(result);
+                    let (state, wake) = &schedule;
+                    state
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .finish(device);
+                    wake.notify_all();
+                }
+            });
+        }
+    });
+    results
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .into_iter()
+        .map(|result| result.unwrap_or(Err(DuplicateHashError::Cancelled)))
+        .collect()
 }
 
 fn push_group(
@@ -537,7 +953,7 @@ fn push_group(
 fn compare_files(
     left: &Candidate,
     right: &Candidate,
-    is_cancelled: &mut impl FnMut() -> bool,
+    is_cancelled: &(impl Fn() -> bool + Sync),
     summary: &mut DuplicateScanSummary,
 ) -> Result<bool, DuplicateScanError> {
     let mut left_file = open_validated(left)?;
@@ -622,20 +1038,79 @@ fn revalidate(candidate: &Candidate) -> Result<(), DuplicateScanError> {
 
 #[cfg(test)]
 mod tests {
-    use std::{ffi::OsString, fs, os::unix::ffi::OsStringExt, os::unix::fs::symlink};
+    use std::{
+        ffi::OsString,
+        fs,
+        os::unix::{
+            ffi::{OsStrExt, OsStringExt},
+            fs::symlink,
+        },
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
 
     use tempfile::tempdir;
 
     use super::*;
 
-    fn digest(path: &Path) -> Result<[u8; 32], DuplicateHashError> {
+    fn digest(path: &Path) -> Result<DuplicateHashResult, DuplicateHashError> {
         let bytes =
             fs::read(path).map_err(|error| DuplicateHashError::Failed(error.to_string()))?;
         let mut digest = [0u8; 32];
         for (index, byte) in bytes.iter().enumerate() {
             digest[index % 32] ^= *byte;
         }
-        Ok(digest)
+        Ok(DuplicateHashResult::computed(digest))
+    }
+
+    #[test]
+    fn phase_13g3_parallel_hash_caps_each_device_at_two_active_reads() {
+        let candidate = |name: &str, device: u64, inode: u64| {
+            vec![Candidate {
+                path: PathBuf::from(format!("/{name}")),
+                fingerprint: FileFingerprint {
+                    identity: FileIdentity { device, inode },
+                    size: 1,
+                    modified_seconds: 0,
+                    modified_nanos: 0,
+                    changed_seconds: 0,
+                    changed_nanos: 0,
+                },
+            }]
+        };
+        let jobs = vec![
+            candidate("a-0", 1, 1),
+            candidate("b-0", 2, 2),
+            candidate("a-1", 1, 3),
+            candidate("a-2", 1, 4),
+            candidate("a-3", 1, 5),
+            candidate("b-1", 2, 6),
+        ];
+        let active_a = Arc::new(AtomicUsize::new(0));
+        let maximum_a = Arc::new(AtomicUsize::new(0));
+        let active_a_for_hash = Arc::clone(&active_a);
+        let maximum_a_for_hash = Arc::clone(&maximum_a);
+
+        let results = hash_in_parallel(&jobs, 4, &|| false, &move |path| {
+            let is_a = path
+                .file_name()
+                .is_some_and(|name| name.as_bytes().starts_with(b"a-"));
+            if is_a {
+                let active = active_a_for_hash.fetch_add(1, Ordering::SeqCst) + 1;
+                maximum_a_for_hash.fetch_max(active, Ordering::SeqCst);
+            }
+            thread::sleep(Duration::from_millis(10));
+            if is_a {
+                active_a_for_hash.fetch_sub(1, Ordering::SeqCst);
+            }
+            Ok(DuplicateHashResult::computed([0; 32]))
+        });
+
+        assert!(results.iter().all(Result::is_ok));
+        assert_eq!(maximum_a.load(Ordering::SeqCst), 2);
     }
 
     #[test]
@@ -682,7 +1157,7 @@ mod tests {
             &DuplicateScanRequest::new(vec![fixture.path().to_path_buf()]).expect("request"),
             DuplicateScanLimits::default(),
             || false,
-            |_| Ok([0; 32]),
+            |_| Ok(DuplicateHashResult::computed([0; 32])),
             |_| {},
         )
         .expect("scan");

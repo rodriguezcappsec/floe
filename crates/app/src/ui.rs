@@ -328,7 +328,7 @@ pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Properties", "win.properties"),
 ];
 #[cfg(test)]
-pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 12] = [
+pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 13] = [
     ("New Folder…", "win.new-folder"),
     ("New Empty File…", "win.new-empty-file"),
     ("New From Template…", "win.new-from-template"),
@@ -337,6 +337,7 @@ pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 12] = [
     ("Refresh", "win.refresh"),
     ("Edit Location", "win.location"),
     ("Open Terminal Here", "win.open-terminal"),
+    ("Check for Duplicates…", "win.check-duplicates"),
     ("Customize Context Menus…", "win.context-menu-settings"),
     ("Protect Folder", "win.protect-folder"),
     ("Unprotect Folder", "win.unprotect-folder"),
@@ -4992,6 +4993,12 @@ fn populate_background_context_menu_model(menu: &gio::Menu, preferences: Context
     }
     menu.append_section(None, &view);
 
+    if preferences.is_visible(ContextMenuGroup::Checksums) {
+        let tools = gio::Menu::new();
+        tools.append(Some("Check for Duplicates…"), Some("win.check-duplicates"));
+        menu.append_section(None, &tools);
+    }
+
     if preferences.is_visible(ContextMenuGroup::SplitView) {
         let split = gio::Menu::new();
         split.append(Some("Toggle Split View"), Some("win.toggle-split"));
@@ -6320,6 +6327,7 @@ mod tests {
                 ("Refresh", "win.refresh"),
                 ("Edit Location", "win.location"),
                 ("Open Terminal Here", "win.open-terminal"),
+                ("Check for Duplicates…", "win.check-duplicates"),
                 ("Customize Context Menus…", "win.context-menu-settings"),
                 ("Protect Folder", "win.protect-folder"),
                 ("Unprotect Folder", "win.unprotect-folder"),

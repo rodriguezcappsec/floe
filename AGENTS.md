@@ -1321,6 +1321,43 @@ Current phase:
 Phases 18T–18X — Integrity and Data-Loss Safety (complete)
 ```
 
+Phase 13G3 follow-up accelerates cold and warm exact-duplicate scans without
+changing their proof boundary. Same-size identities receive at most 64 KiB from
+the first and last file regions as a non-authoritative quick filter; remaining
+candidates use the reviewed SHA-256 path with at most four workers and two
+active reads per filesystem device, followed by unchanged byte-for-byte
+confirmation. A versioned private cache under the XDG cache root stores only
+exact raw path, dev/inode/size/mtime/ctime, SHA-256 digest, and bounded recency,
+with 200,000-entry/64-MiB limits, exact-fingerprint reuse, watcher/subtree
+invalidation, pre/post-hash mutation rejection, corrupt/insecure/symlink
+rejection, and atomic `0600` persistence below a `0700` directory. Duplicate
+groups, review choices, and deletion choices remain memory-only; hashes and
+content are not uploaded. This cache is not subject to future Private Mode or
+Sensitive Folder policy yet, which is documented explicitly. Native progress
+names discovery, quick filtering, hashing, cache reuse, and byte confirmation
+without fake percentages. Formatting, workspace check, strict all-target/all-
+feature Clippy, 480 application tests (475 passed and five intentional GTK
+ignores), 21 application integration tests, 147 core unit tests, six duplicate
+workflow integration tests, native build, diff hygiene, and the focused real GTK
+setup contract pass. Phase 18Y remains the sole recommended next phase.
+
+Phase 13G2 follow-up matures duplicate discovery without changing roadmap
+sequencing. **Check for Duplicates…** now opens a native setup window with
+three exact-byte workflows: scan one chosen local folder and all subfolders,
+find copies of one selected regular file within a chosen folder tree, or scan
+the explicit selected files/folders. Contextual defaults cover no selection,
+one file, one folder, and multiple supported items. The core reference mode
+retains only the selected file's size class and result group, preserves exact
+raw paths, and avoids double-counting when the reference already lies below the
+chosen root. Existing Phase 13G same-device/no-follow traversal, reviewed
+SHA-256, byte confirmation, mutation checks, cancellation, hard-link accounting,
+memory-only review, Reveal, and explicit recoverable Trash remain intact. Exact
+duplicates are not visually similar media. Formatting, workspace check, strict
+all-target/all-feature Clippy, 474 app tests, 21 Phase 18X integration tests,
+146 core tests, four new duplicate workflow integration tests, native build,
+diff hygiene, and the focused real GTK setup-window gate pass. Phase 18Y remains
+the sole recommended next phase.
+
 Phases 18T–18X add saved SHA-256 fingerprints, strict path-safe portable
 `SHA256SUMS`, explicit local integrity baselines, optional Copy and Verify,
 verified removable-device transfer, and Protected Folder guardrails. Work is

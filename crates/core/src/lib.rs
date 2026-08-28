@@ -71,10 +71,11 @@ pub use create_operation::{
 pub use directory::{enumerate_directory, enumerate_directory_with_cancel};
 pub use duplicate_finder::{
     DUPLICATE_DEPTH_CAPACITY, DUPLICATE_DIRECTORY_CAPACITY, DUPLICATE_FILE_BYTES,
-    DUPLICATE_FILE_CAPACITY, DUPLICATE_GROUP_CAPACITY, DUPLICATE_RESULT_PATH_CAPACITY,
-    DUPLICATE_ROOT_CAPACITY, DUPLICATE_TOTAL_HASH_BYTES, DuplicateGroup, DuplicateHashError,
-    DuplicateItem, DuplicateScanError, DuplicateScanLimits, DuplicateScanOutcome,
-    DuplicateScanRequest, DuplicateScanSummary, find_duplicates,
+    DUPLICATE_FILE_CAPACITY, DUPLICATE_GROUP_CAPACITY, DUPLICATE_HASH_WORKERS,
+    DUPLICATE_RESULT_PATH_CAPACITY, DUPLICATE_ROOT_CAPACITY, DUPLICATE_TOTAL_HASH_BYTES,
+    DuplicateGroup, DuplicateHashError, DuplicateHashResult, DuplicateItem, DuplicateScanError,
+    DuplicateScanLimits, DuplicateScanOutcome, DuplicateScanPhase, DuplicateScanRequest,
+    DuplicateScanSummary, find_duplicates,
 };
 pub use error::DirectoryError;
 pub use filename_search::{

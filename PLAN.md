@@ -1,4 +1,86 @@
-# Plan: Floe Phases 18T–18X — Integrity and Data-Loss Safety
+# Plan: Floe Phase 13G3 — Duplicate Finder Performance
+
+## Contract
+
+Accelerate first and repeated exact-duplicate scans without changing what
+“duplicate” means. The final decision remains reviewed streaming SHA-256 plus
+byte-for-byte confirmation and mutation revalidation. Preserve bounded local
+same-device/no-follow traversal, exact raw paths, cancellation, GTK
+responsiveness, hard-link accounting, memory-only results, and explicit Trash.
+
+## Depth tree
+
+```text
+13G3 duplicate performance
+├── Core staged scan pipeline
+│   ├── first/last-chunk quick signature
+│   ├── bounded per-device hashing concurrency
+│   └── deterministic cancellation and byte confirmation
+├── Reusable derived state
+│   ├── exact fingerprint-keyed SHA-256 cache
+│   ├── private bounded atomic binary persistence
+│   └── watcher plus scan-time invalidation
+├── Native UX
+│   ├── discovery/filter/hash/confirm phase feedback
+│   ├── cache-hit and actual hashed-work counters
+│   └── truthful exact-versus-similar wording
+└── Verification and documentation
+    ├── cold/warm/change/corrupt/raw-path tests
+    ├── strict workspace and real GTK gates
+    └── roadmap/matrix/security-neutral status updates
+```
+
+## Status
+
+**COMPLETE.** All six Phase 13G3 gates pass. The adversarial pass corrected
+pre/post-hash cache mutation, imbalanced per-device scheduling, explicit watcher
+overflow invalidation, and batch eviction at cache capacity. Formatting,
+workspace check, strict all-target/all-feature Clippy, complete workspace tests,
+native build, focused real GTK contract, diff hygiene, documentation, and the
+ledger checker pass. Phase 18Y remains the sole roadmap `NEXT` phase and was not
+implemented here.
+
+---
+
+# Archived plan: Floe Phase 13G2 — Duplicate Finder Workflows
+
+## Contract
+
+- Expose full exact-duplicate discovery for one chosen local folder and every
+  subfolder.
+- Expose “copies of this selected file” inside one chosen folder tree.
+- Preserve the existing selected-files/folders recursive workflow.
+- Keep exact byte duplicates separate from visually similar media.
+- Reuse Phase 13G bounds, same-device/no-follow traversal, reviewed SHA-256,
+  byte confirmation, mutation revalidation, cancellation, hard-link accounting,
+  memory-only review, and explicit recoverable Trash handoff.
+- Preserve exact `PathBuf` identity; lossy UI labels must never reconstruct a
+  scan path. Add no index, persistence, remote traversal, automatic deletion,
+  perceptual hash, or Phase 18Y work.
+
+## Gates
+
+1. Folder-tree mode finds exact duplicates across nested subfolders.
+2. Reference-file mode finds nested copies, hashes only its size class, and
+   excludes unrelated duplicate groups.
+3. Reference paths already below the chosen root are not counted twice;
+   non-UTF-8 identity and non-regular rejection remain exact.
+4. Native setup defaults correctly for no selection, one file, one folder, and
+   multiple supported selections; unsupported mixed selections are not silently
+   truncated.
+5. Focused, workspace, strict Clippy, native build, GTK component, and diff
+   hygiene gates pass; user, roadmap, matrix, gates, and status docs agree.
+
+## Status
+
+**COMPLETE.** All five gates pass. Formatting, workspace check, strict
+all-target/all-feature Clippy, the complete workspace test suite, native build,
+focused real GTK component test, and diff hygiene pass. Phase 18Y remains the
+sole roadmap `NEXT` phase and was not implemented here.
+
+---
+
+# Archived plan: Floe Phases 18T–18X — Integrity and Data-Loss Safety
 
 ## Contract
 

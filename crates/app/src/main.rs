@@ -18,6 +18,7 @@ pub mod create_executor;
 pub mod devices;
 mod drag_drop;
 mod duplicate_finder;
+mod duplicate_hash_cache;
 mod duplicate_ui;
 mod file_watcher;
 mod filename_search;

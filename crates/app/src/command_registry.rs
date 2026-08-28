@@ -379,11 +379,11 @@ pub static COMMANDS: &[CommandDefinition] = &[
     command!(
         "check-duplicates",
         "Check for Duplicates…",
-        "Find byte-for-byte duplicate files in the explicit selection",
+        "Scan a folder tree, find copies of one file, or compare selected items",
         Files,
         ["duplicates", "same files", "hash", "reclaim space"],
         [],
-        [F, H]
+        [F, B, H]
     ),
     command!(
         "extract-here",

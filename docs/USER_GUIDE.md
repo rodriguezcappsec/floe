@@ -196,16 +196,59 @@ the exact result.
 
 ### Find duplicate files
 
-Select local files or folders and choose **Check for Duplicates…**. Floe:
+Choose **Check for Duplicates…** from the background or selection context menu,
+the File Tools menu, or the command palette. The setup window offers three
+workflows:
+
+- **All duplicates in a folder tree:** choose a folder to find every exact
+  duplicate group inside it and all subfolders.
+- **Copies of the selected file:** select one regular file, choose a folder,
+  and find exact copies of that file anywhere below the chosen folder.
+- **Selected files and folders:** compare the explicit selection; every
+  selected folder is scanned recursively.
+
+With no selection, Floe defaults to the current folder tree. One selected file
+defaults to finding copies of that file. One selected folder defaults to that
+folder tree. Multiple supported items default to the explicit selection.
+
+For every workflow, Floe:
 
 1. groups candidates by exact size;
-2. calculates SHA-256 only for remaining candidates;
-3. confirms matching candidates byte-for-byte;
-4. revalidates files that may have changed during the scan.
+2. compares bounded first and last samples (up to 64 KiB each) to reject most
+   same-size nonmatches cheaply;
+3. calculates or validates a cached SHA-256 only for remaining candidates;
+4. confirms matching candidates byte-for-byte;
+5. revalidates files that may have changed during the scan.
+
+The progress text names the real stage: discovering, quick filtering, hashing,
+or byte confirmation. Hashing uses at most four workers and no more than two
+active reads per filesystem device, so scanning can use multiple drives without
+starting an unbounded number of reads.
+
+The first scan of new or changed candidates is a **cold scan** and must calculate
+their full SHA-256 digests. Later **warm scans** can reuse a digest only when the
+exact raw path, device, inode, size, modification time, and change time still
+match. Floe invalidates watched changed paths and descendants, and every scan
+also revalidates files before accepting a cache hit. A warm hit avoids full
+rehashing; it never skips the quick sample or final byte-for-byte confirmation.
+
+The derived cache lives under the XDG cache directory at
+`floe/duplicate-hashes-v1` (normally
+`~/.cache/floe/duplicate-hashes-v1`). It contains paths, file identity/timestamps,
+SHA-256 digests, and bounded recency—not file content, duplicate groups, scan
+history, or deletion choices. Removing it is safe and only makes the next scan
+cold. See `docs/PRIVACY_SECURITY.md` before scanning sensitive paths because
+Private Mode and Sensitive Folder cache suppression are later phases.
 
 Hard-link aliases are identified separately and are not counted as reclaimable
-duplicate bytes. Floe never deletes duplicate results automatically; review and
-remove them through the normal Trash or deletion actions.
+duplicate bytes. Symbolic links are not followed, mounted filesystems below the
+chosen root are not crossed, results remain local and memory-only, and scanning
+can be cancelled. Floe never deletes duplicate results automatically; review
+and remove them through the normal Trash or deletion actions.
+
+“Exact duplicate” means identical bytes. Two videos that look the same but were
+re-encoded or contain different container metadata are not exact duplicates;
+similar-media detection remains a separate future capability.
 
 ## Quick Preview, Inspector, and Properties
 
