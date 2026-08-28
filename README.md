@@ -66,7 +66,7 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 | **Browse** | Virtualized list and grid views, adjustable grid size, sorting, grouping, optional metadata columns, hidden files, and large-folder-friendly loading |
 | **Navigate** | Editable location bar, back/forward/parent history, tabs, restored sessions, split panes, and spatial Miller columns |
 | **Select and organize** | Desktop-style multi-selection, drag and drop, copy, cut, paste, move, rename, duplicate, links, folders, empty files, FIFOs, and templates |
-| **Trash and recovery** | Standards-compatible Trash browsing, restore, empty Trash, confirmed permanent deletion, conflict handling, and operation history |
+| **Trash and recovery** | Standards-compatible Trash browsing, restore, empty Trash, confirmed permanent deletion, conflict handling, operation history, private interrupted-operation journal and conservative Recovery Center |
 | **Preview** | Space-bar Quick Preview for images, bounded text/code, PDF and office documents, audio/video, fonts, and archive listings |
 | **Inspect** | Properties, folder totals, filesystem details, permissions and ownership editing, checksums, EXIF, and media metadata |
 | **Archives** | Create and extract ZIP, tar, tar.gz, tar.xz, and reviewed 7z archives through bounded background jobs |
@@ -204,15 +204,16 @@ standards-based path.
 
 Floe has completed the generic desktop integration baseline through **Phase
 14**, the documentation-only **Phase 18A Security Threat Model**, and runtime
-**Phases 18T–18X** for integrity and data-loss safety. These phases add
-path-safe SHA-256 fingerprints/manifests, opt-in local monitoring, verified
-copy/removable workflows, and Protected Folder guardrails. Hashes are not
-authenticity or malware safety, monitoring is not intrusion detection, and
-Protected Folders are mistake prevention rather than encryption or access
-control. Real removable-device verification remains unclaimed without
-disposable lab media. Niri, Plasma-specific, remote, and Android/MTP
-integration remain deferred. The next bounded milestone is **Phase 18Y —
-Operation Recovery**.
+**Phases 18T–18Y** for integrity, data-loss safety, and interrupted-operation
+recovery. Floe journals copy, move, rename, and create work privately before
+mutation, then offers conservative restart review without deleting uncertain
+output. Safe Create Undo revalidates identity and uses recoverable Trash; new
+contents inside a created directory block Undo. Hashes are not authenticity or
+malware safety, monitoring is not intrusion detection, and recovery is not a
+transaction or rollback guarantee. Real removable-device verification remains
+unclaimed without disposable lab media. Niri, Plasma-specific, remote, and
+Android/MTP integration remain deferred. The next bounded milestone is
+**Phase 20A — Settings Center**.
 
 Application chrome now uses a pinned local Phosphor icon subset, while file
 entries switch live between **Floe Color**, **Phosphor Monochrome**, and the

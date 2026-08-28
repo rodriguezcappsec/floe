@@ -82,7 +82,7 @@ pub struct FileIdentity {
 }
 
 impl FileIdentity {
-    fn from_metadata(metadata: &fs::Metadata) -> Self {
+    pub fn from_metadata(metadata: &fs::Metadata) -> Self {
         Self {
             device: metadata.dev(),
             inode: metadata.ino(),
@@ -93,8 +93,12 @@ impl FileIdentity {
         }
     }
 
-    fn matches(self, metadata: &fs::Metadata) -> bool {
+    pub fn matches(self, metadata: &fs::Metadata) -> bool {
         self == Self::from_metadata(metadata)
+    }
+
+    pub fn capture(path: &Path) -> io::Result<Self> {
+        fs::symlink_metadata(path).map(|metadata| Self::from_metadata(&metadata))
     }
 }
 

@@ -11,8 +11,8 @@ use rustix::io::Errno;
 use thiserror::Error;
 
 use crate::{
-    ConflictPolicy, CopyCancellation, CopyError, CopyProgress, CopyRequest, SymlinkPolicy,
-    execute_copy,
+    ConflictPolicy, CopyCancellation, CopyError, CopyProgress, CopyRequest, FileIdentity,
+    SymlinkPolicy, execute_copy,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -230,11 +230,16 @@ pub enum CreateProgress {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CreateOutcome {
     destination: PathBuf,
+    destination_identity: FileIdentity,
 }
 
 impl CreateOutcome {
     pub fn destination(&self) -> &Path {
         &self.destination
+    }
+
+    pub const fn destination_identity(&self) -> FileIdentity {
+        self.destination_identity
     }
 }
 
@@ -422,8 +427,15 @@ where
         }
     }
 
+    let destination_identity =
+        FileIdentity::capture(request.destination()).map_err(|source| CreateError::Io {
+            action: "capture created item identity",
+            path: request.destination().to_path_buf(),
+            source,
+        })?;
     Ok(CreateOutcome {
         destination: request.destination().to_path_buf(),
+        destination_identity,
     })
 }
 

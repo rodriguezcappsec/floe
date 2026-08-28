@@ -166,8 +166,31 @@ when meaningful, cancellation, batch pause/resume boundaries, Retry, and
 conflict recovery.
 
 Choose **Operation History…** to review the bounded in-session history and use
-available safe Undo actions. Persistent crash recovery is the next planned
-milestone; current operation history is not yet a durable recovery journal.
+available safe Undo actions.
+
+### Recover interrupted operations
+
+Floe writes a small private recovery record before copy, move, rename, or create
+work changes the filesystem. If Floe or the computer stops unexpectedly, open
+**Main menu → Tools & Safety → Operation Recovery…**. Floe also shows a persistent
+Review notification at startup when records need attention.
+
+The Recovery Center shows whether each exact source and destination is currently
+present, missing, or inaccessible. Use **Source** or **Destination** to reveal a
+recorded path. **Retry** is enabled only for a prior-process copy, move, or rename
+whose source still exists and destination is absent. **Mark Resolved** removes
+only the journal record; it does not change files. Floe never deletes uncertain
+partial output automatically.
+
+If the private journal is corrupt or has unsafe ownership or permissions,
+browsing continues but copy, move, rename, and create fail closed. Open Operation
+Recovery to review the reason. **Reset Recovery Store** discards only the
+unreadable journal after an explicit warning; it never deletes recorded files.
+
+Operation History remains a bounded in-session list. Safe Undo is available for
+identity-checked moves and renames, and for newly created items that have not
+changed. Undo Create uses ordinary recoverable Trash; a created directory must
+still be empty so files added later are never removed.
 
 ## Trash and permanent deletion
 
@@ -452,7 +475,9 @@ optional service does not disable ordinary local browsing.
   are deferred; generic GTK/GIO/XDG Wayland behavior remains the active path.
 - Open as Administrator remains intentionally unavailable until its privileged
   access design and security gates are implemented.
-- Persistent interrupted-operation recovery is planned for Phase 18Y.
+- Interrupted local copy/move/rename/create recovery is implemented. It is
+  conservative restart review, not a transaction log, rollback guarantee, or
+  automatic partial-output cleanup.
 - Provider sandboxing, Private Mode, Sensitive Folders, encrypted vaults, and
   portable encryption are planned security work, not current claims.
 - Permanent delete is not secure erase.

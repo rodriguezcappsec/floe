@@ -911,6 +911,25 @@ pub struct OperationHistoryDialogWidgets {
     pub undo_buttons: Vec<gtk::Button>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecoveryDialogItem {
+    pub id: u64,
+    pub title: String,
+    pub detail: String,
+    pub can_retry: bool,
+    pub can_resolve: bool,
+    pub source: Option<PathBuf>,
+    pub destination: PathBuf,
+}
+
+pub struct RecoveryDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub retry_buttons: Vec<gtk::Button>,
+    pub reveal_source_buttons: Vec<gtk::Button>,
+    pub reveal_destination_buttons: Vec<gtk::Button>,
+    pub resolve_buttons: Vec<gtk::Button>,
+}
+
 #[derive(Clone)]
 pub struct OperationWidgets {
     pub revealer: gtk::Revealer,
@@ -1631,6 +1650,7 @@ pub fn build(
     );
     open_inspect_model.append(Some("Properties"), Some("win.properties"));
     tools_safety_model.append(Some("Calculate Checksums…"), Some("win.checksum"));
+    tools_safety_model.append(Some("Operation Recovery…"), Some("win.recovery-center"));
 
     let protected_folders_model = gio::Menu::new();
     protected_folders_model.append(Some("Protect Folder"), Some("win.protect-folder"));
@@ -2659,6 +2679,123 @@ pub fn build_operation_history_dialog(
         dialog,
         clear_completed_button,
         undo_buttons,
+    }
+}
+
+pub fn build_recovery_dialog(items: &[RecoveryDialogItem]) -> RecoveryDialogWidgets {
+    let heading = gtk::Label::builder()
+        .label("Operation Recovery")
+        .halign(gtk::Align::Start)
+        .build();
+    heading.add_css_class("title-2");
+    let explanation = gtk::Label::builder()
+        .label("Floe found interrupted file operations. Review current source and destination files before retrying or marking a record resolved. Floe never removes uncertain output automatically.")
+        .halign(gtk::Align::Start)
+        .wrap(true)
+        .xalign(0.0)
+        .build();
+    explanation.add_css_class("floe-status");
+
+    let list = gtk::ListBox::builder()
+        .selection_mode(gtk::SelectionMode::None)
+        .build();
+    list.add_css_class("boxed-list");
+    let mut retry_buttons = Vec::with_capacity(items.len());
+    let mut reveal_source_buttons = Vec::with_capacity(items.len());
+    let mut reveal_destination_buttons = Vec::with_capacity(items.len());
+    let mut resolve_buttons = Vec::with_capacity(items.len());
+    for item in items {
+        let row = adw::ActionRow::builder()
+            .title(&item.title)
+            .subtitle(&item.detail)
+            .build();
+        let retry = gtk::Button::builder()
+            .label("Retry")
+            .valign(gtk::Align::Center)
+            .sensitive(item.can_retry)
+            .tooltip_text(if item.can_retry {
+                "Retry only because the source exists and destination is absent"
+            } else {
+                "Retry is unavailable while current filesystem state is uncertain"
+            })
+            .build();
+        retry.update_property(&[gtk::accessible::Property::Label(
+            "Retry interrupted operation",
+        )]);
+        let reveal_source = gtk::Button::builder()
+            .label("Source")
+            .valign(gtk::Align::Center)
+            .sensitive(item.source.is_some())
+            .tooltip_text("Reveal the recorded source")
+            .build();
+        reveal_source
+            .update_property(&[gtk::accessible::Property::Label("Reveal recovery source")]);
+        let reveal_destination = gtk::Button::builder()
+            .label("Destination")
+            .valign(gtk::Align::Center)
+            .tooltip_text("Reveal the recorded destination or its containing folder")
+            .build();
+        reveal_destination.update_property(&[gtk::accessible::Property::Label(
+            "Reveal recovery destination",
+        )]);
+        let resolve = gtk::Button::builder()
+            .label("Mark Resolved")
+            .valign(gtk::Align::Center)
+            .sensitive(item.can_resolve)
+            .tooltip_text("Remove only this recovery record; files are not changed")
+            .build();
+        resolve.update_property(&[gtk::accessible::Property::Label(
+            "Mark recovery record resolved",
+        )]);
+        row.add_suffix(&retry);
+        row.add_suffix(&reveal_source);
+        row.add_suffix(&reveal_destination);
+        row.add_suffix(&resolve);
+        list.append(&row);
+        retry_buttons.push(retry);
+        reveal_source_buttons.push(reveal_source);
+        reveal_destination_buttons.push(reveal_destination);
+        resolve_buttons.push(resolve);
+    }
+    if items.is_empty() {
+        list.append(
+            &adw::ActionRow::builder()
+                .title("No interrupted operations")
+                .subtitle("The recovery journal has no records needing review.")
+                .build(),
+        );
+    }
+
+    let scroller = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Automatic)
+        .vscrollbar_policy(gtk::PolicyType::Automatic)
+        .min_content_height(300)
+        .child(&list)
+        .build();
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(12)
+        .margin_top(24)
+        .margin_bottom(24)
+        .margin_start(24)
+        .margin_end(24)
+        .build();
+    content.append(&heading);
+    content.append(&explanation);
+    content.append(&scroller);
+    let dialog = adw::Dialog::builder()
+        .title("Operation Recovery")
+        .content_width(760)
+        .content_height(500)
+        .child(&content)
+        .build();
+    dialog.update_property(&[gtk::accessible::Property::Label("Operation Recovery")]);
+    RecoveryDialogWidgets {
+        dialog,
+        retry_buttons,
+        reveal_source_buttons,
+        reveal_destination_buttons,
+        resolve_buttons,
     }
 }
 
@@ -5647,6 +5784,32 @@ mod tests {
     /// display; ordinary `cargo test --workspace` must stay headless-safe.
     #[test]
     #[ignore = "requires a graphical GTK session; run the documented GTK component gate"]
+    fn phase_testing_gtk_recovery_dialog_is_accessible_and_conservative() {
+        gtk::init().expect("GTK component gate requires an available display");
+        adw::init().expect("libadwaita must initialize in GTK component gate");
+        let item = RecoveryDialogItem {
+            id: 7,
+            title: "Interrupted Copy".to_owned(),
+            detail: "Source: Present • Destination: Missing".to_owned(),
+            can_retry: true,
+            can_resolve: true,
+            source: Some(PathBuf::from("/tmp/source")),
+            destination: PathBuf::from("/tmp/destination"),
+        };
+        let widgets = build_recovery_dialog(&[item]);
+        assert_eq!(widgets.dialog.title().as_str(), "Operation Recovery");
+        assert_eq!(widgets.retry_buttons.len(), 1);
+        assert!(widgets.retry_buttons[0].is_sensitive());
+        assert_eq!(
+            widgets.resolve_buttons[0].accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert_eq!(widgets.reveal_source_buttons.len(), 1);
+        assert_eq!(widgets.reveal_destination_buttons.len(), 1);
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
     fn phase_testing_gtk_header_filter_and_operations_accessibility_contract() {
         gtk::init().expect("GTK component gate requires an available display");
         adw::init().expect("libadwaita must initialize in the GTK component gate");

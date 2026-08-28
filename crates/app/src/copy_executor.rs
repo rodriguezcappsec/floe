@@ -16,7 +16,10 @@ use thiserror::Error;
 
 #[cfg(test)]
 use crate::job_manager::ApplicationJobManager;
-use crate::job_manager::{JobManagerError, SharedJobManager};
+use crate::{
+    job_manager::{JobManagerError, SharedJobManager},
+    operation_recovery::{RecoveryCoordinator, RecoveryJournal, RecoveryOperationKind},
+};
 
 pub const DEFAULT_COPY_QUEUE_CAPACITY: usize = 8;
 
@@ -100,17 +103,32 @@ impl CopyExecutor {
         Self::spawn_with_capacity(jobs, DEFAULT_COPY_QUEUE_CAPACITY)
     }
 
+    pub fn spawn_with_recovery(
+        jobs: SharedJobManager,
+        recovery: RecoveryJournal,
+    ) -> Result<Self, CopyExecutorSpawnError> {
+        Self::spawn_with_recovery_coordinator(jobs, RecoveryCoordinator::from_journal(recovery))
+    }
+
+    pub fn spawn_with_recovery_coordinator(
+        jobs: SharedJobManager,
+        recovery: RecoveryCoordinator,
+    ) -> Result<Self, CopyExecutorSpawnError> {
+        Self::spawn_inner(jobs, DEFAULT_COPY_QUEUE_CAPACITY, None, Some(recovery))
+    }
+
     pub fn spawn_with_capacity(
         jobs: SharedJobManager,
         capacity: usize,
     ) -> Result<Self, CopyExecutorSpawnError> {
-        Self::spawn_inner(jobs, capacity, None)
+        Self::spawn_inner(jobs, capacity, None, None)
     }
 
     fn spawn_inner(
         jobs: SharedJobManager,
         capacity: usize,
         start_gate: Option<Receiver<()>>,
+        recovery: Option<RecoveryCoordinator>,
     ) -> Result<Self, CopyExecutorSpawnError> {
         if capacity == 0 {
             return Err(CopyExecutorSpawnError::ZeroCapacity);
@@ -126,7 +144,7 @@ impl CopyExecutor {
                 if let Some(gate) = start_gate {
                     let _ = gate.recv();
                 }
-                run_worker(receiver, worker_jobs, worker_cancellations);
+                run_worker(receiver, worker_jobs, worker_cancellations, recovery);
             })
             .map_err(CopyExecutorSpawnError::Thread)?;
 
@@ -225,7 +243,7 @@ impl CopyExecutor {
         capacity: usize,
     ) -> Result<(Self, SyncSender<()>), CopyExecutorSpawnError> {
         let (gate_sender, gate_receiver) = mpsc::sync_channel(1);
-        Self::spawn_inner(jobs, capacity, Some(gate_receiver))
+        Self::spawn_inner(jobs, capacity, Some(gate_receiver), None)
             .map(|executor| (executor, gate_sender))
     }
 }
@@ -251,10 +269,13 @@ fn run_worker(
     receiver: Receiver<CopyCommand>,
     jobs: SharedJobManager,
     cancellations: Arc<Mutex<HashMap<JobId, CopyCancellation>>>,
+    recovery: Option<RecoveryCoordinator>,
 ) {
     while let Ok(command) = receiver.recv() {
         match command {
-            CopyCommand::Execute(task) => execute_task(task, &jobs, &cancellations),
+            CopyCommand::Execute(task) => {
+                execute_task(task, &jobs, &cancellations, recovery.as_ref())
+            }
             CopyCommand::Shutdown => break,
         }
     }
@@ -264,12 +285,35 @@ fn execute_task(
     task: CopyTask,
     jobs: &SharedJobManager,
     cancellations: &Arc<Mutex<HashMap<JobId, CopyCancellation>>>,
+    recovery: Option<&RecoveryCoordinator>,
 ) {
     if transition(jobs, task.job_id, JobCommand::Start).is_err() {
         lock(cancellations).remove(&task.job_id);
         return;
     }
 
+    let recovery_ticket = match recovery.map(|journal| {
+        journal.begin(
+            RecoveryOperationKind::Copy,
+            Some(task.request.source()),
+            task.request.destination(),
+        )
+    }) {
+        Some(Ok(ticket)) => Some(ticket),
+        Some(Err(error)) => {
+            let _ = transition(
+                jobs,
+                task.job_id,
+                JobCommand::Fail(JobFailure::new(
+                    JobFailureKind::Internal,
+                    format!("operation recovery could not be prepared: {error}"),
+                )),
+            );
+            lock(cancellations).remove(&task.job_id);
+            return;
+        }
+        None => None,
+    };
     let mut last_completed = None;
     let result = execute_copy(&task.request, &task.cancellation, |progress| {
         let job_progress = if progress.total_bytes() > 0 {
@@ -295,6 +339,20 @@ fn execute_task(
         }
     });
 
+    if let (Some(journal), Some(ticket)) = (recovery, recovery_ticket) {
+        let journal_result = if result.is_ok() {
+            journal.finish(ticket)
+        } else {
+            journal.retain_if_destination_exists(ticket, task.request.destination())
+        };
+        if let Err(error) = journal_result {
+            tracing::error!(
+                job_id = task.job_id.get(),
+                %error,
+                "copy recovery journal could not be finalized"
+            );
+        }
+    }
     let command = match result {
         Ok(_) => JobCommand::Complete,
         Err(CopyError::Cancelled) => JobCommand::Cancel,
@@ -542,6 +600,68 @@ mod tests {
             fs::read(destination).expect("retried copy should be readable"),
             b"new"
         );
+    }
+
+    #[test]
+    fn phase_18y_copy_success_clears_durable_recovery_record() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("destination");
+        fs::write(&source, b"journaled copy").expect("source fixture should be writable");
+        let journal = RecoveryJournal::open_at(fixture.path().join("recovery.bin"))
+            .expect("recovery journal should open");
+        let jobs = jobs();
+        let executor = CopyExecutor::spawn_with_recovery(Arc::clone(&jobs), journal.clone())
+            .expect("copy executor should start");
+        let submission = executor
+            .submit_copy(request(&source, &destination))
+            .expect("copy should submit");
+        assert_eq!(
+            wait_for_terminal(&jobs, submission.job_id()),
+            JobState::Completed
+        );
+        assert!(journal.pending().is_empty());
+        assert_eq!(
+            fs::read(destination).expect("destination"),
+            b"journaled copy"
+        );
+    }
+
+    #[test]
+    fn phase_18y_blocked_recovery_prevents_copy_mutation() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("destination");
+        fs::write(&source, b"must remain source only").expect("source fixture");
+        let recovery_path = fixture.path().join("recovery.bin");
+        fs::write(&recovery_path, b"corrupt").expect("corrupt recovery fixture");
+        fs::set_permissions(&recovery_path, fs::Permissions::from_mode(0o600))
+            .expect("private recovery fixture");
+        let coordinator = RecoveryCoordinator::load_at(recovery_path);
+        let jobs = jobs();
+        let executor =
+            CopyExecutor::spawn_with_recovery_coordinator(Arc::clone(&jobs), coordinator)
+                .expect("copy executor should start in blocked mode");
+        let submission = executor
+            .submit_copy(request(&source, &destination))
+            .expect("submission remains observable");
+        assert_eq!(
+            wait_for_terminal(&jobs, submission.job_id()),
+            JobState::Failed
+        );
+        assert!(
+            !destination.exists(),
+            "mutation must not start without journal"
+        );
+        let jobs = lock(&jobs);
+        let failure = jobs
+            .record(submission.job_id())
+            .and_then(|record| record.failure())
+            .expect("blocked job should explain failure");
+        assert_eq!(failure.kind(), JobFailureKind::Internal);
+        assert!(failure.message().contains("operation recovery"));
     }
 
     #[test]

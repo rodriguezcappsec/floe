@@ -318,7 +318,7 @@ requires an implementation-time review. Security terms are not interchangeable.
 | 18V — Verified copy | COMPLETE | `phase-18v-verified-copy` | Optional Copy and Verify with revalidated source/destination SHA-256. | Ordinary Copy remains unchanged; verified, not-created, and copied-but-unverified outcomes, races, corruption, cancellation, and retry boundaries are verified. |
 | 18W — Verified USB | COMPLETE | `phase-18w-verified-usb-transfer` | Explicit Copy, Verify, Flush, Eject/Unmount workflow. | Exact removable mount/device revalidation, bounded `syncfs`, partial states, cancellation, and GIO removal verified with mocked/disposable targets; “safe to remove” appears only after successful removal. Real USB lab validation remains skipped without disposable media. |
 | 18X — Data-loss guardrails | COMPLETE | `phase-18x-data-loss-guardrails` | Protected Folders and thresholded destructive preflight. | Private fail-closed exact-path policy, bounded preflight, single-use generation-bound permits, all destructive dispatch routes, native Protect/Unprotect/status UI, and corrupt-store reset are verified. Protection prevents mistakes; it is not encryption or access control. |
-| 18Y — Operation recovery | NEXT | `phase-18y-operation-recovery` | Privacy-aware journal and conservative interrupted-job/partial-output recovery. | 6P/6O/18J; no secrets or silent deletion; verify crash, corrupt journal, stale identities, and explicit recovery choices. |
+| 18Y — Operation recovery | COMPLETE | `phase-18y-operation-recovery` | Private bounded raw-path journal, fail-closed restart review, conservative retry/reveal/resolve choices, identity-checked Create Undo through Trash. | Verified journaling before copy/move/create mutation, success cleanup, corrupt/insecure blocked-store reset, stale/uncertain output review, no silent deletion or overwrite. |
 | 18Z — Security Center | PLANNED | `phase-18z-security-center` | Calm vault, sensitive, session, integrity and finding status/actions. | 18E/18H/18K/18N/18R/18T; no fear score; verify state and accessibility. |
 | 18AA — Security audit | PLANNED | `phase-18aa-security-audit` | Crypto, dependencies, secrets, caches, parsers, vaults, sandbox and recovery audit. | 18B–18Z; no stable Phase 18 claim before pass; close or record every finding. |
 
@@ -340,7 +340,10 @@ capability, isolation, permission, and failure-containment design exist.
 ## Phase 20 — Settings, visual, accessibility, and QoL audit
 
 Status: **PLANNED**
-Recommended branch: `phase-20-completeness-audit`
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 20A — Settings Center | NEXT | `phase-20a-settings-center` | Dedicated searchable native Settings Center organizing appearance, browsing, previews, operations, applications, shortcuts/context menus, accessibility, reset and migration behavior. | Existing preference/action boundaries; live apply where safe, bounded private persistence, no duplicate settings state or weakening irreversible confirmations; GTK accessibility and migration gates. |
+| 20B — Visual, accessibility, and QoL audit | PLANNED | `phase-20b-completeness-audit` | Close remaining matrix gaps across fonts, density, motion, focus, Orca, high contrast, localization, RTL, HiDPI, fractional scaling, errors, and recorded daily-driver QoL. | 20A and preceding user-facing families; measured matrix audit and native desktop smoke. |
 
 Goal: close every remaining `FEATURE_MATRIX` gap across appearance, fonts,
 density, motion, views, previews, operations, shortcuts, applications, privacy,

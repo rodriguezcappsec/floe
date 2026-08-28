@@ -7,7 +7,7 @@ belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 
 The generic desktop integration baseline is Phase 14; Phase 18A's
 documentation-only security architecture and runtime Phases 18T–18X are
-complete. Phase 18Y is the only `NEXT` phase. Every other future capability
+complete. Phase 20A Settings Center is the only `NEXT` phase. Every other future capability
 remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -78,7 +78,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Internal Cut/Copy/Paste | `COMPLETE` | 4B/4D/6J | Application-owned exact-path transfer buffer supports multi-selection batches. |
 | Cross-application clipboard | `COMPLETE` | 6O | Publishes bounded `text/uri-list`, GNOME copy/cut, and KDE cut marker formats; asynchronously imports deduplicated local file URIs into exact-path application state. Remote and malformed URIs are rejected. |
 | Same-filesystem move | `COMPLETE` | 4C/4D | Linux no-replace rename handles files, directories, and symlinks. |
-| Cross-filesystem move | `COMPLETE` | 6O | `EXDEV` uses synchronized hidden sibling staging, source-tree identity revalidation, atomic no-replace publication, and no-follow cleanup. Post-commit cleanup failure is an explicit non-retryable partial result; persistent crash journaling remains Phase 18Y. |
+| Cross-filesystem move | `COMPLETE` | 6O | `EXDEV` uses synchronized hidden sibling staging, source-tree identity revalidation, atomic no-replace publication, and no-follow cleanup. Post-commit cleanup failure is an explicit non-retryable partial result; Phase 18Y now journals interrupted work for conservative restart review. |
 | Byte progress | `COMPLETE` | 3/4A | Validated progress is emitted when copy totals are meaningful. |
 | Item progress | `COMPLETE` | 6J/6P | Multi-item batches and item-based executors expose explicit item units and completed/total counts. |
 | Transfer speed | `COMPLETE` | 6P | Operations Island shows smoothed measured byte rate only after meaningful samples. |
@@ -88,11 +88,11 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Pause/resume execution | `PARTIAL` | 6P | Serial multi-item batches pause truthfully after the current item and resume FIFO; in-flight syscalls and GIO work are never labelled paused. |
 | Retry failed/cancelled work | `COMPLETE` | 5A/5B | Copy, move, rename, and Trash retries keep operation ID and receive a fresh job ID. |
 | In-session terminal registry | `COMPLETE` | 5A | Bounded 64-entry terminal state supports recovery without evicting active jobs. |
-| User-visible operation history | `PARTIAL` | 6P/18Y | A bounded memory-only dialog exposes terminal work and safe Undo; Phase 18Y owns privacy-aware persistence and interrupted-operation recovery. |
+| User-visible operation history | `PARTIAL` | 6P/18Y | A bounded memory-only dialog exposes terminal work and safe Undo; Phase 18Y provides a separate private interrupted-operation journal; terminal history itself remains memory-only. |
 | Clear completed operations | `COMPLETE` | 6P | Clear Completed removes successful entries only and preserves conflict, failed, partial, and cancelled evidence. |
 | Operations Island | `COMPLETE` | 4B/5B/5F/6K2 | Non-modal progress, cancel, Retry, and Resolve Conflict use bounded aligned geometry. |
 | Completion notification | `PLANNED` | 14/20 | Must respect sensitive notification policy and avoid noisy foreground notifications. |
-| Partial failure reporting | `PARTIAL` | 4/6J/6P | Individual jobs fail structurally and batches summarize completed, skipped, failed, and cancelled counts; crash recovery remains Phase 18Y. |
+| Partial failure reporting | `PARTIAL` | 4/6J/6P | Individual jobs fail structurally and batches summarize completed, skipped, failed, and cancelled counts; Phase 18Y now adds conservative restart review. |
 | Insufficient-space preflight | `COMPLETE` | 6O | Copy compares planned regular-file bytes with destination `statvfs` user-available bytes before output creation and reports exact required/available values. This is a point-in-time check, not a reservation or completion guarantee. |
 | Self-copy/self-nesting rejection | `COMPLETE` | 4A/4C | Core preflight rejects unsafe destination relationships. |
 | Destination conflict detection | `COMPLETE` | 4/5E | Existing destinations are distinct conflict outcomes and never overwritten silently. |
@@ -114,7 +114,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Undo rename | `COMPLETE` | 6P | Completed rename captures destination identity; Undo revalidates it and uses no-overwrite move semantics. |
 | Undo move | `COMPLETE` | 6P | Completed same- or cross-filesystem move captures published destination identity; Undo rejects changed/missing objects and occupied original paths. |
 | Undo Trash | `PLANNED` | 6N/6P | Depends on standards-correct Trash metadata plus reversible-operation policy. |
-| Undo directory creation | `PLANNED` | 6P/6Q | Only safe when the created directory is still empty and identity matches. |
+| Undo create | `COMPLETE` | 18Y | Completed create captures the no-follow destination identity. Undo uses ordinary recoverable Trash only while identity remains unchanged; created directories must also remain empty, so later user data is never removed. |
 | Redo | `DEFERRED` | 6P | Add only after operation-specific undo semantics are proven. |
 
 ## Trash and permanent deletion
@@ -622,8 +622,8 @@ advanced predicates and explicit Match Case control.
 | Copy, Verify, Flush, and Eject | `COMPLETE` | 18W | Explicit staged workflow revalidates the exact removable mount/device, flushes off GTK, and reports safe removal only after successful GIO eject/unmount; real USB lab evidence remains skipped without disposable media. |
 | Protected Folder | `COMPLETE` | 18X | Private exact-path accidental-change policy covers destructive source and destination intersections; explicitly not encryption, access control, immutability, or attacker protection. |
 | Rich destructive-operation preflight | `COMPLETE` | 6M/18X | Bounded facts and exact action/item/folder/byte/protected/mount context drive safe auto-allow or accessible review; permanent delete retains its separate irreversible confirmation. |
-| Operation journal | `PLANNED` | 18Y | Sole next roadmap phase; persist privacy-aware structured recovery information, never passwords or keys. |
-| Crash/interrupted-operation recovery | `PLANNED` | 18Y | Review intact source, partial destination, resume/retry/remove options; never delete uncertain data automatically. |
+| Operation journal | `COMPLETE` | 18Y | Copy, move, rename, and create workers persist a bounded versioned raw-path record before mutation under private atomic XDG state storage; success or proven-absent failed output removes it. No passwords, keys, file contents, hashes, or display-derived paths are stored. |
+| Crash/interrupted-operation recovery | `COMPLETE` | 18Y | Startup Recovery Center reports current source/destination state and offers reveal, conservative retry only for intact source plus absent destination, and record-only resolution. Corrupt/insecure storage blocks journaled mutations until explicit reset; uncertain output is never deleted automatically. |
 | Snapshot integration | `DEFERRED` | 18X/19 | Capability-driven Btrfs/ZFS/external-tool integration only; Floe is not a filesystem administrator by default. |
 | Integrity hash described as signature | `NOT APPLICABLE` | Policy | Hashes provide integrity evidence, not signer authenticity. |
 | Protected Folder described as attacker security | `NOT APPLICABLE` | Policy | It prevents mistakes only. |
@@ -710,7 +710,7 @@ These small behaviors are acceptance requirements, not optional polish.
 
 | Dependent capability | Status | Phase | Required foundation |
 | --- | --- | --- | --- |
-| Cross-filesystem move | `COMPLETE` | 6O | Synchronized staged copy, atomic no-replace publication, source identity revalidation, and conservative partial cleanup exist. Persistent interrupted-operation recovery remains Phase 18Y. |
+| Cross-filesystem move | `COMPLETE` | 6O | Synchronized staged copy, atomic no-replace publication, source identity revalidation, and conservative partial cleanup exist. Phase 18Y now provides conservative interrupted-operation restart review. |
 | Undo | `PLANNED` | 6P | Requires explicit operation-specific reversible semantics and current-state revalidation. |
 | Tabs/session restore | `COMPLETE` | 7A-7C | Versioned bounded raw-path workspace restores live/closed state through private atomic storage; explicit Private/Sensitive policy suppresses owned traces. |
 | Split view | `PLANNED` | 7D-7F | Reusable navigation sessions and explicit active-pane ownership. |

@@ -251,6 +251,14 @@ fn build_window(
                 browser.refresh_if_current(destination);
             }
         },
+        {
+            let browser = Rc::downgrade(&controller);
+            move |path| {
+                if let Some(browser) = browser.upgrade() {
+                    browser.navigate_to_revealing(path);
+                }
+            }
+        },
     );
     operation_controller.wire();
     controller.wire(application, &places);

@@ -50,6 +50,7 @@ mod miller_detail;
 mod miller_view;
 pub mod move_executor;
 mod operation_control;
+mod operation_recovery;
 mod operations;
 mod permanent_delete_executor;
 mod permission_executor;

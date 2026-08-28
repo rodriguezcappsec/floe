@@ -56,8 +56,12 @@ Daily-driver priorities
 
 ## Status
 
-**IN PROGRESS.** The completed Main-menu organization follow-up is preserved
-below. Phase 18Y operation recovery is the first active leaf.
+**IN PROGRESS.** Phase 18Y operation recovery and safe Create Undo are
+implemented and pass deterministic/full Rust gates. Native GTK execution was
+attempted but skipped because this shell has no usable display; E2E contract
+preflight passes while Dogtail/AT-SPI are unavailable. README, user guide,
+roadmap, matrix, security model, gates, and project status are updated. Phase
+20A Settings Center is the sole next active leaf.
 
 ---
 
