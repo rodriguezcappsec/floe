@@ -27,6 +27,17 @@ use crate::{
 
 const APPLICATION_ID: &str = "io.github.floe.FileManager";
 
+const MULTIPLE_OPEN_TARGETS_MESSAGE: &str = "Open one command-line file or folder at a time";
+const NON_LOCAL_OPEN_TARGET_MESSAGE: &str =
+    "Only local command-line file and folder targets are supported";
+
+fn local_open_target(files: &[gio::File]) -> Result<std::path::PathBuf, &'static str> {
+    if files.len() != 1 {
+        return Err(MULTIPLE_OPEN_TARGETS_MESSAGE);
+    }
+    files[0].path().ok_or(NON_LOCAL_OPEN_TARGET_MESSAGE)
+}
+
 pub fn run() -> glib::ExitCode {
     init_logging();
 
@@ -48,23 +59,54 @@ pub fn run() -> glib::ExitCode {
     };
     let restored_tabs = Rc::new(RefCell::new(restored_tabs));
     let session_worker = Rc::new(RefCell::new(session_worker));
+    let browser_controller = Rc::new(RefCell::new(None::<std::rc::Weak<BrowserController>>));
 
     let application = adw::Application::builder()
         .application_id(APPLICATION_ID)
-        .flags(gio::ApplicationFlags::FLAGS_NONE)
+        .flags(gio::ApplicationFlags::HANDLES_OPEN)
         .build();
 
     let preference_worker_for_activate = Rc::clone(&preference_worker);
     let restored_tabs_for_activate = Rc::clone(&restored_tabs);
     let session_worker_for_activate = Rc::clone(&session_worker);
+    let browser_for_activate = Rc::clone(&browser_controller);
+    let preferences_for_activate = view_preferences.clone();
     application.connect_activate(move |application| {
         build_window(
             application,
-            view_preferences.clone(),
+            preferences_for_activate.clone(),
             &preference_worker_for_activate,
             &restored_tabs_for_activate,
             &session_worker_for_activate,
+            &browser_for_activate,
         );
+    });
+
+    let preference_worker_for_open = Rc::clone(&preference_worker);
+    let restored_tabs_for_open = Rc::clone(&restored_tabs);
+    let session_worker_for_open = Rc::clone(&session_worker);
+    let browser_for_open = Rc::clone(&browser_controller);
+    let preferences_for_open = view_preferences.clone();
+    application.connect_open(move |application, files, _hint| {
+        build_window(
+            application,
+            preferences_for_open.clone(),
+            &preference_worker_for_open,
+            &restored_tabs_for_open,
+            &session_worker_for_open,
+            &browser_for_open,
+        );
+        let Some(controller) = browser_for_open
+            .borrow()
+            .as_ref()
+            .and_then(std::rc::Weak::upgrade)
+        else {
+            return;
+        };
+        match local_open_target(files) {
+            Ok(path) => controller.queue_cli_target(path),
+            Err(message) => controller.show_external_message(message, 5),
+        }
     });
 
     let quit = gio::SimpleAction::new("quit", None);
@@ -86,6 +128,7 @@ fn build_window(
     preference_worker: &Rc<RefCell<Option<PreferenceWorker>>>,
     restored_tabs: &Rc<RefCell<Option<floe_core::BrowserTabs>>>,
     session_worker: &Rc<RefCell<Option<SessionStoreWorker>>>,
+    browser_controller: &Rc<RefCell<Option<std::rc::Weak<BrowserController>>>>,
 ) {
     if let Some(window) = application.active_window() {
         window.present();
@@ -221,6 +264,7 @@ fn build_window(
         view_preferences,
         Rc::clone(&application_state),
     );
+    *browser_controller.borrow_mut() = Some(Rc::downgrade(&controller));
     let browser = Rc::downgrade(&controller);
     let browser_for_guardrails = browser.clone();
     let browser_for_shutdown = Rc::downgrade(&controller);
@@ -297,4 +341,39 @@ fn init_logging() {
         .with_target(false)
         .compact()
         .try_init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn phase_7g_application_accepts_exactly_one_local_open_target() {
+        let target = std::path::PathBuf::from("/tmp/floe phase 7g");
+        let file = gio::File::for_path(&target);
+
+        assert_eq!(local_open_target(&[file]), Ok(target));
+    }
+
+    #[test]
+    fn phase_7g_application_rejects_zero_or_multiple_open_targets() {
+        assert_eq!(local_open_target(&[]), Err(MULTIPLE_OPEN_TARGETS_MESSAGE));
+
+        let first = gio::File::for_path("/tmp/first");
+        let second = gio::File::for_path("/tmp/second");
+        assert_eq!(
+            local_open_target(&[first, second]),
+            Err(MULTIPLE_OPEN_TARGETS_MESSAGE)
+        );
+    }
+
+    #[test]
+    fn phase_7g_application_rejects_non_local_open_target() {
+        let remote = gio::File::for_uri("sftp://example.invalid/folder");
+
+        assert_eq!(
+            local_open_target(&[remote]),
+            Err(NON_LOCAL_OPEN_TARGET_MESSAGE)
+        );
+    }
 }

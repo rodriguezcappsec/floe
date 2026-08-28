@@ -2,6 +2,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet, VecDeque},
     ffi::{OsStr, OsString},
+    io,
     os::unix::ffi::OsStrExt,
     path::{Component, Path, PathBuf},
     rc::Rc,
@@ -34,6 +35,23 @@ fn tab_title(path: &Path) -> String {
         .unwrap_or(path.as_os_str())
         .to_string_lossy()
         .into_owned()
+}
+
+fn recent_session_locations(session: &BrowserSession) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    std::iter::once(session.current().path())
+        .chain(session.back_history().iter().rev().map(|item| item.path()))
+        .chain(
+            session
+                .forward_history()
+                .iter()
+                .rev()
+                .map(|item| item.path()),
+        )
+        .filter(|path| seen.insert((*path).to_path_buf()))
+        .take(floe_core::RECENT_LOCATION_CAPACITY)
+        .map(Path::to_path_buf)
+        .collect()
 }
 
 fn session_restore_snapshot(session: &BrowserSession) -> ViewStateSnapshot {
@@ -297,6 +315,7 @@ use crate::{
     batch_rename::{BatchRenameSource, build_batch_rename_dialog, refresh_batch_rename_dialog},
     bookmarks::{BookmarkWorker, BookmarkWorkerEvent},
     checksum_ui::{ChecksumDialogInput, build_checksum_request},
+    cli_routing::{CliRoute, CliRouteError, CliRouteWorker},
     clipboard::{self, ClipboardTransfer},
     devices::{
         DeviceAction, DeviceActionOutcome, DeviceId, DeviceMonitor, DeviceSnapshot,
@@ -324,6 +343,7 @@ use crate::{
     integrity_ui::private_fingerprint_store_path,
     integrity_watch::IntegrityWatchSet,
     launcher,
+    location_completion::LocationCompletionWorker,
     location_input::{
         PendingLocation, location_failure_message, location_text, resolve_location_input,
     },
@@ -608,6 +628,11 @@ pub struct BrowserController {
     split_snapshots: RefCell<HashMap<BrowserSessionId, [SplitPaneSnapshot; 2]>>,
     ignore_split_position_signal: Cell<bool>,
     pending_location: RefCell<Option<PendingLocation>>,
+    breadcrumb_paths: RefCell<Vec<PathBuf>>,
+    location_completion_worker: RefCell<Option<LocationCompletionWorker>>,
+    location_completion_generation: Cell<u64>,
+    location_completion_source: RefCell<Option<glib::SourceId>>,
+    cli_route_worker: RefCell<Option<CliRouteWorker>>,
     application_state: Rc<ApplicationState>,
     bookmark_worker: RefCell<Option<BookmarkWorker>>,
     bookmarks: RefCell<Vec<PathBuf>>,
@@ -644,6 +669,9 @@ struct VerifiedUsbLive {
 impl Drop for BrowserController {
     fn drop(&mut self) {
         if let Some(source) = self.sidebar_save_source.get_mut().take() {
+            source.remove();
+        }
+        if let Some(source) = self.location_completion_source.get_mut().take() {
             source.remove();
         }
         if let Some(subscription) = self.device_subscription.take() {
@@ -717,6 +745,20 @@ impl BrowserController {
             Ok(worker) => Some(worker),
             Err(error) => {
                 tracing::warn!(%error, "could not start template discovery worker");
+                None
+            }
+        };
+        let location_completion_worker = match LocationCompletionWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start location completion worker");
+                None
+            }
+        };
+        let cli_route_worker = match CliRouteWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start command-line route worker");
                 None
             }
         };
@@ -860,6 +902,11 @@ impl BrowserController {
             split_snapshots: RefCell::new(HashMap::new()),
             ignore_split_position_signal: Cell::new(false),
             pending_location: RefCell::new(None),
+            breadcrumb_paths: RefCell::new(Vec::new()),
+            location_completion_worker: RefCell::new(location_completion_worker),
+            location_completion_generation: Cell::new(0),
+            location_completion_source: RefCell::new(None),
+            cli_route_worker: RefCell::new(cli_route_worker),
             application_state,
             bookmark_worker: RefCell::new(bookmarks),
             bookmarks: RefCell::new(Vec::new()),
@@ -1075,6 +1122,22 @@ impl BrowserController {
                 controller.submit_location_entry(entry.text().as_str());
             }
         });
+        let controller = Rc::downgrade(self);
+        self.widgets.location_entry.connect_changed(move |entry| {
+            if let Some(controller) = controller.upgrade() {
+                controller.request_location_completion(entry.text().to_string());
+            }
+        });
+        let controller = Rc::downgrade(self);
+        let source = glib::timeout_add_local(Duration::from_millis(50), move || {
+            let Some(controller) = controller.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            controller.poll_location_completion();
+            controller.poll_cli_route();
+            glib::ControlFlow::Continue
+        });
+        self.location_completion_source.replace(Some(source));
     }
 
     fn install_file_view_drag_drop(self: &Rc<Self>, view: &impl IsA<gtk::Widget>) {
@@ -3441,6 +3504,29 @@ impl BrowserController {
         self.add_action("settings", |controller| {
             controller.show_settings_center();
         });
+        let breadcrumb_action =
+            gio::SimpleAction::new("breadcrumb", Some(&u64::static_variant_type()));
+        let controller = Rc::downgrade(self);
+        breadcrumb_action.connect_activate(move |_, parameter| {
+            let Some(index) = parameter.and_then(glib::Variant::get::<u64>) else {
+                return;
+            };
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let path = controller
+                .breadcrumb_paths
+                .borrow()
+                .get(index as usize)
+                .cloned();
+            if let Some(path) = path {
+                controller.navigate_to(path);
+            }
+        });
+        self.widgets.window.add_action(&breadcrumb_action);
+        self.add_action("recent-locations", |controller| {
+            controller.show_recent_locations();
+        });
         self.add_action("command-palette", |controller| {
             controller.command_palette.present();
         });
@@ -5640,6 +5726,129 @@ impl BrowserController {
         settings.search.grab_focus();
     }
 
+    fn recent_locations(&self) -> Vec<PathBuf> {
+        let tabs = self.tabs.borrow();
+        recent_session_locations(tabs.active())
+    }
+
+    fn show_recent_locations(self: &Rc<Self>) {
+        let dialog = adw::Dialog::builder()
+            .title("Recent Locations")
+            .content_width(620)
+            .content_height(520)
+            .build();
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        content.set_margin_top(18);
+        content.set_margin_bottom(18);
+        content.set_margin_start(18);
+        content.set_margin_end(18);
+        let explanation = gtk::Label::builder()
+            .label("Current, Back, and Forward locations for this tab. Session persistence follows Floe's Private/Sensitive policy.")
+            .wrap(true)
+            .xalign(0.0)
+            .css_classes(["dim-label"])
+            .build();
+        content.append(&explanation);
+        let list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .css_classes(["boxed-list"])
+            .build();
+        for path in self.recent_locations() {
+            let row = adw::ActionRow::builder()
+                .title(path.to_string_lossy())
+                .subtitle(if path == self.tabs.borrow().active().current().path() {
+                    "Current folder"
+                } else {
+                    "Navigate to this exact recorded folder"
+                })
+                .activatable(true)
+                .build();
+            let button = gtk::Button::builder()
+                .icon_name("floe-phosphor-arrow-right-symbolic")
+                .tooltip_text("Open recent location")
+                .valign(gtk::Align::Center)
+                .build();
+            button.update_property(&[
+                gtk::accessible::Property::Label("Open recent location"),
+                gtk::accessible::Property::Description(
+                    "Navigate to the exact recorded folder path",
+                ),
+            ]);
+            row.add_suffix(&button);
+            row.set_activatable_widget(Some(&button));
+            let exact_path = path;
+            let controller = Rc::downgrade(self);
+            let dialog_for_row = dialog.clone();
+            button.connect_clicked(move |_| {
+                dialog_for_row.close();
+                if let Some(controller) = controller.upgrade() {
+                    controller.navigate_to(exact_path.clone());
+                }
+            });
+            list.append(&row);
+        }
+        let scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .child(&list)
+            .build();
+        content.append(&scroll);
+        dialog.set_child(Some(&content));
+        dialog.present(Some(&self.widgets.window));
+    }
+
+    fn render_breadcrumbs(&self, path: &Path) {
+        while let Some(child) = self.widgets.breadcrumb_box.first_child() {
+            self.widgets.breadcrumb_box.remove(&child);
+        }
+        if self.trash_active.get() {
+            self.breadcrumb_paths.borrow_mut().clear();
+            let label = gtk::Label::builder()
+                .label("Trash")
+                .css_classes(["floe-path"])
+                .build();
+            label.update_property(&[
+                gtk::accessible::Property::Label("Trash"),
+                gtk::accessible::Property::Description("Current virtual Trash location"),
+            ]);
+            self.widgets.breadcrumb_box.append(&label);
+            self.widgets
+                .recent_locations_button
+                .set_sensitive(!self.recent_locations().is_empty());
+            return;
+        }
+        let crumbs = floe_core::breadcrumbs_for(path);
+        *self.breadcrumb_paths.borrow_mut() = crumbs
+            .iter()
+            .map(|crumb| crumb.path().to_path_buf())
+            .collect();
+        for (index, crumb) in crumbs.iter().enumerate() {
+            if index > 0 {
+                self.widgets
+                    .breadcrumb_box
+                    .append(&gtk::Image::from_icon_name(
+                        "floe-phosphor-caret-right-symbolic",
+                    ));
+            }
+            let label = crumb.label().to_string_lossy();
+            let button = gtk::Button::builder()
+                .label(label.as_ref())
+                .has_frame(false)
+                .action_name("win.breadcrumb")
+                .action_target(&(index as u64).to_variant())
+                .tooltip_text(format!("Open {}", crumb.path().to_string_lossy()))
+                .build();
+            button.update_property(&[
+                gtk::accessible::Property::Label(&format!("Breadcrumb {label}")),
+                gtk::accessible::Property::Description("Navigate to this exact ancestor folder"),
+            ]);
+            self.widgets.breadcrumb_box.append(&button);
+        }
+        self.widgets
+            .recent_locations_button
+            .set_sensitive(self.recent_locations().len() > 1);
+    }
+
     fn activate_window_action(&self, action: &str, parameter: Option<&glib::Variant>) {
         gio::prelude::ActionGroupExt::activate_action(&self.widgets.window, action, parameter);
     }
@@ -6144,6 +6353,7 @@ impl BrowserController {
     }
 
     fn hide_location_entry(&self) {
+        self.widgets.location_suggestions.popdown();
         self.clear_location_error();
         self.widgets.path_stack.set_visible_child_name("path");
         self.widgets.focus_view(self.view_mode.get());
@@ -6155,6 +6365,135 @@ impl BrowserController {
             self.load_current();
         }
         self.hide_location_entry();
+    }
+
+    fn request_location_completion(&self, input: String) {
+        if self.widgets.path_stack.visible_child_name().as_deref() != Some("entry") {
+            return;
+        }
+        if input.len() > 16 * 1_024 {
+            self.clear_location_suggestions();
+            return;
+        }
+        let generation = self.location_completion_generation.get().wrapping_add(1);
+        self.location_completion_generation.set(generation);
+        if let Some(worker) = self.location_completion_worker.borrow().as_ref() {
+            worker.request(generation, input);
+        }
+    }
+
+    fn poll_location_completion(self: &Rc<Self>) {
+        let Some(result) = self
+            .location_completion_worker
+            .borrow()
+            .as_ref()
+            .and_then(LocationCompletionWorker::try_result)
+        else {
+            return;
+        };
+        if result.generation != self.location_completion_generation.get()
+            || self.widgets.path_stack.visible_child_name().as_deref() != Some("entry")
+        {
+            return;
+        }
+        self.clear_location_suggestions();
+        for candidate in result.candidates {
+            let button = gtk::Button::builder()
+                .label(&candidate.display)
+                .halign(gtk::Align::Fill)
+                .has_frame(false)
+                .build();
+            button.update_property(&[
+                gtk::accessible::Property::Label(&candidate.display),
+                gtk::accessible::Property::Description(
+                    "Complete the location with this exact folder",
+                ),
+            ]);
+            let exact_path = candidate.path;
+            let controller = Rc::downgrade(self);
+            button.connect_clicked(move |_| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.widgets.location_suggestions.popdown();
+                    controller.navigate_to(exact_path.clone());
+                    controller.hide_location_entry();
+                }
+            });
+            self.widgets.location_suggestions_box.append(&button);
+        }
+        if result.truncated {
+            let notice = gtk::Label::builder()
+                .label("More folders match; keep typing to narrow the list")
+                .wrap(true)
+                .css_classes(["dim-label", "caption"])
+                .margin_top(6)
+                .margin_bottom(6)
+                .build();
+            self.widgets.location_suggestions_box.append(&notice);
+        }
+        let has_rows = self
+            .widgets
+            .location_suggestions_box
+            .first_child()
+            .is_some();
+        if has_rows {
+            self.widgets.location_suggestions.popup();
+        } else {
+            self.widgets.location_suggestions.popdown();
+        }
+        if let Some(error) = result.error
+            && !matches!(
+                error,
+                io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
+            )
+        {
+            tracing::debug!(?error, "location completion unavailable for parent");
+        }
+    }
+
+    fn clear_location_suggestions(&self) {
+        while let Some(child) = self.widgets.location_suggestions_box.first_child() {
+            self.widgets.location_suggestions_box.remove(&child);
+        }
+    }
+
+    pub fn queue_cli_target(&self, path: PathBuf) {
+        let worker = self.cli_route_worker.borrow();
+        let Some(worker) = worker.as_ref() else {
+            self.show_toast("Command-line target routing is unavailable", 5);
+            return;
+        };
+        worker.request(path);
+    }
+
+    pub fn show_external_message(&self, message: &str, timeout: u32) {
+        self.show_toast(message, timeout);
+    }
+
+    fn poll_cli_route(&self) {
+        let Some(result) = self
+            .cli_route_worker
+            .borrow()
+            .as_ref()
+            .and_then(CliRouteWorker::try_result)
+        else {
+            return;
+        };
+        match result.route {
+            Ok(CliRoute::Folder(path)) => self.navigate_to(path),
+            Ok(CliRoute::Reveal(path)) => self.navigate_to_revealing(path),
+            Err(error) => self.show_toast(
+                match error {
+                    CliRouteError::Relative => "Command-line target must be an absolute local path",
+                    CliRouteError::Oversized => "Command-line target path is too long",
+                    CliRouteError::Missing => "Command-line target no longer exists",
+                    CliRouteError::Inaccessible => "Command-line target is not accessible",
+                    CliRouteError::Unsupported => {
+                        "Command-line target is not a regular file or folder"
+                    }
+                },
+                5,
+            ),
+        }
     }
 
     fn submit_metadata_requests(&self) {
@@ -6506,6 +6845,7 @@ impl BrowserController {
             path.to_string_lossy()
         };
         self.widgets.path_label.set_label(&display_path);
+        self.render_breadcrumbs(&path);
         self.widgets
             .path_label
             .set_tooltip_text(Some(&display_path));
@@ -10811,6 +11151,31 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn phase_7g_recent_locations_reuse_restorable_session_history() {
+        let view = FolderViewState::default();
+        let mut session = BrowserSession::new(
+            BrowserSessionId::new(1).expect("id"),
+            PathBuf::from("/one"),
+            view,
+        )
+        .expect("session");
+        session
+            .navigate_to(PathBuf::from("/two"), view)
+            .expect("navigate");
+        session
+            .navigate_to(PathBuf::from("/three"), view)
+            .expect("navigate");
+        assert!(session.go_back());
+        let recent = recent_session_locations(&session);
+        assert_eq!(recent[0], PathBuf::from("/two"));
+        assert_eq!(recent[1], PathBuf::from("/one"));
+        assert_eq!(recent[2], PathBuf::from("/three"));
+
+        let restored = BrowserSession::decode(&session.encode().expect("encode")).expect("decode");
+        assert_eq!(recent_session_locations(&restored), recent);
+    }
 
     #[test]
     fn post_phase_14_toast_titles_escape_markup_metacharacters() {

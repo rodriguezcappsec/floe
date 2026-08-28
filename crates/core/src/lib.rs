@@ -118,7 +118,7 @@ pub use move_operation::{
     FileIdentity, MoveCancellation, MoveError, MoveOutcome, MoveRequest, RenameRequest,
     execute_move, execute_move_with_progress, execute_rename,
 };
-pub use navigation::NavigationState;
+pub use navigation::{Breadcrumb, NavigationState, RECENT_LOCATION_CAPACITY, breadcrumbs_for};
 pub use permanent_delete::{
     PermanentDeleteError, PermanentDeleteOutcome, PermanentDeleteProgress, PermanentDeleteRequest,
     PermanentDeleteRequestError, execute_permanent_delete,

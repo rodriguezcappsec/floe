@@ -1318,10 +1318,10 @@ Last updated:
 Current phase:
 
 ```text
-Phase 20A — Settings Center (complete)
+Phase 7G — Navigation Upgrades (complete)
 ```
 
-Phase 20A adds one searchable native Settings Center with eight plain-language
+Previous Phase 20A added one searchable native Settings Center with eight plain-language
 sections, `Ctrl+,`, case-insensitive multi-term search, and a clear no-results
 state. Appearance, icon style, default view, per-folder view memory, Vim
 navigation, grid size, file/sidebar density, and the optional private filename
@@ -1340,9 +1340,31 @@ workflow tests, native build, clean real-GTK Settings component gate, E2E
 harness preflight, and diff hygiene pass. Native Dogtail workflows remain
 skipped because Python Dogtail and pyatspi/AT-SPI are unavailable.
 
-The sole recommended next phase is **7G — Navigation Upgrades** on
-`phase-7g-navigation-upgrades`: accessible breadcrumbs, asynchronous path
-completion, bounded recent/history restoration, and CLI file/folder routing.
+The sole recommended next phase is **19B — Associations and Custom Actions** on
+`phase-19b-associations-custom-actions`: complete inspect/set/clear XDG MIME
+defaults and safe argv-based user actions without shell interpolation.
+
+Phase 7G replaces the passive header path with exact raw-path breadcrumb
+segments in a responsive horizontal surface, keeps Trash a truthful virtual
+label, and exposes `Alt+Down` Recent Locations over the existing bounded
+current/back/forward session history. `Ctrl+L` now offers local-folder
+completion from a capacity-one superseding worker capped at 4,096 scanned
+entries and 64 results. Suggestions retain exact `PathBuf` identity separately
+from lossy text and are never persisted.
+
+GApplication now accepts exactly one local command-line target. A folder
+navigates directly; a regular file routes through a bounded validation worker
+to its exact parent and existing reveal pipeline. Missing, inaccessible,
+oversized, unsupported, relative, multiple, and non-local targets receive
+deterministic truthful feedback. No filesystem probing runs in GTK callbacks,
+no second history store was added, and existing Private/Sensitive workspace
+suppression remains authoritative.
+
+Focused core/application/raw non-UTF-8, completion, recent-session, and CLI
+tests pass. The real-GTK header accessibility component gate passes. Full
+workspace formatting, check, strict all-target/all-feature Clippy, tests, native
+build, E2E preflight, native CLI smoke, and diff hygiene are completion gates
+and must be recorded in `GATES.md` before this phase is published.
 
 Previous Phase 18Y adds a private bounded XDG-state journal written by copy, move,
 rename, and create workers before filesystem mutation. Successful or safely

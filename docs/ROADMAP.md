@@ -142,7 +142,7 @@ Goal: make standards-correct local Trash a first-class Floe location.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 7G — Navigation upgrades | NEXT | `phase-7g-navigation-upgrades` | Keyboard-accessible breadcrumbs, asynchronous exact-path completion, bounded recent locations and restored navigation history, command-line file/folder routing. | Preserve `NavigationState` authority and raw `PathBuf` identity; histories remain bounded and private-policy ready, slow enumeration stays off GTK, files route to exact parent/reveal, no remote browsing or later application-association work. |
+| 7G — Navigation upgrades | COMPLETE | `phase-7g-navigation-upgrades` | Keyboard-accessible breadcrumbs, asynchronous exact-path completion, bounded recent locations and restored navigation history, command-line file/folder routing. | Verified exact raw breadcrumb and completion identities, bounded workers/history, responsive overflow, Private/Sensitive-compatible session reuse, GApplication one-local-target routing, parent/reveal, deterministic errors, and native GTK accessibility. No remote browsing or application-association work. |
 | 7A — Tab/session model | COMPLETE | `phase-7a-tabs-foundation` | Serializable browser sessions: path, history, selection, scroll, sort, view. | Verified exact bounded GTK-independent state and raw non-UTF-8 codec; no widgets, persistence, or duplicated workers. |
 | 7B — Tab interaction | COMPLETE | `phase-7b-tabs-interaction` | New, close, switch, duplicate, reorder, foreground/background open, middle-click. | Verified bounded stable-ID tabs, complete exact session restoration, one shared browser pipeline, pointer/keyboard parity, and native Wayland lifecycle; no restore/split. |
 | 7C — Closed tabs/restore | COMPLETE | `phase-7c-tab-session-restore` | Reopen closed, close variants, startup session restore; optional names/pins remain deferred. | Verified bounded LIFO/fresh IDs, hostile-input codec, private atomic worker, explicit Private/Sensitive suppression, Ctrl+Shift+T, and two-launch native restore. |
@@ -332,7 +332,7 @@ and add hostile-input and cache/notification/history leak tests.
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
 | 19A — Git awareness | PLANNED | `phase-19a-git-awareness` | Cheap opt-in repository root, branch, status badges and relative-path actions. | 6T/11E; no cost outside repositories; verify large repos and missing Git. |
-| 19B — Custom actions | PLANNED | `phase-19b-custom-actions` | Context/palette file-type actions with safe argv and eligibility. | 11A/14/18A; no shell or vault-key access; verify hostile paths and capabilities. |
+| 19B — Associations and custom actions | NEXT | `phase-19b-associations-custom-actions` | Inspect/set/clear XDG MIME defaults plus context/palette file-type actions with safe argv and eligibility. | 5D/11A/14/18A; application-owned validation, explicit changes, no shell or vault-key access; verify hostile paths, missing apps, rollback, and capabilities. |
 | 19C — Customization | PLANNED | `phase-19c-customization` | Theme tokens, templates, editor, compare and Share tools. | Appearance/12D/19B; no plugin runtime; verify validation, rollback and upgrades. |
 
 A general plugin runtime is **DEFERRED** until demonstrated demand and a
