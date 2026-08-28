@@ -142,6 +142,7 @@ Goal: make standards-correct local Trash a first-class Floe location.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
+| 7G — Navigation upgrades | NEXT | `phase-7g-navigation-upgrades` | Keyboard-accessible breadcrumbs, asynchronous exact-path completion, bounded recent locations and restored navigation history, command-line file/folder routing. | Preserve `NavigationState` authority and raw `PathBuf` identity; histories remain bounded and private-policy ready, slow enumeration stays off GTK, files route to exact parent/reveal, no remote browsing or later application-association work. |
 | 7A — Tab/session model | COMPLETE | `phase-7a-tabs-foundation` | Serializable browser sessions: path, history, selection, scroll, sort, view. | Verified exact bounded GTK-independent state and raw non-UTF-8 codec; no widgets, persistence, or duplicated workers. |
 | 7B — Tab interaction | COMPLETE | `phase-7b-tabs-interaction` | New, close, switch, duplicate, reorder, foreground/background open, middle-click. | Verified bounded stable-ID tabs, complete exact session restoration, one shared browser pipeline, pointer/keyboard parity, and native Wayland lifecycle; no restore/split. |
 | 7C — Closed tabs/restore | COMPLETE | `phase-7c-tab-session-restore` | Reopen closed, close variants, startup session restore; optional names/pins remain deferred. | Verified bounded LIFO/fresh IDs, hostile-input codec, private atomic worker, explicit Private/Sensitive suppression, Ctrl+Shift+T, and two-launch native restore. |
@@ -339,10 +340,10 @@ capability, isolation, permission, and failure-containment design exist.
 
 ## Phase 20 — Settings, visual, accessibility, and QoL audit
 
-Status: **PLANNED**
+Status: **IN PROGRESS**
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 20A — Settings Center | NEXT | `phase-20a-settings-center` | Dedicated searchable native Settings Center organizing appearance, browsing, previews, operations, applications, shortcuts/context menus, accessibility, reset and migration behavior. | Existing preference/action boundaries; live apply where safe, bounded private persistence, no duplicate settings state or weakening irreversible confirmations; GTK accessibility and migration gates. |
+| 20A — Settings Center | COMPLETE | `phase-20a-settings-center` | Dedicated searchable native Settings Center organizing appearance, browsing, views/layout, search/preview, operations/safety, applications, shortcuts/menus, and accessibility. | Verified case-insensitive plain-language search, live authoritative preferences, specialized-editor links, `Ctrl+,`, stable GTK accessibility metadata, no duplicate settings store or weakened irreversible confirmations. |
 | 20B — Visual, accessibility, and QoL audit | PLANNED | `phase-20b-completeness-audit` | Close remaining matrix gaps across fonts, density, motion, focus, Orca, high contrast, localization, RTL, HiDPI, fractional scaling, errors, and recorded daily-driver QoL. | 20A and preceding user-facing families; measured matrix audit and native desktop smoke. |
 
 Goal: close every remaining `FEATURE_MATRIX` gap across appearance, fonts,

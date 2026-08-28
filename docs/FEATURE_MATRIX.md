@@ -6,8 +6,9 @@ belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 `docs/PRIVACY_SECURITY.md` owns the threat model and security claims.
 
 The generic desktop integration baseline is Phase 14; Phase 18A's
-documentation-only security architecture and runtime Phases 18T–18X are
-complete. Phase 20A Settings Center is the only `NEXT` phase. Every other future capability
+documentation-only security architecture, runtime Phases 18T–18Y, and Phase
+20A Settings Center are complete. Phase 7G Navigation Upgrades is the only
+`NEXT` phase. Every other future capability
 remains `PLANNED` or `DEFERRED`.
 
 ## Status key
@@ -485,6 +486,7 @@ advanced predicates and explicit Match Case control.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
+| Searchable Settings Center | `COMPLETE` | 20A | Eight plain-language sections, case-insensitive multi-term search, `Ctrl+,`, live existing-preference controls, specialized-editor links, clear empty state, and native accessibility metadata are verified. It adds no duplicate store and cannot disable irreversible confirmations. |
 | Header menu information architecture | `COMPLETE` | post-18X | Main menu grouped by task with bounded progressive disclosure; all prior actions shortcuts remain available, while selection-aware context menus retain their customization model. |
 | Native/Glass/Frosted/Minimal/Compact presets | `COMPLETE` | 0 | Shared tokens and a radio-style header-menu chooser apply all five presets live. |
 | Phosphor interface iconography | `COMPLETE` | post-14 | A pinned local Phosphor Core 2.1.1 Regular subset supplies Floe-owned navigation, action, sidebar, device, status, and detail glyphs; MIT attribution is bundled and no runtime download occurs. |
@@ -498,10 +500,10 @@ advanced predicates and explicit Match Case control.
 | Reduced-motion setting | `PLANNED` | 20 | Honor GTK/system animation policy; custom motion remains restrained. |
 | HiDPI/fractional-scaling audit | `PLANNED` | 20 | Verify icons, thumbnails, borders, and focus at actual scale factors. |
 | Appearance persistence/migration | `COMPLETE` | 0/6D/6K2 | Version-9 preferences persist one stable preset ID; legacy/invalid values default to Frosted and `FLOE_APPEARANCE` remains a non-mutating launch override. |
-| Browsing settings | `PLANNED` | 20 | Default view/sort/group/folders-first/hidden/per-folder/startup/click behavior. |
-| Preview/cache settings | `PLANNED` | 9F/20 | Provider enablement, size limits, persistent cache and sensitive defaults. |
+| Browsing settings | `PARTIAL` | 20A/20B | Settings Center now controls default view, per-folder memory, Vim navigation, grid size, file density, and sidebar density live. Sort/group/folders-first/hidden/startup/click policy remains audit work. |
+| Preview/cache settings | `PARTIAL` | 9F/20A | Settings links explicit memory-only Preview cache clearing. Provider enablement, size limits, persistent cache, and sensitive defaults remain planned. |
 | Operation/Trash confirmation settings | `PLANNED` | 6M/20 | Ordinary Trash stays low-friction; irreversible operations remain strongly confirmed. |
-| Application preferences | `PLANNED` | 19/20 | Terminal, editor, association, and external-tool configuration. |
+| Application preferences | `PARTIAL` | 11E/20A/19 | Settings links the existing reviewed terminal chooser and desktop capability surface. Editor, association, and safe external-tool configuration remain planned. |
 | Desktop-specific settings | `PLANNED` | 15/16/20 | Only expose capabilities detected from optional backends. |
 | Full keyboard operation | `PARTIAL` | 0-6K2/20 | Core navigation, selection, menus, views, and actions have keyboard routes; future surfaces must complete parity. |
 | Logical visible focus | `PARTIAL` | 0-6K2/20 | Native focus and explicit restoration exist in current views/dialogs; comprehensive audit remains. |

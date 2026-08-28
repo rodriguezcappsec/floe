@@ -2093,23 +2093,7 @@ impl BrowserController {
                 let Some(controller) = controller.upgrade() else {
                     return;
                 };
-                let enabled = toggle.is_active();
-                if controller.current_preferences.borrow().search_index_enabled == enabled {
-                    return;
-                }
-                controller
-                    .current_preferences
-                    .borrow_mut()
-                    .search_index_enabled = enabled;
-                controller.queue_preferences();
-                controller.show_toast(
-                    if enabled {
-                        "Optional search index enabled; live search remains the fallback"
-                    } else {
-                        "Optional search index disabled"
-                    },
-                    4,
-                );
+                controller.change_search_index_enabled(toggle.is_active());
             });
     }
 
@@ -3454,6 +3438,9 @@ impl BrowserController {
     }
 
     fn install_actions(self: &Rc<Self>, application: &adw::Application) {
+        self.add_action("settings", |controller| {
+            controller.show_settings_center();
+        });
         self.add_action("command-palette", |controller| {
             controller.command_palette.present();
         });
@@ -5514,6 +5501,149 @@ impl BrowserController {
         }
     }
 
+    fn show_settings_center(self: &Rc<Self>) {
+        let settings = crate::settings_center::build(&self.current_preferences.borrow());
+
+        let controller = Rc::downgrade(self);
+        settings
+            .appearance
+            .connect_selected_notify(move |dropdown| {
+                let Some(preset) = AppearancePreset::ALL.get(dropdown.selected() as usize) else {
+                    return;
+                };
+                if let Some(controller) = controller.upgrade() {
+                    controller.activate_window_action(
+                        "appearance",
+                        Some(&preset.persisted().to_variant()),
+                    );
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        settings
+            .icon_style
+            .connect_selected_notify(move |dropdown| {
+                let Some(style) = EntryIconStyle::ALL.get(dropdown.selected() as usize) else {
+                    return;
+                };
+                if let Some(controller) = controller.upgrade() {
+                    controller.activate_window_action(
+                        "icon-style",
+                        Some(&style.persisted().to_variant()),
+                    );
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        settings
+            .default_view
+            .connect_selected_notify(move |dropdown| {
+                let action = match dropdown.selected() {
+                    0 => "view-list",
+                    1 => "view-grid",
+                    2 => "view-miller",
+                    _ => return,
+                };
+                if let Some(controller) = controller.upgrade() {
+                    controller.activate_window_action(action, None);
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        settings.grid_size.connect_selected_notify(move |dropdown| {
+            if let Some(controller) = controller.upgrade()
+                && let Some(size) =
+                    crate::settings_center::grid_size_at(dropdown.selected() as usize)
+            {
+                controller.change_grid_size(size);
+            }
+        });
+
+        let controller = Rc::downgrade(self);
+        settings
+            .file_density
+            .connect_selected_notify(move |dropdown| {
+                let Some(density) = FileViewDensity::ALL.get(dropdown.selected() as usize) else {
+                    return;
+                };
+                if let Some(controller) = controller.upgrade() {
+                    controller.activate_window_action(
+                        "file-density",
+                        Some(&density.persisted().to_variant()),
+                    );
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        settings
+            .sidebar_density
+            .connect_selected_notify(move |dropdown| {
+                let density = match dropdown.selected() {
+                    0 => SidebarDensity::Compact,
+                    1 => SidebarDensity::Balanced,
+                    2 => SidebarDensity::Comfortable,
+                    _ => return,
+                };
+                if let Some(controller) = controller.upgrade() {
+                    controller.activate_window_action(
+                        "sidebar-density",
+                        Some(&density.persisted().to_variant()),
+                    );
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        settings
+            .remember_folder_view
+            .connect_active_notify(move |toggle| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.activate_window_action(
+                        "remember-folder-view",
+                        Some(&toggle.is_active().to_variant()),
+                    );
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        settings
+            .vim_navigation
+            .connect_active_notify(move |toggle| {
+                if let Some(controller) = controller.upgrade()
+                    && controller.current_preferences.borrow().vim_mode != toggle.is_active()
+                {
+                    controller.activate_window_action("vim-mode", None);
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        settings.search_index.connect_active_notify(move |toggle| {
+            if let Some(controller) = controller.upgrade() {
+                controller.change_search_index_enabled(toggle.is_active());
+            }
+        });
+
+        for (action, button) in &settings.action_buttons {
+            let action = action
+                .strip_prefix("win.")
+                .expect("Settings actions are window actions");
+            let controller = Rc::downgrade(self);
+            let dialog = settings.dialog.clone();
+            button.connect_clicked(move |_| {
+                dialog.close();
+                if let Some(controller) = controller.upgrade() {
+                    controller.activate_window_action(action, None);
+                }
+            });
+        }
+
+        settings.dialog.present(Some(&self.widgets.window));
+        settings.search.grab_focus();
+    }
+
+    fn activate_window_action(&self, action: &str, parameter: Option<&glib::Variant>) {
+        gio::prelude::ActionGroupExt::activate_action(&self.widgets.window, action, parameter);
+    }
+
     fn apply_keybinding_overrides(&self, keybindings: crate::keybindings::KeybindingOverrides) {
         self.current_preferences.borrow_mut().keybindings = keybindings.clone();
         if let Some(application) = self
@@ -5568,6 +5698,23 @@ impl BrowserController {
             3,
         );
         self.queue_preferences();
+    }
+
+    fn change_search_index_enabled(&self, enabled: bool) {
+        if self.current_preferences.borrow().search_index_enabled == enabled {
+            return;
+        }
+        self.current_preferences.borrow_mut().search_index_enabled = enabled;
+        self.widgets.search_index_toggle.set_active(enabled);
+        self.queue_preferences();
+        self.show_toast(
+            if enabled {
+                "Optional search index enabled; live search remains the fallback"
+            } else {
+                "Optional search index disabled"
+            },
+            4,
+        );
     }
 
     fn discover_terminals(&self) {

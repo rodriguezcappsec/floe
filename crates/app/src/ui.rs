@@ -44,6 +44,7 @@ const SIDEBAR_DENSITY_MENU_ITEMS: [(&str, &str); 3] = [
 const RESET_SIDEBAR_WIDTH_MENU_ITEM: (&str, &str) =
     ("Reset Sidebar Width", "win.reset-sidebar-width");
 const OPERATION_HISTORY_MENU_ITEM: (&str, &str) = ("Operation History", "win.operation-history");
+const SETTINGS_MENU_ITEM: (&str, &str) = ("Settings…", "win.settings");
 const KEYBOARD_SHORTCUTS_MENU_ITEM: (&str, &str) =
     ("Keyboard Shortcuts…", "win.keyboard-shortcuts");
 const DESKTOP_INTEGRATION_MENU_ITEM: (&str, &str) =
@@ -1851,6 +1852,7 @@ pub fn build(
     );
     view_layout_model.append_submenu(Some("Split View"), &split_view_model);
 
+    utility_model.append(Some(SETTINGS_MENU_ITEM.0), Some(SETTINGS_MENU_ITEM.1));
     utility_model.append(
         Some(OPERATION_HISTORY_MENU_ITEM.0),
         Some(OPERATION_HISTORY_MENU_ITEM.1),

@@ -60,6 +60,7 @@ mod properties;
 pub mod restore_executor;
 mod search_index;
 mod session_store;
+mod settings_center;
 pub mod state;
 mod storage;
 mod system_thumbnailer;
