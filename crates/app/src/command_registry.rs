@@ -972,6 +972,15 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [],
         [H]
     ),
+    command!(
+        "recovery-center",
+        "Operation Recovery",
+        "Review interrupted file operations without deleting uncertain data",
+        Operations,
+        ["crash", "journal", "partial output", "retry"],
+        [],
+        [H]
+    ),
 ];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -4,18 +4,18 @@ Scope: recovery, Settings, navigation, application tools, and administrator
 locations are complete only when their real native workflows and failure
 boundaries are verified.
 
-- [ ] D1: Interrupted copy/move/create outputs are journaled privately and
+- [x] D1: Interrupted copy/move/create outputs are journaled privately and
   boundedly, detected after restart, and offered explicit recovery choices;
   corrupt/stale journals never authorize deletion or overwrite.
   CHECK: cargo test -p floe-app phase_18y -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: pending
-- [ ] D2: Safe Undo and conflict decisions cover only operation-specific,
+  EVIDENCE: Thirteen named phase_18y regressions pass: pre-mutation fail-closed copy, copy/move/create success cleanup, raw non-UTF-8 private atomic journal, corrupt/symlink/insecure rejection, explicit blocked-store reset, conservative retry state, uncertain destination retention, Recovery Center reveal/retry/record-only resolution.
+- [x] D2: Safe Undo and conflict decisions cover only operation-specific,
   freshly revalidated identities; Trash/create/replace/apply-to-all behavior
   never silently destroys uncertain data.
-  CHECK: cargo test --workspace operation_recovery -- --nocapture
+  CHECK: cargo test -p floe-app phase_18y -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: pending
+  EVIDENCE: Create Undo captures no-follow identity and uses ordinary GIO Trash only after executor-side identity and empty-directory checks. Replacements and later directory contents fail without backend mutation; move/rename Undo stays green; Replace/Replace All and Undo Trash remain unavailable.
 - [ ] D3: A native accessible Settings Center organizes appearance, browsing,
   preview, operations, applications, shortcuts/context menus, and accessibility;
   supported controls apply live and persist through bounded migrations.

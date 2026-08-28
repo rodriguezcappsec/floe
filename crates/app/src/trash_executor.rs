@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io,
+    fs, io,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex, MutexGuard,
@@ -9,7 +9,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use floe_core::{JobCommand, JobFailure, JobFailureKind, JobId, OperationId};
+use floe_core::{FileIdentity, JobCommand, JobFailure, JobFailureKind, JobId, OperationId};
 use gio::prelude::*;
 use gtk::{gio, glib};
 use thiserror::Error;
@@ -21,6 +21,8 @@ pub const DEFAULT_TRASH_QUEUE_CAPACITY: usize = 8;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TrashRequest {
     source: PathBuf,
+    expected_source_identity: Option<FileIdentity>,
+    require_empty_directory: bool,
 }
 
 impl TrashRequest {
@@ -28,11 +30,25 @@ impl TrashRequest {
         if source.file_name().is_none() {
             return Err(TrashRequestError::InvalidSource(source));
         }
-        Ok(Self { source })
+        Ok(Self {
+            source,
+            expected_source_identity: None,
+            require_empty_directory: false,
+        })
     }
 
     pub fn source(&self) -> &Path {
         &self.source
+    }
+
+    pub fn with_expected_source_identity(
+        mut self,
+        identity: FileIdentity,
+        require_empty_directory: bool,
+    ) -> Self {
+        self.expected_source_identity = Some(identity);
+        self.require_empty_directory = require_empty_directory;
+        self
     }
 }
 
@@ -54,6 +70,10 @@ pub enum TrashError {
     NotSupported { message: String },
     #[error("could not move item to Trash: {message}")]
     Io { message: String },
+    #[error("item changed after it was created: {message}")]
+    SourceChanged { message: String },
+    #[error("created directory is no longer empty: {message}")]
+    DirectoryNotEmpty { message: String },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -130,6 +150,46 @@ impl TrashBackend for GioTrashBackend {
             .trash(Some(cancellable))
             .map_err(map_gio_error)
     }
+}
+
+fn validate_expected_source(request: &TrashRequest) -> Result<(), TrashError> {
+    let Some(expected) = request.expected_source_identity else {
+        return Ok(());
+    };
+    let metadata = fs::symlink_metadata(request.source()).map_err(|error| match error.kind() {
+        io::ErrorKind::NotFound => TrashError::NotFound {
+            message: "the original created item is missing".to_owned(),
+        },
+        io::ErrorKind::PermissionDenied => TrashError::PermissionDenied {
+            message: "the original created item cannot be inspected".to_owned(),
+        },
+        _ => TrashError::Io {
+            message: format!("could not inspect the original created item: {error}"),
+        },
+    })?;
+    if !expected.matches(&metadata) {
+        return Err(TrashError::SourceChanged {
+            message: "the current path no longer identifies the item Floe created".to_owned(),
+        });
+    }
+    if request.require_empty_directory && metadata.file_type().is_dir() {
+        let mut entries = fs::read_dir(request.source()).map_err(|error| TrashError::Io {
+            message: format!("could not inspect the created directory: {error}"),
+        })?;
+        if entries
+            .next()
+            .transpose()
+            .map_err(|error| TrashError::Io {
+                message: format!("could not inspect a created directory entry: {error}"),
+            })?
+            .is_some()
+        {
+            return Err(TrashError::DirectoryNotEmpty {
+                message: "it now contains files or folders".to_owned(),
+            });
+        }
+    }
+    Ok(())
 }
 
 struct TrashTask {
@@ -344,7 +404,9 @@ fn execute_task(
         return;
     }
 
-    let command = match backend.trash(&task.request, &task.cancellable) {
+    let result = validate_expected_source(&task.request)
+        .and_then(|()| backend.trash(&task.request, &task.cancellable));
+    let command = match result {
         Ok(()) => JobCommand::Complete,
         Err(TrashError::Cancelled) => JobCommand::Cancel,
         Err(error) => JobCommand::Fail(trash_failure(&error)),
@@ -393,7 +455,10 @@ fn trash_failure(error: &TrashError) -> JobFailure {
     let kind = match error {
         TrashError::PermissionDenied { .. } => JobFailureKind::PermissionDenied,
         TrashError::NotSupported { .. } => JobFailureKind::Unsupported,
-        TrashError::NotFound { .. } | TrashError::Io { .. } => JobFailureKind::Io,
+        TrashError::DirectoryNotEmpty { .. } => JobFailureKind::Conflict,
+        TrashError::NotFound { .. } | TrashError::Io { .. } | TrashError::SourceChanged { .. } => {
+            JobFailureKind::Io
+        }
         TrashError::Cancelled => JobFailureKind::Internal,
     };
     JobFailure::new(kind, error.to_string())
@@ -415,6 +480,7 @@ mod tests {
     };
 
     use floe_core::{JobEventKind, JobState};
+    use tempfile::tempdir;
 
     use super::*;
     use crate::job_manager::ApplicationJobManager;
@@ -655,6 +721,38 @@ mod tests {
                 .map(|record| record.state()),
             Some(JobState::Cancelled)
         );
+    }
+
+    #[test]
+    fn phase_18y_undo_create_revalidates_identity_and_empty_directory() {
+        let fixture = tempdir().expect("temporary trash preflight root");
+        let file = fixture.path().join("created-file");
+        fs::write(&file, b"original").expect("created file fixture");
+        let file_identity = FileIdentity::capture(&file).expect("file identity");
+        let file_request = TrashRequest::new(file.clone())
+            .expect("request")
+            .with_expected_source_identity(file_identity, false);
+        validate_expected_source(&file_request).expect("unchanged created file is undoable");
+        fs::remove_file(&file).expect("remove original fixture");
+        fs::write(&file, b"replacement with a new inode").expect("replacement fixture");
+        assert!(matches!(
+            validate_expected_source(&file_request),
+            Err(TrashError::SourceChanged { .. })
+        ));
+
+        let directory = fixture.path().join("created-directory");
+        fs::create_dir(&directory).expect("created directory fixture");
+        let directory_identity = FileIdentity::capture(&directory).expect("directory identity");
+        let directory_request = TrashRequest::new(directory.clone())
+            .expect("request")
+            .with_expected_source_identity(directory_identity, true);
+        validate_expected_source(&directory_request)
+            .expect("unchanged empty created directory is undoable");
+        fs::write(directory.join("user-data"), b"keep").expect("user data fixture");
+        assert!(matches!(
+            validate_expected_source(&directory_request),
+            Err(TrashError::SourceChanged { .. }) | Err(TrashError::DirectoryNotEmpty { .. })
+        ));
     }
 
     #[test]

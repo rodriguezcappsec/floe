@@ -15,7 +15,10 @@ use floe_core::{
 };
 use thiserror::Error;
 
-use crate::job_manager::{JobManagerError, SharedJobManager};
+use crate::{
+    job_manager::{JobManagerError, SharedJobManager},
+    operation_recovery::{RecoveryCoordinator, RecoveryJournal, RecoveryOperationKind},
+};
 
 pub const DEFAULT_MOVE_QUEUE_CAPACITY: usize = 8;
 
@@ -103,13 +106,28 @@ pub struct MoveExecutor {
 
 impl MoveExecutor {
     pub fn spawn(jobs: SharedJobManager) -> Result<Self, MoveExecutorSpawnError> {
-        Self::spawn_with_capacity(jobs, DEFAULT_MOVE_QUEUE_CAPACITY, None)
+        Self::spawn_with_capacity(jobs, DEFAULT_MOVE_QUEUE_CAPACITY, None, None)
+    }
+
+    pub fn spawn_with_recovery(
+        jobs: SharedJobManager,
+        recovery: RecoveryJournal,
+    ) -> Result<Self, MoveExecutorSpawnError> {
+        Self::spawn_with_recovery_coordinator(jobs, RecoveryCoordinator::from_journal(recovery))
+    }
+
+    pub fn spawn_with_recovery_coordinator(
+        jobs: SharedJobManager,
+        recovery: RecoveryCoordinator,
+    ) -> Result<Self, MoveExecutorSpawnError> {
+        Self::spawn_with_capacity(jobs, DEFAULT_MOVE_QUEUE_CAPACITY, None, Some(recovery))
     }
 
     fn spawn_with_capacity(
         jobs: SharedJobManager,
         capacity: usize,
         start_gate: Option<Receiver<()>>,
+        recovery: Option<RecoveryCoordinator>,
     ) -> Result<Self, MoveExecutorSpawnError> {
         if capacity == 0 {
             return Err(MoveExecutorSpawnError::ZeroCapacity);
@@ -126,7 +144,13 @@ impl MoveExecutor {
                 if let Some(gate) = start_gate {
                     let _ = gate.recv();
                 }
-                run_worker(receiver, worker_jobs, worker_cancellations, worker_outcomes);
+                run_worker(
+                    receiver,
+                    worker_jobs,
+                    worker_cancellations,
+                    worker_outcomes,
+                    recovery,
+                );
             })
             .map_err(MoveExecutorSpawnError::Thread)?;
         Ok(Self {
@@ -261,7 +285,7 @@ impl MoveExecutor {
         capacity: usize,
         start_gate: Receiver<()>,
     ) -> Result<Self, MoveExecutorSpawnError> {
-        Self::spawn_with_capacity(jobs, capacity, Some(start_gate))
+        Self::spawn_with_capacity(jobs, capacity, Some(start_gate), None)
     }
 
     fn stop(&mut self) {
@@ -290,10 +314,13 @@ fn run_worker(
     jobs: SharedJobManager,
     cancellations: Arc<Mutex<HashMap<JobId, MoveCancellation>>>,
     outcomes: Arc<Mutex<HashMap<JobId, MoveOutcome>>>,
+    recovery: Option<RecoveryCoordinator>,
 ) {
     while let Ok(command) = receiver.recv() {
         match command {
-            MoveCommand::Execute(task) => execute_task(task, &jobs, &cancellations, &outcomes),
+            MoveCommand::Execute(task) => {
+                execute_task(task, &jobs, &cancellations, &outcomes, recovery.as_ref())
+            }
             MoveCommand::Shutdown => break,
         }
     }
@@ -304,12 +331,47 @@ fn execute_task(
     jobs: &SharedJobManager,
     cancellations: &Arc<Mutex<HashMap<JobId, MoveCancellation>>>,
     outcomes: &Arc<Mutex<HashMap<JobId, MoveOutcome>>>,
+    recovery: Option<&RecoveryCoordinator>,
 ) {
     if transition(jobs, task.job_id, JobCommand::Start).is_err() {
         lock(cancellations).remove(&task.job_id);
         return;
     }
 
+    let (recovery_kind, recovery_source, recovery_destination) = match &task.operation {
+        MoveOperation::Move(request) => (
+            RecoveryOperationKind::Move,
+            request.source(),
+            request.destination().to_path_buf(),
+        ),
+        MoveOperation::Rename(request) => (
+            RecoveryOperationKind::Rename,
+            request.source(),
+            request
+                .source()
+                .parent()
+                .map(|parent| parent.join(request.new_name()))
+                .unwrap_or_else(|| request.source().to_path_buf()),
+        ),
+    };
+    let recovery_ticket = match recovery
+        .map(|journal| journal.begin(recovery_kind, Some(recovery_source), &recovery_destination))
+    {
+        Some(Ok(ticket)) => Some(ticket),
+        Some(Err(error)) => {
+            let _ = transition(
+                jobs,
+                task.job_id,
+                JobCommand::Fail(JobFailure::new(
+                    JobFailureKind::Internal,
+                    format!("operation recovery could not be prepared: {error}"),
+                )),
+            );
+            lock(cancellations).remove(&task.job_id);
+            return;
+        }
+        None => None,
+    };
     let result = match &task.operation {
         MoveOperation::Move(request) => {
             execute_move_with_progress(request, &task.cancellation, |progress| {
@@ -320,6 +382,20 @@ fn execute_task(
         }
         MoveOperation::Rename(request) => execute_rename(request, &task.cancellation),
     };
+    if let (Some(journal), Some(ticket)) = (recovery, recovery_ticket) {
+        let journal_result = if result.is_ok() {
+            journal.finish(ticket)
+        } else {
+            journal.retain_if_destination_exists(ticket, &recovery_destination)
+        };
+        if let Err(error) = journal_result {
+            tracing::error!(
+                job_id = task.job_id.get(),
+                %error,
+                "move recovery journal could not be finalized"
+            );
+        }
+    }
     let command = match result {
         Ok(outcome) => {
             lock(outcomes).insert(task.job_id, outcome);
@@ -504,6 +580,32 @@ mod tests {
         assert!(events.iter().any(|event| {
             event.job_id() == submission.job_id() && event.kind() == &JobEventKind::Completed
         }));
+    }
+
+    #[test]
+    fn phase_18y_move_success_clears_durable_recovery_record() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("destination");
+        fs::write(&source, b"journaled move").expect("source fixture should be writable");
+        let journal = RecoveryJournal::open_at(fixture.path().join("recovery.bin"))
+            .expect("recovery journal should open");
+        let jobs = jobs();
+        let executor = MoveExecutor::spawn_with_recovery(Arc::clone(&jobs), journal.clone())
+            .expect("move executor should start");
+        let submission = executor
+            .submit_move(move_request(&source, &destination))
+            .expect("move should submit");
+        assert_eq!(
+            wait_for_terminal(&jobs, submission.job_id()),
+            JobState::Completed
+        );
+        assert!(journal.pending().is_empty());
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read(destination).expect("destination"),
+            b"journaled move"
+        );
     }
 
     #[test]

@@ -4757,7 +4757,7 @@ impl BrowserController {
         }
     }
 
-    fn navigate_to_revealing(&self, target: PathBuf) {
+    pub(crate) fn navigate_to_revealing(&self, target: PathBuf) {
         let directory = target
             .parent()
             .map(Path::to_path_buf)

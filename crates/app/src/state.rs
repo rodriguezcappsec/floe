@@ -50,6 +50,7 @@ use crate::{
         MoveCancelError, MoveExecutor, MoveExecutorSpawnError, MoveSubmission, MoveSubmitError,
     },
     operation_control::{BatchId, BatchSnapshot, BatchStatus, duplicate_name, keep_both_name},
+    operation_recovery::{RecoveryCoordinator, RecoveryJournalError, RecoveryStoreHealth},
     permanent_delete_executor::{
         PermanentDeleteCancelError, PermanentDeleteExecutor, PermanentDeleteExecutorSpawnError,
         PermanentDeleteSubmission, PermanentDeleteSubmitError,
@@ -303,6 +304,37 @@ pub struct UndoMove {
     request: MoveRequest,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UndoCreate {
+    original_job_id: JobId,
+    request: TrashRequest,
+}
+
+impl UndoCreate {
+    pub const fn original_job_id(&self) -> JobId {
+        self.original_job_id
+    }
+
+    pub fn request(&self) -> &TrashRequest {
+        &self.request
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UndoSubmission {
+    Move(MoveSubmission),
+    Trash(TrashSubmission),
+}
+
+impl UndoSubmission {
+    pub const fn job_id(self) -> JobId {
+        match self {
+            Self::Move(submission) => submission.job_id(),
+            Self::Trash(submission) => submission.job_id(),
+        }
+    }
+}
+
 impl UndoMove {
     pub const fn original_job_id(&self) -> JobId {
         self.original_job_id
@@ -347,6 +379,7 @@ pub struct TerminalOperation {
     operation: TrackedOperation,
     batch_id: Option<BatchId>,
     undo: Option<UndoMove>,
+    undo_create: Option<UndoCreate>,
 }
 
 impl TerminalOperation {
@@ -372,6 +405,10 @@ impl TerminalOperation {
 
     pub fn undo(&self) -> Option<&UndoMove> {
         self.undo.as_ref()
+    }
+
+    pub fn undo_create(&self) -> Option<&UndoCreate> {
+        self.undo_create.as_ref()
     }
 }
 
@@ -622,6 +659,10 @@ pub enum CopyInteractionError {
     UndoNotAvailable(JobId),
     #[error("undo for job {0:?} was already submitted")]
     UndoAlreadySubmitted(JobId),
+    #[error(transparent)]
+    Recovery(#[from] RecoveryJournalError),
+    #[error("recovery record {0} cannot be retried safely")]
+    RecoveryRetryUnsupported(u64),
 }
 
 #[derive(Debug, Error)]
@@ -672,6 +713,7 @@ pub struct ApplicationState {
     integrity_executor: IntegrityExecutor,
     verified_copy_executor: VerifiedCopyExecutor,
     restore_executor: RestoreExecutor,
+    recovery: Option<RecoveryCoordinator>,
     guardrails: RefCell<GuardrailController>,
     guardrail_policy_worker: RefCell<GuardrailPolicyWorker>,
     guardrail_policy_pending: Cell<Option<u64>>,
@@ -699,11 +741,30 @@ pub struct ApplicationState {
 impl ApplicationState {
     pub fn new() -> Result<Self, ApplicationStateSpawnError> {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
+        #[cfg(not(test))]
+        let recovery = Some(RecoveryCoordinator::load_at(default_recovery_journal_path()));
+        #[cfg(test)]
+        let recovery: Option<RecoveryCoordinator> = None;
         let archive_executor = ArchiveExecutor::spawn(Arc::clone(&jobs))?;
         let batch_rename_executor = BatchRenameExecutor::spawn(Arc::clone(&jobs))?;
-        let copy_executor = CopyExecutor::spawn(Arc::clone(&jobs))?;
-        let create_executor = CreateExecutor::spawn(Arc::clone(&jobs))?;
-        let move_executor = MoveExecutor::spawn(Arc::clone(&jobs))?;
+        let copy_executor = match recovery.clone() {
+            Some(recovery) => {
+                CopyExecutor::spawn_with_recovery_coordinator(Arc::clone(&jobs), recovery)?
+            }
+            None => CopyExecutor::spawn(Arc::clone(&jobs))?,
+        };
+        let create_executor = match recovery.clone() {
+            Some(recovery) => {
+                CreateExecutor::spawn_with_recovery_coordinator(Arc::clone(&jobs), recovery)?
+            }
+            None => CreateExecutor::spawn(Arc::clone(&jobs))?,
+        };
+        let move_executor = match recovery.clone() {
+            Some(recovery) => {
+                MoveExecutor::spawn_with_recovery_coordinator(Arc::clone(&jobs), recovery)?
+            }
+            None => MoveExecutor::spawn(Arc::clone(&jobs))?,
+        };
         let trash_executor = TrashExecutor::spawn(Arc::clone(&jobs))?;
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
         let permission_executor = PermissionExecutor::spawn(Arc::clone(&jobs))?;
@@ -729,6 +790,7 @@ impl ApplicationState {
             integrity_executor,
             verified_copy_executor,
             restore_executor,
+            recovery,
             guardrails: RefCell::new(guardrails),
             guardrail_policy_worker: RefCell::new(guardrail_policy_worker),
             guardrail_policy_pending: Cell::new(None),
@@ -756,6 +818,94 @@ impl ApplicationState {
 
     pub fn guardrail_store_health(&self) -> GuardrailStoreHealth {
         self.guardrails.borrow().store_health()
+    }
+
+    pub fn recovery_store_health(&self) -> RecoveryStoreHealth {
+        self.recovery.as_ref().map_or(
+            RecoveryStoreHealth::Ready { pending_records: 0 },
+            RecoveryCoordinator::health,
+        )
+    }
+
+    pub fn recovery_reviews(
+        &self,
+    ) -> Result<Vec<crate::operation_recovery::RecoveryReview>, RecoveryJournalError> {
+        let Some(recovery) = self.recovery.as_ref() else {
+            return Ok(Vec::new());
+        };
+        recovery.reviews()
+    }
+
+    pub fn resolve_recovery_record(&self, id: u64) -> Result<(), RecoveryJournalError> {
+        match self.recovery.as_ref() {
+            Some(recovery) => recovery.resolve(id),
+            None => Err(RecoveryJournalError::UnknownRecord(id)),
+        }
+    }
+
+    pub fn reset_blocked_recovery_store(&self) -> Result<(), RecoveryJournalError> {
+        match self.recovery.as_ref() {
+            Some(recovery) => recovery.reset_blocked(),
+            None => Ok(()),
+        }
+    }
+
+    pub fn retry_recovery_record(
+        &self,
+        id: u64,
+    ) -> Result<TransferSubmission, CopyInteractionError> {
+        let review = self
+            .recovery_reviews()?
+            .into_iter()
+            .find(|review| review.record().id() == id)
+            .ok_or(RecoveryJournalError::UnknownRecord(id))?;
+        if !review.can_retry() {
+            return Err(CopyInteractionError::RecoveryRetryUnsupported(id));
+        }
+        let record = review.record();
+        let source = record
+            .source()
+            .ok_or(CopyInteractionError::RecoveryRetryUnsupported(id))?
+            .to_path_buf();
+        let submission = match record.kind() {
+            crate::operation_recovery::RecoveryOperationKind::Copy => {
+                let request = CopyRequest::new(
+                    source,
+                    record.destination(),
+                    ConflictPolicy::FailIfExists,
+                    SymlinkPolicy::Preserve,
+                );
+                let submission = self.copy_executor.submit_copy(request.clone())?;
+                self.track(submission.job_id(), TrackedOperation::Copy(request));
+                TransferSubmission::Copy(submission)
+            }
+            crate::operation_recovery::RecoveryOperationKind::Move => {
+                let request =
+                    MoveRequest::new(source, record.destination(), ConflictPolicy::FailIfExists);
+                let submission = self.move_executor.submit_move(request.clone())?;
+                self.track(submission.job_id(), TrackedOperation::Move(request));
+                TransferSubmission::Move(submission)
+            }
+            crate::operation_recovery::RecoveryOperationKind::Rename => {
+                let destination = record.destination();
+                if source.parent() != destination.parent() {
+                    return Err(CopyInteractionError::RecoveryRetryUnsupported(id));
+                }
+                let new_name = destination
+                    .file_name()
+                    .ok_or(CopyInteractionError::RecoveryRetryUnsupported(id))?
+                    .to_os_string();
+                let request = RenameRequest::new(source, new_name, ConflictPolicy::FailIfExists);
+                let submission = self.move_executor.submit_rename(request.clone())?;
+                self.track(submission.job_id(), TrackedOperation::Rename(request));
+                TransferSubmission::Move(submission)
+            }
+            crate::operation_recovery::RecoveryOperationKind::Create => {
+                return Err(CopyInteractionError::RecoveryRetryUnsupported(id));
+            }
+        };
+        self.resolve_recovery_record(id)?;
+        Ok(submission)
     }
 
     pub fn guardrail_store_error_text(&self) -> Option<String> {
@@ -1974,9 +2124,11 @@ impl ApplicationState {
                 .borrow_mut()
                 .clear_completed_move(request.source());
         }
-        if matches!(operation, Some(TrackedOperation::Create(_))) {
-            let _ = self.create_executor.take_outcome(job_id);
-        }
+        let create_outcome = if matches!(operation, Some(TrackedOperation::Create(_))) {
+            self.create_executor.take_outcome(job_id)
+        } else {
+            None
+        };
         let undo = if outcome == TerminalOutcome::Completed {
             self.move_executor
                 .take_outcome(job_id)
@@ -2004,6 +2156,26 @@ impl ApplicationState {
                     }
                     _ => None,
                 })
+        } else {
+            None
+        };
+        let undo_create = if outcome == TerminalOutcome::Completed {
+            create_outcome.and_then(|create_outcome| {
+                let request = match operation.as_ref()? {
+                    TrackedOperation::Create(request) => request,
+                    _ => return None,
+                };
+                let require_empty_directory = matches!(request.kind(), CreateKind::Directory);
+                TrashRequest::new(create_outcome.destination().to_path_buf())
+                    .ok()
+                    .map(|request| UndoCreate {
+                        original_job_id: job_id,
+                        request: request.with_expected_source_identity(
+                            create_outcome.destination_identity(),
+                            require_empty_directory,
+                        ),
+                    })
+            })
         } else {
             None
         };
@@ -2049,6 +2221,7 @@ impl ApplicationState {
                 operation: operation.clone(),
                 batch_id,
                 undo,
+                undo_create,
             });
         }
         if self.batch_active.get() == Some(job_id) {
@@ -2064,11 +2237,10 @@ impl ApplicationState {
 
     pub fn can_undo(&self, job_id: JobId) -> bool {
         !self.resolved_undos.borrow().contains(&job_id)
-            && self
-                .terminal_history
-                .borrow()
-                .iter()
-                .any(|entry| entry.job_id() == job_id && entry.undo().is_some())
+            && self.terminal_history.borrow().iter().any(|entry| {
+                entry.job_id() == job_id
+                    && (entry.undo().is_some() || entry.undo_create().is_some())
+            })
     }
 
     pub fn clear_completed_history(&self) -> usize {
@@ -2094,7 +2266,7 @@ impl ApplicationState {
     pub fn undo_operation(
         &self,
         original_job_id: JobId,
-    ) -> Result<MoveSubmission, CopyInteractionError> {
+    ) -> Result<UndoSubmission, CopyInteractionError> {
         let scope = self.undo_operation_guardrail_scope(original_job_id)?;
         Err(CopyInteractionError::AuthorizationRequired(scope))
     }
@@ -2106,52 +2278,79 @@ impl ApplicationState {
         if self.resolved_undos.borrow().contains(&original_job_id) {
             return Err(CopyInteractionError::UndoAlreadySubmitted(original_job_id));
         }
-        let undo = self
-            .terminal_history
-            .borrow()
+        let history = self.terminal_history.borrow();
+        let entry = history
             .iter()
             .find(|entry| entry.job_id() == original_job_id)
-            .and_then(|entry| entry.undo().cloned())
             .ok_or(CopyInteractionError::UndoNotAvailable(original_job_id))?;
-        destructive_scope_for_move(&undo.request).map_err(CopyInteractionError::from)
+        if let Some(undo) = entry.undo() {
+            return destructive_scope_for_move(&undo.request).map_err(CopyInteractionError::from);
+        }
+        if let Some(undo) = entry.undo_create() {
+            return destructive_scope_for_trash(&undo.request).map_err(CopyInteractionError::from);
+        }
+        Err(CopyInteractionError::UndoNotAvailable(original_job_id))
     }
 
     pub fn undo_operation_authorized(
         &self,
         original_job_id: JobId,
         authorization: GuardrailAuthorizationItem,
-    ) -> Result<MoveSubmission, CopyInteractionError> {
+    ) -> Result<UndoSubmission, CopyInteractionError> {
         if self.resolved_undos.borrow().contains(&original_job_id) {
             return Err(CopyInteractionError::UndoAlreadySubmitted(original_job_id));
         }
-        let undo = self
+        let (undo_move, undo_create) = self
             .terminal_history
             .borrow()
             .iter()
             .find(|entry| entry.job_id() == original_job_id)
-            .and_then(|entry| entry.undo().cloned())
+            .map(|entry| (entry.undo().cloned(), entry.undo_create().cloned()))
             .ok_or(CopyInteractionError::UndoNotAvailable(original_job_id))?;
-        let operation = TrackedOperation::UndoMove {
-            request: undo.request.clone(),
-            original_job_id,
-        };
-        let scope = destructive_scope_for_move(&undo.request)?;
-        let submission = self.consume_then_dispatch(
-            scope,
-            GuardrailAuthorized::new(undo.request, authorization),
-            |request| match self.move_executor.submit_move(request) {
-                Ok(submission) => {
-                    self.track(submission.job_id(), operation);
-                    Ok(submission)
-                }
-                Err(error) => {
-                    if let Some(job_id) = error.job_id() {
-                        self.track(job_id, operation);
+        let submission = if let Some(undo) = undo_move {
+            let operation = TrackedOperation::UndoMove {
+                request: undo.request.clone(),
+                original_job_id,
+            };
+            let scope = destructive_scope_for_move(&undo.request)?;
+            self.consume_then_dispatch(
+                scope,
+                GuardrailAuthorized::new(undo.request, authorization),
+                |request| match self.move_executor.submit_move(request) {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), operation);
+                        Ok(UndoSubmission::Move(submission))
                     }
-                    Err(error.into())
-                }
-            },
-        )?;
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, operation);
+                        }
+                        Err(error.into())
+                    }
+                },
+            )?
+        } else if let Some(undo) = undo_create {
+            let operation = TrackedOperation::Trash(undo.request.clone());
+            let scope = destructive_scope_for_trash(&undo.request)?;
+            self.consume_then_dispatch(
+                scope,
+                GuardrailAuthorized::new(undo.request, authorization),
+                |request| match self.trash_executor.submit_trash(request) {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), operation);
+                        Ok(UndoSubmission::Trash(submission))
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, operation);
+                        }
+                        Err(error.into())
+                    }
+                },
+            )?
+        } else {
+            return Err(CopyInteractionError::UndoNotAvailable(original_job_id));
+        };
         self.resolved_undos.borrow_mut().insert(original_job_id);
         Ok(submission)
     }
@@ -2915,6 +3114,7 @@ impl ApplicationState {
             integrity_executor,
             verified_copy_executor,
             restore_executor,
+            recovery: None,
             guardrails: RefCell::new(guardrails),
             guardrail_policy_worker: RefCell::new(guardrail_policy_worker),
             guardrail_policy_pending: Cell::new(None),
@@ -2970,6 +3170,15 @@ fn default_guardrail_store_path() -> PathBuf {
     glib::user_config_dir()
         .join("floe")
         .join("guardrails-v1.bin")
+}
+
+#[cfg(not(test))]
+fn default_recovery_journal_path() -> PathBuf {
+    let state_root = std::env::var_os("XDG_STATE_HOME")
+        .filter(|value| Path::new(value).is_absolute())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| glib::home_dir().join(".local").join("state"));
+    state_root.join("floe").join("operation-recovery-v1.bin")
 }
 
 pub(crate) fn destructive_scope_for_move(
@@ -4726,6 +4935,62 @@ mod tests {
             state.undo_operation(copy.job_id()),
             Err(CopyInteractionError::UndoNotAvailable(job_id)) if job_id == copy.job_id()
         ));
+    }
+
+    #[test]
+    fn phase_18y_create_undo_uses_identity_checked_recoverable_trash() {
+        let fixture = tempdir().expect("temporary fixture");
+        let state = ApplicationState::new_with_trash_backend(Arc::new(SuccessfulTrashBackend))
+            .expect("application state");
+        let created_path = fixture.path().join("created-file");
+        let created = state
+            .submit_create(CreateRequest::empty_file(&created_path).expect("create request"))
+            .expect("create submission");
+        assert_eq!(
+            wait_for_terminal(&state, created.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(created.job_id(), TerminalOutcome::Completed);
+        assert!(state.can_undo(created.job_id()));
+        let authorization = authorize_scope(
+            &state,
+            state
+                .undo_operation_guardrail_scope(created.job_id())
+                .expect("undo create scope"),
+        );
+        let undo = state
+            .undo_operation_authorized(created.job_id(), authorization)
+            .expect("undo create should submit");
+        assert!(matches!(undo, UndoSubmission::Trash(_)));
+        assert_eq!(
+            wait_for_terminal(&state, undo.job_id()),
+            JobState::Completed
+        );
+
+        let directory = fixture.path().join("created-directory");
+        let created_directory = state
+            .submit_create(CreateRequest::directory(&directory).expect("directory request"))
+            .expect("directory submission");
+        assert_eq!(
+            wait_for_terminal(&state, created_directory.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(created_directory.job_id(), TerminalOutcome::Completed);
+        fs::write(directory.join("new-user-data"), b"keep").expect("new user data");
+        let authorization = authorize_scope(
+            &state,
+            state
+                .undo_operation_guardrail_scope(created_directory.job_id())
+                .expect("undo directory scope"),
+        );
+        let unsafe_undo = state
+            .undo_operation_authorized(created_directory.job_id(), authorization)
+            .expect("guarded undo remains observable as a job");
+        assert_eq!(
+            wait_for_terminal(&state, unsafe_undo.job_id()),
+            JobState::Failed
+        );
+        assert!(directory.join("new-user-data").exists());
     }
 
     #[test]

@@ -220,10 +220,15 @@ Security state must use text and accessible semantics, never color alone. A fail
   user's normal filesystem, environment, session, and network authority, so a
   vulnerable or malicious installed provider can access data beyond the input.
 - Conflict refusal, atomic no-replace rename, source revalidation, and cleanup improve data safety. They are not content-integrity verification, authenticity, crash recovery, or durable transaction guarantees.
-- Current toasts and desktop integration have no complete sensitive-name notification policy. Search indexing, privacy-aware session history, secret clipboard handling, and persistent operation recovery are not implemented.
+- Current toasts and desktop integration have no complete sensitive-name notification policy. Search indexing, privacy-aware session history, and secret clipboard handling are not implemented. Phase 18Y operation recovery is implemented with the bounded trace policy documented below.
 - Permanent deletion cannot remove copies retained by snapshots, backups, journal or CoW history, remote services, storage firmware, or another process. It is ordinary filesystem unlink/removal, not forensic erasure.
 
 ### Implemented integrity and data-loss safety
+
+- Phase 18Y stores at most 1,024 copy, move, rename, and create recovery records in a versioned binary journal at `$XDG_STATE_HOME/floe/operation-recovery-v1.bin` (or the XDG fallback). It preserves exact raw source/destination paths plus operation kind, record state, process ID, and record ID; it does not store content, hashes, passwords, keys, command arguments, or display-derived paths. The parent is owner-only `0700`; the atomic journal is `0600`, no-follow opened, capped at 4 MiB, and removed when empty.
+- A corrupt, symlinked, insecure, oversized, or unavailable recovery store blocks new journaled mutations while ordinary read-only browsing remains available. Explicit Reset removes only the unreadable journal after warning; it never removes a source, destination, partial output, or Trash item.
+- Interrupted records expose current no-follow path presence, Reveal, record-only resolution, and Retry only when a prior-process copy/move/rename source is present and destination absent. Create is not reconstructed from insufficient journal data. Destination-present, inaccessible, source-missing, and current-process work remain review-only. Floe never labels digest or existence as proof of completion and never deletes uncertain output automatically.
+- Completed Create Undo captures the created path identity and routes removal through ordinary recoverable Trash. The executor revalidates identity immediately before GIO Trash; a created directory must also remain empty. Changed/replaced items and directories containing later user data fail without mutation. Replace/Replace All and Undo Trash remain unavailable until backup/rollback and standards-correct reversible semantics are implemented.
 
 Phases 18T–18X implement local integrity fingerprints and manifests, explicit
 integrity baselines, optional verified copy, a verified removable-device
@@ -249,7 +254,7 @@ upload hashes, paths, or content.
 
 ### PLANNED and unavailable today
 
-Portable encryption, recipient encryption, encrypted vaults, recovery keys, privacy sessions, Sensitive Folders, Private Mode, Privacy Lock, privacy-safe caches and history, sandboxed providers, Open Safely, suspicious-file analysis, metadata sanitization, permission auditing, sensitive-content scanning, and operation recovery remain planned. No current Cargo dependency implements cryptography or a sandbox.
+Portable encryption, recipient encryption, encrypted vaults, recovery keys, privacy sessions, Sensitive Folders, Private Mode, Privacy Lock, privacy-safe caches and history, sandboxed providers, Open Safely, suspicious-file analysis, metadata sanitization, permission auditing, sensitive-content scanning remain planned. No current Cargo dependency implements cryptography or a sandbox.
 
 ## Security objectives and intended protections
 

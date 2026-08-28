@@ -2,7 +2,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, VecDeque},
     ffi::{OsStr, OsString},
-    path::Path,
+    path::{Path, PathBuf},
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -24,13 +24,15 @@ use crate::{
     integrity_executor::IntegrityOutcome,
     integrity_ui::{build_integrity_results_dialog, integrity_title, present_integrity},
     operation_control::{BatchId, BatchSnapshot, BatchStatus, TransferEstimate, TransferTelemetry},
+    operation_recovery::{RecoveryPathStatus, RecoveryStoreHealth},
     state::{
         ApplicationState, ConflictDecision, ConflictResolution, TerminalOperation, TerminalOutcome,
         TrackedOperation, VerifiedCopyCompletion, validate_rename_name,
     },
     ui::{
-        OperationHistoryItem, OperationWidgets, build_checksum_results_dialog,
-        build_conflict_dialog, build_operation_history_dialog, build_verified_copy_result_dialog,
+        OperationHistoryItem, OperationWidgets, RecoveryDialogItem, build_checksum_results_dialog,
+        build_conflict_dialog, build_operation_history_dialog, build_recovery_dialog,
+        build_verified_copy_result_dialog,
     },
     verified_copy_executor::{VerifiedCopyResult, present_verified_copy},
 };
@@ -115,6 +117,7 @@ pub struct OperationController {
     visibility_generation: Rc<Cell<u64>>,
     guardrail_environment: Box<dyn Fn() -> PreflightEnvironment>,
     on_operation_completed: Box<dyn Fn(&Path)>,
+    reveal_path: Box<dyn Fn(PathBuf)>,
 }
 
 impl OperationController {
@@ -125,6 +128,7 @@ impl OperationController {
         state: Rc<ApplicationState>,
         guardrail_environment: impl Fn() -> PreflightEnvironment + 'static,
         on_operation_completed: impl Fn(&Path) + 'static,
+        reveal_path: impl Fn(PathBuf) + 'static,
     ) -> Rc<Self> {
         Rc::new(Self {
             window,
@@ -141,6 +145,7 @@ impl OperationController {
             visibility_generation: Rc::new(Cell::new(0)),
             guardrail_environment: Box::new(guardrail_environment),
             on_operation_completed: Box::new(on_operation_completed),
+            reveal_path: Box::new(reveal_path),
         })
     }
 
@@ -179,6 +184,42 @@ impl OperationController {
         });
         self.window.add_action(&history_action);
 
+        let recovery_action = gio::SimpleAction::new("recovery-center", None);
+        let controller = Rc::downgrade(self);
+        recovery_action.connect_activate(move |_, _| {
+            if let Some(controller) = controller.upgrade() {
+                controller.present_recovery_center();
+            }
+        });
+        self.window.add_action(&recovery_action);
+
+        match self.state.recovery_store_health() {
+            RecoveryStoreHealth::Ready { pending_records } if pending_records > 0 => {
+                self.toast_overlay.add_toast(
+                    adw::Toast::builder()
+                        .title(format!(
+                            "{pending_records} interrupted operation{} need review",
+                            if pending_records == 1 { "" } else { "s" }
+                        ))
+                        .button_label("Review")
+                        .action_name("win.recovery-center")
+                        .timeout(0)
+                        .build(),
+                );
+            }
+            RecoveryStoreHealth::Blocked { .. } => {
+                self.toast_overlay.add_toast(
+                    adw::Toast::builder()
+                        .title("Operation recovery is blocked; copy, move, rename, and create will not run")
+                        .button_label("Review")
+                        .action_name("win.recovery-center")
+                        .timeout(0)
+                        .build(),
+                );
+            }
+            RecoveryStoreHealth::Ready { .. } => {}
+        }
+
         let controller = Rc::clone(self);
         glib::timeout_add_local(JOB_POLL_INTERVAL, move || {
             if !controller.window.is_visible() {
@@ -190,6 +231,127 @@ impl OperationController {
             }
             glib::ControlFlow::Continue
         });
+    }
+
+    fn present_recovery_center(self: &Rc<Self>) {
+        if let RecoveryStoreHealth::Blocked { reason } = self.state.recovery_store_health() {
+            let dialog = adw::AlertDialog::builder()
+                .heading("Operation recovery is blocked")
+                .body(format!(
+                    "Floe cannot safely journal new copy, move, rename, or create work: {reason}\n\nReset only if you accept discarding the unreadable recovery records. Existing files are not removed."
+                ))
+                .default_response("cancel")
+                .close_response("cancel")
+                .build();
+            dialog.add_responses(&[("cancel", "Cancel"), ("reset", "Reset Recovery Store")]);
+            dialog.set_response_appearance("reset", adw::ResponseAppearance::Destructive);
+            let controller = Rc::downgrade(self);
+            dialog.connect_response(None, move |dialog, response| {
+                if response == "reset" {
+                    if let Some(controller) = controller.upgrade() {
+                        match controller.state.reset_blocked_recovery_store() {
+                            Ok(()) => controller.show_toast(
+                                "Recovery store reset; protected operations are available again",
+                                6,
+                            ),
+                            Err(error) => controller
+                                .show_toast(&format!("Could not reset recovery store: {error}"), 0),
+                        }
+                    }
+                }
+                dialog.close();
+            });
+            dialog.present(Some(&self.window));
+            return;
+        }
+
+        let reviews = match self.state.recovery_reviews() {
+            Ok(reviews) => reviews,
+            Err(error) => {
+                self.show_toast(&format!("Could not read recovery records: {error}"), 0);
+                return;
+            }
+        };
+        let items = reviews
+            .iter()
+            .map(|review| {
+                let record = review.record();
+                let source_state = recovery_path_status(review.source_status());
+                let destination_state = recovery_path_status(Some(review.destination_status()));
+                RecoveryDialogItem {
+                    id: record.id(),
+                    title: format!("Interrupted {}", record.kind().label()),
+                    detail: format!(
+                        "Source: {source_state} • Destination: {destination_state}\n{} → {}",
+                        record
+                            .source()
+                            .map(|path| path.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "Created item".to_owned()),
+                        record.destination().to_string_lossy()
+                    ),
+                    can_retry: review.can_retry(),
+                    can_resolve: review.can_resolve(),
+                    source: record.source().map(Path::to_path_buf),
+                    destination: record.destination().to_path_buf(),
+                }
+            })
+            .collect::<Vec<_>>();
+        let widgets = build_recovery_dialog(&items);
+        for (index, item) in items.iter().enumerate() {
+            let id = item.id;
+            let controller = Rc::downgrade(self);
+            let dialog = widgets.dialog.clone();
+            widgets.retry_buttons[index].connect_clicked(move |_| {
+                if let Some(controller) = controller.upgrade() {
+                    match controller.state.retry_recovery_record(id) {
+                        Ok(_) => {
+                            controller.show_toast("Interrupted operation queued safely", 5);
+                            dialog.close();
+                        }
+                        Err(error) => {
+                            controller.show_toast(&format!("Could not retry operation: {error}"), 7)
+                        }
+                    }
+                }
+            });
+
+            if let Some(source) = item.source.clone() {
+                let controller = Rc::downgrade(self);
+                let dialog = widgets.dialog.clone();
+                widgets.reveal_source_buttons[index].connect_clicked(move |_| {
+                    if let Some(controller) = controller.upgrade() {
+                        (controller.reveal_path)(source.clone());
+                        dialog.close();
+                    }
+                });
+            }
+            let destination = item.destination.clone();
+            let controller = Rc::downgrade(self);
+            let dialog = widgets.dialog.clone();
+            widgets.reveal_destination_buttons[index].connect_clicked(move |_| {
+                if let Some(controller) = controller.upgrade() {
+                    (controller.reveal_path)(destination.clone());
+                    dialog.close();
+                }
+            });
+
+            let controller = Rc::downgrade(self);
+            let dialog = widgets.dialog.clone();
+            widgets.resolve_buttons[index].connect_clicked(move |_| {
+                if let Some(controller) = controller.upgrade() {
+                    match controller.state.resolve_recovery_record(id) {
+                        Ok(()) => {
+                            controller
+                                .show_toast("Recovery record resolved; no files were changed", 5);
+                            dialog.close();
+                        }
+                        Err(error) => controller
+                            .show_toast(&format!("Could not resolve recovery record: {error}"), 7),
+                    }
+                }
+            });
+        }
+        widgets.dialog.present(Some(&self.window));
     }
 
     fn review_guardrail(
@@ -1443,6 +1605,15 @@ fn history_item(entry: &TerminalOperation, can_undo: bool) -> OperationHistoryIt
         title: operation_title(Some(entry.operation())),
         detail,
         can_undo,
+    }
+}
+
+fn recovery_path_status(status: Option<RecoveryPathStatus>) -> &'static str {
+    match status {
+        None => "Not applicable",
+        Some(RecoveryPathStatus::Missing) => "Missing",
+        Some(RecoveryPathStatus::Present) => "Present",
+        Some(RecoveryPathStatus::Inaccessible) => "Cannot inspect",
     }
 }
 

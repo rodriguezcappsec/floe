@@ -1318,8 +1318,36 @@ Last updated:
 Current phase:
 
 ```text
-Phases 18T–18X — Integrity and Data-Loss Safety (complete)
+Phase 18Y — Operation Recovery (implementation complete; native display gate skipped in this shell)
 ```
+
+Phase 18Y adds a private bounded XDG-state journal written by copy, move,
+rename, and create workers before filesystem mutation. Successful or safely
+absent failed outputs clear their records. Corrupt, symlinked, insecure, or
+unavailable storage leaves browsing usable but blocks journaled mutations until
+the user explicitly resets only the journal. Startup Operation Recovery lists
+current exact-path presence and offers Reveal, record-only resolution, and
+conservative retry for prior-process copy/move/rename only when source is
+present and destination absent; uncertain output is never deleted.
+
+Completed Create Undo now captures the no-follow destination identity and uses
+ordinary recoverable Trash. Identity changes, replacement, or a non-empty
+created directory fail before the GIO Trash backend runs. Replace/Replace All
+and Undo Trash remain unavailable until safe backup/rollback and reversible
+standards semantics exist.
+
+Deterministic Phase 18Y tests, complete `floe-app` tests, formatting, workspace
+check, strict Clippy, workspace tests, native build, E2E preflight, and diff
+hygiene are the required completion evidence. The graphical GTK component gate
+must be recorded as skipped when no usable display exists; never claim it ran.
+The sole recommended next phase is **20A — Settings Center** on
+`phase-20a-settings-center`.
+
+## Historical checkpoints (non-authoritative)
+
+The material below preserves earlier session evidence. Its old “next phase”
+statements are historical only; `docs/ROADMAP.md` and the current status above
+are authoritative.
 
 post-Phase-18X header-options follow-up reorganizes the three-dot Main menu
 through task-based progressive disclosure: Create, Open & Inspect, File
@@ -1349,7 +1377,7 @@ without fake percentages. Formatting, workspace check, strict all-target/all-
 feature Clippy, 480 application tests (475 passed and five intentional GTK
 ignores), 21 application integration tests, 147 core unit tests, six duplicate
 workflow integration tests, native build, diff hygiene, and the focused real GTK
-setup contract pass. Phase 18Y remains the sole recommended next phase.
+setup contract pass. Historical checkpoint: Phase 18Y was then the recommended next phase.
 
 Phase 13G2 follow-up matures duplicate discovery without changing roadmap
 sequencing. **Check for Duplicates…** now opens a native setup window with
@@ -1381,7 +1409,7 @@ dispatches require fresh exact-scope generation-bound single-use permits, and
 corrupt policy storage fails closed. Real USB validation remains skipped
 without disposable lab media.
 
-Phase 18Y — Operation Recovery is the sole recommended next phase. Niri,
+Historical checkpoint: Phase 18Y was then the recommended next phase. Niri,
 Plasma-specific, remote, and Android/MTP integrations remain user-deferred.
 
 A post-Phase-18X Operations Island regression is fixed: retryable integrity
