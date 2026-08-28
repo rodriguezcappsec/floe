@@ -71,8 +71,8 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 | **Preview** | Space-bar Quick Preview for images, bounded text/code, PDF and office documents, audio/video, fonts, and archive listings |
 | **Inspect** | Properties, folder totals, filesystem details, permissions and ownership editing, checksums, EXIF, and media metadata |
 | **Archives** | Create and extract ZIP, tar, tar.gz, tar.xz, and reviewed 7z archives through bounded background jobs |
-| **Work faster** | Unified quick filtering, filename/content search, saved searches, optional indexing, duplicate finding, command palette, customizable shortcuts, optional Vim navigation, batch rename, and customizable context menus |
-| **Desktop integration** | XDG Places, bookmarks, drives and removable media, native mount prompts, GIO Open With/default apps, live file watching, and a truthful desktop-capability status surface |
+| **Work faster** | Unified quick filtering, filename/content search, saved searches, optional indexing, duplicate finding, command palette, customizable shortcuts, optional Vim navigation, batch rename, customizable context menus, and selection-aware custom actions |
+| **Desktop integration** | XDG Places, bookmarks, drives and removable media, native mount prompts, complete GIO Open With/default-app reset workflows, live file watching, and a truthful desktop-capability status surface |
 | **Integrity and data-loss safety** | Saved SHA-256 fingerprints, portable `SHA256SUMS`, explicit local integrity baselines, optional Copy and Verify, verified flush/eject workflow, and exact-path Protected Folder guardrails |
 | **Appearance** | Native, Glass, Frosted, Minimal, and Compact presets; adjustable sidebar density and width; optional translucent floating surfaces |
 
@@ -233,6 +233,11 @@ keyboard-accessible exact-path breadcrumbs, bounded asynchronous local-folder
 completion, `Alt+Down` recent locations over restored application history, and
 single-target command-line folder/file routing without weakening exact-path or
 privacy rules.
+
+**Phase 19B — Associations and Custom Actions** is complete: Open With can
+inspect, set, or reset XDG MIME defaults through a bounded GIO worker. Users can
+configure selection- and MIME-aware external tools from Settings; Floe expands
+exact paths into direct argv items and never sends custom-action text to a shell.
 
 Application chrome now uses a pinned local Phosphor icon subset, while file
 entries switch live between **Floe Color**, **Phosphor Monochrome**, and the

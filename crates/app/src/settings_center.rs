@@ -76,6 +76,7 @@ enum SettingId {
     RecoveryCenter,
     ProtectedFolders,
     PreferredTerminal,
+    CustomActions,
     DesktopIntegration,
     KeyboardShortcuts,
     ContextMenus,
@@ -94,7 +95,7 @@ struct SettingDefinition {
     action: Option<&'static str>,
 }
 
-const SETTINGS: [SettingDefinition; 20] = [
+const SETTINGS: [SettingDefinition; 21] = [
     setting(
         SettingId::AppearancePreset,
         SettingsSection::Appearance,
@@ -206,6 +207,14 @@ const SETTINGS: [SettingDefinition; 20] = [
         "Choose the reviewed terminal application used by Open Terminal Here.",
         "shell console external app",
         Some("win.terminal-preferences"),
+    ),
+    setting(
+        SettingId::CustomActions,
+        SettingsSection::Applications,
+        "File associations & custom actions",
+        "Manage safe external tools; use Open With on a file to inspect, set, or reset its XDG MIME default.",
+        "open with default app mime external tools arguments shell free",
+        Some("win.custom-actions"),
     ),
     setting(
         SettingId::DesktopIntegration,
@@ -583,8 +592,8 @@ fn settings_switch(active: bool, label: &str, description: &str) -> gtk::Switch 
 
 fn control_row(definition: &SettingDefinition, control: &impl IsA<gtk::Widget>) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
-        .title(definition.title)
-        .subtitle(definition.description)
+        .title(escaped_markup(definition.title))
+        .subtitle(escaped_markup(definition.description))
         .build();
     row.add_suffix(control);
     row.set_activatable_widget(Some(control));
@@ -593,10 +602,14 @@ fn control_row(definition: &SettingDefinition, control: &impl IsA<gtk::Widget>) 
 
 fn info_row(definition: &SettingDefinition) -> adw::ActionRow {
     adw::ActionRow::builder()
-        .title(definition.title)
-        .subtitle(definition.description)
+        .title(escaped_markup(definition.title))
+        .subtitle(escaped_markup(definition.description))
         .activatable(false)
         .build()
+}
+
+fn escaped_markup(text: &str) -> gtk::glib::GString {
+    gtk::glib::markup_escape_text(text)
 }
 
 fn index_of<T: Copy + PartialEq>(values: &[T], selected: T) -> usize {
@@ -637,6 +650,16 @@ mod tests {
         assert_eq!(
             matching_settings(""),
             SETTINGS.iter().map(|item| item.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn phase_19b_settings_center_titles_escape_adwaita_markup() {
+        let definition = definition(SettingId::CustomActions);
+        assert_eq!(definition.title, "File associations & custom actions");
+        assert_eq!(
+            escaped_markup(definition.title).as_str(),
+            "File associations &amp; custom actions"
         );
     }
 

@@ -174,6 +174,31 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [F, B, H]
     ),
     command!(
+        "custom-actions",
+        "File Associations & Custom Actions…",
+        "Manage shell-free external tools and learn where to change XDG MIME defaults",
+        Operations,
+        [
+            "applications",
+            "mime",
+            "default",
+            "external",
+            "tools",
+            "right click"
+        ],
+        [],
+        [H]
+    ),
+    command!(
+        "custom-action-chooser",
+        "Run Custom Action…",
+        "Choose an eligible configured external tool for the current selection",
+        Files,
+        ["external", "tool", "application", "selection"],
+        [],
+        [F, H]
+    ),
+    command!(
         "open",
         "Open",
         "Open the selected item",

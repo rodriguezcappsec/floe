@@ -179,9 +179,35 @@ and access to customization remain reachable.
 - **Open With…** chooses an application for this launch.
 - **Set as Default** is an explicit separate choice; using Open With does not
   silently change the file association.
+- **Reset Default** clears the explicit XDG MIME default so the desktop can use
+  its recommendations again. Set/reset work runs on a bounded GIO worker and
+  reports the actual result.
 
 Applications are launched with native file/URI APIs. Floe does not interpolate
 filenames into shell commands.
+
+### Custom actions
+
+Open **Settings → Applications → File Associations & Custom Actions** to add,
+edit, remove, or reorder local external tools. Matching actions appear in the
+selected file's right-click menu, and **Run Custom Action…** is searchable from
+the Command Palette.
+
+Enter one argument per line. A definition must include at least one exact
+placeholder:
+
+- `%f` — first selected path
+- `%F` — every selected path as separate arguments
+- `%d` — parent folder of the first selection
+- `%n` — file name of the first selection
+- `%%` — a literal percent sign
+
+You can limit an action to files, folders, one item or multiple items, and MIME
+patterns such as `image/*` or `application/pdf`. Floe starts the executable
+directly with an `OsString` argv. It does not interpret quoting, `$variables`,
+pipes, redirects, `$(commands)`, or any other shell syntax. Custom actions are
+ordinary unprivileged external applications: they never inherit administrator
+access, vault keys, or remote-resource authority from Floe.
 
 ## Create and organize files
 

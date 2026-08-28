@@ -633,6 +633,8 @@ pub struct BrowserController {
     location_completion_generation: Cell<u64>,
     location_completion_source: RefCell<Option<glib::SourceId>>,
     cli_route_worker: RefCell<Option<CliRouteWorker>>,
+    association_worker: Option<Rc<launcher::AssociationWorker>>,
+    custom_action_worker: RefCell<Option<crate::custom_actions::CustomActionWorker>>,
     application_state: Rc<ApplicationState>,
     bookmark_worker: RefCell<Option<BookmarkWorker>>,
     bookmarks: RefCell<Vec<PathBuf>>,
@@ -759,6 +761,20 @@ impl BrowserController {
             Ok(worker) => Some(worker),
             Err(error) => {
                 tracing::warn!(%error, "could not start command-line route worker");
+                None
+            }
+        };
+        let association_worker = match launcher::AssociationWorker::spawn() {
+            Ok(worker) => Some(Rc::new(worker)),
+            Err(error) => {
+                tracing::warn!(%error, "could not start file-association worker");
+                None
+            }
+        };
+        let custom_action_worker = match crate::custom_actions::CustomActionWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start custom-action worker");
                 None
             }
         };
@@ -907,6 +923,8 @@ impl BrowserController {
             location_completion_generation: Cell::new(0),
             location_completion_source: RefCell::new(None),
             cli_route_worker: RefCell::new(cli_route_worker),
+            association_worker,
+            custom_action_worker: RefCell::new(custom_action_worker),
             application_state,
             bookmark_worker: RefCell::new(bookmarks),
             bookmarks: RefCell::new(Vec::new()),
@@ -1135,6 +1153,8 @@ impl BrowserController {
             };
             controller.poll_location_completion();
             controller.poll_cli_route();
+            controller.poll_association_changes();
+            controller.poll_custom_actions();
             glib::ControlFlow::Continue
         });
         self.location_completion_source.replace(Some(source));
@@ -3555,6 +3575,23 @@ impl BrowserController {
                     }
                 });
         });
+        self.add_action("custom-actions", |controller| {
+            controller.show_custom_actions_editor();
+        });
+        self.add_action("custom-action-chooser", |controller| {
+            controller.show_custom_action_chooser();
+        });
+        let custom_action =
+            gio::SimpleAction::new("run-custom-action", Some(glib::VariantTy::UINT64));
+        let controller = Rc::downgrade(self);
+        custom_action.connect_activate(move |_, parameter| {
+            if let Some(id) = parameter.and_then(glib::Variant::get::<u64>)
+                && let Some(controller) = controller.upgrade()
+            {
+                controller.run_custom_action(id);
+            }
+        });
+        self.widgets.window.add_action(&custom_action);
         let vim_enabled = self.current_preferences.borrow().vim_mode;
         let vim_action =
             gio::SimpleAction::new_stateful("vim-mode", None, &vim_enabled.to_variant());
@@ -5726,6 +5763,203 @@ impl BrowserController {
         settings.search.grab_focus();
     }
 
+    fn show_custom_actions_editor(self: &Rc<Self>) {
+        let actions = self.current_preferences.borrow().custom_actions.clone();
+        let widgets = crate::custom_actions::build_editor(&actions);
+        let controller = Rc::downgrade(self);
+        let dialog = widgets.dialog.downgrade();
+        widgets.add_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+            if let Some(controller) = controller.upgrade() {
+                controller.show_custom_action_form(None);
+            }
+        });
+        for (index, button) in widgets.edit_buttons.iter().enumerate() {
+            let controller = Rc::downgrade(self);
+            let dialog = widgets.dialog.downgrade();
+            button.connect_clicked(move |_| {
+                if let Some(dialog) = dialog.upgrade() {
+                    dialog.close();
+                }
+                if let Some(controller) = controller.upgrade() {
+                    controller.show_custom_action_form(Some(index));
+                }
+            });
+        }
+        for (index, button) in widgets.remove_buttons.iter().enumerate() {
+            let controller = Rc::downgrade(self);
+            let dialog = widgets.dialog.downgrade();
+            button.connect_clicked(move |_| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                if index < controller.current_preferences.borrow().custom_actions.len() {
+                    controller
+                        .current_preferences
+                        .borrow_mut()
+                        .custom_actions
+                        .remove(index);
+                    controller.queue_preferences();
+                    controller.refresh_custom_action_context_menu();
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.close();
+                    }
+                    controller.show_custom_actions_editor();
+                }
+            });
+        }
+        for (buttons, direction) in [
+            (&widgets.move_up_buttons, -1isize),
+            (&widgets.move_down_buttons, 1),
+        ] {
+            for (index, button) in buttons.iter().enumerate() {
+                let controller = Rc::downgrade(self);
+                let dialog = widgets.dialog.downgrade();
+                button.connect_clicked(move |_| {
+                    let Some(controller) = controller.upgrade() else {
+                        return;
+                    };
+                    let target = index.checked_add_signed(direction);
+                    let mut preferences = controller.current_preferences.borrow_mut();
+                    if let Some(target) = target
+                        && target < preferences.custom_actions.len()
+                    {
+                        preferences.custom_actions.swap(index, target);
+                        drop(preferences);
+                        controller.queue_preferences();
+                        controller.refresh_custom_action_context_menu();
+                        if let Some(dialog) = dialog.upgrade() {
+                            dialog.close();
+                        }
+                        controller.show_custom_actions_editor();
+                    }
+                });
+            }
+        }
+        widgets.dialog.present(Some(&self.widgets.window));
+    }
+
+    fn show_custom_action_form(self: &Rc<Self>, index: Option<usize>) {
+        let existing = index.and_then(|index| {
+            self.current_preferences
+                .borrow()
+                .custom_actions
+                .get(index)
+                .cloned()
+        });
+        let id = existing.as_ref().map_or_else(
+            || {
+                self.current_preferences
+                    .borrow()
+                    .custom_actions
+                    .iter()
+                    .map(|action| action.id)
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1)
+                    .max(1)
+            },
+            |action| action.id,
+        );
+        let widgets = Rc::new(crate::custom_actions::build_form(existing.as_ref()));
+        let controller = Rc::downgrade(self);
+        let form = Rc::clone(&widgets);
+        widgets.save.connect_clicked(move |_| {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            match crate::custom_actions::definition_from_form(id, &form) {
+                Ok(action) => {
+                    let mut preferences = controller.current_preferences.borrow_mut();
+                    if let Some(index) = index {
+                        if let Some(slot) = preferences.custom_actions.get_mut(index) {
+                            *slot = action;
+                        } else {
+                            return;
+                        }
+                    } else if preferences.custom_actions.len()
+                        < crate::custom_actions::CUSTOM_ACTION_CAPACITY
+                    {
+                        preferences.custom_actions.push(action);
+                    } else {
+                        form.error.set_label("Custom action limit reached");
+                        form.error.set_visible(true);
+                        return;
+                    }
+                    drop(preferences);
+                    controller.queue_preferences();
+                    controller.refresh_custom_action_context_menu();
+                    form.dialog.close();
+                    controller.show_custom_actions_editor();
+                }
+                Err(error) => {
+                    form.error.set_label(&error.to_string());
+                    form.error.set_visible(true);
+                }
+            }
+        });
+        widgets.dialog.present(Some(&self.widgets.window));
+        widgets.name.grab_focus();
+    }
+
+    fn show_custom_action_chooser(self: &Rc<Self>) {
+        let selected = self
+            .selected_entries
+            .borrow()
+            .iter()
+            .map(|entry| crate::custom_actions::CustomActionSelection::from_entry(entry))
+            .collect::<Vec<_>>();
+        let actions = self
+            .current_preferences
+            .borrow()
+            .custom_actions
+            .iter()
+            .filter(|action| action.eligible(&selected))
+            .cloned()
+            .collect::<Vec<_>>();
+        if actions.is_empty() {
+            self.show_toast("No custom actions match the current selection", 5);
+            return;
+        }
+        let dialog = adw::Dialog::builder()
+            .title("Run Custom Action")
+            .content_width(460)
+            .content_height(420)
+            .build();
+        let list = gtk::ListBox::builder()
+            .selection_mode(gtk::SelectionMode::None)
+            .css_classes(["boxed-list"])
+            .build();
+        for action in actions {
+            let row = gtk::Button::builder()
+                .label(&action.name)
+                .has_frame(false)
+                .action_name("win.run-custom-action")
+                .action_target(&action.id.to_variant())
+                .build();
+            list.append(&row);
+        }
+        let content = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(12)
+            .margin_top(20)
+            .margin_bottom(20)
+            .margin_start(20)
+            .margin_end(20)
+            .build();
+        content.append(
+            &gtk::Label::builder()
+                .label("Eligible external tools")
+                .xalign(0.0)
+                .build(),
+        );
+        content.append(&list);
+        dialog.set_child(Some(&content));
+        dialog.present(Some(&self.widgets.window));
+    }
+
     fn recent_locations(&self) -> Vec<PathBuf> {
         let tabs = self.tabs.borrow();
         recent_session_locations(tabs.active())
@@ -5875,7 +6109,7 @@ impl BrowserController {
             return;
         }
         self.current_preferences.borrow_mut().context_menu = preferences;
-        self.widgets.apply_context_menu_preferences(preferences);
+        self.refresh_custom_action_context_menu();
         self.queue_preferences();
         self.show_toast("Context menus updated", 3);
     }
@@ -6493,6 +6727,88 @@ impl BrowserController {
                 },
                 5,
             ),
+        }
+    }
+
+    fn poll_association_changes(&self) {
+        while let Some(result) = self
+            .association_worker
+            .as_ref()
+            .and_then(|worker| worker.try_result())
+        {
+            match result.result {
+                Ok(()) => {
+                    let message = match result.change {
+                        launcher::AssociationChange::SetDefault {
+                            application_name, ..
+                        } => format!("Default application changed to {application_name}"),
+                        launcher::AssociationChange::Reset { .. } => {
+                            "Default application reset to desktop recommendations".to_owned()
+                        }
+                    };
+                    self.show_toast(&message, 5);
+                }
+                Err(error) => self.show_toast(&error.to_string(), 7),
+            }
+        }
+    }
+
+    fn run_custom_action(&self, id: u64) {
+        let Some(action) = self
+            .current_preferences
+            .borrow()
+            .custom_actions
+            .iter()
+            .find(|action| action.id == id)
+            .cloned()
+        else {
+            self.show_toast("Custom action no longer exists", 5);
+            return;
+        };
+        let entries = self
+            .selected_entries
+            .borrow()
+            .iter()
+            .map(|entry| crate::custom_actions::CustomActionSelection::from_entry(entry))
+            .collect::<Vec<_>>();
+        let request = crate::custom_actions::CustomActionLaunchRequest { action, entries };
+        let result = self
+            .custom_action_worker
+            .borrow()
+            .as_ref()
+            .ok_or(crate::custom_actions::CustomActionLaunchError::Disconnected)
+            .and_then(|worker| worker.try_launch(request));
+        if let Err(error) = result {
+            self.show_toast(&error.to_string(), 7);
+        }
+    }
+
+    fn poll_custom_actions(&self) {
+        while let Some(event) = self
+            .custom_action_worker
+            .borrow()
+            .as_ref()
+            .and_then(crate::custom_actions::CustomActionWorker::try_event)
+        {
+            match event {
+                crate::custom_actions::CustomActionEvent::Started { id, name } => {
+                    tracing::debug!(action_id = id, "custom action started");
+                    self.show_toast(&format!("Started {name}"), 4);
+                }
+                crate::custom_actions::CustomActionEvent::Finished { id, status }
+                    if !status.success() =>
+                {
+                    tracing::debug!(action_id = id, %status, "custom action exited unsuccessfully");
+                    self.show_toast(&format!("Custom action exited with {status}"), 7);
+                }
+                crate::custom_actions::CustomActionEvent::Finished { id, .. } => {
+                    tracing::debug!(action_id = id, "custom action completed");
+                }
+                crate::custom_actions::CustomActionEvent::Failed { id, error } => {
+                    tracing::debug!(action_id = id, "custom action failed to start or complete");
+                    self.show_toast(&error.to_string(), 7);
+                }
+            }
         }
     }
 
@@ -7162,6 +7478,7 @@ impl BrowserController {
         let display_name = entry.display_name_lossy();
         let window = self.widgets.window.clone();
         let toast_overlay = self.widgets.toast_overlay.clone();
+        let association_worker = self.association_worker.clone();
         launcher::launch_default(entry.path(), move |result| {
             if !window.is_visible() {
                 return;
@@ -7169,7 +7486,13 @@ impl BrowserController {
             match result {
                 Ok(launcher::DefaultLaunch::Launched) => {}
                 Ok(launcher::DefaultLaunch::NoDefault(options)) => {
-                    present_or_report_open_with(&window, &toast_overlay, &display_name, options);
+                    present_or_report_open_with(
+                        &window,
+                        &toast_overlay,
+                        &display_name,
+                        options,
+                        association_worker,
+                    );
                 }
                 Err(error) => {
                     tracing::warn!(%error, "default application launch failed");
@@ -7206,6 +7529,7 @@ impl BrowserController {
         let folder_tab = folder_tab_eligible(&selected_entries, self.trash_active.get());
         let duplicate_eligible = !self.trash_active.get();
         self.selected_entries.replace(selected_entries);
+        self.refresh_custom_action_context_menu();
         self.set_open_enabled(state.single);
         self.set_open_with_enabled(state.open_with);
         self.set_properties_enabled(!self.selected_entries.borrow().is_empty());
@@ -7270,6 +7594,24 @@ impl BrowserController {
         self.update_terminal_action_enabled();
         self.update_guardrail_action_states();
         self.refresh_status();
+    }
+
+    fn refresh_custom_action_context_menu(&self) {
+        let selected = self
+            .selected_entries
+            .borrow()
+            .iter()
+            .map(|entry| crate::custom_actions::CustomActionSelection::from_entry(entry))
+            .collect::<Vec<_>>();
+        let preferences = self.current_preferences.borrow();
+        let eligible = preferences
+            .custom_actions
+            .iter()
+            .filter(|action| action.eligible(&selected))
+            .cloned()
+            .collect::<Vec<_>>();
+        self.widgets
+            .apply_context_menu_preferences(preferences.context_menu, &eligible);
     }
 
     fn update_split_action_states(&self) {
@@ -8385,6 +8727,7 @@ impl BrowserController {
         let selection = self.widgets.selection.clone();
         let visible = self.visible_entries.borrow().clone();
         let storage = self.current_storage_facts.get();
+        let association_worker = self.association_worker.clone();
         let action = self
             .widgets
             .window
@@ -8417,9 +8760,13 @@ impl BrowserController {
                             .build(),
                     );
                 }
-                Ok(options) => {
-                    present_or_report_open_with(&window, &toast_overlay, &display_name, options)
-                }
+                Ok(options) => present_or_report_open_with(
+                    &window,
+                    &toast_overlay,
+                    &display_name,
+                    options,
+                    association_worker,
+                ),
                 Err(error) => {
                     tracing::warn!(%error, "Open With application discovery failed");
                     toast_overlay.add_toast(
@@ -11007,6 +11354,7 @@ fn present_or_report_open_with(
     toast_overlay: &adw::ToastOverlay,
     display_name: &str,
     options: launcher::OpenWithOptions,
+    association_worker: Option<Rc<launcher::AssociationWorker>>,
 ) {
     if options.applications.is_empty() {
         toast_overlay.add_toast(
@@ -11018,7 +11366,13 @@ fn present_or_report_open_with(
         return;
     }
 
-    present_open_with_dialog(window, toast_overlay, display_name, options);
+    present_open_with_dialog(
+        window,
+        toast_overlay,
+        display_name,
+        options,
+        association_worker,
+    );
 }
 
 fn present_open_with_dialog(
@@ -11026,6 +11380,7 @@ fn present_open_with_dialog(
     toast_overlay: &adw::ToastOverlay,
     display_name: &str,
     options: launcher::OpenWithOptions,
+    association_worker: Option<Rc<launcher::AssociationWorker>>,
 ) {
     let chooser = ui::build_open_with_dialog(display_name, &options);
     let applications = Rc::new(options.applications);
@@ -11094,34 +11449,31 @@ fn present_open_with_dialog(
         .connect_row_activated(move |_, _| open_button.emit_clicked());
 
     let list = chooser.list.clone();
-    let rows = chooser.rows.clone();
     let default_label = chooser.default_label.clone();
     let applications_for_default = Rc::clone(&applications);
-    let default_for_change = Rc::clone(&default_index);
-    let content_type = options.content_type;
+    let content_type = options.content_type.clone();
     let toast_for_default = toast_overlay.clone();
+    let worker_for_default = association_worker.clone();
     chooser.set_default_button.connect_clicked(move |button| {
         let Some(index) = selected_application_index(&list, applications_for_default.len()) else {
             return;
         };
         let application = &applications_for_default[index];
-        match launcher::set_default_for_type(&application.app_info, &content_type) {
+        match launcher::queue_default_for_type(
+            worker_for_default.as_deref(),
+            &application.app_info,
+            &application.display_name,
+            &content_type,
+        ) {
             Ok(()) => {
-                default_for_change.set(Some(index));
                 button.set_sensitive(false);
-                default_label.set_label(&format!("Current default: {}", application.display_name));
-                for (row_index, row) in rows.iter().enumerate() {
-                    if let Some(row) = row.downcast_ref::<adw::ActionRow>() {
-                        row.set_subtitle(if row_index == index {
-                            "Current default"
-                        } else {
-                            ""
-                        });
-                    }
-                }
+                default_label.set_label("Applying default change…");
                 toast_for_default.add_toast(
                     adw::Toast::builder()
-                        .title(format!("{} is now the default", application.display_name))
+                        .title(format!(
+                            "Changing the default to {}…",
+                            application.display_name
+                        ))
                         .timeout(4)
                         .build(),
                 );
@@ -11135,6 +11487,35 @@ fn present_open_with_dialog(
                         .build(),
                 );
             }
+        }
+    });
+
+    let reset_content_type = options.content_type;
+    let worker_for_reset = association_worker;
+    let toast_for_reset = toast_overlay.clone();
+    let dialog_for_reset = chooser.dialog.downgrade();
+    chooser.reset_default_button.connect_clicked(move |button| {
+        let result = worker_for_reset
+            .as_ref()
+            .ok_or(launcher::AssociationChangeError::Disconnected)
+            .and_then(|worker| {
+                worker.try_change(launcher::AssociationChange::Reset {
+                    content_type: reset_content_type.clone(),
+                })
+            });
+        match result {
+            Ok(()) => {
+                button.set_sensitive(false);
+                if let Some(dialog) = dialog_for_reset.upgrade() {
+                    dialog.close();
+                }
+            }
+            Err(error) => toast_for_reset.add_toast(
+                adw::Toast::builder()
+                    .title(error.to_string())
+                    .timeout(7)
+                    .build(),
+            ),
         }
     });
 

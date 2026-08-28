@@ -256,6 +256,10 @@ on filesystems that synthesize execute bits while retaining executable fallback
 for unknown or extensionless executables. These corrections do not advance or
 broaden Phase 15.
 
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 14B — Privileged local browsing | NEXT | `phase-14b-privileged-local-browsing` | Open a local folder through a typed GIO/GVfs `admin://` provider with polkit-owned authentication and persistent visible authority state. | `docs/PRIVILEGED_ACCESS.md`; never elevate Floe, capture passwords, accept arbitrary admin URIs, reuse local `PathBuf` jobs, expose privileged resources to previews/terminals/custom actions, or silently fall back. |
+
 ### Phase 15 — Niri integration
 
 Status: **DEFERRED**
@@ -332,7 +336,7 @@ and add hostile-input and cache/notification/history leak tests.
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
 | 19A — Git awareness | PLANNED | `phase-19a-git-awareness` | Cheap opt-in repository root, branch, status badges and relative-path actions. | 6T/11E; no cost outside repositories; verify large repos and missing Git. |
-| 19B — Associations and custom actions | NEXT | `phase-19b-associations-custom-actions` | Inspect/set/clear XDG MIME defaults plus context/palette file-type actions with safe argv and eligibility. | 5D/11A/14/18A; application-owned validation, explicit changes, no shell or vault-key access; verify hostile paths, missing apps, rollback, and capabilities. |
+| 19B — Associations and custom actions | COMPLETE | `phase-19b-associations-custom-actions` | Inspect/set/reset XDG MIME defaults plus context/palette file-type actions with safe argv and eligibility. | Verified bounded GIO mutation worker, explicit result feedback, version-13 private preference records, 32-action/128-selection limits, exact raw argv placeholders, MIME/file/folder/multi-selection eligibility, direct fixed-capacity child launch/reaping, native editor/context/palette flows; no shell, remote, privileged, secret, or plugin authority. |
 | 19C — Customization | PLANNED | `phase-19c-customization` | Theme tokens, templates, editor, compare and Share tools. | Appearance/12D/19B; no plugin runtime; verify validation, rollback and upgrades. |
 
 A general plugin runtime is **DEFERRED** until demonstrated demand and a

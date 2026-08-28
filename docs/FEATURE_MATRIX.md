@@ -39,7 +39,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Open when no default is registered | `COMPLETE` | 6I | Normal Open reuses the existing chooser rather than failing at a dead end. |
 | One-time Open With | `COMPLETE` | 5D | Compatible GIO applications are shown default-first without changing associations. |
 | Explicit Set as Default | `COMPLETE` | 5D | Association changes are separate from one-time Open and report failures. |
-| Full association management | `PLANNED` | 19/20 | Needs inspect, set, clear, and user-added external-tool management without shell interpolation. |
+| Full association management | `COMPLETE` | 19B | Open With inspects current, recommended, and all apps and explicitly queues set or reset of the XDG MIME default; missing apps and desktop errors remain visible. |
 | Create folder | `COMPLETE` | 6Q | Validated explicit naming submits a no-overwrite directory request through the bounded create executor. |
 | Create empty file | `COMPLETE` | 6Q | Validated explicit naming uses atomic create-new semantics through the bounded create executor. |
 | Create New templates | `COMPLETE` | 6Q/12D | Native asynchronous selection starts at XDG Templates when available and copies through the create executor; discovery, categories, and template management remain Phase 12D. || One bounded worker discovers up to 256 no-follow regular XDG template files with exact paths; native empty/error/truncated states and folder management feed no-overwrite creation, and created copies lose execute bits without source changes. |
@@ -634,9 +634,9 @@ advanced predicates and explicit Match Case control.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Custom context actions | `PLANNED` | 19 | Capability-aware, failure-contained actions with safe executable/argument representation. |
+| Custom context actions | `COMPLETE` | 19B | Up to 32 ordered actions use direct executable plus one-argv-item-per-line definitions, exact placeholders, selection/MIME eligibility, and right-click/Command Palette access. |
 | Custom commands/scripts | `DEFERRED` | 19 | Never shell-interpolate filenames; security permissions are required before general scripting. |
-| File-type actions and external tools | `PLANNED` | 19 | User-added actions are separate from MIME default application choices. |
+| File-type actions and external tools | `COMPLETE` | 19B | User-added file/folder/MIME/single/multiple rules remain separate from MIME defaults; at most eight direct child processes run and complete off GTK without a shell. |
 | Templates | `PARTIAL` | 6Q/12D/19 | Safe native template selection and bounded no-overwrite creation are implemented; discovery, management, and broader extensibility remain planned. || Safe bounded XDG discovery, native selection/management, non-executable no-overwrite creation, and post-refresh naming are complete; user-defined categories and broader extensibility remain Phase 19. |
 | Share actions | `PLANNED` | 14/19 | Phase 14 reports generic Share availability conservatively but transmits nothing; an explicit action remains future standards/portal work. |
 | Plugin runtime | `DEFERRED` | 19 | Only after demonstrated demand and capability/isolation design; no automatic vault access. |

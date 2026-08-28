@@ -1318,6 +1318,72 @@ Last updated:
 Current phase:
 
 ```text
+Phase 19B — Associations and Custom Actions (complete)
+```
+
+Completed this session:
+
+* Added bounded asynchronous GIO set/reset handling to the existing Open With
+  workflow with explicit queued, success, and failure feedback.
+* Added private, versioned, bounded custom-action definitions with file/folder,
+  single/multiple, and MIME eligibility plus exact `%f`, `%F`, `%d`, `%n`, and
+  `%%` whole-argument expansion into direct `OsString` argv.
+* Added fixed-capacity external-process launching and reaping without a shell,
+  a Settings editor, eligible context-menu actions, and Command Palette access.
+* Added README and User Guide instructions plus roadmap, capability, and
+  privacy/security documentation. A native-smoke Adwaita ampersand-markup bug
+  was fixed and covered by a regression test.
+
+Verified:
+
+* Formatting, workspace check, strict all-target/all-feature Clippy, workspace
+  tests, native build, diff hygiene, focused Phase 19B tests, and the real-GTK
+  accessibility component test pass.
+* The application binary has 520 tests: 512 passed and eight intentional
+  graphical ignores; app integration, duplicate workflow, and 150 core tests
+  pass. E2E harness checks report three passed and the native Dogtail suite
+  skipped because Python Dogtail/pyatspi are unavailable.
+* Isolated persistent-data Wayland smoke exported all three Phase 19B window
+  actions with expected signatures, opened the editor, answered `Peer.Ping`,
+  and quit cleanly. Only the host RADV and unavailable AT-SPI warnings remain.
+
+Important decisions:
+
+* Custom actions are unprivileged explicit external tools, not plugins,
+  administrator jobs, a sandbox, or shell commands. They receive only selected
+  exact local paths allowed by their reviewed eligibility rules.
+* Privileged resources remain unavailable to previews, terminals, custom
+  actions, plugins, and ordinary local `PathBuf` mutation jobs.
+
+Known issues:
+
+* Full Dogtail/AT-SPI native workflows could not run in this environment because
+  their Python bindings are unavailable; the real-GTK component gate did run.
+
+Deferred:
+
+* Niri, KDE-specific, Android/MTP, remote browsing, general plugin runtime, and
+  general scripting remain deferred according to `docs/ROADMAP.md`.
+
+Recommended next task:
+
+Create `phase-14b-privileged-local-browsing`, reread all of
+`docs/PRIVILEGED_ACCESS.md`, and implement only its typed GIO/GVfs `admin://`
+provider and polkit-owned authentication gates. Never elevate the Floe process,
+capture passwords, accept arbitrary administrator URIs, or reuse local
+`PathBuf` jobs for privileged resources.
+
+---
+
+# Archived Project Status (through Phase 7G)
+
+Last updated:
+
+`2026-08-28`
+
+Current phase:
+
+```text
 Phase 7G — Navigation Upgrades (complete)
 ```
 

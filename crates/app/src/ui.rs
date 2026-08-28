@@ -16,6 +16,7 @@ use gtk::{gio, glib};
 use crate::{
     appearance::{Appearance, AppearanceManager, AppearancePreset},
     context_menu::{ContextMenuGroup, ContextMenuPreferences},
+    custom_actions::CustomActionDefinition,
     devices::{
         DeviceAction, DeviceActionStatus, DeviceActions, DeviceMountState, DeviceRootKind,
         DeviceSnapshot,
@@ -840,9 +841,9 @@ pub struct OpenWithDialogWidgets {
     pub dialog: adw::Dialog,
     pub default_label: gtk::Label,
     pub list: gtk::ListBox,
-    pub rows: Vec<gtk::ListBoxRow>,
     pub cancel_button: gtk::Button,
     pub set_default_button: gtk::Button,
+    pub reset_default_button: gtk::Button,
     pub open_button: gtk::Button,
 }
 
@@ -1453,9 +1454,13 @@ impl BrowserWidgets {
         self.grid_background_menu.popdown();
     }
 
-    pub fn apply_context_menu_preferences(&self, preferences: ContextMenuPreferences) {
+    pub fn apply_context_menu_preferences(
+        &self,
+        preferences: ContextMenuPreferences,
+        custom_actions: &[CustomActionDefinition],
+    ) {
         self.popdown_context_menus();
-        populate_file_context_menu_model(&self.file_context_model, preferences);
+        populate_file_context_menu_model(&self.file_context_model, preferences, custom_actions);
         populate_background_context_menu_model(&self.background_context_model, preferences);
     }
 
@@ -3398,7 +3403,6 @@ pub fn build_open_with_dialog(file_name: &str, options: &OpenWithOptions) -> Ope
         .activate_on_single_click(false)
         .build();
     list.add_css_class("boxed-list");
-    let mut rows = Vec::with_capacity(options.applications.len());
     let mut default_row = None;
     for (index, application) in options.applications.iter().enumerate() {
         let row = adw::ActionRow::builder()
@@ -3421,7 +3425,6 @@ pub fn build_open_with_dialog(file_name: &str, options: &OpenWithOptions) -> Ope
         if index == 0 && default_row.is_none() {
             default_row = Some(list_row.clone());
         }
-        rows.push(list_row);
     }
     if let Some(row) = default_row.as_ref() {
         list.select_row(Some(row));
@@ -3435,6 +3438,19 @@ pub fn build_open_with_dialog(file_name: &str, options: &OpenWithOptions) -> Ope
         .vexpand(true)
         .build();
     let cancel_button = gtk::Button::with_label("Cancel");
+    let reset_default_button = gtk::Button::with_label("Reset Default");
+    reset_default_button.set_sensitive(
+        options
+            .applications
+            .iter()
+            .any(|application| application.is_default),
+    );
+    reset_default_button.update_property(&[
+        gtk::accessible::Property::Label("Reset default application"),
+        gtk::accessible::Property::Description(
+            "Clear the explicit desktop default for this file type",
+        ),
+    ]);
     let set_default_button = gtk::Button::with_label("Set as Default");
     let open_button = gtk::Button::with_label("Open");
     open_button.add_css_class("suggested-action");
@@ -3444,6 +3460,7 @@ pub fn build_open_with_dialog(file_name: &str, options: &OpenWithOptions) -> Ope
         .halign(gtk::Align::End)
         .build();
     actions.append(&cancel_button);
+    actions.append(&reset_default_button);
     actions.append(&set_default_button);
     actions.append(&open_button);
 
@@ -3473,9 +3490,9 @@ pub fn build_open_with_dialog(file_name: &str, options: &OpenWithOptions) -> Ope
         dialog,
         default_label,
         list,
-        rows,
         cancel_button,
         set_default_button,
+        reset_default_button,
         open_button,
     }
 }
@@ -5039,11 +5056,15 @@ fn folder_filter_mode_index(mode: &str) -> Option<usize> {
 
 fn build_configured_file_context_menu_model(preferences: ContextMenuPreferences) -> gio::Menu {
     let menu = gio::Menu::new();
-    populate_file_context_menu_model(&menu, preferences);
+    populate_file_context_menu_model(&menu, preferences, &[]);
     menu
 }
 
-fn populate_file_context_menu_model(menu: &gio::Menu, preferences: ContextMenuPreferences) {
+fn populate_file_context_menu_model(
+    menu: &gio::Menu,
+    preferences: ContextMenuPreferences,
+    custom_actions: &[CustomActionDefinition],
+) {
     menu.remove_all();
 
     let primary = gio::Menu::new();
@@ -5059,6 +5080,18 @@ fn populate_file_context_menu_model(menu: &gio::Menu, preferences: ContextMenuPr
     );
     primary.append(Some("Reveal in Folder"), Some("win.reveal-in-folder"));
     menu.append_section(None, &primary);
+    if !custom_actions.is_empty() {
+        let tools = gio::Menu::new();
+        for action in custom_actions {
+            let item = gio::MenuItem::new(Some(&action.name), None);
+            item.set_action_and_target_value(
+                Some("win.run-custom-action"),
+                Some(&action.id.to_variant()),
+            );
+            tools.append_item(&item);
+        }
+        menu.append_section(Some("Custom Actions"), &tools);
+    }
 
     if preferences.is_visible(ContextMenuGroup::SplitView) {
         let opposite = gio::Menu::new();

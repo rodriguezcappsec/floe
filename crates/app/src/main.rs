@@ -16,6 +16,7 @@ mod content_search;
 mod context_menu;
 pub mod copy_executor;
 pub mod create_executor;
+mod custom_actions;
 pub mod devices;
 mod drag_drop;
 mod duplicate_finder;

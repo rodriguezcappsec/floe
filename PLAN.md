@@ -1,3 +1,45 @@
+# Plan: Floe Phase 19B — Associations and Custom Actions
+
+## Contract
+
+Complete local XDG MIME association management and application-owned external
+tools without a shell boundary. Reuse GIO `AppInfo` for discovery, launch,
+set-default, and reset operations. Store only bounded validated action
+definitions; expand reviewed placeholders directly into `OsString` argv and
+spawn the selected executable off GTK. Preserve exact selected `PathBuf`
+identity, explicit user intent, truthful failure feedback, and existing
+selection/context/command-palette ownership.
+
+This phase does not implement plugins, scripts downloaded from the network,
+environment-variable expansion, shell syntax, privileged access, vault keys,
+remote files, or administrator access.
+
+## Implementation order
+
+1. Freeze bounded association request/result and custom-action definition,
+   eligibility, persistence, placeholder, argv, and launch contracts.
+2. Move GIO association mutation and external process launch to bounded
+   application workers; validate every target and executable without lossy path
+   reconstruction or shell interpolation.
+3. Add one Applications & Tools editor, complete association inspect/set/reset
+   flow, and selection-aware context-menu/command-palette actions.
+4. Add hostile raw-path, malformed-store, missing-app, reset/default, argv,
+   capacity, accessibility, and failure regression tests.
+5. Run full workspace/native gates, update README/User Guide/security/status
+   ledgers, mark exactly one next phase, publish/merge, and stop before
+   administrator access.
+
+## Status
+
+**COMPLETE.** Phase 19B passes bounded association/custom-action, persistence,
+raw-path/argv, real-GTK accessibility, native Wayland/D-Bus lifecycle, full
+workspace, E2E harness, documentation, and diff-hygiene gates. The native smoke
+also found and fixed an unescaped Adwaita settings-row ampersand, now covered by
+a regression test. Exactly Phase 14B — Privileged Local Browsing is `NEXT`;
+stop before implementing it on this branch.
+
+---
+
 # Plan: Floe Phase 7G — Navigation Upgrades
 
 ## Contract
