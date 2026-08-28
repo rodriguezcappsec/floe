@@ -1,3 +1,54 @@
+# Gates: Floe Phase 19B — Associations and Custom Actions
+
+Scope: local XDG MIME defaults and explicitly configured unprivileged external
+tools only; no shell, plugins, remote targets, secrets, or administrator access.
+
+- [x] A1: Association discovery preserves exact local target/type identity,
+  reports default/recommended/all applications, and bounded worker requests set
+  or reset the XDG MIME default with explicit result/error state.
+  CHECK: `cargo test -p floe-app phase_19b_association -- --nocapture`
+  EVIDENCE: Two focused association tests pass bounded explicit set/reset requests
+  and missing-application failure without mutation. The worker resolves desktop
+  IDs and applies GIO changes off GTK; Open With reports queued and final result
+  states rather than claiming early success.
+- [x] A2: Custom-action definitions and private persistence are bounded,
+  versioned, atomic, permission-checked, reject malformed/unsupported/oversized
+  input, and never contain implicit shell or environment expansion.
+  CHECK: `cargo test -p floe-app phase_19b_custom_action_store -- --nocapture`
+  EVIDENCE: Two focused store tests pass version-13 round-trip and hostile record
+  rejection. Definitions reuse the private atomic preference worker and enforce
+  32 actions, 32 argv items, 16 MIME patterns, 1,024-character fields, valid IDs,
+  whole placeholders, and duplicate-ID replacement.
+- [x] A3: Eligibility and placeholder expansion preserve raw `OsString` path
+  identity, apply reviewed single/multi/folder/MIME rules, build argv directly,
+  and spawn with fixed capacity without `sh -c`, `bash`, `eval`, or interpolation.
+  CHECK: `cargo test -p floe-app phase_19b_custom_action_launch -- --nocapture`
+  EVIDENCE: Three focused launch tests pass MIME/target/multiple eligibility,
+  non-UTF-8 `OsString` argv identity, literal shell metacharacters, direct spawn,
+  bounded queue/children, and start/finish lifecycle events. No shell is invoked.
+- [x] A4: Applications & Tools UI supports add/edit/remove/reorder/testable action
+  definitions, association set/reset, selection-aware context menu and command
+  palette visibility, accessible copy, explicit changes, and truthful failures.
+  CHECK: `cargo test -p floe-app phase_19b_custom_action_ui -- --nocapture`
+  EVIDENCE: Plain-label UI test and ignored real-GTK accessibility test pass.
+  Settings editor, context-menu eligibility, Command Palette chooser, Open With
+  set/reset feedback, stable roles/labels, and the Adwaita ampersand-markup
+  regression are covered. Native D-Bus lists `custom-actions`,
+  `custom-action-chooser`, and typed `run-custom-action`; opening the editor,
+  `Peer.Ping`, Quit, exit 0, and a clean second launch after the markup fix pass.
+- [x] A5: Formatting, workspace check, strict Clippy, workspace tests, native
+  build, real-GTK/E2E/Wayland gates, diff hygiene, README/User Guide/security and
+  project ledgers, exactly one next phase pass.
+  EVIDENCE: `cargo fmt --all -- --check`, workspace check, strict all-target/all-
+  feature Clippy, workspace tests, native build, and `git diff --check` pass. The
+  application binary has 520 tests: 512 passed and eight intentional graphical
+  ignores; app integration, duplicate workflow, and 150 core tests pass. E2E
+  harness reports three passed and one native suite skipped because Python
+  Dogtail/pyatspi are unavailable. README, User Guide, Roadmap, Feature Matrix,
+  Privacy/Security, plan/status ledgers are updated and exactly Phase 14B is NEXT.
+
+---
+
 # Gates: Floe Phase 7G — Navigation Upgrades
 
 Scope: exact local navigation improvements only; no remote, association,

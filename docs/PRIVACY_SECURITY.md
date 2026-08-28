@@ -311,6 +311,24 @@ Protected assets include file contents; names, directory structure, paths, URIs,
 
 The normal desktop user's kernel and session are trusted while sensitive plaintext is in use. Offline-storage attackers are in the planned encryption threat model; a compromised live user session is not.
 
+### Phase 19B external-action boundary
+
+Custom actions are explicit unprivileged process launches, not plugins,
+sandboxes, Open Safely, or administrator jobs. Floe persists at most 32
+definitions in its existing private atomic preference file: user-visible name,
+executable, one argument per record item, file/folder and MIME eligibility, and
+multi-selection policy. Definitions cannot contain environment assignments or
+request secrets. They receive only the exact selected local paths represented
+by reviewed whole-argument placeholders.
+
+Floe never invokes `sh`, `bash`, `eval`, or a command-string parser for these
+actions. `$variables`, quoting, pipes, redirects, and command substitutions are
+ordinary literal argv text. A fixed-capacity worker starts at most eight child
+processes, reaps completed children while Floe is open, and never exposes
+privileged GIO resources, vault keys, decrypted vault state, remote authority,
+or administrator URIs. The external program still runs with the normal user's
+ambient session authority and is not sandboxed; users must trust tools they add.
+
 ## Non-negotiable cryptographic rules
 
 - No homemade cipher, KDF, MAC, signature scheme, hash construction, nonce scheme, casual container format, or proprietary crypto for branding.

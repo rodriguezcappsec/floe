@@ -27,7 +27,11 @@ use crate::view::{
 use crate::{
     appearance::AppearancePreset, iconography::EntryIconStyle, terminal::TerminalProviderId,
 };
-use crate::{context_menu::ContextMenuPreferences, keybindings::KeybindingOverrides};
+use crate::{
+    context_menu::ContextMenuPreferences,
+    custom_actions::{CUSTOM_ACTION_CAPACITY, CustomActionDefinition},
+    keybindings::KeybindingOverrides,
+};
 
 const PREFERENCE_QUEUE_CAPACITY: usize = 1;
 const PREFERENCE_FILE_NAME: &str = "view-preferences.conf";
@@ -97,6 +101,7 @@ pub struct ViewPreferences {
     pub icon_style: EntryIconStyle,
     pub saved_searches: SavedSearchCatalog,
     pub search_index_enabled: bool,
+    pub custom_actions: Vec<CustomActionDefinition>,
     folder_views: Vec<FolderViewOverride>,
 }
 
@@ -122,6 +127,7 @@ impl Default for ViewPreferences {
             icon_style: EntryIconStyle::FloeColor,
             saved_searches: SavedSearchCatalog::default(),
             search_index_enabled: false,
+            custom_actions: Vec::new(),
             folder_views: Vec::new(),
         }
     }
@@ -281,6 +287,16 @@ impl ViewPreferences {
                 "search-index-enabled" => {
                     preferences.search_index_enabled = value == "true";
                 }
+                "custom-action" => {
+                    if let Some(action) = CustomActionDefinition::parse_record(value) {
+                        preferences
+                            .custom_actions
+                            .retain(|existing| existing.id != action.id);
+                        if preferences.custom_actions.len() < CUSTOM_ACTION_CAPACITY {
+                            preferences.custom_actions.push(action);
+                        }
+                    }
+                }
                 "folder" => {
                     if let Some(folder) = parse_folder_override(value) {
                         preferences
@@ -300,7 +316,7 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=12\nappearance={}\nicon-style={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\n",
+            "version=13\nappearance={}\nicon-style={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\n",
             self.appearance.persisted(),
             self.icon_style.persisted(),
             self.mode.persisted(),
@@ -337,6 +353,13 @@ impl ViewPreferences {
             serialized.push_str("saved-search=");
             serialized.push_str(&saved.serialize_record());
             serialized.push('\n');
+        }
+        for action in self.custom_actions.iter().take(CUSTOM_ACTION_CAPACITY) {
+            if let Some(record) = action.serialize_record() {
+                serialized.push_str("custom-action=");
+                serialized.push_str(&record);
+                serialized.push('\n');
+            }
         }
         for folder in &self.folder_views {
             if let Some(encoded) = serialize_folder_override(folder) {
@@ -656,7 +679,7 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=12\n"));
+        assert!(serialized.starts_with("version=13\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
     }
@@ -675,7 +698,7 @@ mod tests {
         );
         assert_eq!(customized.context_menu.persisted(), "archives,checksums");
         let serialized = customized.serialize();
-        assert!(serialized.starts_with("version=12\n"));
+        assert!(serialized.starts_with("version=13\n"));
         assert!(serialized.contains("context-menu-groups=archives,checksums\n"));
         assert_eq!(ViewPreferences::parse(&serialized), customized);
 
@@ -698,7 +721,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=12\n"));
+        assert!(serialized.starts_with("version=13\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,
@@ -721,7 +744,7 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=12\n"));
+            assert!(serialized.starts_with("version=13\n"));
             assert!(serialized.contains(&format!("appearance={}\n", preset.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).appearance, preset);
         }
@@ -742,7 +765,7 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=12\n"));
+            assert!(serialized.starts_with("version=13\n"));
             assert!(serialized.contains(&format!("icon-style={}\n", style.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).icon_style, style);
         }
@@ -775,7 +798,7 @@ mod tests {
         let mut preferences = ViewPreferences::default();
         preferences.saved_searches.add(saved).expect("catalog add");
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=12\n"));
+        assert!(serialized.starts_with("version=13\n"));
         assert!(serialized.contains("saved-search="));
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored.saved_searches, preferences.saved_searches);
@@ -818,7 +841,7 @@ mod tests {
         let mut enabled = defaults;
         enabled.search_index_enabled = true;
         let serialized = enabled.serialize();
-        assert!(serialized.starts_with("version=12\n"));
+        assert!(serialized.starts_with("version=13\n"));
         assert!(serialized.contains("search-index-enabled=true\n"));
         assert!(ViewPreferences::parse(&serialized).search_index_enabled);
         assert!(!ViewPreferences::parse("search-index-enabled=invalid\n").search_index_enabled);
@@ -874,5 +897,26 @@ mod tests {
             preferences.effective_state(Path::new("/unrecorded")),
             preferences.global_state()
         );
+    }
+
+    #[test]
+    fn phase_19b_custom_action_store_uses_bounded_versioned_preferences() {
+        let mut preferences = ViewPreferences::default();
+        preferences.custom_actions.push(CustomActionDefinition {
+            id: 1,
+            name: "Inspect PDF".to_owned(),
+            executable: "pdfinfo".to_owned(),
+            arguments: vec!["%f".to_owned()],
+            target: crate::custom_actions::CustomActionTarget::Files,
+            mime_patterns: vec!["application/pdf".to_owned()],
+            allow_multiple: false,
+        });
+        let serialized = preferences.serialize();
+        assert!(serialized.starts_with("version=13\n"));
+        assert!(serialized.contains("custom-action="));
+        assert_eq!(ViewPreferences::parse(&serialized), preferences);
+
+        let hostile = "custom-action=1\tfiles\tfalse\tnot-hex\n";
+        assert!(ViewPreferences::parse(hostile).custom_actions.is_empty());
     }
 }
