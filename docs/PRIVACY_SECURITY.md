@@ -746,7 +746,7 @@ False positives and false negatives are expected. The scanner is not malware det
 
 ## Duplicate discovery
 
-Status: **COMPLETE** for Phase 13G.
+Status: **COMPLETE** for Phases 13G, 13G2, and 13G3.
 
 “Check for Duplicates…” operates only on explicitly selected files or roots. It
 first groups candidates by exact byte size, then uses the reviewed streaming hash
@@ -761,16 +761,53 @@ hidden files, unreadable files, and remote locations require explicit visible
 scope policy. Scanning is local, bounded, cancellable, and must not upload file
 content or hashes.
 
-Candidate paths, digests, and results are memory-only by default. Any future
-persistence must obey Private Mode, Sensitive Folder, and locked-vault policies.
+Duplicate groups, scan history, review choices, and deletion choices remain
+memory-only. Phase 13G3 persists a derived SHA-256 reuse cache, so the older
+statement that all candidate paths and digests were memory-only no longer
+applies.
+
+The versioned cache is located below the user's XDG cache directory at
+`floe/duplicate-hashes-v1`. Each record contains only the exact raw path bytes,
+device and inode, size, modification and change timestamps with nanoseconds,
+SHA-256 digest, and bounded recency value. It stores no file content, excerpts,
+duplicate group/result, hard-link decision, Trash choice, or network identifier.
+The cache is bounded to 200,000 records and a 64-MiB encoded file. Its immediate
+directory must be a current-user mode-`0700` real directory and the cache must be
+a current-user mode-`0600` regular file. Loading uses `O_NOFOLLOW`, rejects
+symlinked, insecure, corrupt, trailing, oversized, duplicate-path, or
+wrong-version data, and compares the opened descriptor identity with the
+inspected file. Writes use a private create-new temporary file, file sync,
+atomic rename, and parent-directory sync without following a cache symlink.
+
+A lookup is reusable only when the current exact path fingerprint matches every
+stored field. Hash insertion checks the fingerprint both before and after
+hashing so an old digest cannot be attached to a replacement file. Existing
+file-watcher reconciliation invalidates an exact changed path and all cached
+descendants; an overflow clears reusable state conservatively. Scan-time
+descriptor and metadata revalidation remains authoritative, and final duplicate
+claims still require byte-for-byte comparison. Corrupt or unsafe storage is
+ignored and rebuilt safely. Warm lookups do not rewrite the cache merely to save
+recency.
+
+This cache is a performance optimization; it is not an index, authenticity
+proof, scan history, or duplicate proof. Same-user processes, backups,
+snapshots, cache copies, filesystem journals, and anyone with equivalent account
+authority may observe its path and digest metadata. Phase 13G3 does not yet
+implement Phase 18J Private cache/history or Phase 18K Sensitive Folder/Private
+Mode policy, so scanning a sensitive path can persist that exact path and digest
+until the cache entry is invalidated, evicted, or the cache is removed.
+Locked-vault content must not be scanned or cached before the later locked-vault
+policy exists.
 The result surface supports review, reveal, and ordinary explicit file actions;
 it never automatically deletes a copy or claims that deletion is secure erase.
 
 Phase 13G implements this boundary with explicit caps: 4,096 roots, one million
 files, 100,000 directories, depth 128, 256 GiB per hashed file, one TiB total
 logical hash bytes, 10,000 groups, and 100,000 result paths. Each root stays on
-its starting filesystem device. Exact candidate paths, digests, progress, and
-results remain memory-only for the process; no file content or hash is uploaded.
+its starting filesystem device. Exact duplicate groups, progress, and review
+choices remain memory-only for the process; no file content or hash is uploaded.
+Candidate path and digest cache persistence is limited to the Phase 13G3
+derived-cache boundary above.
 Unreachable, over-limit, or changed inputs are skipped or failed rather than
 called equal.
 

@@ -1291,6 +1291,9 @@ impl BrowserController {
             overflowed = batch.overflowed(),
             "coalesced external filesystem changes"
         );
+        if let Some(worker) = self.duplicate_worker.borrow().as_ref() {
+            worker.invalidate_watcher_paths(batch.changed_paths(), batch.overflowed());
+        }
         self.pending_reconciliation
             .replace(Some(PendingReconciliation {
                 snapshot,
@@ -3950,9 +3953,9 @@ impl BrowserController {
             controller.stop_integrity_monitoring();
         });
         let duplicates_action = self.add_action("check-duplicates", |controller| {
-            controller.start_duplicate_scan();
+            controller.show_duplicate_setup();
         });
-        duplicates_action.set_enabled(false);
+        duplicates_action.set_enabled(true);
         let cancel_duplicates = self.add_action("cancel-duplicate-scan", |controller| {
             controller.cancel_duplicate_scan();
         });
@@ -6714,7 +6717,7 @@ impl BrowserController {
         }
         let state = selection_action_state(&selected_entries);
         let folder_tab = folder_tab_eligible(&selected_entries, self.trash_active.get());
-        let duplicate_eligible = !selected_entries.is_empty() && !self.trash_active.get();
+        let duplicate_eligible = !self.trash_active.get();
         self.selected_entries.replace(selected_entries);
         self.set_open_enabled(state.single);
         self.set_open_with_enabled(state.open_with);
@@ -7002,7 +7005,7 @@ impl BrowserController {
         }
     }
 
-    fn start_duplicate_scan(self: &Rc<Self>) {
+    fn show_duplicate_setup(self: &Rc<Self>) {
         if self.trash_active.get() {
             self.show_toast("Duplicate scans are unavailable inside Trash", 5);
             return;
@@ -7011,7 +7014,50 @@ impl BrowserController {
             self.show_toast("A duplicate scan is already running", 4);
             return;
         }
-        let request = match floe_core::DuplicateScanRequest::new(self.selected_paths()) {
+        let selection = self
+            .selected_entries
+            .borrow()
+            .iter()
+            .map(|entry| crate::duplicate_ui::DuplicateSelection {
+                path: entry.path().to_path_buf(),
+                kind: match entry.kind() {
+                    EntryKind::RegularFile => {
+                        crate::duplicate_ui::DuplicateSelectionKind::RegularFile
+                    }
+                    EntryKind::Directory => crate::duplicate_ui::DuplicateSelectionKind::Directory,
+                    _ => crate::duplicate_ui::DuplicateSelectionKind::Unsupported,
+                },
+            })
+            .collect();
+        let weak = Rc::downgrade(self);
+        crate::duplicate_ui::present_duplicate_setup(
+            &self.widgets.window,
+            self.action_directory(),
+            selection,
+            move |choice| {
+                if let Some(controller) = weak.upgrade() {
+                    controller.start_duplicate_scan(choice);
+                }
+            },
+        );
+    }
+
+    fn start_duplicate_scan(self: &Rc<Self>, choice: crate::duplicate_ui::DuplicateScanChoice) {
+        if self.trash_active.get() || self.duplicate_running.get() {
+            return;
+        }
+        let request = match choice {
+            crate::duplicate_ui::DuplicateScanChoice::FolderTree(folder) => {
+                floe_core::DuplicateScanRequest::for_folder(folder)
+            }
+            crate::duplicate_ui::DuplicateScanChoice::CopiesOfFile { reference, folder } => {
+                floe_core::DuplicateScanRequest::for_reference(reference, folder)
+            }
+            crate::duplicate_ui::DuplicateScanChoice::SelectedItems(paths) => {
+                floe_core::DuplicateScanRequest::new(paths)
+            }
+        };
+        let request = match request {
             Ok(request) => request,
             Err(error) => {
                 self.show_toast(&error.to_string(), 6);
@@ -7089,9 +7135,7 @@ impl BrowserController {
             .lookup_action("check-duplicates")
             .and_downcast::<gio::SimpleAction>()
         {
-            action.set_enabled(
-                !self.selected_entries.borrow().is_empty() && !self.trash_active.get(),
-            );
+            action.set_enabled(!self.trash_active.get());
         }
         self.show_toast("Duplicate scan cancelled; no files were changed", 4);
     }
@@ -7135,9 +7179,7 @@ impl BrowserController {
                         .lookup_action("check-duplicates")
                         .and_downcast::<gio::SimpleAction>()
                     {
-                        action.set_enabled(
-                            !self.selected_entries.borrow().is_empty() && !self.trash_active.get(),
-                        );
+                        action.set_enabled(!self.trash_active.get());
                     }
                     let weak_reveal = Rc::downgrade(self);
                     let weak_trash = Rc::downgrade(self);
@@ -7241,9 +7283,7 @@ impl BrowserController {
                         .lookup_action("check-duplicates")
                         .and_downcast::<gio::SimpleAction>()
                     {
-                        action.set_enabled(
-                            !self.selected_entries.borrow().is_empty() && !self.trash_active.get(),
-                        );
+                        action.set_enabled(!self.trash_active.get());
                     }
                     self.show_toast(&format!("Duplicate scan failed: {error}"), 7);
                 }

@@ -1,4 +1,92 @@
-# Gates: Floe Phases 18T–18X — Integrity and Data-Loss Safety
+# Gates: Floe Phase 13G3 — Duplicate Finder Performance
+
+Scope: Make initial and repeated recursive exact-duplicate scans materially
+faster without weakening Phase 13G/13G2 path, mutation, privacy, cancellation,
+or byte-confirmation guarantees.
+
+- [x] G3-1: Size grouping adds a bounded first/last-chunk quick signature that
+  rejects same-size nonmatches before full SHA-256, while matching files still
+  receive reviewed SHA-256 and final byte confirmation.
+  CHECK: `cargo test -p floe-core phase_13g3_quick_signature -- --nocapture`
+  EXPECT: `test result: ok`
+  EVIDENCE: Focused core workflow regression passes: three same-size files
+  receive bounded quick samples, the nonmatch is rejected before SHA-256, the
+  two matches are hashed and remain one byte-confirmed group.
+- [x] G3-2: Candidate hashing uses a bounded configurable worker pool, remains
+  deterministic and generation-cancellable, and never spawns per-file threads
+  or performs unbounded I/O.
+  CHECK: `cargo test -p floe-core phase_13g3_parallel_hash -- --nocapture`
+  EXPECT: `test result: ok`
+  EVIDENCE: Two focused core regressions pass. One filesystem is capped at two
+  concurrent hashes even when configured for eight; the synthetic imbalanced
+  two-device schedule proves no device exceeds two active reads while the
+  global worker pool remains bounded.
+- [x] G3-3: A private bounded persistent SHA-256 cache preserves raw paths,
+  reuses only exact current fingerprints, rejects corrupt/insecure/symlinked
+  storage, writes atomically with private permissions, and never stores content.
+  CHECK: `cargo test -p floe-app phase_13g3_hash_cache -- --nocapture`
+  EXPECT: `test result: ok`
+  EVIDENCE: Three focused cache regressions pass: private atomic raw non-UTF-8
+  round trip, corrupt/insecure/symlink rejection, and pre/post-hash replacement
+  rejection. Review verifies 200,000-entry/64-MiB bounds and batch LRU eviction.
+- [x] G3-4: Incremental invalidation removes changed/deleted identities from
+  reusable cache state through existing file-watcher reconciliation and scan-time
+  revalidation; unchanged files demonstrably avoid repeat hashing.
+  CHECK: `cargo test -p floe-app phase_13g3_incremental -- --nocapture`
+  EXPECT: `test result: ok`
+  EVIDENCE: Two focused incremental regressions pass. Restarted cold/warm scans
+  report 2/0 then 0/2 computed/reused hashes; one-path invalidation reports 1/1,
+  and an overflowed watcher batch clears reusable state and reports 2/0.
+- [x] G3-5: Progress distinguishes discovery, quick filtering, hashing, and byte
+  confirmation, exposes cache reuse, remains accessible, and uses no fake
+  percentage or blocking GTK filesystem work.
+  CHECK: `cargo test -p floe-app phase_13g3_progress -- --nocapture`
+  EXPECT: `test result: ok`
+  EVIDENCE: Focused accessible-status regression passes for all four named
+  phases, separate calculated and validated-cache counters, and no percentage.
+  Progress is throttled off GTK through the bounded worker event channel.
+- [x] G3-6: Focused tests, formatting, workspace check, strict all-target/all-
+  feature Clippy, complete workspace tests, native build, real GTK component
+  gate, diff hygiene, documentation, and exactly one roadmap `NEXT` all pass.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check`
+  EXPECT: `test result: ok`
+  EVIDENCE: Formatting, workspace check, strict all-target/all-feature Clippy,
+  480 app tests (475 passed, five intentional GTK ignores), 21 app integration
+  tests, 147 core unit tests, six duplicate workflow integration tests, native
+  build, focused real GTK setup contract, diff hygiene, documentation audit,
+  and exactly one roadmap NEXT (Phase 18Y) pass.
+
+---
+
+# Archived gates: Floe Phase 13G2 — Duplicate Finder Workflows
+
+- [x] G2-1: Recursive chosen-folder mode finds every exact duplicate group in
+  nested subfolders without changing Phase 13G safety policy.
+  EVIDENCE: `duplicate_finder_workflows` nested folder-tree regression passes.
+- [x] G2-2: Selected-reference mode returns only groups containing that exact
+  file, preserves raw path identity, avoids double counting, and rejects a
+  non-regular reference.
+  EVIDENCE: Four core integration regressions pass, including unrelated groups,
+  raw non-UTF-8 identity, in-scope reference deduplication, and invalid reference.
+- [x] G2-3: Native setup exposes folder-tree, copies-of-file, and selected-items
+  modes with truthful recursive/exact-byte wording and contextual defaults.
+  EVIDENCE: Two deterministic setup-policy tests and the real GTK modal,
+  transient-parent component contract pass.
+- [x] G2-4: Focused core/app tests, formatting, workspace check, strict
+  all-target/all-feature Clippy, workspace tests, native build, GTK component
+  gate, and diff hygiene pass.
+  EVIDENCE: Formatting, workspace check, strict Clippy with warnings denied,
+  474 app tests (469 passed, five intentional GTK ignores), 21 Phase 18X
+  integration tests, 146 core tests, four new duplicate workflow integration
+  tests, native build, focused real GTK gate, and `git diff --check` pass.
+- [x] G2-5: `AGENTS.md`, roadmap, feature matrix, plan, gates, and user guide
+  describe the verified result while exactly Phase 18Y remains `NEXT`.
+  EVIDENCE: All named documents updated; roadmap audit reports exactly one
+  `NEXT`, Phase 18Y.
+
+---
+
+# Archived gates: Floe Phases 18T–18X — Integrity and Data-Loss Safety
 
 Scope: Complete exactly Phase 18T, 18U, 18V, 18W, and 18X with native,
 responsive, standards-first behavior. Phase 18Y and all other roadmap work stay
