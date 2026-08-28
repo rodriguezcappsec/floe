@@ -54,8 +54,10 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 - **Safe by design.** Original `PathBuf` values are preserved, shell
   interpolation is avoided, symlink behavior is explicit, and destructive
   operations require deliberate confirmation.
-- **Yours to shape.** Appearance presets, view density, grid size, columns,
-  shortcuts, sidebar sizing, and context-menu groups are configurable.
+- **Yours to shape.** A task-organized Main menu keeps creation, file
+  operations, view/layout, and safety tools discoverable; appearance presets,
+  view density, grid size, columns, shortcuts, sidebar sizing, and context-menu
+  groups are configurable.
 
 ## What Floe can do
 
@@ -110,7 +112,7 @@ cargo run -p floe-app
 ```
 
 Frosted is the current default appearance. While Floe is open, choose
-**Appearance** from the three-dot header menu to switch between Native, Glass,
+**Main menu → View & Layout → Appearance** to switch between Native, Glass,
 Frosted, Minimal, and Compact. The change is immediate and remembered for the
 next launch.
 

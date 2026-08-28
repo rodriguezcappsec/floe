@@ -1476,6 +1476,24 @@ const fn file_view_density_class(density: FileViewDensity) -> &'static str {
     }
 }
 
+fn organize_header_options_menu(
+    create: &gio::Menu,
+    open_inspect: &gio::Menu,
+    file_operations: &gio::Menu,
+    view_layout: &gio::Menu,
+    tools_safety: &gio::Menu,
+    utility: &gio::Menu,
+) -> gio::Menu {
+    let menu = gio::Menu::new();
+    menu.append_submenu(Some("Create"), create);
+    menu.append_submenu(Some("Open & Inspect"), open_inspect);
+    menu.append_submenu(Some("File Operations"), file_operations);
+    menu.append_submenu(Some("View & Layout"), view_layout);
+    menu.append_submenu(Some("Tools & Safety"), tools_safety);
+    menu.append_section(None, utility);
+    menu
+}
+
 pub fn build(
     application: &adw::Application,
     locations: &[Location],
@@ -1590,24 +1608,35 @@ pub fn build(
     header.pack_start(&forward_button);
     header.pack_start(&parent_button);
     header.set_title_widget(Some(&path_stack));
-    let file_actions_model = gio::Menu::new();
-    file_actions_model.append(Some("New Folder…"), Some("win.new-folder"));
-    file_actions_model.append(Some("New Empty File…"), Some("win.new-empty-file"));
-    file_actions_model.append(Some("New From Template…"), Some("win.new-from-template"));
-    file_actions_model.append(Some("Open With…"), Some("win.open-with"));
-    file_actions_model.append(Some("Open Terminal Here"), Some("win.open-terminal"));
-    file_actions_model.append(
+    let create_model = gio::Menu::new();
+    let open_inspect_model = gio::Menu::new();
+    let file_operations_model = gio::Menu::new();
+    let transfer_model = gio::Menu::new();
+    let rename_duplicate_model = gio::Menu::new();
+    let links_model = gio::Menu::new();
+    let copy_details_model = gio::Menu::new();
+    let trash_model = gio::Menu::new();
+    let view_layout_model = gio::Menu::new();
+    let tools_safety_model = gio::Menu::new();
+    let utility_model = gio::Menu::new();
+
+    create_model.append(Some("New Folder…"), Some("win.new-folder"));
+    create_model.append(Some("New Empty File…"), Some("win.new-empty-file"));
+    create_model.append(Some("New From Template…"), Some("win.new-from-template"));
+    open_inspect_model.append(Some("Open With…"), Some("win.open-with"));
+    open_inspect_model.append(Some("Open Terminal Here"), Some("win.open-terminal"));
+    open_inspect_model.append(
         Some("Preferred Terminal…"),
         Some("win.terminal-preferences"),
     );
-    file_actions_model.append(Some("Properties"), Some("win.properties"));
-    file_actions_model.append(Some("Calculate Checksums…"), Some("win.checksum"));
+    open_inspect_model.append(Some("Properties"), Some("win.properties"));
+    tools_safety_model.append(Some("Calculate Checksums…"), Some("win.checksum"));
 
     let protected_folders_model = gio::Menu::new();
     protected_folders_model.append(Some("Protect Folder"), Some("win.protect-folder"));
     protected_folders_model.append(Some("Unprotect Folder"), Some("win.unprotect-folder"));
     protected_folders_model.append(Some("Protected Folders…"), Some("win.protected-folders"));
-    file_actions_model.append_submenu(Some("Protected Folders"), &protected_folders_model);
+    tools_safety_model.append_submenu(Some("Protected Folders"), &protected_folders_model);
     let integrity_model = gio::Menu::new();
     integrity_model.append(
         Some("Save SHA-256 Fingerprint"),
@@ -1646,44 +1675,50 @@ pub fn build(
         Some("Delete Integrity Baseline"),
         Some("win.delete-integrity-baseline"),
     );
-    file_actions_model.append_submenu(Some("Integrity"), &integrity_model);
+    tools_safety_model.append_submenu(Some("Integrity"), &integrity_model);
     let archive_model = gio::Menu::new();
     archive_model.append(Some("Extract Here"), Some("win.extract-here"));
     archive_model.append(Some("Extract To…"), Some("win.extract-to"));
     archive_model.append(Some("Compress…"), Some("win.compress"));
-    file_actions_model.append_submenu(Some("Archives"), &archive_model);
-    file_actions_model.append(
+    tools_safety_model.append_submenu(Some("Archives"), &archive_model);
+    utility_model.append(
         Some("Customize Context Menus…"),
         Some("win.context-menu-settings"),
     );
-    file_actions_model.append(Some("Copy"), Some("win.copy"));
-    file_actions_model.append(Some("Copy and Verify…"), Some("win.copy-and-verify"));
-    file_actions_model.append(
+    transfer_model.append(Some("Copy"), Some("win.copy"));
+    transfer_model.append(Some("Copy and Verify…"), Some("win.copy-and-verify"));
+    transfer_model.append(
         Some("Verified Removable Transfer…"),
         Some("win.verified-removable-transfer"),
     );
-    file_actions_model.append(Some("Move"), Some("win.cut"));
-    file_actions_model.append(Some("Duplicate"), Some("win.duplicate"));
-    file_actions_model.append(Some("Rename…"), Some("win.rename"));
-    file_actions_model.append(Some("Batch Rename…"), Some("win.batch-rename"));
-    file_actions_model.append(
+    transfer_model.append(Some("Move"), Some("win.cut"));
+    rename_duplicate_model.append(Some("Duplicate"), Some("win.duplicate"));
+    rename_duplicate_model.append(Some("Rename…"), Some("win.rename"));
+    rename_duplicate_model.append(Some("Batch Rename…"), Some("win.batch-rename"));
+    rename_duplicate_model.append(
         Some("Undo Last Batch Rename"),
         Some("win.undo-batch-rename"),
     );
-    file_actions_model.append(
+    links_model.append(
         Some("Create Symbolic Link…"),
         Some("win.create-symbolic-link"),
     );
-    file_actions_model.append(Some("Create Hard Link…"), Some("win.create-hard-link"));
-    file_actions_model.append(Some("Reveal Link Target"), Some("win.reveal-link-target"));
-    file_actions_model.append(Some("Copy Name"), Some("win.copy-name"));
-    file_actions_model.append(Some("Copy Path"), Some("win.copy-path"));
-    file_actions_model.append(Some("Copy Relative Path"), Some("win.copy-relative-path"));
-    file_actions_model.append(Some("Copy URI"), Some("win.copy-uri"));
-    file_actions_model.append(Some("Move to Trash"), Some("win.trash"));
-    file_actions_model.append(Some("Delete Permanently…"), Some("win.permanent-delete"));
-    file_actions_model.append(Some("Restore"), Some("win.restore"));
-    file_actions_model.append(Some("Empty Trash…"), Some("win.empty-trash"));
+    links_model.append(Some("Create Hard Link…"), Some("win.create-hard-link"));
+    links_model.append(Some("Reveal Link Target"), Some("win.reveal-link-target"));
+    copy_details_model.append(Some("Copy Name"), Some("win.copy-name"));
+    copy_details_model.append(Some("Copy Path"), Some("win.copy-path"));
+    copy_details_model.append(Some("Copy Relative Path"), Some("win.copy-relative-path"));
+    copy_details_model.append(Some("Copy URI"), Some("win.copy-uri"));
+    trash_model.append(Some("Move to Trash"), Some("win.trash"));
+    trash_model.append(Some("Delete Permanently…"), Some("win.permanent-delete"));
+    trash_model.append(Some("Restore"), Some("win.restore"));
+    trash_model.append(Some("Empty Trash…"), Some("win.empty-trash"));
+
+    file_operations_model.append_submenu(Some("Transfer"), &transfer_model);
+    file_operations_model.append_submenu(Some("Rename & Duplicate"), &rename_duplicate_model);
+    file_operations_model.append_submenu(Some("Links"), &links_model);
+    file_operations_model.append_submenu(Some("Copy Details"), &copy_details_model);
+    file_operations_model.append_submenu(Some("Trash"), &trash_model);
 
     let sidebar_density_model = gio::Menu::new();
     for (label, action) in SIDEBAR_DENSITY_MENU_ITEMS {
@@ -1695,7 +1730,7 @@ pub fn build(
         Some(RESET_SIDEBAR_WIDTH_MENU_ITEM.0),
         Some(RESET_SIDEBAR_WIDTH_MENU_ITEM.1),
     );
-    file_actions_model.append_section(None, &sidebar_model);
+    view_layout_model.append_submenu(Some("Sidebar"), &sidebar_model);
     let appearance_model = gio::Menu::new();
     for preset in AppearancePreset::ALL {
         appearance_model.append(
@@ -1703,9 +1738,7 @@ pub fn build(
             Some(&format!("win.appearance::{}", preset.persisted())),
         );
     }
-    let appearance_section = gio::Menu::new();
-    appearance_section.append_submenu(Some("Appearance"), &appearance_model);
-    file_actions_model.append_section(None, &appearance_section);
+    view_layout_model.append_submenu(Some("Appearance"), &appearance_model);
 
     let icon_style_model = gio::Menu::new();
     for style in EntryIconStyle::ALL {
@@ -1714,9 +1747,7 @@ pub fn build(
             Some(&format!("win.icon-style::{}", style.persisted())),
         );
     }
-    let icon_style_section = gio::Menu::new();
-    icon_style_section.append_submenu(Some("File & Folder Icons"), &icon_style_model);
-    file_actions_model.append_section(None, &icon_style_section);
+    view_layout_model.append_submenu(Some("File & Folder Icons"), &icon_style_model);
     let file_density_model = gio::Menu::new();
     for (label, value) in [
         ("Compact", "compact"),
@@ -1774,7 +1805,7 @@ pub fn build(
         Some("win.remember-folder-view"),
     );
     browser_view_model.append(Some("Vim Navigation Mode"), Some("win.vim-mode"));
-    file_actions_model.append_section(Some("Browser View"), &browser_view_model);
+    view_layout_model.append_submenu(Some("Browser View"), &browser_view_model);
     let split_view_model = gio::Menu::new();
     split_view_model.append(Some("Toggle Split View"), Some("win.toggle-split"));
     split_view_model.append(Some("Switch Active Pane"), Some("win.switch-split-side"));
@@ -1798,25 +1829,38 @@ pub fn build(
         Some("Create Links in Other Pane"),
         Some("win.link-to-opposite-pane"),
     );
-    file_actions_model.append_section(Some("Split View"), &split_view_model);
-    file_actions_model.append(
+    view_layout_model.append_submenu(Some("Split View"), &split_view_model);
+
+    utility_model.append(
         Some(OPERATION_HISTORY_MENU_ITEM.0),
         Some(OPERATION_HISTORY_MENU_ITEM.1),
     );
-    file_actions_model.append(
+    utility_model.append(
         Some(KEYBOARD_SHORTCUTS_MENU_ITEM.0),
         Some(KEYBOARD_SHORTCUTS_MENU_ITEM.1),
     );
-    file_actions_model.append(
+    utility_model.append(
         Some(DESKTOP_INTEGRATION_MENU_ITEM.0),
         Some(DESKTOP_INTEGRATION_MENU_ITEM.1),
     );
+
+    let file_actions_model = organize_header_options_menu(
+        &create_model,
+        &open_inspect_model,
+        &file_operations_model,
+        &view_layout_model,
+        &tools_safety_model,
+        &utility_model,
+    );
     let file_actions = gtk::MenuButton::builder()
         .icon_name("floe-phosphor-dots-three-symbolic")
-        .tooltip_text("File and view options")
+        .tooltip_text("Main menu, organized by task")
         .menu_model(&file_actions_model)
         .build();
-    set_accessible_label(&file_actions, "File and view options");
+    set_accessible_label(&file_actions, "Main menu");
+    file_actions.update_property(&[gtk::accessible::Property::Description(
+        "Create, open, manage, view, and inspect files; access tools and settings",
+    )]);
 
     let list_view_button = gtk::ToggleButton::builder()
         .icon_name("floe-phosphor-list-bullets-symbolic")
@@ -5918,6 +5962,83 @@ mod tests {
         let mut actions = Vec::new();
         collect_menu_actions(model, &mut actions);
         actions
+    }
+
+    fn menu_labels(model: &gio::MenuModel) -> Vec<String> {
+        (0..model.n_items())
+            .filter_map(|index| {
+                model
+                    .item_attribute_value(index, "label", None)
+                    .and_then(|value| value.str().map(str::to_owned))
+            })
+            .collect()
+    }
+
+    fn max_menu_depth(model: &gio::MenuModel) -> usize {
+        let child_depth = (0..model.n_items())
+            .flat_map(|index| {
+                ["section", "submenu"]
+                    .into_iter()
+                    .filter_map(move |link| model.item_link(index, link))
+            })
+            .map(|child| max_menu_depth(&child))
+            .max()
+            .unwrap_or(0);
+        child_depth + 1
+    }
+
+    #[test]
+    fn header_options_are_task_grouped_and_preserve_nested_actions() {
+        let create = gio::Menu::new();
+        create.append(Some("New"), Some("win.test-create"));
+        let open_inspect = gio::Menu::new();
+        open_inspect.append(Some("Open"), Some("win.test-open"));
+        let file_operations = gio::Menu::new();
+        let transfer = gio::Menu::new();
+        transfer.append(Some("Copy"), Some("win.test-transfer"));
+        file_operations.append_submenu(Some("Transfer"), &transfer);
+        let view_layout = gio::Menu::new();
+        view_layout.append(Some("View"), Some("win.test-view"));
+        let tools_safety = gio::Menu::new();
+        tools_safety.append(Some("Tool"), Some("win.test-tool"));
+        let utility = gio::Menu::new();
+        utility.append(Some("Settings"), Some("win.test-settings"));
+
+        let model = organize_header_options_menu(
+            &create,
+            &open_inspect,
+            &file_operations,
+            &view_layout,
+            &tools_safety,
+            &utility,
+        );
+
+        assert_eq!(model.n_items(), 6, "root remains compact");
+        assert_eq!(
+            menu_labels(model.upcast_ref()),
+            [
+                "Create",
+                "Open & Inspect",
+                "File Operations",
+                "View & Layout",
+                "Tools & Safety",
+            ]
+        );
+        let actions = menu_actions(model.upcast_ref());
+        assert_eq!(actions.len(), 6);
+        let unique = actions.iter().collect::<HashSet<_>>();
+        assert_eq!(unique.len(), actions.len(), "actions remain unique");
+        for expected in [
+            "win.test-create",
+            "win.test-open",
+            "win.test-transfer",
+            "win.test-view",
+            "win.test-tool",
+            "win.test-settings",
+        ] {
+            assert!(actions.iter().any(|action| action == expected));
+        }
+        assert!(max_menu_depth(model.upcast_ref()) <= 4);
     }
 
     #[test]

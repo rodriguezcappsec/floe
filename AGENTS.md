@@ -1313,13 +1313,23 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated:
 
-`2026-08-27`
+`2026-08-28`
 
 Current phase:
 
 ```text
 Phases 18T–18X — Integrity and Data-Loss Safety (complete)
 ```
+
+post-Phase-18X header-options follow-up reorganizes the three-dot Main menu
+through task-based progressive disclosure: Create, Open & Inspect, File
+Operations, View & Layout, Tools & Safety, then a compact utility section.
+File Operations is split into Transfer, Rename & Duplicate, Links, Copy
+Details, and Trash. Every prior `win.*` action remains present exactly once,
+keyboard shortcuts and live GAction sensitivity are unchanged, selection-aware
+context menus retain their separate customization model, and the Main menu
+button has explicit accessible name and description. Phase 18Y remains the sole
+recommended next phase.
 
 Phase 13G3 follow-up accelerates cold and warm exact-duplicate scans without
 changing their proof boundary. Same-size identities receive at most 64 KiB from
