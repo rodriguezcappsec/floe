@@ -31,7 +31,7 @@ one shortcut, or restore all defaults.
 ## The main window
 
 - The header contains Back, Forward, Parent, the editable location, Search,
-  view controls, and the three-dot application menu.
+  view controls, and the three-dot **Main menu**.
 - The left sidebar contains standard XDG Places, bookmarks, and available
   drives, volumes, and mounts.
 - The central browser can use List, Grid, or Miller/Columns presentation.
@@ -42,6 +42,18 @@ one shortcut, or restore all defaults.
 
 Most actions are available in more than one place: a right-click menu, the
 three-dot header menu, the Command Palette, or a keyboard shortcut.
+
+The Main menu uses task groups instead of one long option list:
+
+- **Create** — folders, empty files, and templates.
+- **Open & Inspect** — Open With, terminal choices, and Properties.
+- **File Operations** — Transfer, Rename & Duplicate, Links, Copy Details,
+  and Trash.
+- **View & Layout** — sidebar, appearance, icons, browser view, and split view.
+- **Tools & Safety** — checksums, Protected Folders, integrity, and archives.
+
+Context-menu customization, operation history, keyboard shortcuts, and desktop
+integration remain in the final utility section.
 
 ## Navigate folders
 
@@ -352,7 +364,7 @@ They do not prove authenticity, safety, ownership, or absence of malware.
 
 ## Appearance and customization
 
-Open the three-dot header menu to configure:
+Open **Main menu → View & Layout** to configure:
 
 - **Appearance**: Native, Glass, Frosted, Minimal, or Compact.
 - **File & Folder Icons**: Floe Color, Phosphor Monochrome, or System Theme.

@@ -1,4 +1,88 @@
-# Gates: Floe Phase 13G3 — Duplicate Finder Performance
+# Gates: Daily-Driver Priority Program
+
+Scope: recovery, Settings, navigation, application tools, and administrator
+locations are complete only when their real native workflows and failure
+boundaries are verified.
+
+- [ ] D1: Interrupted copy/move/create outputs are journaled privately and
+  boundedly, detected after restart, and offered explicit recovery choices;
+  corrupt/stale journals never authorize deletion or overwrite.
+  CHECK: cargo test -p floe-app phase_18y -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: pending
+- [ ] D2: Safe Undo and conflict decisions cover only operation-specific,
+  freshly revalidated identities; Trash/create/replace/apply-to-all behavior
+  never silently destroys uncertain data.
+  CHECK: cargo test --workspace operation_recovery -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: pending
+- [ ] D3: A native accessible Settings Center organizes appearance, browsing,
+  preview, operations, applications, shortcuts/context menus, and accessibility;
+  supported controls apply live and persist through bounded migrations.
+  CHECK: cargo test -p floe-app settings_center -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: pending
+- [ ] D4: Breadcrumbs, path completion, recent locations, history restoration,
+  and CLI file/folder routing preserve exact raw paths, remain bounded, and do
+  not leak sensitive histories.
+  CHECK: cargo test --workspace navigation_upgrade -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: pending
+- [ ] D5: MIME association management can inspect/set/clear reviewed defaults;
+  external actions use validated executable plus argv templates, capability and
+  file-type eligibility, never a shell or lossy path reconstruction.
+  CHECK: cargo test -p floe-app phase_19b -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: pending
+- [ ] D6: Open as Administrator is explicit and application-layer only, uses
+  reviewed GIO/polkit authority, never elevates the Floe process or captures a
+  password, and fails with actionable honest feedback when unavailable.
+  CHECK: cargo test -p floe-app open_as_administrator -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: pending
+- [ ] D7: Every new interactive control has meaningful accessible metadata,
+  shortcut/command discovery where applicable, and native GTK component gates.
+  EVIDENCE: pending
+- [ ] D8: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, native build, E2E harness/applicable workflows, Wayland
+  smoke, diff hygiene, documentation, and exactly one roadmap `NEXT` pass.
+  CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check
+  EXPECT: test result: ok
+  EVIDENCE: pending
+
+---
+
+# Archived gates: Header Options Information Architecture Follow-up
+
+- [x] O1: The root menu exposes at most six task/utility sections and no long
+  flat list of file operations.
+  EVIDENCE: Deterministic model test verifies five named task submenus plus one
+  utility section; File Operations contains five focused submenus.
+- [x] O2: Every pre-existing header action remains present exactly once and
+  continues to use its existing `win.*` GAction and shortcut boundary.
+  EVIDENCE: Sorted pre/post `win.*` action-model diff is empty.
+- [x] O3: Category order and submenu depth are deterministic; nested disclosure
+  stays bounded and uses plain-language labels.
+  EVIDENCE: `header_options_are_task_grouped_and_preserve_nested_actions`
+  verifies order, uniqueness, root size, linked action retention, and depth.
+- [x] O4: The options button has a stable accessible name and description, and
+  a focused real-GTK component contract passes where a display is available.
+  EVIDENCE: Main menu label, description, and tooltip are explicit; serial real
+  GTK header/filter/Operations accessibility contract passes. The broad GTK
+  selector was not used as evidence because concurrent tests contended for the
+  one default GTK main context.
+- [x] O5: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, native build, diff hygiene, docs, and sole Phase 18Y `NEXT`
+  all pass.
+  EVIDENCE: `cargo fmt --all -- --check`, workspace check, strict Clippy,
+  workspace tests (481 app tests: 476 passed, five intentional GTK ignores;
+  21 app integration, 147 core, six duplicate workflow), native build, E2E
+  harness contract (native workflow skipped: Dogtail/pyatspi unavailable),
+  `git diff --check`, docs audit, and exactly one Phase 18Y `NEXT` pass.
+
+---
+
+# Archived gates: Floe Phase 13G3 — Duplicate Finder Performance
 
 Scope: Make initial and repeated recursive exact-duplicate scans materially
 faster without weakening Phase 13G/13G2 path, mutation, privacy, cancellation,

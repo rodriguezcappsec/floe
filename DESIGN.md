@@ -48,6 +48,13 @@ local-path entry; Escape returns focus to the file list.
 Icon-only controls use GTK symbolic icons, tooltips, and explicit accessible
 labels. Disabled navigation and Open actions use native GTK sensitivity.
 
+The three-dot control is exposed as **Main menu**, with a stable accessible
+name and task-oriented description. Progressive disclosure keeps its root to
+Create, Open & Inspect, File Operations, View & Layout, and Tools & Safety,
+followed by a small utility section. File Operations divides again into
+Transfer, Rename & Duplicate, Links, Copy Details, and Trash. This preserves
+every existing GAction and shortcut while avoiding a flat command wall.
+
 ### Places sidebar
 
 The compact sidebar is a vertically scrollable surface with separate

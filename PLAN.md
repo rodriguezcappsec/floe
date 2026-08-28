@@ -1,4 +1,99 @@
-# Plan: Floe Phase 13G3 — Duplicate Finder Performance
+# Plan: Daily-Driver Priority Program
+
+## Contract
+
+Implement the five user-approved priority families as coherent native Floe
+features while preserving the existing GTK/core boundary and all completed
+behavior:
+
+1. privacy-aware interrupted-operation recovery plus safe reversible actions;
+2. a dedicated, organized Settings Center;
+3. breadcrumb/completion/recent/CLI navigation upgrades;
+4. complete file-association management plus safe user-defined external tools;
+5. narrowly scoped administrator browsing through reviewed GIO/polkit
+   integration without running Floe itself as root.
+
+Exact Linux identities must never be reconstructed from display text. Slow
+filesystem, metadata, configuration, executable discovery, journal, and GIO
+work stays off GTK. No shell interpolation, silent overwrite, uncertain-data
+cleanup, captured password, or whole-process elevation is permitted.
+
+## Depth tree
+
+```text
+Daily-driver priorities
+├── Data safety
+│   ├── recovery journal and restart review
+│   ├── operation-specific safe Undo
+│   └── explicit conflict decisions
+├── Daily interaction
+│   ├── Settings Center information architecture
+│   └── breadcrumbs, completion, recents, CLI routing
+├── Application integration
+│   ├── MIME association management
+│   └── safe external custom actions
+├── Privileged locations
+│   ├── admin URI capability and authentication boundary
+│   └── honest unsupported/failure fallback
+└── Integration verification
+    ├── migrations, hostile inputs, path identity, accessibility
+    └── full Rust, GTK, E2E, docs, and roadmap gates
+```
+
+## Implementation order
+
+1. Inspect existing job, preference, navigation, launcher, action, and GIO
+   boundaries; freeze typed contracts and persistence limits.
+2. Implement and verify recovery/Undo/conflict work first.
+3. Implement the Settings Center over central preference/application actions.
+4. Implement navigation upgrades without replacing exact path state.
+5. Implement association/custom-action models, persistence, eligibility, and
+   native management UI.
+6. Implement administrator-location capability behind GIO application-layer
+   integration with explicit authority state and safe fallback.
+7. Perform adversarial review, native verification, documentation/status
+   updates, and set exactly one roadmap `NEXT` only after verified phases move.
+
+## Status
+
+**IN PROGRESS.** The completed Main-menu organization follow-up is preserved
+below. Phase 18Y operation recovery is the first active leaf.
+
+---
+
+# Archived plan: Header Options Information Architecture Follow-up
+
+## Contract
+
+Reorganize the accumulated three-dot header options into a small, predictable
+task hierarchy without removing commands, changing shortcuts, or altering
+filesystem behavior. Keep frequent categories one level deep, retain existing
+specialized submenus where they prevent a menu wall, preserve live GAction
+eligibility, and give the menu button an explicit accessible name and
+description. Context menus remain selection-aware and customizable.
+
+## Implementation steps
+
+1. Extract the header menu model into one focused builder owned by the GTK UI.
+2. Group every existing action under Create, Open & Inspect, File Operations,
+   View & Layout, or Tools & Safety, followed by a compact utility section.
+3. Add deterministic model tests for category order, complete action
+   preservation, uniqueness, root size, and bounded hierarchy depth.
+4. Run the focused model test, full Rust gates, native build, and applicable
+   real-GTK component contract; update user/design/status documentation.
+
+## Status
+
+**COMPLETE.** The Main menu now exposes five task categories and one compact
+utility section. File Operations is subdivided rather than hidden behind a new
+flat menu wall. The exact old/new `win.*` action diff is empty; focused model,
+full workspace, strict Clippy, native build, real GTK, E2E harness, diff, and
+documentation gates pass. Phase 18Y remains the sole roadmap `NEXT`; this
+bounded post-Phase-18X correction does not implement operation recovery.
+
+---
+
+# Archived plan: Floe Phase 13G3 — Duplicate Finder Performance
 
 ## Contract
 

@@ -485,6 +485,7 @@ advanced predicates and explicit Match Case control.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
+| Header menu information architecture | `COMPLETE` | post-18X | Main menu grouped by task with bounded progressive disclosure; all prior actions shortcuts remain available, while selection-aware context menus retain their customization model. |
 | Native/Glass/Frosted/Minimal/Compact presets | `COMPLETE` | 0 | Shared tokens and a radio-style header-menu chooser apply all five presets live. |
 | Phosphor interface iconography | `COMPLETE` | post-14 | A pinned local Phosphor Core 2.1.1 Regular subset supplies Floe-owned navigation, action, sidebar, device, status, and detail glyphs; MIT attribution is bundled and no runtime download occurs. |
 | File and folder icon styles | `COMPLETE` | post-14 | Floe Color, Phosphor Monochrome, and System Theme switch live from the header menu and persist through version-12 preferences. Plain text, office documents, and PDF remain distinct; each System Theme family has an app-owned fallback. Known extensions outrank synthetic execute bits from exFAT-like mounts; unknown or extensionless executables retain executable artwork. Existing thumbnails still replace generic icons. |
