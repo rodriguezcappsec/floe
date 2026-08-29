@@ -229,6 +229,7 @@ impl ListColumn {
 pub struct ListColumnLayout {
     visible: u16,
     widths: [u16; ListColumn::ALL.len()],
+    order: [ListColumn; ListColumn::ALL.len()],
 }
 
 impl Default for ListColumnLayout {
@@ -236,6 +237,7 @@ impl Default for ListColumnLayout {
         let mut layout = Self {
             visible: 0,
             widths: [0; ListColumn::ALL.len()],
+            order: ListColumn::ALL,
         };
         for column in ListColumn::ALL {
             layout.widths[column.index()] = column.default_width();
@@ -275,6 +277,32 @@ impl ListColumnLayout {
     pub fn set_width(&mut self, column: ListColumn, width: u16) {
         let (minimum, maximum) = column.width_bounds();
         self.widths[column.index()] = width.clamp(minimum, maximum);
+    }
+
+    pub const fn order(self) -> [ListColumn; ListColumn::ALL.len()] {
+        self.order
+    }
+
+    pub fn move_column(&mut self, column: ListColumn, delta: isize) -> bool {
+        let Some(index) = self.order.iter().position(|candidate| *candidate == column) else {
+            return false;
+        };
+        let target = index.saturating_add_signed(delta).min(self.order.len() - 1);
+        if target == index {
+            return false;
+        }
+        if target < index {
+            self.order[target..=index].rotate_right(1);
+        } else {
+            self.order[index..=target].rotate_left(1);
+        }
+        true
+    }
+
+    pub fn autosize_from_max_chars(&mut self, column: ListColumn, max_chars: usize) {
+        let characters = u16::try_from(max_chars.min(96)).unwrap_or(96);
+        let padding = if column == ListColumn::Name { 72 } else { 36 };
+        self.set_width(column, characters.saturating_mul(8).saturating_add(padding));
     }
 
     pub fn needs_lazy_metadata(self) -> bool {
@@ -323,6 +351,30 @@ impl ListColumnLayout {
             .map(|column| format!("{}:{}", column.persisted(), self.width(column)))
             .collect::<Vec<_>>()
             .join(",")
+    }
+
+    pub fn order_text(self) -> String {
+        self.order
+            .into_iter()
+            .map(ListColumn::persisted)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+
+    pub fn apply_order_text(&mut self, value: &str) {
+        let mut parsed = Vec::with_capacity(ListColumn::ALL.len());
+        for name in value.split(',') {
+            let Some(column) = ListColumn::from_persisted(name.trim()) else {
+                return;
+            };
+            if parsed.contains(&column) {
+                return;
+            }
+            parsed.push(column);
+        }
+        if parsed.len() == ListColumn::ALL.len() {
+            self.order.copy_from_slice(&parsed);
+        }
     }
 
     pub fn apply_widths_text(&mut self, value: &str) {
@@ -491,5 +543,35 @@ mod tests {
             legacy.width(ListColumn::Artist),
             ListColumn::Artist.default_width()
         );
+    }
+
+    #[test]
+    fn phase_20b2_columns_reorder_autosize_and_reject_corrupt_order() {
+        let mut layout = ListColumnLayout::default();
+        assert!(layout.move_column(ListColumn::Size, -1));
+        assert_eq!(
+            layout.order()[..4],
+            [
+                ListColumn::Name,
+                ListColumn::Size,
+                ListColumn::Type,
+                ListColumn::Modified
+            ]
+        );
+        let persisted = layout.order_text();
+        let mut restored = ListColumnLayout::default();
+        restored.apply_order_text(&persisted);
+        assert_eq!(restored.order(), layout.order());
+
+        let before = restored.order();
+        restored.apply_order_text("name,name,size");
+        assert_eq!(restored.order(), before);
+        restored.apply_order_text("name,size,unknown");
+        assert_eq!(restored.order(), before);
+
+        restored.autosize_from_max_chars(ListColumn::Name, usize::MAX);
+        restored.autosize_from_max_chars(ListColumn::Size, 1);
+        assert_eq!(restored.width(ListColumn::Name), 720);
+        assert_eq!(restored.width(ListColumn::Size), 72);
     }
 }

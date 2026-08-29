@@ -525,7 +525,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.preferred_terminal = Some(TerminalProviderId::Konsole);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=16\n"));
+        assert!(serialized.starts_with("version=18\n"));
         assert!(serialized.contains("preferred-terminal=konsole\n"));
         assert_eq!(
             crate::preferences::ViewPreferences::parse(&serialized).preferred_terminal,

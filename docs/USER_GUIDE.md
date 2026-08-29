@@ -37,18 +37,22 @@ Menus, and Accessibility. Type in **Search settings** to filter by a setting's
 name, description, category, or familiar phrases such as “right click”,
 “folder icons”, or “reduce animation”.
 
-Appearance, icon style, default view, per-folder view memory, Vim navigation,
-grid size, file/sidebar density, and the optional private filename index apply
-immediately and continue to use Floe's existing bounded preferences. Settings
-does not create a second configuration store. Detailed editors remain focused:
+Appearance preset, System/Light/Dark color scheme, interface font and 75–200%
+text scale, reduced motion, icon style, single/double-click opening, default
+view, per-folder view memory, Vim navigation, grid size, file/sidebar density,
+and the optional private filename index apply immediately and continue to use
+Floe's existing bounded preferences. **Reset appearance** restores Frosted,
+system colors/font, 100% text, and normal motion. Settings does not create a
+second configuration store. Detailed editors remain focused:
 use their **Open** buttons for Keyboard Shortcuts, Context Menu Contents, the
 preferred terminal, operation history, Recovery Center, Protected Folders, and
 desktop integration. Irreversible-operation confirmations cannot be disabled.
 
-Floe follows GTK and desktop settings for system text, contrast, focus,
-assistive technology, and reduced motion. The broader Orca, high-contrast,
-font-scaling, localization, RTL, and fractional-scaling audit remains future
-work; the Settings Center does not claim those audits are complete.
+Floe follows GTK desktop settings for system text, contrast, focus, and
+assistive technology. Phase 20B2 adds explicit non-color group/pane cues,
+focusable collapsible headings, reduced-motion behavior, and direction-isolated
+path text. Translation catalogs, a full Orca walkthrough, and a physical
+multi-monitor fractional-scale matrix remain release-hardening work.
 
 ## The main window
 
@@ -61,6 +65,11 @@ work; the Settings Center does not claim those audits are complete.
   cancellation, conflicts, failures, retry actions, and completion.
 - Tabs appear above the browser. Split View adds a second independently
   navigable pane.
+
+Floe remembers the last normal window size after you resize and close it, then
+restores that size on the next launch. Maximized and fullscreen dimensions do
+not replace the remembered normal size. Window position remains owned by the
+Wayland compositor and is not persisted by Floe.
 
 Most actions are available in more than one place: a right-click menu, the
 three-dot header menu, the Command Palette, or a keyboard shortcut.
@@ -82,7 +91,7 @@ Settings Center and selection-aware context menus.
 
 | Task | How |
 | --- | --- |
-| Open a folder | Double-click it, select it and press `Enter`, or use **Open** |
+| Open a folder | Click or double-click according to **Settings → Browsing → Opening behavior**, select it and press `Enter`, or use **Open** |
 | Go back / forward | `Alt+Left` / `Alt+Right` |
 | Go to the parent folder | `Alt+Up` |
 | Open a breadcrumb ancestor | Activate its named segment in the header |
@@ -164,14 +173,23 @@ Open **Settings → Search & Preview** to disable reuse or clear it, or choose
   parent-to-child navigation.
 - In Grid View, use the minus/plus controls or `Ctrl+-` / `Ctrl++` to change
   icon size.
-- Use the view menu to change sort column, direction, grouping, folder
-  placement, file-view density, and optional list columns.
-- Column widths, sidebar width, per-tab view state, and other implemented view
-  preferences are restored across clean launches.
+- Use the view menu to change sort column, direction, **Type / Extension / Date /
+  Size** grouping, folder placement, file-view density, and optional list
+  columns. Unknown date/size metadata stays in a final explicit group.
+- Activate a group heading to collapse or expand it. In Grid View each heading
+  spans the content width above its file tiles; it never takes the place of a
+  file tile. The heading remains keyboard-focusable, announces expanded state,
+  and hiding a group does not change its files, exact identities, or selection.
+- Under **Columns**, choose **Move Left**, **Move Right**, or **Auto Size** for
+  any list column. Autosize samples at most 4,096 loaded entries and every width
+  remains clamped.
+- Column order/widths, sidebar width, split ratio, per-tab view state, and other
+  implemented view preferences are restored across clean launches.
 
-Floe can remember view settings per folder. If grouping is enabled in Grid
-View, group headings are part of the grid rather than a separate list-only
-model.
+Floe can remember view settings per folder. When grouping is enabled in Grid
+View, full-width group sections share the same authoritative selection as List
+View. Ctrl-click, context actions, activation, and switching views continue to
+address the exact same files.
 
 ## Select files and folders
 
@@ -180,6 +198,7 @@ model.
 - Hold `Shift` to select a range.
 - Drag across empty Grid View space for rubber-band selection.
 - Press `Ctrl+A` to select everything.
+- Press `Ctrl+Shift+I` to invert the current visible selection.
 - Press `Ctrl+Shift+A` or `Escape` to clear the selection when the file view has
   focus.
 - Press `Shift+F10` or the Menu key to open the context menu from the keyboard.
@@ -192,6 +211,11 @@ Refresh, Select All, and location actions.
 Choose **Customize Context Menus…** to show or hide the reviewed optional
 groups. Essential actions such as Properties, recovery, destructive actions,
 and access to customization remain reachable.
+
+Escape dismisses the innermost browser surface first: a context menu, location
+editor, unified search, quick preview/inspector, then file selection. Floe then
+returns focus to the active List, Grid, or Miller view. Window-parented dialogs
+keep their native Cancel/Close behavior.
 
 ## Open files and choose applications
 
@@ -284,6 +308,12 @@ conflict recovery.
 
 Choose **Operation History…** to review the bounded in-session history and use
 available safe Undo actions.
+
+Failure toasts show a concise summary and a **Details** button for the bounded
+memory-only technical message. Each toast owns its own details, so a newer
+notification cannot replace an older toast's explanation. When Floe is not the
+active window, completion notifications use generic text and do not include
+filenames or paths.
 
 ### Recover interrupted operations
 
@@ -507,6 +537,14 @@ They do not prove authenticity, safety, ownership, or absence of malware.
 Open **Main menu → View & Layout** to configure:
 
 - **Appearance**: Native, Glass, Frosted, Minimal, or Compact.
+- **Color scheme**: follow the desktop, force Light, or force Dark through
+  libadwaita's style manager.
+- **Interface font and text scale**: leave the font empty for the system family,
+  or enter a validated family name; scale text from 75% to 200%.
+- **Reduce motion**: disables Floe-owned CSS transitions and Miller kinetic
+  scrolling while respecting the desktop animation policy.
+- **Reset appearance**: restores Frosted, system colors/font, 100% text, and
+  normal motion.
 - **File & Folder Icons**: Floe Color, Phosphor Monochrome, or System Theme.
 - **Sidebar Density** and **File View Density**.
 - sort, grouping, folder placement, list columns, and per-folder view memory;
@@ -539,6 +577,7 @@ dialogs, and other input controls keep standard editing behavior.
 | `F3` / `F6` | Toggle Split View / switch active pane |
 | `Ctrl+1` / `Ctrl+2` | List / Grid View |
 | `Ctrl+A` / `Ctrl+Shift+A` | Select all / clear selection |
+| `Ctrl+Shift+I` | Invert the visible selection |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / Cut / Paste |
 | `F2` | Rename |
 | `Delete` / `Shift+Delete` | Move to Trash / confirm permanent deletion |

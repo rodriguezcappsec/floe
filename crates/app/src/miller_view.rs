@@ -256,6 +256,8 @@ pub struct MillerView {
     background_context_model: gio::MenuModel,
     drop_dispatcher: DropDispatcher,
     vim_mode: Rc<Cell<bool>>,
+    single_click_activate: Cell<bool>,
+    reduced_motion: Cell<bool>,
 }
 
 impl MillerView {
@@ -330,6 +332,8 @@ impl MillerView {
             background_context_model: background_context_model.clone(),
             drop_dispatcher: drop_dispatcher.clone(),
             vim_mode: Rc::new(Cell::new(false)),
+            single_click_activate: Cell::new(false),
+            reduced_motion: Cell::new(false),
         }
     }
 
@@ -376,6 +380,27 @@ impl MillerView {
             } else {
                 "Miller column browser. Vim navigation mode disabled."
             })]);
+    }
+
+    pub fn set_single_click_activate(&self, enabled: bool) {
+        self.single_click_activate.set(enabled);
+        if let Some(list) = self.active_list.borrow().as_ref() {
+            list.set_single_click_activate(enabled);
+        }
+    }
+
+    pub fn set_reduced_motion(&self, enabled: bool) {
+        self.reduced_motion.set(enabled);
+        let system_animations = gtk::Settings::default()
+            .map(|settings| settings.is_gtk_enable_animations())
+            .unwrap_or(true);
+        self.scroller
+            .set_kinetic_scrolling(system_animations && !enabled);
+        if enabled {
+            self.scroller.add_css_class("floe-reduced-motion");
+        } else {
+            self.scroller.remove_css_class("floe-reduced-motion");
+        }
     }
 
     pub fn detail_width(&self) -> MillerColumnWidth {
@@ -996,7 +1021,7 @@ impl MillerView {
 
         let drag_model = model.clone();
         let list = gtk::ListView::new(Some(model), Some(factory));
-        list.set_single_click_activate(false);
+        list.set_single_click_activate(self.single_click_activate.get());
         list.add_css_class("floe-miller-column-list");
         list.update_property(&[gtk::accessible::Property::Description(&format!(
             "Miller column {}. Use Up and Down to select items; logical Left and Right move between folders.",
