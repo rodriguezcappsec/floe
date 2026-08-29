@@ -20,6 +20,7 @@
     <file alias="icons/scalable/actions/floe-phosphor-arrow-left-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-arrow-left-symbolic.svg</file>
     <file alias="icons/scalable/actions/floe-phosphor-arrow-right-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-arrow-right-symbolic.svg</file>
     <file alias="icons/scalable/actions/floe-phosphor-arrow-up-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-arrow-up-symbolic.svg</file>
+    <file alias="icons/scalable/actions/floe-phosphor-arrows-down-up-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-arrows-down-up-symbolic.svg</file>
     <file alias="icons/scalable/actions/floe-phosphor-eye-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-eye-symbolic.svg</file>
     <file alias="icons/scalable/actions/floe-phosphor-magnifying-glass-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-magnifying-glass-symbolic.svg</file>
     <file alias="icons/scalable/actions/floe-phosphor-folder-open-symbolic.svg" preprocess="xml-stripblanks">icons/scalable/actions/floe-phosphor-folder-open-symbolic.svg</file>

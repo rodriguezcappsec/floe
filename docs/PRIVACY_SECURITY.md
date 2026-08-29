@@ -752,6 +752,17 @@ to the desktop clipboard, whose external lifetime Floe cannot control. A match
 compares bytes at calculation time. It does not prove authenticity, authorship,
 freshness, safety, signature validity, or future integrity.
 
+## Sort metadata privacy
+
+Phase 20B1 reads `user.baloo.rating`, `user.xdg.tags`, and `user.xdg.comment`
+only after the user explicitly chooses Rating, Tags, or Comment sorting. Reads
+run on the bounded browser worker, use no-follow extended-attribute access, cap
+the directory at 4,096 entries and each value at 4 KiB, and honor generation
+supersession. Missing, unsupported, malformed, and oversized values remain
+unknown. Floe keeps the values only in the current in-memory listing and never
+logs or writes them. This does not claim that the metadata is authentic,
+private from other local software, or owned by Floe; editing remains deferred.
+
 ## Suspicious files and metadata privacy
 
 Status: **PLANNED**.

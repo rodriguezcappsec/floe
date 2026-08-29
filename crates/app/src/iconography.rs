@@ -474,7 +474,7 @@ mod phase_6g_tests {
             gio::ResourceLookupFlags::NONE,
         )
         .expect("compiled Phosphor resource directory should enumerate");
-        assert_eq!(phosphor_resources.len(), 44);
+        assert_eq!(phosphor_resources.len(), 45);
         for resource in &phosphor_resources {
             assert!(resource.starts_with("floe-phosphor-"));
             assert!(resource.ends_with("-symbolic.svg"));

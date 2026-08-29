@@ -1311,6 +1311,63 @@ is active, and **Integrity verified** only after verification completes.
 
 # Current Project Status
 
+## Active status
+
+Last updated:
+
+`2026-08-28`
+
+Current phase:
+
+```text
+Phase 20B1 — Sort By Completeness (complete)
+```
+
+Completed this session:
+
+- Added a dedicated native Sort By menu beside the view controls and under
+  Browser View with real radio/check state for criteria, direction, folders
+  first, and hidden files last.
+- Added worker-owned Created, Accessed, Rating, Tags, and Comment ordering;
+  KDE-compatible user metadata is explicit-demand, no-follow, cancellable,
+  bounded, memory-only, and unknown-last.
+- Persisted hidden-last and new sort criteria through preference version 15 and
+  session codec version 2 with backward migration.
+- Added a Phosphor sort glyph, regressions, README/User Guide, architecture,
+  design, roadmap, matrix, and privacy/security documentation.
+
+Currently working:
+
+- None; Phase 20B1 is complete and verified.
+
+Important decisions:
+
+- Advanced Document/Image/Audio/Video metadata fields are visible but disabled
+  until a bounded metadata index can sort them truthfully.
+- Sorting never reconstructs exact paths from display text and GTK performs no
+  filesystem work.
+
+Known issues:
+
+- Running all ignored GTK tests in one process can still abort before `gtk_init`
+  because of existing cross-test initialization order. The applicable focused
+  real-GTK component test passes independently. Native Dogtail/pyatspi remains
+  unavailable on this host.
+
+Deferred:
+
+- Natural-name, MIME, owner/permission, dimensions/duration/audio sorting and
+  rating/tag/comment editing remain separate roadmap work.
+
+Recommended next task:
+
+```text
+Create `phase-20b2-completeness-audit` and continue the bounded visual,
+accessibility, localization, scaling, and daily-driver QoL audit.
+```
+
+## Prior phase status (archived)
+
 Last updated:
 
 `2026-08-28`

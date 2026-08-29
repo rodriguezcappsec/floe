@@ -1,3 +1,56 @@
+# Gates: Floe Phase 20B1 — Sort By Completeness
+
+Scope: local directory sort policy and native menu only; no content-wide
+metadata scan, metadata editor/index, remote browsing, or GTK filesystem I/O.
+
+- [x] S1: Core ordering supports Name, Size, Modified, Created, Accessed, Type,
+  Extension, Rating, Tags, and Comment with exact raw identity, deterministic
+  tie-breakers, unknown-last direction semantics, independent folders-first and
+  hidden-last policies.
+  CHECK: `cargo test -p floe-core phase_20b1_sort -- --nocapture`
+  EVIDENCE: Focused Phase 20B1 tests plus the full 157-test core suite pass,
+  including timestamps, unknown-last both directions, user metadata, hidden/
+  folder precedence, non-UTF-8 deterministic property coverage.
+- [x] S2: Rating/tags/comment enrichment runs only on the browser worker after
+  explicit selection, reads KDE-compatible no-follow xattrs with entry/value
+  limits and cancellation, and treats unsupported/missing/malformed values as
+  unknown without logging or persistence.
+  CHECK: `cargo test -p floe-core phase_20b1_user_metadata -- --nocapture`
+  EVIDENCE: `phase_20b1_user_metadata` covers explicit demand, no-follow
+  symlink behavior, malformed/oversized/missing xattrs, 4,096-entry/4-KiB
+  limits, and pre-cancellation. Strict Clippy passes without value/path logs.
+- [x] S3: Native Sort By UI exposes radio state for every working criterion,
+  separate direction and check state for Folders First/Hidden Files Last,
+  keyboard/accessibility semantics, and honest disabled indexed-metadata fields
+  under Document/Image/Audio/Video/Other.
+  CHECK: `cargo test -p floe-app phase_20b1_sort_ui -- --nocapture`
+  EVIDENCE: Menu-model regression verifies all requested labels, radio/check
+  actions, disabled advanced metadata action. Focused real-GTK header/component
+  gate passes on active Wayland and verifies button role, tooltip, bundled
+  Phosphor icon. Running every ignored GTK test together still hits an existing
+  gtk-init ordering abort, so only the applicable component test is claimed.
+- [x] S4: Global, per-folder, tabs/split, closed-tab, and restart restoration
+  migrate old preference/session formats safely and preserve the complete sort
+  policy without weakening existing bounds.
+  CHECK: `cargo test --workspace phase_20b1_sort_persistence -- --nocapture`
+  EVIDENCE: Preference v15 global/per-folder round trip and v14 migration pass;
+  session codec v2 round trip through existing session/tab/split tests and
+  explicit v1 hidden-last-off migration pass.
+- [x] S5: Formatting, workspace check, strict Clippy, workspace tests, native
+  build, real-GTK/E2E/Wayland lifecycle, diff hygiene, README/User Guide/matrix/
+  roadmap/architecture/security/status ledgers, and exactly one next leaf pass.
+  EVIDENCE: `cargo fmt --all -- --check`, workspace check, strict all-target/
+  all-feature Clippy, workspace tests (537 app: 528 passed/nine intentional
+  graphical ignores; 21 controller integration; 157 core; six duplicate
+  workflows), native build, focused real-GTK component gate, and diff hygiene
+  pass. E2E contract has three passes; native Dogtail/pyatspi layer skips with
+  exact missing-dependency reason. Isolated Wayland launch/Ping/Quit exits 0;
+  window actions are not exported as app-root D-Bus actions, so external Sort
+  activation is not claimed. README, User Guide, DESIGN, architecture, matrix,
+  roadmap, privacy/security, and status are updated; exactly Phase 20B2 is NEXT.
+
+---
+
 # Gates: Floe Phase 14B — Privileged Local Browsing
 
 Scope: experimental read-only local `admin://` provider only; no elevated Floe,

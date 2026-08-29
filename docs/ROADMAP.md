@@ -348,7 +348,8 @@ Status: **IN PROGRESS**
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
 | 20A — Settings Center | COMPLETE | `phase-20a-settings-center` | Dedicated searchable native Settings Center organizing appearance, browsing, views/layout, search/preview, operations/safety, applications, shortcuts/menus, and accessibility. | Verified case-insensitive plain-language search, live authoritative preferences, specialized-editor links, `Ctrl+,`, stable GTK accessibility metadata, no duplicate settings store or weakened irreversible confirmations. |
-| 20B — Visual, accessibility, and QoL audit | NEXT | `phase-20b-completeness-audit` | Close remaining matrix gaps across fonts, density, motion, focus, Orca, high contrast, localization, RTL, HiDPI, fractional scaling, errors, and recorded daily-driver QoL. | 20A and preceding user-facing families; measured matrix audit and native desktop smoke. |
+| 20B1 — Sort By completeness | COMPLETE | `phase-20b1-sort-by-menu` | Discoverable native Sort By menu; created/accessed and bounded KDE-compatible rating/tag/comment ordering; direction, folders-first, and hidden-last policy. | Worker-owned deterministic local sorting, exact-path tie-breakers, unknown-last semantics, v15 preference/v2 session migration, honest disabled indexed-media fields, focused/core/native gates. |
+| 20B2 — Visual, accessibility, and QoL audit | NEXT | `phase-20b2-completeness-audit` | Close remaining matrix gaps across fonts, density, motion, focus, Orca, high contrast, localization, RTL, HiDPI, fractional scaling, errors, and recorded daily-driver QoL. | 20A–20B1 and preceding user-facing families; measured matrix audit and native desktop smoke. |
 
 Goal: close every remaining `FEATURE_MATRIX` gap across appearance, fonts,
 density, motion, views, previews, operations, shortcuts, applications, privacy,

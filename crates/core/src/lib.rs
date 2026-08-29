@@ -28,6 +28,7 @@ mod sorting;
 mod split;
 mod tabs;
 mod trash_lifecycle;
+mod user_sort_metadata;
 mod verified_copy;
 mod view;
 
@@ -156,6 +157,10 @@ pub use tabs::{
 pub use trash_lifecycle::{
     RestoreError, RestoreOutcome, RestoreRequest, RestoreRequestError, TrashEnumerateError,
     TrashRoot, enumerate_trash_with_cancel, execute_restore,
+};
+pub use user_sort_metadata::{
+    USER_SORT_METADATA_ENTRY_CAPACITY, USER_SORT_METADATA_VALUE_CAPACITY, UserSortMetadataError,
+    enrich_user_sort_metadata,
 };
 pub use verified_copy::{
     VERIFIED_COPY_DEPTH_CAPACITY, VERIFIED_COPY_ENTRY_CAPACITY, VERIFIED_COPY_PATH_BYTES,

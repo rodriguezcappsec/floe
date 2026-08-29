@@ -23,7 +23,7 @@ pub const SESSION_MAX_PATH_BYTES: usize = 1_048_576;
 pub const SESSION_MAX_SERIALIZED_BYTES: usize = 64 * 1_048_576;
 
 const SESSION_MAGIC: &[u8; 8] = b"FLOESESS";
-const SESSION_CODEC_VERSION: u16 = 1;
+const SESSION_CODEC_VERSION: u16 = 2;
 const MAX_POLICY_TEXT_BYTES: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -272,20 +272,20 @@ impl BrowserSession {
             return Err(SessionCodecError::InvalidHeader);
         }
         let version = decoder.read_u16()?;
-        if version != SESSION_CODEC_VERSION {
+        if !matches!(version, 1 | SESSION_CODEC_VERSION) {
             return Err(SessionCodecError::UnsupportedVersion(version));
         }
         let id = BrowserSessionId::new(decoder.read_u64()?)?;
         let back_count = decoder.read_count("back history", SESSION_HISTORY_CAPACITY)?;
         let mut back = Vec::with_capacity(back_count);
         for _ in 0..back_count {
-            back.push(decoder.read_location()?);
+            back.push(decoder.read_location(version)?);
         }
-        let current = decoder.read_location()?;
+        let current = decoder.read_location(version)?;
         let forward_count = decoder.read_count("forward history", SESSION_HISTORY_CAPACITY)?;
         let mut forward = Vec::with_capacity(forward_count);
         for _ in 0..forward_count {
-            forward.push(decoder.read_location()?);
+            forward.push(decoder.read_location(version)?);
         }
         if !decoder.is_finished() {
             return Err(SessionCodecError::TrailingBytes);
@@ -423,6 +423,7 @@ impl Encoder {
         self.write_text(view.sort.direction.persisted())?;
         self.write_text(view.sort.directories.persisted())?;
         self.write_text(view.sort.grouping.persisted())?;
+        self.write_u8(u8::from(view.sort.hidden_last))?;
         self.write_text(&view.columns.visible_names())?;
         self.write_text(&view.columns.widths_text())
     }
@@ -543,7 +544,7 @@ impl<'a> Decoder<'a> {
             .map_err(|_| SessionCodecError::InvalidField("view policy text"))
     }
 
-    fn read_view(&mut self) -> Result<FolderViewState, SessionCodecError> {
+    fn read_view(&mut self, version: u16) -> Result<FolderViewState, SessionCodecError> {
         let mode = ViewMode::from_persisted(self.read_text()?)
             .ok_or(SessionCodecError::InvalidField("view mode"))?;
         let grid_size = GridSize::from_persisted(self.read_u16()?)
@@ -558,6 +559,15 @@ impl<'a> Decoder<'a> {
             .ok_or(SessionCodecError::InvalidField("directory placement"))?;
         let grouping = DirectoryGrouping::from_persisted(self.read_text()?)
             .ok_or(SessionCodecError::InvalidField("grouping"))?;
+        let hidden_last = if version >= 2 {
+            match self.read_u8()? {
+                0 => false,
+                1 => true,
+                _ => return Err(SessionCodecError::InvalidField("hidden-last")),
+            }
+        } else {
+            false
+        };
         let visible = self.read_text()?;
         let mut columns = ListColumnLayout::parse_visible(visible);
         if columns.visible_names() != visible {
@@ -574,14 +584,15 @@ impl<'a> Decoder<'a> {
             density,
             sort: DirectorySort::new(column, direction)
                 .with_directories(directories)
-                .with_grouping(grouping),
+                .with_grouping(grouping)
+                .with_hidden_last(hidden_last),
             columns,
         })
     }
 
-    fn read_location(&mut self) -> Result<SessionLocation, SessionCodecError> {
+    fn read_location(&mut self, version: u16) -> Result<SessionLocation, SessionCodecError> {
         let path = self.read_path()?;
-        let view = self.read_view()?;
+        let view = self.read_view(version)?;
         let selection_count = self.read_count("selection", SESSION_SELECTION_CAPACITY)?;
         let mut selection = Vec::with_capacity(selection_count);
         for _ in 0..selection_count {
@@ -623,7 +634,8 @@ mod tests {
             density: FileViewDensity::Spacious,
             sort: DirectorySort::new(SortColumn::Extension, SortDirection::Descending)
                 .with_directories(DirectoryPlacement::Last)
-                .with_grouping(DirectoryGrouping::Extension),
+                .with_grouping(DirectoryGrouping::Extension)
+                .with_hidden_last(true),
             columns,
         }
     }
@@ -769,6 +781,40 @@ mod tests {
     }
 
     #[test]
+    fn phase_20b1_sort_persistence_decodes_version_one_with_hidden_last_off() {
+        let session = BrowserSession::new(
+            BrowserSessionId::new(101).expect("ID"),
+            PathBuf::from("/legacy"),
+            detailed_view(),
+        )
+        .expect("session");
+        let mut legacy = session.encode().expect("encode");
+
+        let hidden_last_offset = {
+            let mut decoder = Decoder::new(&legacy);
+            decoder.read_exact(SESSION_MAGIC.len()).expect("magic");
+            decoder.read_u16().expect("version");
+            decoder.read_u64().expect("ID");
+            assert_eq!(decoder.read_u32().expect("back count"), 0);
+            decoder.read_path().expect("current path");
+            decoder.read_text().expect("view mode");
+            decoder.read_u16().expect("grid size");
+            decoder.read_text().expect("density");
+            decoder.read_text().expect("sort column");
+            decoder.read_text().expect("sort direction");
+            decoder.read_text().expect("directory placement");
+            decoder.read_text().expect("grouping");
+            decoder.offset
+        };
+        assert_eq!(legacy.remove(hidden_last_offset), 1);
+        legacy[8..10].copy_from_slice(&1_u16.to_le_bytes());
+
+        let decoded = BrowserSession::decode(&legacy).expect("legacy decode");
+        assert!(!decoded.current().view().sort.hidden_last);
+        assert_eq!(decoded.current().view().sort.column, SortColumn::Extension);
+    }
+
+    #[test]
     fn phase_7a_codec_rejects_header_version_truncation_and_trailing_data() {
         let session = BrowserSession::new(
             BrowserSessionId::new(1).expect("ID"),
@@ -784,10 +830,10 @@ mod tests {
             Err(SessionCodecError::InvalidHeader)
         );
         let mut bad_version = encoded.clone();
-        bad_version[8..10].copy_from_slice(&2_u16.to_le_bytes());
+        bad_version[8..10].copy_from_slice(&3_u16.to_le_bytes());
         assert_eq!(
             BrowserSession::decode(&bad_version),
-            Err(SessionCodecError::UnsupportedVersion(2))
+            Err(SessionCodecError::UnsupportedVersion(3))
         );
         let mut zero_id = encoded.clone();
         zero_id[10..18].copy_from_slice(&0_u64.to_le_bytes());

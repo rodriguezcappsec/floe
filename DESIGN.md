@@ -99,6 +99,16 @@ facts are omitted rather than shown as zero or writable.
 
 ### Directory surface
 
+Phase 20B1 adds one native **Sort By** menu beside the view controls and reuses
+it under Browser View. Working criteria use one radio group; direction is a
+separate radio group; Folders First and Hidden Files Last are independent
+checks. The selected state is visible and keyboard-accessible. Expensive
+document/image/audio/video properties remain visibly disabled with a metadata-
+index explanation instead of accepting an action that cannot sort truthfully.
+Created/accessed facts are captured during ordinary worker enumeration, while
+rating/tags/comment xattrs are loaded only after explicit selection on the
+bounded worker. Missing facts remain last and raw paths remain tie-breakers.
+
 The directory surface is a virtualized `GtkListView` backed by
 `GioListStore<glib::BoxedAnyObject>`. Phase 6A adds a compact header and aligned
 Name, Type, Size, and Modified columns. Each row displays a Floe-owned vector file-kind
