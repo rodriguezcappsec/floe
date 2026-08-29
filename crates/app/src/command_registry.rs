@@ -1039,6 +1039,15 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [S]
     ),
     command!(
+        "clear-metadata-sort-cache",
+        "Clear Advanced Sort Metadata",
+        "Delete Floe's private derived metadata-sort cache",
+        Preview,
+        ["sort", "metadata", "cache", "privacy", "reset"],
+        [],
+        [S]
+    ),
+    command!(
         "miller-inspector-hook",
         "Inspector",
         "Toggle read-only Inspector details in Miller view",

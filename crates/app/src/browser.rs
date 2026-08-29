@@ -368,6 +368,7 @@ use crate::{
         present as present_properties,
     },
     session_store::SessionStoreWorker,
+    sort_metadata_index::{MetadataIndexEventKind, MetadataIndexSubmitError, MetadataIndexWorker},
     state::{
         ApplicationState, GuardrailAuthorized, GuardrailAuthorizedBatchRename, TrackedOperation,
         TransferIntent, destructive_scope_for_move, destructive_scope_for_permanent_delete,
@@ -484,6 +485,7 @@ pub struct BrowserServices {
     browser: BrowserWorker,
     thumbnails: Option<ThumbnailWorker>,
     metadata: Option<MetadataWorker>,
+    metadata_index: Option<MetadataIndexWorker>,
     inspector: Option<InspectorWorker>,
     preview: Option<PreviewWorker>,
     properties: Option<PropertiesWorker>,
@@ -506,6 +508,7 @@ impl BrowserServices {
         browser: BrowserWorker,
         thumbnails: Option<ThumbnailWorker>,
         metadata: Option<MetadataWorker>,
+        metadata_index: Option<MetadataIndexWorker>,
         inspector: Option<InspectorWorker>,
         preview: Option<PreviewWorker>,
         properties: Option<PropertiesWorker>,
@@ -519,6 +522,7 @@ impl BrowserServices {
             browser,
             thumbnails,
             metadata,
+            metadata_index,
             inspector,
             preview,
             properties,
@@ -542,6 +546,8 @@ pub struct BrowserController {
     worker: RefCell<BrowserWorker>,
     thumbnail_worker: RefCell<Option<ThumbnailWorker>>,
     metadata_worker: RefCell<Option<MetadataWorker>>,
+    metadata_index_worker: RefCell<Option<MetadataIndexWorker>>,
+    metadata_index_generation: Cell<u64>,
     inspector_worker: RefCell<Option<InspectorWorker>>,
     inspector_generation: Cell<u64>,
     preview_worker: RefCell<Option<PreviewWorker>>,
@@ -692,6 +698,9 @@ impl Drop for BrowserController {
         }
         self.integrity_watch_set.get_mut().take();
         self.integrity_session.get_mut().disable();
+        if let Some(worker) = self.metadata_index_worker.get_mut().as_mut() {
+            worker.cancel();
+        }
         self.persist_session_for_shutdown();
         let Some(worker) = self.preference_worker.get_mut().as_ref() else {
             return;
@@ -716,6 +725,7 @@ impl BrowserController {
             browser,
             thumbnails,
             metadata,
+            metadata_index,
             inspector,
             preview,
             properties,
@@ -834,6 +844,8 @@ impl BrowserController {
             worker: RefCell::new(browser),
             thumbnail_worker: RefCell::new(thumbnails),
             metadata_worker: RefCell::new(metadata),
+            metadata_index_worker: RefCell::new(metadata_index),
+            metadata_index_generation: Cell::new(0),
             inspector_worker: RefCell::new(inspector),
             inspector_generation: Cell::new(0),
             preview_worker: RefCell::new(preview),
@@ -1380,6 +1392,17 @@ impl BrowserController {
         if let Some(worker) = self.duplicate_worker.borrow().as_ref() {
             worker.invalidate_watcher_paths(batch.changed_paths(), batch.overflowed());
         }
+        if let Some(worker) = self.metadata_index_worker.borrow_mut().as_mut() {
+            worker.cancel();
+            let paths = if batch.overflowed() {
+                vec![current.clone()]
+            } else {
+                batch.changed_paths().to_vec()
+            };
+            if let Err(error) = worker.invalidate(paths) {
+                tracing::debug!(%error, "metadata index invalidation deferred");
+            }
+        }
         self.pending_reconciliation
             .replace(Some(PendingReconciliation {
                 snapshot,
@@ -1924,6 +1947,7 @@ impl BrowserController {
                 return glib::ControlFlow::Break;
             }
             controller.drain_worker();
+            controller.drain_metadata_index_worker();
             controller.drain_folder_filter_worker();
             controller.drain_filename_search_worker();
             controller.drain_search_index_worker();
@@ -3999,6 +4023,55 @@ impl BrowserController {
         metadata_unavailable.set_enabled(false);
         self.widgets.window.add_action(&metadata_unavailable);
 
+        let cancel_metadata_sort = gio::SimpleAction::new("cancel-metadata-sort", None);
+        cancel_metadata_sort.set_enabled(false);
+        let controller = Rc::downgrade(self);
+        cancel_metadata_sort.connect_activate(move |_, _| {
+            if let Some(controller) = controller.upgrade() {
+                if let Some(worker) = controller.metadata_index_worker.borrow_mut().as_mut() {
+                    worker.cancel();
+                }
+                controller.sort_in_flight.set(false);
+                controller.set_sort_controls_sensitive(true);
+                controller.widgets.set_views_sensitive(true);
+                controller.widgets.spinner.stop();
+                controller
+                    .widgets
+                    .status_label
+                    .set_label("Metadata scan cancelled");
+                let current = controller.sort_order.get();
+                controller.resort_with(
+                    DirectorySort::new(SortColumn::Name, floe_core::SortDirection::Ascending)
+                        .with_directories(current.directories)
+                        .with_grouping(current.grouping)
+                        .with_hidden_last(current.hidden_last),
+                );
+            }
+        });
+        self.widgets.window.add_action(&cancel_metadata_sort);
+
+        let clear_metadata_cache = gio::SimpleAction::new("clear-metadata-sort-cache", None);
+        let controller = Rc::downgrade(self);
+        clear_metadata_cache.connect_activate(move |_, _| {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let result = controller
+                .metadata_index_worker
+                .borrow_mut()
+                .as_mut()
+                .ok_or(MetadataIndexSubmitError::Disconnected)
+                .and_then(MetadataIndexWorker::clear);
+            match result {
+                Ok(generation) => controller.metadata_index_generation.set(generation),
+                Err(error) => controller.show_toast(
+                    &format!("Could not clear advanced metadata cache: {error}"),
+                    6,
+                ),
+            }
+        });
+        self.widgets.window.add_action(&clear_metadata_cache);
+
         let grouping = self.sort_order.get().grouping;
         let grouping_action = gio::SimpleAction::new_stateful(
             "grouping",
@@ -5829,6 +5902,44 @@ impl BrowserController {
                 controller.change_search_index_enabled(toggle.is_active());
             }
         });
+        let controller = Rc::downgrade(self);
+        settings
+            .metadata_sort_cache
+            .connect_active_notify(move |toggle| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                let enabled = toggle.is_active();
+                if controller
+                    .current_preferences
+                    .borrow()
+                    .metadata_sort_cache_enabled
+                    == enabled
+                {
+                    return;
+                }
+                controller
+                    .current_preferences
+                    .borrow_mut()
+                    .metadata_sort_cache_enabled = enabled;
+                if !enabled {
+                    if let Some(worker) = controller.metadata_index_worker.borrow_mut().as_mut() {
+                        worker.cancel();
+                        if let Ok(generation) = worker.clear() {
+                            controller.metadata_index_generation.set(generation);
+                        }
+                    }
+                }
+                controller.queue_preferences();
+                controller.show_toast(
+                    if enabled {
+                        "Advanced metadata cache reuse enabled"
+                    } else {
+                        "Advanced metadata cache reuse disabled and cache clearing requested"
+                    },
+                    5,
+                );
+            });
 
         let controller = Rc::downgrade(self);
         settings
@@ -6592,9 +6703,99 @@ impl BrowserController {
             sort.direction.label()
         ));
 
-        let path = self.tabs.borrow().active().current().path().to_path_buf();
-        let generation = self.worker.borrow_mut().request_sort(path, entries, sort);
-        self.active_generation.set(generation);
+        if sort.column.needs_indexed_metadata() {
+            let request = self
+                .metadata_index_worker
+                .borrow_mut()
+                .as_mut()
+                .ok_or(MetadataIndexSubmitError::Disconnected)
+                .and_then(|worker| {
+                    worker.request_sort(
+                        entries,
+                        sort,
+                        self.current_preferences
+                            .borrow()
+                            .metadata_sort_cache_enabled,
+                    )
+                });
+            match request {
+                Ok(generation) => self.metadata_index_generation.set(generation),
+                Err(error) => {
+                    self.sort_in_flight.set(false);
+                    self.set_sort_controls_sensitive(true);
+                    self.widgets.set_views_sensitive(true);
+                    self.widgets.spinner.stop();
+                    self.show_toast(&format!("Could not start metadata indexing: {error}"), 7);
+                }
+            }
+        } else {
+            let path = self.tabs.borrow().active().current().path().to_path_buf();
+            let generation = self.worker.borrow_mut().request_sort(path, entries, sort);
+            self.active_generation.set(generation);
+        }
+    }
+
+    fn drain_metadata_index_worker(&self) {
+        loop {
+            let event = self
+                .metadata_index_worker
+                .borrow()
+                .as_ref()
+                .and_then(MetadataIndexWorker::try_response);
+            let Some(event) = event else {
+                break;
+            };
+            if event.generation != self.metadata_index_generation.get() {
+                continue;
+            }
+            match event.kind {
+                MetadataIndexEventKind::Progress {
+                    completed,
+                    total,
+                    cache_hits,
+                } => {
+                    self.widgets.status_label.set_label(&format!(
+                        "Indexing metadata… {completed} of {total} ({cache_hits} cached)"
+                    ));
+                }
+                MetadataIndexEventKind::Sorted { entries, sort } => {
+                    self.sort_in_flight.set(false);
+                    self.set_sort_controls_sensitive(true);
+                    self.widgets.set_views_sensitive(true);
+                    self.widgets.spinner.stop();
+                    if self.sort_order.get() != sort {
+                        continue;
+                    }
+                    let selected_paths = self.sort_selection_paths.take();
+                    self.all_listed_entries.replace(Arc::from(entries.clone()));
+                    let visible = entries
+                        .into_iter()
+                        .filter(|entry| self.show_hidden.get() || !entry.is_hidden())
+                        .collect::<Vec<_>>();
+                    self.listed_entries.replace(Arc::from(visible));
+                    self.apply_folder_filter(selected_paths, false);
+                }
+                MetadataIndexEventKind::Failed { error, sort } => {
+                    self.sort_in_flight.set(false);
+                    self.set_sort_controls_sensitive(true);
+                    self.widgets.set_views_sensitive(true);
+                    self.widgets.spinner.stop();
+                    let fallback =
+                        DirectorySort::new(SortColumn::Name, floe_core::SortDirection::Ascending)
+                            .with_directories(sort.directories)
+                            .with_grouping(sort.grouping)
+                            .with_hidden_last(sort.hidden_last);
+                    self.show_toast(
+                        &format!("Could not index that metadata: {error}. Sorted by Name instead."),
+                        7,
+                    );
+                    self.resort_with(fallback);
+                }
+                MetadataIndexEventKind::Cleared => {
+                    self.show_toast("Advanced metadata cache cleared", 4);
+                }
+            }
+        }
     }
 
     fn change_file_density(&self, density: FileViewDensity) {
@@ -6711,7 +6912,9 @@ impl BrowserController {
             header.button.set_sensitive(sensitive && trash_supported);
         }
         let menu_sensitive = sensitive && !self.trash_active.get();
-        self.widgets.sort_menu_button.set_sensitive(menu_sensitive);
+        self.widgets
+            .sort_menu_button
+            .set_sensitive(!self.trash_active.get());
         for name in [
             "sort-column",
             "sort-direction",
@@ -6726,6 +6929,22 @@ impl BrowserController {
             {
                 action.set_enabled(menu_sensitive);
             }
+        }
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("cancel-metadata-sort")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(self.sort_in_flight.get());
+        }
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action("clear-metadata-sort-cache")
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(menu_sensitive);
         }
     }
 
@@ -7255,6 +7474,9 @@ impl BrowserController {
     }
 
     fn load_current_inner(&self) -> u64 {
+        if let Some(worker) = self.metadata_index_worker.borrow_mut().as_mut() {
+            worker.cancel();
+        }
         self.file_watcher.stop();
         self.watch_generation.set(self.file_watcher.generation());
         self.widgets.thumbnails.begin_generation();
@@ -7441,6 +7663,10 @@ impl BrowserController {
                     }
                     self.set_sort_controls_sensitive(true);
                     self.show_listing(entries);
+                    let sort = self.sort_order.get();
+                    if sort.column.needs_indexed_metadata() {
+                        self.resort_with(sort);
+                    }
                 }
                 ResponseKind::ListingWithSortWarning { entries, error } => {
                     if self

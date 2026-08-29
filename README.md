@@ -216,10 +216,12 @@ standards-based path.
 
 ## Project status
 
-**Phase 20B1 — Sort By Completeness** is complete: a dedicated native menu now
-offers persisted criteria, direction, folders-first, and hidden-last state;
-created/accessed ordering and explicit-demand KDE-compatible rating/tag/comment
-sorting are bounded and worker-owned. The next bounded milestone is
+**Phase 20B1A — Advanced Metadata Sort Index** is complete: every Sort By row
+is actionable through an explicit, cancellable local-directory scan. Floe
+reuses bounded image/EXIF/audio providers, optional `ffprobe` video facts,
+bounded UTF-8 text counts, and no-follow Unix/link facts; repeated sorts may
+reuse a private fingerprint-validated cache that users can disable or clear.
+The next bounded milestone is
 **Phase 20B2 — Visual, accessibility, and QoL audit**.
 
 Floe has completed the generic desktop integration baseline through **Phase

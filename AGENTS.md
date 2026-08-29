@@ -1313,6 +1313,32 @@ is active, and **Integrity verified** only after verification completes.
 
 ## Active status
 
+Last updated: `2026-08-28`
+
+Current phase: **Phase 20B1A — Advanced Metadata Sort Index (complete)**
+
+Completed this session:
+
+- All formerly disabled Document/Image/Audio/Video/Other Sort By rows are real
+  persisted criteria backed by an explicit current-local-folder scan.
+- One bounded cancellable application worker reuses Phase 10F image/EXIF/audio,
+  bounded UTF-8 text, optional timed exact-argv `ffprobe`, and no-follow Unix/
+  link facts. GTK performs no filesystem work and exact paths stay authoritative.
+- A private versioned 32,768-entry/32-MiB fingerprint cache uses atomic `0600`
+  persistence below `0700`, watcher invalidation, corruption/insecure-storage
+  rejection, Settings reuse toggle and clearing. Preferences migrate to v16.
+- Focused/core/app tests, strict Clippy, serial workspace suite, two focused
+  real-GTK component gates, E2E preflight and native Wayland Ping/Quit pass.
+
+Known limitations: unsupported providers/formats remain unknown-last; PDF/office
+word counts are not faked. Optional `ffprobe` runs with normal user authority and
+is not claimed sandboxed. Dogtail/pyatspi remains unavailable on this host.
+
+Recommended next task: create `phase-20b2-completeness-audit` and continue the
+bounded visual, accessibility, localization, scaling, and daily-driver QoL audit.
+
+## Prior active status (superseded)
+
 Last updated:
 
 `2026-08-28`

@@ -114,7 +114,9 @@ pub use miller::{
     MILLER_COLUMN_CAPACITY, MillerChildKind, MillerColumn, MillerColumnDepth, MillerColumnModel,
     MillerReconcileTransition, MillerSelectionTransition, MillerStateError,
 };
-pub use model::{DirectoryEntry, DirectoryListing, EntryKind, ThumbnailState, TrashMetadata};
+pub use model::{
+    DirectoryEntry, DirectoryListing, EntryKind, IndexedSortMetadata, ThumbnailState, TrashMetadata,
+};
 pub use move_operation::{
     FileIdentity, MoveCancellation, MoveError, MoveOutcome, MoveRequest, RenameRequest,
     execute_move, execute_move_with_progress, execute_rename,

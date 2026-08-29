@@ -304,6 +304,19 @@ capacity-32 queue for GIO filesystem size/free/read-only facts. Current-location
 generation and device ID/path checks reject stale results. Neither worker owns
 sorting or filesystem mutation.
 
+### `sort_metadata_index.rs`
+
+Phase 20B1A owns explicit whole-directory advanced sorting in one application
+worker, separate from lazy visible-row metadata. Requests carry exact
+`DirectoryEntry` identities and one `DirectorySort`; GTK only submits, displays
+bounded progress, and applies the returned order. The worker reuses Phase 10F
+image/EXIF/audio providers, counts bounded UTF-8 text, reads no-follow Unix/link
+facts, and optionally supervises exact-argv `ffprobe` for video. A versioned
+private cache is keyed by exact raw path plus dev/inode/size/mtime/ctime, and
+file-watcher batches cancel current work and invalidate exact paths/subtrees.
+No metadata-index type enters `floe-core`; core owns only optional derived sort
+facts and deterministic comparison policy.
+
 ### `thumbnail.rs` and `thumbnail_cache.rs`
 
 Phase 6C owns a fixed-capacity, single-thread thumbnail request/result boundary

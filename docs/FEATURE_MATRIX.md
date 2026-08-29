@@ -270,8 +270,9 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Extension sorting | `COMPLETE` | 6T | Uses original `OsStr` extension identity with exact path tie-breaking. |
 | Created/accessed sorting | `COMPLETE` | 20B1 | Enumeration reuses no-follow metadata already loaded by the directory worker; unavailable timestamps remain last in both directions. |
 | Rating/tags/comment sorting | `COMPLETE` | 20B1 | Explicit selection reads KDE-compatible xattrs only on the bounded browser worker; missing, malformed, oversized, or unsupported values remain unknown and are not persisted or logged. |
-| Owner/permissions sorting | `PLANNED` | 6T/10B | Depends on lazy metadata providers. |
-| Dimensions/duration/audio sorting | `PLANNED` | 6T/10B/10F | Expensive metadata stays lazy and stable during enrichment. |
+| Owner/permissions/link/path sorting | `COMPLETE` | 20B1A | Explicit current-folder index reads no-follow Unix/link facts off GTK; exact raw paths remain authoritative and unknown link destinations remain last. |
+| Document word/line sorting | `COMPLETE` | 20B1A | Bounded UTF-8 text families only: 4 MiB per file and 128 MiB per scan. PDF/office extraction remains unknown until a future reviewed provider is added. |
+| Dimensions/duration/audio/video sorting | `COMPLETE` | 10F/20B1A | Existing bounded image/EXIF/audio providers feed explicit sorts. Video facts use exact-argv supervised optional `ffprobe`; missing providers/formats remain unknown-last. |
 | Stable ordering during enrichment | `COMPLETE` | 6T | Lazy metadata responses update bound labels only; deliberate policy actions own resort boundaries. |
 | Group by type/date/size/extension | `PARTIAL` | 6T/10B/20 | Type and raw extension grouping have visible list/grid boundaries independent of sorting; dotted directories remain one Folders group. Date and size groups remain planned. |
 | Group by tags | `DEFERRED` | 19 | Depends on a real tag model. |
@@ -502,7 +503,7 @@ advanced predicates and explicit Match Case control.
 | Reduced-motion setting | `PLANNED` | 20 | Honor GTK/system animation policy; custom motion remains restrained. |
 | HiDPI/fractional-scaling audit | `PLANNED` | 20 | Verify icons, thumbnails, borders, and focus at actual scale factors. |
 | Appearance persistence/migration | `COMPLETE` | 0/6D/6K2 | Version-9 preferences persist one stable preset ID; legacy/invalid values default to Frosted and `FLOE_APPEARANCE` remains a non-mutating launch override. |
-| Browsing settings | `PARTIAL` | 20A/20B1 | Settings Center controls default view, per-folder memory, Vim navigation, grid size, file density, and sidebar density. The header now exposes complete persisted sort criterion/direction/folders-first/hidden-last state; grouping, startup, and click policy remain audit work. |
+| Browsing settings | `PARTIAL` | 20A/20B1/20B1A | Settings Center controls default view, per-folder memory, Vim navigation, grid size, file/sidebar density, and private advanced-sort cache reuse/clearing. The header exposes complete persisted sort state; grouping, startup, and click policy remain audit work. |
 | Preview/cache settings | `PARTIAL` | 9F/20A | Settings links explicit memory-only Preview cache clearing. Provider enablement, size limits, persistent cache, and sensitive defaults remain planned. |
 | Operation/Trash confirmation settings | `PLANNED` | 6M/20 | Ordinary Trash stays low-friction; irreversible operations remain strongly confirmed. |
 | Application preferences | `PARTIAL` | 11E/20A/19 | Settings links the existing reviewed terminal chooser and desktop capability surface. Editor, association, and safe external-tool configuration remain planned. |

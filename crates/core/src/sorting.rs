@@ -16,10 +16,33 @@ pub enum SortColumn {
     Rating,
     Tags,
     Comment,
+    DocumentWordCount,
+    DocumentLineCount,
+    ImageDimensions,
+    ImageOrientation,
+    ImageWidth,
+    ImageHeight,
+    AudioArtist,
+    AudioAlbum,
+    AudioDuration,
+    AudioTrack,
+    AudioGenre,
+    AudioBitrate,
+    VideoDuration,
+    VideoDimensions,
+    VideoWidth,
+    VideoHeight,
+    VideoFrameRate,
+    VideoBitrate,
+    Path,
+    LinkDestination,
+    Permissions,
+    Owner,
+    Group,
 }
 
 impl SortColumn {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 33] = [
         Self::Name,
         Self::Type,
         Self::Size,
@@ -30,6 +53,29 @@ impl SortColumn {
         Self::Rating,
         Self::Tags,
         Self::Comment,
+        Self::DocumentWordCount,
+        Self::DocumentLineCount,
+        Self::ImageDimensions,
+        Self::ImageOrientation,
+        Self::ImageWidth,
+        Self::ImageHeight,
+        Self::AudioArtist,
+        Self::AudioAlbum,
+        Self::AudioDuration,
+        Self::AudioTrack,
+        Self::AudioGenre,
+        Self::AudioBitrate,
+        Self::VideoDuration,
+        Self::VideoDimensions,
+        Self::VideoWidth,
+        Self::VideoHeight,
+        Self::VideoFrameRate,
+        Self::VideoBitrate,
+        Self::Path,
+        Self::LinkDestination,
+        Self::Permissions,
+        Self::Owner,
+        Self::Group,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -44,6 +90,24 @@ impl SortColumn {
             Self::Rating => "Rating",
             Self::Tags => "Tags",
             Self::Comment => "Comment",
+            Self::DocumentWordCount => "Word Count",
+            Self::DocumentLineCount => "Line Count",
+            Self::ImageDimensions | Self::VideoDimensions => "Dimensions",
+            Self::ImageOrientation => "Orientation",
+            Self::ImageWidth | Self::VideoWidth => "Width",
+            Self::ImageHeight | Self::VideoHeight => "Height",
+            Self::AudioArtist => "Artist",
+            Self::AudioAlbum => "Album",
+            Self::AudioDuration | Self::VideoDuration => "Duration",
+            Self::AudioTrack => "Track",
+            Self::AudioGenre => "Genre",
+            Self::AudioBitrate | Self::VideoBitrate => "Bitrate",
+            Self::VideoFrameRate => "Frame Rate",
+            Self::Path => "Path",
+            Self::LinkDestination => "Link Destination",
+            Self::Permissions => "Permissions",
+            Self::Owner => "Owner",
+            Self::Group => "Group",
         }
     }
 
@@ -59,6 +123,29 @@ impl SortColumn {
             Self::Rating => "rating",
             Self::Tags => "tags",
             Self::Comment => "comment",
+            Self::DocumentWordCount => "document-word-count",
+            Self::DocumentLineCount => "document-line-count",
+            Self::ImageDimensions => "image-dimensions",
+            Self::ImageOrientation => "image-orientation",
+            Self::ImageWidth => "image-width",
+            Self::ImageHeight => "image-height",
+            Self::AudioArtist => "audio-artist",
+            Self::AudioAlbum => "audio-album",
+            Self::AudioDuration => "audio-duration",
+            Self::AudioTrack => "audio-track",
+            Self::AudioGenre => "audio-genre",
+            Self::AudioBitrate => "audio-bitrate",
+            Self::VideoDuration => "video-duration",
+            Self::VideoDimensions => "video-dimensions",
+            Self::VideoWidth => "video-width",
+            Self::VideoHeight => "video-height",
+            Self::VideoFrameRate => "video-frame-rate",
+            Self::VideoBitrate => "video-bitrate",
+            Self::Path => "path",
+            Self::LinkDestination => "link-destination",
+            Self::Permissions => "permissions",
+            Self::Owner => "owner",
+            Self::Group => "group",
         }
     }
 
@@ -70,6 +157,23 @@ impl SortColumn {
 
     pub const fn needs_user_metadata(self) -> bool {
         matches!(self, Self::Rating | Self::Tags | Self::Comment)
+    }
+
+    pub const fn needs_indexed_metadata(self) -> bool {
+        !matches!(
+            self,
+            Self::Name
+                | Self::Type
+                | Self::Size
+                | Self::Modified
+                | Self::Created
+                | Self::Accessed
+                | Self::Extension
+                | Self::Rating
+                | Self::Tags
+                | Self::Comment
+                | Self::Path
+        )
     }
 }
 
@@ -297,12 +401,181 @@ impl DirectorySort {
             SortColumn::Rating => optional(left.rating(), right.rating(), self.direction),
             SortColumn::Tags => optional(left.tags(), right.tags(), self.direction),
             SortColumn::Comment => optional(left.comment(), right.comment(), self.direction),
+            SortColumn::DocumentWordCount => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.word_count),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.word_count),
+                self.direction,
+            ),
+            SortColumn::DocumentLineCount => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.line_count),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.line_count),
+                self.direction,
+            ),
+            SortColumn::ImageDimensions => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.image_dimensions()),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.image_dimensions()),
+                self.direction,
+            ),
+            SortColumn::ImageOrientation => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.image_orientation.as_deref()),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.image_orientation.as_deref()),
+                self.direction,
+            ),
+            SortColumn::ImageWidth => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.image_width),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.image_width),
+                self.direction,
+            ),
+            SortColumn::ImageHeight => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.image_height),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.image_height),
+                self.direction,
+            ),
+            SortColumn::AudioArtist => optional_bytes(left, right, self.direction, |value| {
+                value.audio_artist.as_deref()
+            }),
+            SortColumn::AudioAlbum => optional_bytes(left, right, self.direction, |value| {
+                value.audio_album.as_deref()
+            }),
+            SortColumn::AudioDuration => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.audio_duration_millis),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.audio_duration_millis),
+                self.direction,
+            ),
+            SortColumn::AudioTrack => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.audio_track),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.audio_track),
+                self.direction,
+            ),
+            SortColumn::AudioGenre => optional_bytes(left, right, self.direction, |value| {
+                value.audio_genre.as_deref()
+            }),
+            SortColumn::AudioBitrate => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.audio_bitrate),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.audio_bitrate),
+                self.direction,
+            ),
+            SortColumn::VideoDuration => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.video_duration_millis),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.video_duration_millis),
+                self.direction,
+            ),
+            SortColumn::VideoDimensions => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.video_dimensions()),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.video_dimensions()),
+                self.direction,
+            ),
+            SortColumn::VideoWidth => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.video_width),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.video_width),
+                self.direction,
+            ),
+            SortColumn::VideoHeight => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.video_height),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.video_height),
+                self.direction,
+            ),
+            SortColumn::VideoFrameRate => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.video_frame_rate_milli),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.video_frame_rate_milli),
+                self.direction,
+            ),
+            SortColumn::VideoBitrate => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.video_bitrate),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.video_bitrate),
+                self.direction,
+            ),
+            SortColumn::Path => directed(left.path().cmp(right.path()), self.direction),
+            SortColumn::LinkDestination => optional_os_str(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.link_destination.as_deref()),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.link_destination.as_deref()),
+                self.direction,
+            ),
+            SortColumn::Permissions => optional(
+                left.indexed_sort_metadata()
+                    .and_then(|value| value.permissions),
+                right
+                    .indexed_sort_metadata()
+                    .and_then(|value| value.permissions),
+                self.direction,
+            ),
+            SortColumn::Owner => optional(
+                left.indexed_sort_metadata().and_then(|value| value.owner),
+                right.indexed_sort_metadata().and_then(|value| value.owner),
+                self.direction,
+            ),
+            SortColumn::Group => optional(
+                left.indexed_sort_metadata().and_then(|value| value.group),
+                right.indexed_sort_metadata().and_then(|value| value.group),
+                self.direction,
+            ),
         };
 
         primary
             .then_with(|| left.display_name().cmp(right.display_name()))
             .then_with(|| left.path().cmp(right.path()))
     }
+}
+
+fn optional_bytes(
+    left: &DirectoryEntry,
+    right: &DirectoryEntry,
+    direction: SortDirection,
+    value: impl Fn(&crate::IndexedSortMetadata) -> Option<&[u8]>,
+) -> Ordering {
+    optional(
+        left.indexed_sort_metadata().and_then(&value),
+        right.indexed_sort_metadata().and_then(value),
+        direction,
+    )
 }
 
 fn entry_extension(entry: &DirectoryEntry) -> Option<&OsStr> {
@@ -685,5 +958,94 @@ mod tests {
                 ".hidden-file"
             ]
         );
+    }
+
+    #[test]
+    fn phase_20b1a_sort_advanced_metadata_is_deterministic_and_unknown_last() {
+        let mut low = entry("low".into(), EntryKind::RegularFile, Some(1), Some(1));
+        low.set_indexed_sort_metadata(crate::IndexedSortMetadata {
+            word_count: Some(1),
+            line_count: Some(1),
+            image_width: Some(10),
+            image_height: Some(20),
+            image_orientation: Some(b"a".to_vec().into_boxed_slice()),
+            audio_artist: Some(b"a".to_vec().into_boxed_slice()),
+            audio_album: Some(b"a".to_vec().into_boxed_slice()),
+            audio_duration_millis: Some(1),
+            audio_track: Some(1),
+            audio_genre: Some(b"a".to_vec().into_boxed_slice()),
+            audio_bitrate: Some(1),
+            video_duration_millis: Some(1),
+            video_width: Some(10),
+            video_height: Some(20),
+            video_frame_rate_milli: Some(1),
+            video_bitrate: Some(1),
+            link_destination: Some("a".into()),
+            permissions: Some(0o600),
+            owner: Some(1),
+            group: Some(1),
+        });
+        let mut high = entry("high".into(), EntryKind::RegularFile, Some(1), Some(1));
+        high.set_indexed_sort_metadata(crate::IndexedSortMetadata {
+            word_count: Some(2),
+            line_count: Some(2),
+            image_width: Some(20),
+            image_height: Some(30),
+            image_orientation: Some(b"b".to_vec().into_boxed_slice()),
+            audio_artist: Some(b"b".to_vec().into_boxed_slice()),
+            audio_album: Some(b"b".to_vec().into_boxed_slice()),
+            audio_duration_millis: Some(2),
+            audio_track: Some(2),
+            audio_genre: Some(b"b".to_vec().into_boxed_slice()),
+            audio_bitrate: Some(2),
+            video_duration_millis: Some(2),
+            video_width: Some(20),
+            video_height: Some(30),
+            video_frame_rate_milli: Some(2),
+            video_bitrate: Some(2),
+            link_destination: Some("b".into()),
+            permissions: Some(0o700),
+            owner: Some(2),
+            group: Some(2),
+        });
+        let unknown = entry("unknown".into(), EntryKind::RegularFile, Some(1), Some(1));
+        let columns = [
+            SortColumn::DocumentWordCount,
+            SortColumn::DocumentLineCount,
+            SortColumn::ImageDimensions,
+            SortColumn::ImageOrientation,
+            SortColumn::ImageWidth,
+            SortColumn::ImageHeight,
+            SortColumn::AudioArtist,
+            SortColumn::AudioAlbum,
+            SortColumn::AudioDuration,
+            SortColumn::AudioTrack,
+            SortColumn::AudioGenre,
+            SortColumn::AudioBitrate,
+            SortColumn::VideoDuration,
+            SortColumn::VideoDimensions,
+            SortColumn::VideoWidth,
+            SortColumn::VideoHeight,
+            SortColumn::VideoFrameRate,
+            SortColumn::VideoBitrate,
+            SortColumn::LinkDestination,
+            SortColumn::Permissions,
+            SortColumn::Owner,
+            SortColumn::Group,
+        ];
+        for column in columns {
+            assert_eq!(SortColumn::from_persisted(column.persisted()), Some(column));
+            let mut ascending = vec![unknown.clone(), high.clone(), low.clone()];
+            DirectorySort::new(column, SortDirection::Ascending).sort_entries(&mut ascending);
+            assert_eq!(names(&ascending), ["low", "high", "unknown"], "{column:?}");
+            let mut descending = vec![unknown.clone(), low.clone(), high.clone()];
+            DirectorySort::new(column, SortDirection::Descending).sort_entries(&mut descending);
+            assert_eq!(names(&descending), ["high", "low", "unknown"], "{column:?}");
+        }
+        let mut path_entries = vec![low, high];
+        DirectorySort::new(SortColumn::Path, SortDirection::Ascending)
+            .sort_entries(&mut path_entries);
+        assert_eq!(names(&path_entries), ["high", "low"]);
+        assert_eq!(SortColumn::ALL.len(), 33);
     }
 }

@@ -4,6 +4,49 @@ use std::{
     time::SystemTime,
 };
 
+/// Derived facts used only for explicit advanced sorting.
+///
+/// Values are optional because providers are format- and host-dependent. The
+/// exact entry path remains authoritative and is never reconstructed from any
+/// displayed metadata value.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct IndexedSortMetadata {
+    pub word_count: Option<u64>,
+    pub line_count: Option<u64>,
+    pub image_width: Option<u32>,
+    pub image_height: Option<u32>,
+    pub image_orientation: Option<Box<[u8]>>,
+    pub audio_artist: Option<Box<[u8]>>,
+    pub audio_album: Option<Box<[u8]>>,
+    pub audio_duration_millis: Option<u64>,
+    pub audio_track: Option<u32>,
+    pub audio_genre: Option<Box<[u8]>>,
+    pub audio_bitrate: Option<u64>,
+    pub video_duration_millis: Option<u64>,
+    pub video_width: Option<u32>,
+    pub video_height: Option<u32>,
+    pub video_frame_rate_milli: Option<u64>,
+    pub video_bitrate: Option<u64>,
+    pub link_destination: Option<OsString>,
+    pub permissions: Option<u32>,
+    pub owner: Option<u32>,
+    pub group: Option<u32>,
+}
+
+impl IndexedSortMetadata {
+    pub fn image_dimensions(&self) -> Option<(u64, u32, u32)> {
+        let width = self.image_width?;
+        let height = self.image_height?;
+        Some((u64::from(width) * u64::from(height), width, height))
+    }
+
+    pub fn video_dimensions(&self) -> Option<(u64, u32, u32)> {
+        let width = self.video_width?;
+        let height = self.video_height?;
+        Some((u64::from(width) * u64::from(height), width, height))
+    }
+}
+
 /// The inexpensive file kind information loaded during initial enumeration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EntryKind {
@@ -78,6 +121,7 @@ pub struct DirectoryEntry {
     rating: Option<u8>,
     tags: Option<Box<[u8]>>,
     comment: Option<Box<[u8]>>,
+    indexed_sort_metadata: Option<IndexedSortMetadata>,
 }
 
 impl DirectoryEntry {
@@ -112,6 +156,7 @@ impl DirectoryEntry {
             rating: None,
             tags: None,
             comment: None,
+            indexed_sort_metadata: None,
         }
     }
 
@@ -138,6 +183,14 @@ impl DirectoryEntry {
     pub(crate) fn set_comment_sort_metadata(&mut self, comment: Option<Box<[u8]>>) {
         self.comment_loaded = true;
         self.comment = comment;
+    }
+
+    pub fn set_indexed_sort_metadata(&mut self, metadata: IndexedSortMetadata) {
+        self.indexed_sort_metadata = Some(metadata);
+    }
+
+    pub fn indexed_sort_metadata(&self) -> Option<&IndexedSortMetadata> {
+        self.indexed_sort_metadata.as_ref()
     }
 
     pub(crate) fn with_trash_metadata(mut self, metadata: TrashMetadata) -> Self {
