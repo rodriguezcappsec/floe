@@ -1,3 +1,55 @@
+# Gates: Floe Phase 20B1A — Advanced Metadata Sort Index
+
+Scope: explicit current-local-directory advanced sorting and its private
+derived cache only; no global/background crawl, metadata editor, remote index,
+content search replacement, or GTK filesystem I/O.
+
+- [x] M1: Core ordering supports every formerly disabled Sort By criterion
+  with deterministic raw-path tie-breakers and unknown-last behavior in both
+  directions.
+  CHECK: cargo test -p floe-core phase_20b1a_sort -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused core tests pass all 22 indexed fields plus Path, exact-path
+  tie-breakers, and unknown-last ordering in ascending and descending modes.
+- [x] M2: Extraction is worker-owned, cancellable, no-follow, source-
+  revalidated, bounded by entry/read/value limits, and reuses reviewed image,
+  EXIF, and media providers without GTK filesystem work.
+  CHECK: cargo test -p floe-app phase_20b1a_extract -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused extraction tests pass bounded UTF-8 counts, no-follow
+  symlink handling, cancellation, identity revalidation, and provider routing.
+- [x] M3: The versioned cache preserves exact non-UTF-8 paths, accepts only
+  private regular storage, validates full source fingerprints, rejects corrupt
+  or oversized data, persists atomically at 0600 below 0700, and supports
+  exact/subtree invalidation and clearing.
+  CHECK: cargo test -p floe-app phase_20b1a_cache -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused cache tests pass exact raw-path round trips, private mode
+  enforcement, atomic persistence, invalidation, and corrupt/insecure/symlink
+  rejection.
+- [x] M4: Native Sort By actions are real and stateful; unsupported provider
+  values remain truthful, progress/cancellation are reachable, and Settings
+  exposes persistent-cache enablement plus clearing with accessibility labels.
+  CHECK: cargo test -p floe-app phase_20b1a_ui -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Deterministic UI tests expose 33 real sort actions with no
+  placeholder rows; focused real-GTK Sort By and Settings accessibility tests
+  pass with reachable scan cancellation, reuse toggle, and cache clearing.
+- [x] M5: Preference/session migration, watcher invalidation, selection and
+  stale-generation behavior are regression-tested; full Rust and applicable
+  native GTK/Wayland gates pass, documentation/status is current, and exactly
+  one next phase remains.
+  CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace
+  EXPECT: test result: ok
+  EVIDENCE: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests (541 app: 532 passed/nine intentional graphical ignores; 21
+  app integration; 158 core; six duplicate workflows), serial app suite,
+  native build, two focused real-GTK gates, E2E harness (three passed; Dogtail/
+  pyatspi unavailable), isolated Wayland launch/Ping/Quit, documentation, and
+  diff hygiene pass. Exactly Phase 20B2 remains NEXT.
+
+---
+
 # Gates: Floe Phase 20B1 — Sort By Completeness
 
 Scope: local directory sort policy and native menu only; no content-wide
@@ -269,39 +321,39 @@ boundaries are verified.
   CHECK: cargo test -p floe-app phase_18y -- --nocapture
   EXPECT: test result: ok
   EVIDENCE: Create Undo captures no-follow identity and uses ordinary GIO Trash only after executor-side identity and empty-directory checks. Replacements and later directory contents fail without backend mutation; move/rename Undo stays green; Replace/Replace All and Undo Trash remain unavailable.
-- [ ] D3: A native accessible Settings Center organizes appearance, browsing,
+- [x] D3: A native accessible Settings Center organizes appearance, browsing,
   preview, operations, applications, shortcuts/context menus, and accessibility;
   supported controls apply live and persist through bounded migrations.
   CHECK: cargo test -p floe-app settings_center -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: pending
-- [ ] D4: Breadcrumbs, path completion, recent locations, history restoration,
+  EVIDENCE: Running unittests src/main.rs (target/debug/deps/floe_app-6961fb8f30d563c5) | Running tests/phase_18x_controller.rs (target/debug/deps/phase_18x_controller-efcd7b34247e497c)
+- [x] D4: Breadcrumbs, path completion, recent locations, history restoration,
   and CLI file/folder routing preserve exact raw paths, remain bounded, and do
   not leak sensitive histories.
   CHECK: cargo test --workspace navigation_upgrade -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: pending
-- [ ] D5: MIME association management can inspect/set/clear reviewed defaults;
+  EVIDENCE: Running unittests src/lib.rs (target/debug/deps/floe_core-c15248ed226a9cc0) | Running tests/duplicate_finder_workflows.rs (target/debug/deps/duplicate_finder_workflows-0370bb1535f0ba8c)
+- [x] D5: MIME association management can inspect/set/clear reviewed defaults;
   external actions use validated executable plus argv templates, capability and
   file-type eligibility, never a shell or lossy path reconstruction.
   CHECK: cargo test -p floe-app phase_19b -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: pending
-- [ ] D6: Open as Administrator is explicit and application-layer only, uses
+  EVIDENCE: Running unittests src/main.rs (target/debug/deps/floe_app-6961fb8f30d563c5) | Running tests/phase_18x_controller.rs (target/debug/deps/phase_18x_controller-efcd7b34247e497c)
+- [x] D6: Open as Administrator is explicit and application-layer only, uses
   reviewed GIO/polkit authority, never elevates the Floe process or captures a
   password, and fails with actionable honest feedback when unavailable.
   CHECK: cargo test -p floe-app open_as_administrator -- --nocapture
   EXPECT: test result: ok
-  EVIDENCE: pending
+  EVIDENCE: Running unittests src/main.rs (target/debug/deps/floe_app-6961fb8f30d563c5) | Running tests/phase_18x_controller.rs (target/debug/deps/phase_18x_controller-efcd7b34247e497c)
 - [ ] D7: Every new interactive control has meaningful accessible metadata,
   shortcut/command discovery where applicable, and native GTK component gates.
   EVIDENCE: pending
-- [ ] D8: Formatting, workspace check, strict all-target/all-feature Clippy,
+- [x] D8: Formatting, workspace check, strict all-target/all-feature Clippy,
   workspace tests, native build, E2E harness/applicable workflows, Wayland
   smoke, diff hygiene, documentation, and exactly one roadmap `NEXT` pass.
   CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check
   EXPECT: test result: ok
-  EVIDENCE: pending
+  EVIDENCE: Doc-tests floe_core | Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.03s
 
 ---
 

@@ -101,6 +101,7 @@ pub struct ViewPreferences {
     pub icon_style: EntryIconStyle,
     pub saved_searches: SavedSearchCatalog,
     pub search_index_enabled: bool,
+    pub metadata_sort_cache_enabled: bool,
     pub privileged_access_enabled: bool,
     pub custom_actions: Vec<CustomActionDefinition>,
     folder_views: Vec<FolderViewOverride>,
@@ -128,6 +129,7 @@ impl Default for ViewPreferences {
             icon_style: EntryIconStyle::FloeColor,
             saved_searches: SavedSearchCatalog::default(),
             search_index_enabled: false,
+            metadata_sort_cache_enabled: true,
             privileged_access_enabled: false,
             custom_actions: Vec::new(),
             folder_views: Vec::new(),
@@ -290,6 +292,9 @@ impl ViewPreferences {
                 "search-index-enabled" => {
                     preferences.search_index_enabled = value == "true";
                 }
+                "metadata-sort-cache-enabled" => {
+                    preferences.metadata_sort_cache_enabled = value == "true";
+                }
                 "privileged-access-enabled" => {
                     preferences.privileged_access_enabled = value == "true";
                 }
@@ -322,7 +327,7 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=15\nappearance={}\nicon-style={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\nhidden-last={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\nprivileged-access-enabled={}\n",
+            "version=16\nappearance={}\nicon-style={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\nhidden-last={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\nmetadata-sort-cache-enabled={}\nprivileged-access-enabled={}\n",
             self.appearance.persisted(),
             self.icon_style.persisted(),
             self.mode.persisted(),
@@ -342,6 +347,7 @@ impl ViewPreferences {
             self.vim_mode,
             self.context_menu.persisted(),
             self.search_index_enabled,
+            self.metadata_sort_cache_enabled,
             self.privileged_access_enabled,
         );
         if let Some(width) = self.sidebar_width {
@@ -692,7 +698,7 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=15\n"));
+        assert!(serialized.starts_with("version=16\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
     }
@@ -711,7 +717,7 @@ mod tests {
         );
         assert_eq!(customized.context_menu.persisted(), "archives,checksums");
         let serialized = customized.serialize();
-        assert!(serialized.starts_with("version=15\n"));
+        assert!(serialized.starts_with("version=16\n"));
         assert!(serialized.contains("context-menu-groups=archives,checksums\n"));
         assert_eq!(ViewPreferences::parse(&serialized), customized);
 
@@ -734,7 +740,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=15\n"));
+        assert!(serialized.starts_with("version=16\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,
@@ -757,7 +763,7 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=15\n"));
+            assert!(serialized.starts_with("version=16\n"));
             assert!(serialized.contains(&format!("appearance={}\n", preset.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).appearance, preset);
         }
@@ -778,7 +784,7 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=15\n"));
+            assert!(serialized.starts_with("version=16\n"));
             assert!(serialized.contains(&format!("icon-style={}\n", style.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).icon_style, style);
         }
@@ -811,7 +817,7 @@ mod tests {
         let mut preferences = ViewPreferences::default();
         preferences.saved_searches.add(saved).expect("catalog add");
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=15\n"));
+        assert!(serialized.starts_with("version=16\n"));
         assert!(serialized.contains("saved-search="));
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored.saved_searches, preferences.saved_searches);
@@ -854,7 +860,7 @@ mod tests {
         let mut enabled = defaults;
         enabled.search_index_enabled = true;
         let serialized = enabled.serialize();
-        assert!(serialized.starts_with("version=15\n"));
+        assert!(serialized.starts_with("version=16\n"));
         assert!(serialized.contains("search-index-enabled=true\n"));
         assert!(ViewPreferences::parse(&serialized).search_index_enabled);
         assert!(!ViewPreferences::parse("search-index-enabled=invalid\n").search_index_enabled);
@@ -925,7 +931,7 @@ mod tests {
             allow_multiple: false,
         });
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=15\n"));
+        assert!(serialized.starts_with("version=16\n"));
         assert!(serialized.contains("custom-action="));
         assert_eq!(ViewPreferences::parse(&serialized), preferences);
 
@@ -943,7 +949,7 @@ mod tests {
         let mut enabled = defaults;
         enabled.privileged_access_enabled = true;
         let serialized = enabled.serialize();
-        assert!(serialized.starts_with("version=15\n"));
+        assert!(serialized.starts_with("version=16\n"));
         assert!(serialized.contains("privileged-access-enabled=true\n"));
         assert!(ViewPreferences::parse(&serialized).privileged_access_enabled);
     }
@@ -974,7 +980,7 @@ mod tests {
         );
 
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=15\n"));
+        assert!(serialized.starts_with("version=16\n"));
         assert!(serialized.contains("hidden-last=true\n"));
         let restored = ViewPreferences::parse(&serialized);
         assert!(restored.sort.hidden_last);

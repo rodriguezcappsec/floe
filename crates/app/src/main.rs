@@ -65,6 +65,7 @@ pub mod restore_executor;
 mod search_index;
 mod session_store;
 mod settings_center;
+mod sort_metadata_index;
 pub mod state;
 mod storage;
 mod system_thumbnailer;

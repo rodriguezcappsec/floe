@@ -1,3 +1,46 @@
+# Plan: Floe Phase 20B1A — Advanced Metadata Sort Index
+
+## Contract
+
+Replace the Phase 20B1 placeholder rows with truthful local-directory sorting
+backed by a bounded, cancellable, application-owned metadata index. Reuse the
+reviewed Phase 10F image/EXIF/audio providers and no-follow source identity;
+add bounded text word/line facts and cheap Unix/link facts. Preserve exact raw
+paths and keep all filesystem/content work off GTK.
+
+Indexing is explicit when an advanced criterion is chosen. The cache is a
+private, versioned, size-bounded derived-data cache under Floe's XDG cache root,
+valid only for an exact dev/inode/size/mtime/ctime fingerprint. File-watcher
+changes invalidate exact paths/subtrees. Users can disable persistent reuse and
+clear the cache. Unsupported providers yield unknown-last values and truthful
+feedback; Floe never invents video/document facts or calls an unavailable
+criterion complete.
+
+## Implementation order
+
+1. Extend GTK-independent sort identity and ordering for document, image,
+   audio/video, path/link, permission, owner, and group criteria.
+2. Add a bounded extractor/index/cache worker with cancellation, progress,
+   no-follow validation, global/per-file limits, private atomic persistence,
+   corruption/insecure-storage rejection, and watcher invalidation.
+3. Route advanced sorts through the index worker, expose real menu actions,
+   cancellation and Settings cache controls, and preserve existing selection,
+   tabs/split/session, fallback, and stale-generation behavior.
+4. Add deterministic core/filesystem/codec/application/GTK regressions and run
+   the complete phase gates.
+5. Update the roadmap, matrix, privacy/security, architecture, design, README,
+   User Guide, and AGENTS status; mark complete only after verification and
+   leave exactly one recommended next phase.
+
+## Status
+
+**COMPLETE** on `phase-20b1a-metadata-index`. All M1–M5 gates pass, including
+focused extraction/cache/UI contracts, full workspace quality gates, focused
+real-GTK accessibility checks, E2E harness preflight, and isolated native
+Wayland launch/Ping/Quit. Phase 20B2 is the sole recommended next phase.
+
+---
+
 # Plan: Floe Phase 20B1 — Sort By Completeness
 
 ## Contract

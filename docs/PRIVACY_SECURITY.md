@@ -763,6 +763,25 @@ unknown. Floe keeps the values only in the current in-memory listing and never
 logs or writes them. This does not claim that the metadata is authentic,
 private from other local software, or owned by Floe; editing remains deferred.
 
+Phase 20B1A's advanced sort index is explicit and current-local-directory only;
+it is not a background, global, remote, Trash, or content-search index. It caps
+one scan at 4,096 entries, UTF-8 text at 4 MiB per file/128 MiB total, built-in
+advanced reads at 512 MiB total, and video probing at 512 files/five seconds per
+process. Workers preserve exact paths, reject symlink content reads, revalidate
+dev/inode/size/mtime/ctime before accepting results, and honor generation
+cancellation. Optional `ffprobe` is invoked by exact argv without a shell and
+runs with the user's normal authority; Floe does not claim it is sandboxed.
+
+The private versioned cache stores exact raw path, source fingerprint, derived
+word/line counts, dimensions/orientation, media tags/timing/rates, link target,
+mode, UID, and GID. It stores no file contents. It is capped at 32,768 entries
+and 32 MiB, written atomically as `0600` below a validated `0700` Floe cache
+directory, and rejects corrupt, oversized, symlinked, wrong-owner, or
+group/other-accessible storage. Watcher events invalidate exact paths/subtrees.
+Settings can disable persistent reuse and request immediate clearing. Clearing
+cannot erase copies retained by backups, snapshots, journals, or another
+same-user process. These derived facts are not authenticity or privacy verdicts.
+
 ## Suspicious files and metadata privacy
 
 Status: **PLANNED**.

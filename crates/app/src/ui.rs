@@ -1554,29 +1554,47 @@ pub(crate) fn build_sort_by_menu_model() -> gio::Menu {
 
     let advanced = gio::Menu::new();
     for (category, fields) in [
-        ("Document", &["Word Count", "Line Count"] as &[&str]),
-        ("Image", &["Dimensions", "Orientation", "Width", "Height"]),
+        (
+            "Document",
+            &[SortColumn::DocumentWordCount, SortColumn::DocumentLineCount] as &[SortColumn],
+        ),
+        (
+            "Image",
+            &[
+                SortColumn::ImageDimensions,
+                SortColumn::ImageOrientation,
+                SortColumn::ImageWidth,
+                SortColumn::ImageHeight,
+            ],
+        ),
         (
             "Audio",
-            &["Artist", "Album", "Duration", "Track", "Genre", "Bitrate"],
+            &[
+                SortColumn::AudioArtist,
+                SortColumn::AudioAlbum,
+                SortColumn::AudioDuration,
+                SortColumn::AudioTrack,
+                SortColumn::AudioGenre,
+                SortColumn::AudioBitrate,
+            ],
         ),
         (
             "Video",
             &[
-                "Duration",
-                "Dimensions",
-                "Width",
-                "Height",
-                "Frame Rate",
-                "Bitrate",
+                SortColumn::VideoDuration,
+                SortColumn::VideoDimensions,
+                SortColumn::VideoWidth,
+                SortColumn::VideoHeight,
+                SortColumn::VideoFrameRate,
+                SortColumn::VideoBitrate,
             ],
         ),
     ] {
         let submenu = gio::Menu::new();
-        for field in fields {
+        for column in fields {
             submenu.append(
-                Some(&format!("{field} (metadata index required)")),
-                Some("win.metadata-sort-unavailable"),
+                Some(column.label()),
+                Some(&format!("win.sort-column::{}", column.persisted())),
             );
         }
         advanced.append_submenu(Some(category), &submenu);
@@ -1586,10 +1604,16 @@ pub(crate) fn build_sort_by_menu_model() -> gio::Menu {
         Some(SortColumn::Extension.label()),
         Some("win.sort-column::extension"),
     );
-    for field in ["Path", "Link Destination", "Permissions", "Owner", "Group"] {
+    for column in [
+        SortColumn::Path,
+        SortColumn::LinkDestination,
+        SortColumn::Permissions,
+        SortColumn::Owner,
+        SortColumn::Group,
+    ] {
         other.append(
-            Some(&format!("{field} (metadata index required)")),
-            Some("win.metadata-sort-unavailable"),
+            Some(column.label()),
+            Some(&format!("win.sort-column::{}", column.persisted())),
         );
     }
     advanced.append_submenu(Some("Other"), &other);
@@ -1610,6 +1634,17 @@ pub(crate) fn build_sort_by_menu_model() -> gio::Menu {
     placement.append(Some("Folders First"), Some("win.folders-first"));
     placement.append(Some("Hidden Files Last"), Some("win.hidden-last"));
     menu.append_section(None, &placement);
+
+    let index_controls = gio::Menu::new();
+    index_controls.append(
+        Some("Cancel Metadata Scan"),
+        Some("win.cancel-metadata-sort"),
+    );
+    index_controls.append(
+        Some("Clear Metadata Cache"),
+        Some("win.clear-metadata-sort-cache"),
+    );
+    menu.append_section(None, &index_controls);
     menu
 }
 
@@ -5814,6 +5849,7 @@ fn sort_action_name(column: SortColumn) -> &'static str {
         SortColumn::Rating => "win.sort-rating",
         SortColumn::Tags => "win.sort-tags",
         SortColumn::Comment => "win.sort-comment",
+        _ => "win.sort-name",
     }
 }
 
@@ -6441,7 +6477,7 @@ mod tests {
                 .iter()
                 .filter(|action| action.as_str() == "win.sort-column")
                 .count(),
-            10
+            33
         );
         assert_eq!(
             actions
@@ -6452,7 +6488,30 @@ mod tests {
         );
         assert!(actions.contains(&"win.folders-first".to_owned()));
         assert!(actions.contains(&"win.hidden-last".to_owned()));
-        assert!(actions.contains(&"win.metadata-sort-unavailable".to_owned()));
+        assert!(actions.contains(&"win.cancel-metadata-sort".to_owned()));
+        assert!(actions.contains(&"win.clear-metadata-sort-cache".to_owned()));
+        assert!(
+            !labels
+                .iter()
+                .any(|label| label.contains("metadata index required"))
+        );
+    }
+
+    #[test]
+    fn phase_20b1a_ui_exposes_real_advanced_metadata_actions() {
+        let model = build_sort_by_menu_model();
+        let actions = menu_actions(model.upcast_ref());
+        for column in [
+            SortColumn::DocumentWordCount,
+            SortColumn::ImageDimensions,
+            SortColumn::AudioArtist,
+            SortColumn::VideoDuration,
+            SortColumn::LinkDestination,
+            SortColumn::Owner,
+        ] {
+            assert!(actions.iter().any(|action| action == "win.sort-column"));
+            assert!(SortColumn::from_persisted(column.persisted()).is_some());
+        }
     }
 
     fn max_menu_depth(model: &gio::MenuModel) -> usize {

@@ -102,9 +102,13 @@ facts are omitted rather than shown as zero or writable.
 Phase 20B1 adds one native **Sort By** menu beside the view controls and reuses
 it under Browser View. Working criteria use one radio group; direction is a
 separate radio group; Folders First and Hidden Files Last are independent
-checks. The selected state is visible and keyboard-accessible. Expensive
-document/image/audio/video properties remain visibly disabled with a metadata-
-index explanation instead of accepting an action that cannot sort truthfully.
+checks. The selected state is visible and keyboard-accessible. Phase 20B1A
+makes the advanced Document, Image, Audio, Video, and Other rows actionable
+through an explicit current-folder metadata scan. Header progress reports
+completed items and cache hits; Cancel Metadata Scan remains reachable while
+normal sort choices are locked. Missing or unsupported provider values remain
+last rather than displaying invented data. Settings can disable persistent
+reuse or clear Floe's private derived cache.
 Created/accessed facts are captured during ordinary worker enumeration, while
 rating/tags/comment xattrs are loaded only after explicit selection on the
 bounded worker. Missing facts remain last and raw paths remain tie-breakers.

@@ -433,7 +433,7 @@ mod tests {
             .set_from_text("win.forward", "")
             .expect("disabled binding");
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=15\n"));
+        assert!(serialized.starts_with("version=16\n"));
         assert!(serialized.contains("keybinding=win.back\t<Control>b\n"));
         assert!(serialized.contains("keybinding=win.forward\t!\n"));
         assert_eq!(

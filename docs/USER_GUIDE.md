@@ -139,14 +139,24 @@ mount exposed by the desktop can still appear as an ordinary mounted device.
 The **Sort files and folders** button sits beside the view controls. The same
 menu is available at **Main Menu → View & Layout → Browser View → Sort By**.
 Choose Name, Size, Modified, Created, Accessed, Type, Rating, Tags, Comment, or
-**Other → Extension**. Direction, **Folders First**, and **Hidden Files Last**
+the Document, Image, Audio, Video, and Other metadata submenus. Direction,
+**Folders First**, and **Hidden Files Last**
 are independent; hidden-last changes ordering but does not reveal hidden files.
 
 Missing timestamps and metadata stay last. Rating, Tags, and Comment read
 existing KDE-compatible local extended attributes only after that sort is
-chosen; Floe does not create, edit, log, or persist those values. Document,
-Image, Audio, Video, and remaining Other metadata fields are visibly disabled
-with “metadata index required” until a bounded provider can sort them truthfully.
+chosen; Floe does not create, edit, log, or persist those values.
+
+Advanced choices explicitly scan only the current local folder on a background
+worker. Progress and cache hits appear in the status line; reopen **Sort By** and
+choose **Cancel Metadata Scan** to stop. Unsupported formats stay at the end.
+Image/EXIF and audio use Floe's built-in reviewed providers; video facts require
+an installed `ffprobe`. Word/line counts currently cover bounded UTF-8 text and
+source formats, not PDF or office document contents.
+
+Repeated advanced sorts can reuse a private source-fingerprint-validated cache.
+Open **Settings → Search & Preview** to disable reuse or clear it, or choose
+**Clear Metadata Cache** in Sort By. Clearing changes no files or file metadata.
 
 - Press `Ctrl+1` for List View.
 - Press `Ctrl+2` for Grid View.

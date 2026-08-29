@@ -180,6 +180,13 @@ fn build_window(
             None
         }
     };
+    let metadata_index_worker = match crate::sort_metadata_index::MetadataIndexWorker::spawn() {
+        Ok(worker) => Some(worker),
+        Err(error) => {
+            tracing::warn!(%error, "could not start advanced metadata index worker");
+            None
+        }
+    };
     let inspector_worker = match InspectorWorker::spawn() {
         Ok(worker) => Some(worker),
         Err(error) => {
@@ -252,6 +259,7 @@ fn build_window(
             worker,
             thumbnail_worker,
             metadata_worker,
+            metadata_index_worker,
             inspector_worker,
             preview_worker,
             properties_worker,

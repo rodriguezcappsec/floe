@@ -71,6 +71,8 @@ enum SettingId {
     FileDensity,
     SidebarDensity,
     SearchIndex,
+    MetadataSortCache,
+    ClearMetadataSortCache,
     ClearPreviewCache,
     OperationHistory,
     RecoveryCenter,
@@ -96,7 +98,7 @@ struct SettingDefinition {
     action: Option<&'static str>,
 }
 
-const SETTINGS: [SettingDefinition; 22] = [
+const SETTINGS: [SettingDefinition; 24] = [
     setting(
         SettingId::AppearancePreset,
         SettingsSection::Appearance,
@@ -168,6 +170,22 @@ const SETTINGS: [SettingDefinition; 22] = [
         "Optionally accelerate filename searches with local metadata only; live search remains the fallback.",
         "search fast local privacy filenames metadata",
         None,
+    ),
+    setting(
+        SettingId::MetadataSortCache,
+        SettingsSection::SearchPreview,
+        "Reuse advanced sort metadata",
+        "Keep a private, fingerprint-validated derived cache so repeated metadata sorts are faster.",
+        "sort metadata cache private reuse performance",
+        None,
+    ),
+    setting(
+        SettingId::ClearMetadataSortCache,
+        SettingsSection::SearchPreview,
+        "Clear advanced sort metadata",
+        "Delete Floe's private derived metadata-sort cache; files and their metadata are unchanged.",
+        "sort metadata cache clear privacy delete",
+        Some("win.clear-metadata-sort-cache"),
     ),
     setting(
         SettingId::ClearPreviewCache,
@@ -350,6 +368,7 @@ pub struct SettingsCenterWidgets {
     pub file_density: gtk::DropDown,
     pub sidebar_density: gtk::DropDown,
     pub search_index: gtk::Switch,
+    pub metadata_sort_cache: gtk::Switch,
     pub privileged_access: gtk::Switch,
     pub action_buttons: Vec<(&'static str, gtk::Button)>,
     #[cfg(test)]
@@ -462,6 +481,11 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         "Private filename index",
         definition(SettingId::SearchIndex).description,
     );
+    let metadata_sort_cache = settings_switch(
+        preferences.metadata_sort_cache_enabled,
+        "Reuse advanced sort metadata",
+        definition(SettingId::MetadataSortCache).description,
+    );
     let privileged_access = settings_switch(
         preferences.privileged_access_enabled,
         "Experimental administrator browsing",
@@ -487,17 +511,23 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
                 SettingId::FileDensity => control_row(item, &file_density),
                 SettingId::SidebarDensity => control_row(item, &sidebar_density),
                 SettingId::SearchIndex => control_row(item, &search_index),
+                SettingId::MetadataSortCache => control_row(item, &metadata_sort_cache),
                 SettingId::PrivilegedAccess => control_row(item, &privileged_access),
                 SettingId::SystemAccessibility | SettingId::ReducedMotion => info_row(item),
                 _ => {
                     let button = gtk::Button::builder()
-                        .label(if item.id == SettingId::ClearPreviewCache {
-                            "Clear"
-                        } else if item.id == SettingId::CommandPalette {
-                            "Show"
-                        } else {
-                            "Open"
-                        })
+                        .label(
+                            if matches!(
+                                item.id,
+                                SettingId::ClearPreviewCache | SettingId::ClearMetadataSortCache
+                            ) {
+                                "Clear"
+                            } else if item.id == SettingId::CommandPalette {
+                                "Show"
+                            } else {
+                                "Open"
+                            },
+                        )
                         .valign(gtk::Align::Center)
                         .build();
                     button.update_property(&[
@@ -569,6 +599,7 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         file_density,
         sidebar_density,
         search_index,
+        metadata_sort_cache,
         privileged_access,
         action_buttons,
         #[cfg(test)]
@@ -726,6 +757,7 @@ mod tests {
         );
         assert!(!preferences.remember_per_folder);
         assert!(!preferences.search_index_enabled);
+        assert!(preferences.metadata_sort_cache_enabled);
     }
 
     #[test]
@@ -753,7 +785,11 @@ mod tests {
             widgets.privileged_access.accessible_role(),
             gtk::AccessibleRole::Switch
         );
-        assert_eq!(widgets.action_buttons.len(), 9);
+        assert_eq!(
+            widgets.metadata_sort_cache.accessible_role(),
+            gtk::AccessibleRole::Switch
+        );
+        assert_eq!(widgets.action_buttons.len(), 11);
         assert_eq!(
             widgets.no_results.accessible_role(),
             gtk::AccessibleRole::Status
