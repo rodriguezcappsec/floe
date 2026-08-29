@@ -719,12 +719,20 @@ deferred rather than lossily converted into local paths.
 
 ### Privileged access boundary
 
-Privileged browsing is design-only. **Open as Administrator...** must remain
-unexposed until the GFile/GVfs `admin://` provider and the test/rollout gates in
-`docs/PRIVILEGED_ACCESS.md` pass. Current local `PathBuf` navigation and job
-types cannot preserve administrator authority. The future provider will use
-polkit/GVfs without elevating the whole Floe process, receiving passwords, or
-building shell commands.
+Phase 14B implements an experimental read-only privileged provider without
+changing local `PathBuf` navigation or job types. `privileged_access.rs` owns a
+private `PrivilegedResourceId`, validates exact absolute local path → GIO file
+URI → GLib-built `admin` URI identity, and rejects arbitrary administrator URIs.
+The GIO/GVfs provider owns administrator GFiles, enumerators, and cancellables
+on the GLib main context and emits only generation-bound typed pages/events.
+
+Its virtualized Administrator-badged view has separate history, selection, and
+folder-only activation. It never adapts an administrator resource into a local
+`DirectoryEntry` or `PathBuf` executor, and has no mutation, preview, thumbnail,
+terminal, launcher, archive, custom-action, clipboard, or plugin route. GVfs
+and the polkit agent own authentication; Floe's process UID and credential
+boundary do not change. Privileged mutations and removing the experimental
+guard remain gated by `docs/PRIVILEGED_ACCESS.md`.
 
 ### `appearance.rs`
 

@@ -1,6 +1,34 @@
 # Privileged access design
 
-Status: security design; the user-facing action is intentionally not implemented.
+Status: experimental read-only Phase 14B implementation complete; privileged
+mutations and removal of the experimental guard remain gated.
+
+## Implemented Phase 14B boundary
+
+Floe exposes **Open as Administrator…** only after the user enables
+**Experimental administrator browsing** in Settings. The action accepts the
+current local folder or one explicitly selected local directory. A private
+constructor starts from its exact absolute `PathBuf`, round-trips a GIO `file`
+URI, changes only the scheme through GLib/GIO URI builders, and rejects hosts,
+credentials, query, fragment, foreign schemes, arbitrary administrator URIs,
+relative paths, round-trip drift, and unexpected provider children.
+
+The application-owned service creates and uses administrator GFiles on the
+owning GLib main context. It requests no-follow metadata in 128-entry pages,
+retains at most 4,096 entries, has a 120-second authorization deadline and
+30-second page deadline, uses GIO cancellables, and emits generation-bound typed
+events. Only the current request's first successful page enters visible
+Administrator state. The separate virtualized view provides folder-only
+Back/Forward/Parent navigation, Cancel, Retry, and Return to Standard Access.
+
+This implementation is deliberately read-only. No privileged resource can
+reach local mutation jobs, preview/thumbnail code, terminals, Open With,
+archives, external/custom actions, clipboard operations, plugins, or the main
+path-only navigation model. Native Wayland smoke verified both window actions,
+open/cancel/return lifecycle, liveness, clean quit, and UID 1000 before and after
+activation. Niri-specific and separate Plasma lab gates were unavailable, so
+the feature remains experimental and the unguarded stable-release gate stays
+closed.
 
 ## Goal and non-goals
 
@@ -343,6 +371,8 @@ The action must not be exposed until automated tests prove all of the following:
    denial/cancellation, and repeated open/downgrade/close tests pass without leaked
    privileged state. Mutations stay gated independently.
 
-Until every applicable test and rollout gate is satisfied, `Open as
-Administrator…` must not be exposed as a working action. A disabled explanatory
-surface is preferable to an unsafe or misleading button.
+The current working action remains behind the experimental setting because
+Niri-specific, separate Plasma, root-owned-fixture, and unguarded repeated-
+lifecycle stable-release gates are not all available. Do not remove that guard
+or add privileged mutations until their applicable gates pass; a disabled or
+classified fallback remains preferable to an unsafe or misleading path.

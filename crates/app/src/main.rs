@@ -59,6 +59,7 @@ mod permanent_delete_executor;
 mod permission_executor;
 mod preferences;
 pub mod preview;
+mod privileged_access;
 mod properties;
 pub mod restore_executor;
 mod search_index;

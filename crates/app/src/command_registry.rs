@@ -199,6 +199,31 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [F, H]
     ),
     command!(
+        "open-as-administrator",
+        "Open as Administrator…",
+        "Open selected or current local folder in an explicit read-only GVfs administrator view",
+        Operations,
+        [
+            "root",
+            "permissions",
+            "polkit",
+            "gvfs",
+            "read only",
+            "privileged"
+        ],
+        [],
+        [F, B, H]
+    ),
+    command!(
+        "return-standard-access",
+        "Return to Standard Access",
+        "Cancel and close the active administrator view",
+        Operations,
+        ["administrator", "privileged", "close", "cancel"],
+        [],
+        [H]
+    ),
+    command!(
         "open",
         "Open",
         "Open the selected item",

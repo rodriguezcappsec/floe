@@ -1318,42 +1318,48 @@ Last updated:
 Current phase:
 
 ```text
-Phase 19B — Associations and Custom Actions (complete)
+Phase 14B — Privileged Local Browsing (complete, experimental read-only)
 ```
 
 Completed this session:
 
-* Added bounded asynchronous GIO set/reset handling to the existing Open With
-  workflow with explicit queued, success, and failure feedback.
-* Added private, versioned, bounded custom-action definitions with file/folder,
-  single/multiple, and MIME eligibility plus exact `%f`, `%F`, `%d`, `%n`, and
-  `%%` whole-argument expansion into direct `OsString` argv.
-* Added fixed-capacity external-process launching and reaping without a shell,
-  a Settings editor, eligible context-menu actions, and Command Palette access.
-* Added README and User Guide instructions plus roadmap, capability, and
-  privacy/security documentation. A native-smoke Adwaita ampersand-markup bug
-  was fixed and covered by a regression test.
+* Added private validated administrator resource identity from exact absolute
+  local paths through GIO/GLib URI APIs; arbitrary `admin://`, remote,
+  credential-bearing, query/fragment, relative, and round-trip-drift input fails.
+* Added application-owned async GIO/GVfs no-follow enumeration with 128-entry
+  pages, 4,096-entry cap, 120-second authorization/30-second page deadlines,
+  cancellables, typed failures, and generation rejection on the GLib context.
+* Added version-14 opt-in Settings control, folder/background/Command Palette
+  action, and a virtualized read-only Administrator view with accessible
+  persistent authority, folder history, Cancel/Retry/Return controls.
+* Kept privileged identity outside every local mutation, Preview/thumbnail,
+  terminal, launcher/Open With, archive, custom action, clipboard, and plugin
+  route. Native smoke found and fixed a RefCell activation crash; failed child
+  navigation now restores the exact prior view and rejects stale responses.
+* Expanded the bounded shortcut registry/list capacities from 96 to 128 after
+  the new commands crossed the old integration-test ceiling.
+* Updated README, User Guide, privileged-access/security/architecture guidance,
+  roadmap, matrix, plan, gates, and project status.
 
 Verified:
 
 * Formatting, workspace check, strict all-target/all-feature Clippy, workspace
-  tests, native build, diff hygiene, focused Phase 19B tests, and the real-GTK
-  accessibility component test pass.
-* The application binary has 520 tests: 512 passed and eight intentional
-  graphical ignores; app integration, duplicate workflow, and 150 core tests
-  pass. E2E harness checks report three passed and the native Dogtail suite
-  skipped because Python Dogtail/pyatspi are unavailable.
-* Isolated persistent-data Wayland smoke exported all three Phase 19B window
-  actions with expected signatures, opened the editor, answered `Peer.Ping`,
-  and quit cleanly. Only the host RADV and unavailable AT-SPI warnings remain.
+  tests, native build, diff hygiene, focused Phase 14B tests, and the real-GTK
+  accessibility/component rollback gate pass.
+* The application binary has 535 tests: 526 passed and nine intentional
+  graphical ignores; 21 app integration, 150 core, and six duplicate-workflow
+  tests pass. E2E harness checks report three passed and the native Dogtail suite
+  is skipped because Python Dogtail/pyatspi are unavailable.
+* Isolated native Wayland/D-Bus Open/Return/Ping/Quit passes. Real, effective,
+  saved, and filesystem UIDs remained 1000 before and after activation. Only
+  known external RADV and unavailable AT-SPI warnings remained.
 
 Important decisions:
 
-* Custom actions are unprivileged explicit external tools, not plugins,
-  administrator jobs, a sandbox, or shell commands. They receive only selected
-  exact local paths allowed by their reviewed eligibility rules.
-* Privileged resources remain unavailable to previews, terminals, custom
-  actions, plugins, and ordinary local `PathBuf` mutation jobs.
+* Privileged browsing remains experimental, opt-in, read-only, application-layer
+  GIO/GVfs access. It never elevates the GTK process or receives credentials.
+* Privileged resources remain unavailable to previews, terminals, launchers,
+  archives, custom actions, plugins, clipboard, and local `PathBuf` jobs.
 
 Known issues:
 
@@ -1367,11 +1373,10 @@ Deferred:
 
 Recommended next task:
 
-Create `phase-14b-privileged-local-browsing`, reread all of
-`docs/PRIVILEGED_ACCESS.md`, and implement only its typed GIO/GVfs `admin://`
-provider and polkit-owned authentication gates. Never elevate the Floe process,
-capture passwords, accept arbitrary administrator URIs, or reuse local
-`PathBuf` jobs for privileged resources.
+Create `phase-20b-completeness-audit` and implement only the measured visual,
+accessibility, and daily-driver quality-of-life audit in `docs/ROADMAP.md`.
+Preserve the experimental administrator guard until separate Niri, Plasma,
+root-owned-fixture, and repeated-lifecycle stable-release gates are available.
 
 ---
 

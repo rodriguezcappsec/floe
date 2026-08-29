@@ -72,7 +72,7 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 | **Inspect** | Properties, folder totals, filesystem details, permissions and ownership editing, checksums, EXIF, and media metadata |
 | **Archives** | Create and extract ZIP, tar, tar.gz, tar.xz, and reviewed 7z archives through bounded background jobs |
 | **Work faster** | Unified quick filtering, filename/content search, saved searches, optional indexing, duplicate finding, command palette, customizable shortcuts, optional Vim navigation, batch rename, customizable context menus, and selection-aware custom actions |
-| **Desktop integration** | XDG Places, bookmarks, drives and removable media, native mount prompts, complete GIO Open With/default-app reset workflows, live file watching, and a truthful desktop-capability status surface |
+| **Desktop integration** | XDG Places, bookmarks, drives and removable media, native mount prompts, complete GIO Open With/default-app reset workflows, experimental read-only GVfs/polkit administrator browsing, live file watching, and a truthful desktop-capability status surface |
 | **Integrity and data-loss safety** | Saved SHA-256 fingerprints, portable `SHA256SUMS`, explicit local integrity baselines, optional Copy and Verify, verified flush/eject workflow, and exact-path Protected Folder guardrails |
 | **Appearance** | Native, Glass, Frosted, Minimal, and Compact presets; adjustable sidebar density and width; optional translucent floating surfaces |
 
@@ -239,6 +239,12 @@ inspect, set, or reset XDG MIME defaults through a bounded GIO worker. Users can
 configure selection- and MIME-aware external tools from Settings; Floe expands
 exact paths into direct argv items and never sends custom-action text to a shell.
 
+**Phase 14B — Privileged Local Browsing** is complete as an experimental,
+read-only feature. Users can opt in from Settings and open one local folder
+through the desktop's GVfs `admin` backend and polkit agent. Floe remains the
+normal user's process, never handles a password, keeps a persistent
+Administrator badge, and exposes no privileged mutation or external-tool path.
+
 Application chrome now uses a pinned local Phosphor icon subset, while file
 entries switch live between **Floe Color**, **Phosphor Monochrome**, and the
 active **System Theme**. Plain text, office documents, and PDF use distinct
@@ -258,7 +264,7 @@ The project tracks scope and verification explicitly:
 - [Feature matrix](./docs/FEATURE_MATRIX.md) — capability and verification ledger
 - [Design language](./DESIGN.md) — visual system and interaction rules
 - [Privacy and security](./docs/PRIVACY_SECURITY.md) — threat model and prohibited claims
-- [Privileged access](./docs/PRIVILEGED_ACCESS.md) — future administrator-scoped design
+- [Privileged access](./docs/PRIVILEGED_ACCESS.md) — implemented experimental read-only boundary and future mutation gates
 
 Features are marked complete only after their relevant formatting, build,
 Clippy, automated test, and native Wayland gates pass.

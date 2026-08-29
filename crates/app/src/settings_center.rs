@@ -77,6 +77,7 @@ enum SettingId {
     ProtectedFolders,
     PreferredTerminal,
     CustomActions,
+    PrivilegedAccess,
     DesktopIntegration,
     KeyboardShortcuts,
     ContextMenus,
@@ -95,7 +96,7 @@ struct SettingDefinition {
     action: Option<&'static str>,
 }
 
-const SETTINGS: [SettingDefinition; 21] = [
+const SETTINGS: [SettingDefinition; 22] = [
     setting(
         SettingId::AppearancePreset,
         SettingsSection::Appearance,
@@ -215,6 +216,14 @@ const SETTINGS: [SettingDefinition; 21] = [
         "Manage safe external tools; use Open With on a file to inspect, set, or reset its XDG MIME default.",
         "open with default app mime external tools arguments shell free",
         Some("win.custom-actions"),
+    ),
+    setting(
+        SettingId::PrivilegedAccess,
+        SettingsSection::Applications,
+        "Experimental administrator browsing",
+        "Enable explicit read-only local folder browsing through the desktop GVfs admin backend and polkit agent.",
+        "root administrator privileged polkit gvfs permissions read only experimental",
+        None,
     ),
     setting(
         SettingId::DesktopIntegration,
@@ -341,6 +350,7 @@ pub struct SettingsCenterWidgets {
     pub file_density: gtk::DropDown,
     pub sidebar_density: gtk::DropDown,
     pub search_index: gtk::Switch,
+    pub privileged_access: gtk::Switch,
     pub action_buttons: Vec<(&'static str, gtk::Button)>,
     #[cfg(test)]
     pub no_results: gtk::Label,
@@ -452,6 +462,11 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         "Private filename index",
         definition(SettingId::SearchIndex).description,
     );
+    let privileged_access = settings_switch(
+        preferences.privileged_access_enabled,
+        "Experimental administrator browsing",
+        definition(SettingId::PrivilegedAccess).description,
+    );
 
     let mut action_buttons = Vec::new();
     let mut filter_groups = Vec::new();
@@ -472,6 +487,7 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
                 SettingId::FileDensity => control_row(item, &file_density),
                 SettingId::SidebarDensity => control_row(item, &sidebar_density),
                 SettingId::SearchIndex => control_row(item, &search_index),
+                SettingId::PrivilegedAccess => control_row(item, &privileged_access),
                 SettingId::SystemAccessibility | SettingId::ReducedMotion => info_row(item),
                 _ => {
                     let button = gtk::Button::builder()
@@ -553,6 +569,7 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         file_density,
         sidebar_density,
         search_index,
+        privileged_access,
         action_buttons,
         #[cfg(test)]
         no_results,
@@ -664,6 +681,15 @@ mod tests {
     }
 
     #[test]
+    fn phase_14b_ui_settings_center_explains_experimental_administrator_browsing() {
+        assert!(matching_settings("administrator polkit").contains(&SettingId::PrivilegedAccess));
+        let definition = definition(SettingId::PrivilegedAccess);
+        assert_eq!(definition.section, SettingsSection::Applications);
+        assert!(definition.description.contains("read-only"));
+        assert!(definition.description.contains("GVfs"));
+    }
+
+    #[test]
     fn phase_20a_settings_center_actions_link_existing_specialized_surfaces() {
         let actions = SETTINGS
             .iter()
@@ -721,6 +747,10 @@ mod tests {
         );
         assert_eq!(
             widgets.remember_folder_view.accessible_role(),
+            gtk::AccessibleRole::Switch
+        );
+        assert_eq!(
+            widgets.privileged_access.accessible_role(),
             gtk::AccessibleRole::Switch
         );
         assert_eq!(widgets.action_buttons.len(), 9);
