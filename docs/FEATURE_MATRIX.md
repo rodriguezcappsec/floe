@@ -274,9 +274,9 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Document word/line sorting | `COMPLETE` | 20B1A | Bounded UTF-8 text families only: 4 MiB per file and 128 MiB per scan. PDF/office extraction remains unknown until a future reviewed provider is added. |
 | Dimensions/duration/audio/video sorting | `COMPLETE` | 10F/20B1A | Existing bounded image/EXIF/audio providers feed explicit sorts. Video facts use exact-argv supervised optional `ffprobe`; missing providers/formats remain unknown-last. |
 | Stable ordering during enrichment | `COMPLETE` | 6T | Lazy metadata responses update bound labels only; deliberate policy actions own resort boundaries. |
-| Group by type/date/size/extension | `PARTIAL` | 6T/10B/20 | Type and raw extension grouping have visible list/grid boundaries independent of sorting; dotted directories remain one Folders group. Date and size groups remain planned. |
+| Group by type/date/size/extension | `COMPLETE` | 6T/10B/20B2 | Type, raw extension, stable UTC calendar-day, and bounded human-size groups have deterministic visible boundaries. Grid View renders each group as a full-width header followed by its own virtualized grid body; headers never occupy file tiles. Directories remain one Folders group and unknown metadata remains last. |
 | Group by tags | `DEFERRED` | 19 | Depends on a real tag model. |
-| Collapsible groups | `PLANNED` | 6T/20 | Requires accessible headers and a persistent-state policy. |
+| Collapsible groups | `COMPLETE` | 20B2 | Focusable list/grid group buttons expose expanded state and persist at most 32 validated labels privately. Grid sections delegate through bounded selection slices to the one authoritative exact-path selection; collapse hides only that group's body. |
 | Disable grouping | `COMPLETE` | 6T | None is the default and a persisted explicit grouping choice. |
 | Name/Type/Size/Modified columns | `COMPLETE` | 6A | Current four-column hierarchy is compact and virtualized. |
 | MIME/Extension/Created/Accessed columns | `COMPLETE` | 6T | Extension uses enumerated identity; MIME, Created, and Accessed load only for bound rows through a fixed-capacity worker. |
@@ -284,7 +284,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Symlink-target column | `PLANNED` | 10B | Must preserve raw target identity and broken-link status. |
 | Image/media/audio metadata columns | `PLANNED` | 10F | Dimensions, duration, artist, album, and track depend on reviewed providers. |
 | Column visibility selection | `COMPLETE` | 6T | Optional columns use versioned global/per-folder persistence; Name cannot be hidden. |
-| Column reorder/resize/autosize | `PARTIAL` | 6T/10B/20 | Pointer resizing plus keyboard/menu narrow/widen actions persist clamped widths; reorder and autosize remain planned. |
+| Column reorder/resize/autosize | `COMPLETE` | 6T/10B/20B2 | Menu actions move every column left/right and autosize from at most 4,096 loaded entries plus bounded display-format hints; complete validated order and clamped widths round-trip globally, per folder, and in session codec v3. |
 
 ## Selection and status surface
 
@@ -296,7 +296,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Grid rubber-band | `COMPLETE` | 6J | Enabled on `GtkGridView`. |
 | Select All | `COMPLETE` | 6J | Ctrl+A and action are exported. |
 | Clear selection | `COMPLETE` | 6J | Ctrl+Shift+A, Escape, and action are available in focused view. |
-| Invert selection | `PLANNED` | 11A/20 | Central command plus discoverable shortcut/menu. |
+| Invert selection | `COMPLETE` | 20B2 | Ctrl+Shift+I, command palette, and background context menu deterministically invert the current visible model without reconstructing paths from display text. |
 | Pattern selection | `PLANNED` | 13A | Reuse current-folder filter matcher without losing exact identity. |
 | Same extension/type selection | `PLANNED` | 11A/13A | Use metadata policy, not lossy suffix parsing. |
 | Selection survives sorting | `COMPLETE` | 6B/6J | All exact paths are restored. |
@@ -353,7 +353,7 @@ advanced predicates and explicit Match Case control.
 | Bound-row/cell lazy requests | `COMPLETE` | 6C/6D | Only visible virtualized presentations request work. |
 | Persistent freedesktop cache | `COMPLETE` | 6E | Standard normal/large tiers, metadata validation, private writes, and Floe-only cleanup. |
 | Raster PNG/JPEG/WebP/GIF/BMP/TIFF/ICO | `COMPLETE` | 6C/6F | Static/first-frame decode with EXIF/TIFF orientation and bounded scaling. |
-| Thumbnail HiDPI policy | `PARTIAL` | 6D/20 | Discrete logical edges exist; explicit monitor-scale/provider-output audit remains. |
+| Thumbnail HiDPI policy | `PARTIAL` | 6D/20B2 | Cache identity remains the configured logical thumbnail edge while GTK owns device scaling; bounds and native logical presentation are tested, but a multi-monitor fractional-scale provider-output matrix remains Phase 21 evidence. |
 | Video frame thumbnails | `COMPLETE` | 6L | Uses an installed reviewed freedesktop provider; unavailable/failed providers retain the generic icon. |
 | PDF page thumbnails | `COMPLETE` | 6L | Provider output is accepted only as bounded passive PNG; Floe does not intentionally execute document active content. |
 | Office/DOCX thumbnails | `COMPLETE` | 6L | Uses installed providers through supervised argv execution; helpers are not sandboxed. |
@@ -444,6 +444,7 @@ advanced predicates and explicit Match Case control.
 | Safe remove workflow | `COMPLETE` | 6K/18W | Explicit verified copy, exact-mount flush, and revalidated GIO eject/unmount preserves partial states and never claims safe removal before successful removal. |
 | Device label and free space | `COMPLETE` | 6K/6T | Device labels come from GIO; mounted local roots receive bounded generation-checked capacity/free/read-only details. |
 | Sidebar width persistence/reset | `COMPLETE` | 6K2 | 128-480 px, 320 ms debounce, startup restore, appearance-default reset. |
+| Top-level window size persistence | `COMPLETE` | 20B2A | Restores one bounded normal width/height tuple through private version-17 preferences; GDK surface changes are debounced and maximized/fullscreen allocations are excluded. Wayland position, monitor, workspace, and compositor state are not stored. |
 | Sidebar collapsed mode | `PLANNED` | 20 | Must retain accessible destinations and restore width predictably. |
 | Selection-aware file context menu | `COMPLETE` | 5C/6J/10C/12F | List, grid, and Miller share one live selection-aware model with fixed Open/edit/Trash/Delete/Properties actions, default Archives/Batch rename/Links/Terminal/Split groups, optional Copy details/Checksums, and always-reachable customization; Trash retains its purpose-specific model. |
 | Directory-background context menu | `COMPLETE` | 6J/12F | Shared list/grid/Miller background model keeps creation, Paste, Select All, Refresh, Edit Location, and customization fixed while Terminal and Split View groups follow the same preference. |
@@ -497,24 +498,24 @@ advanced predicates and explicit Match Case control.
 | Semantic icon colors | `COMPLETE` | post-14 | Phosphor entry icons are single-color symbolic SVGs; semantic CSS classes distinguish folder, media, archive, code, document, and generic families while text/type labels preserve non-color meaning. |
 | System light/dark semantic colors | `COMPLETE` | 0 | libadwaita semantic colors provide readable light/dark behavior. |
 | Optional transparency with readable fallback | `COMPLETE` | 0 | Glass/Frosted remove only the opaque top-level Adwaita background, use distinct semantic alpha layers, and remain readable without claiming or faking compositor blur; verified on dark and bright native Wayland backdrops. |
-| User-facing appearance settings | `PARTIAL` | 0/20 | Persistent live preset selection is complete; light/dark/system, custom radius/opacity, and reset UI remain Phase 20. |
+| User-facing appearance settings | `PARTIAL` | 0/20B2 | Persistent presets plus System/Light/Dark, font family/scale, reduced motion, and one reset action apply live. Custom radius/opacity token editing remains deferred customization. |
 | Custom themes/theme tokens | `DEFERRED` | 19/20 | Must extend shared tokens rather fork widget trees. |
-| Font family/scale settings | `PLANNED` | 20 | Accessible system-font fallback and no layout breakage. |
-| Reduced-motion setting | `PLANNED` | 20 | Honor GTK/system animation policy; custom motion remains restrained. |
-| HiDPI/fractional-scaling audit | `PLANNED` | 20 | Verify icons, thumbnails, borders, and focus at actual scale factors. |
+| Font family/scale settings | `COMPLETE` | 20B2 | Empty input restores the system font; validated names and 75–200% scaling apply through centralized CSS and version-18 private preferences. |
+| Reduced-motion setting | `COMPLETE` | 20B2 | Persisted preference disables Floe-owned CSS transitions and Miller kinetic scrolling while continuing to respect the GTK system animation setting. |
+| HiDPI/fractional-scaling audit | `PARTIAL` | 20B2/21A | Logical sizing, bounded device hints, vector iconography, non-color focus, and cache identity have deterministic coverage; broad physical multi-monitor fractional-scale measurement remains release hardening. |
 | Appearance persistence/migration | `COMPLETE` | 0/6D/6K2 | Version-9 preferences persist one stable preset ID; legacy/invalid values default to Frosted and `FLOE_APPEARANCE` remains a non-mutating launch override. |
-| Browsing settings | `PARTIAL` | 20A/20B1/20B1A | Settings Center controls default view, per-folder memory, Vim navigation, grid size, file/sidebar density, and private advanced-sort cache reuse/clearing. The header exposes complete persisted sort state; grouping, startup, and click policy remain audit work. |
+| Browsing settings | `PARTIAL` | 20A/20B1/20B1A/20B2 | Settings Center controls default view, per-folder memory, Vim navigation, grid size, file/sidebar density, single/double-click activation, private advanced-sort cache reuse/clearing, and normal window size restoration. Grouping is controlled in View & Layout; remaining startup behavior stays future work. |
 | Preview/cache settings | `PARTIAL` | 9F/20A | Settings links explicit memory-only Preview cache clearing. Provider enablement, size limits, persistent cache, and sensitive defaults remain planned. |
 | Operation/Trash confirmation settings | `PLANNED` | 6M/20 | Ordinary Trash stays low-friction; irreversible operations remain strongly confirmed. |
 | Application preferences | `PARTIAL` | 11E/20A/19 | Settings links the existing reviewed terminal chooser and desktop capability surface. Editor, association, and safe external-tool configuration remain planned. |
 | Desktop-specific settings | `PLANNED` | 15/16/20 | Only expose capabilities detected from optional backends. |
 | Full keyboard operation | `PARTIAL` | 0-6K2/20 | Core navigation, selection, menus, views, and actions have keyboard routes; future surfaces must complete parity. |
-| Logical visible focus | `PARTIAL` | 0-6K2/20 | Native focus and explicit restoration exist in current views/dialogs; comprehensive audit remains. |
+| Logical visible focus | `COMPLETE` | 0-20B2 | Navigation and the Phase 20B2 Escape hierarchy restore the active list/grid/Miller view; active panes have text ownership plus a high-contrast outline rather than color alone. |
 | Screen-reader labels | `PARTIAL` | 0-6K2/20 | Current icon buttons, sort state, jobs, and dialogs include labels; Orca audit is pending. |
 | Accessible job progress/errors | `PARTIAL` | 4B-6K2/20 | Labels/actions exist; live announcements and full assistive-technology audit remain. |
-| High contrast | `PLANNED` | 20 | Validate semantic colors, borders, icons, and non-color state. |
-| Font scaling | `PLANNED` | 20 | Test layout and ellipsization with system/user scaling. |
-| Localization and RTL readiness | `PLANNED` | 20/21 | User strings, dates, layout direction, path rendering, and translation infrastructure. |
+| High contrast | `COMPLETE` | 20B2 | Semantic colors are supplemented by explicit group borders, expanded text glyphs, pane labels, and focus outlines; focused real-GTK component contracts pass. |
+| Font scaling | `COMPLETE` | 20B2 | A bounded 75–200% control uses centralized window CSS while existing ellipsization and virtualized view geometry remain authoritative. |
+| Localization and RTL readiness | `PARTIAL` | 20B2/21C | New feedback uses stable message IDs and path displays use Unicode first-strong isolation without changing exact identity. A full string extraction/catalog and translated native RTL walkthrough remain release documentation work. |
 | Non-color-only states | `PARTIAL` | 6B-6K2/20 | Sort arrows, text kinds, operation labels, and device states comply; full product audit remains. |
 | Predictable focus after navigation | `PARTIAL` | 6H/20 | Location success/cancel returns focus; tabs/split/preview need a complete hierarchy. |
 
@@ -688,17 +689,17 @@ These small behaviors are acceptance requirements, not optional polish.
 | Strong irreversible confirmation | `COMPLETE` | 6M/18X | Permanent delete retains its irreversible confirmation and adds exact action/scope/risk guardrail review where required. |
 | No focus stealing after jobs | `PARTIAL` | 4B-6K2/20 | Operations Island is non-modal; full notification/recovery audit remains. |
 | Reveal completed destination | `PLANNED` | 6Q/11A | Reuse the Phase 6Q navigation/reveal action and preserve focus. |
-| Configurable single/double click | `PLANNED` | 20 | Default remains conventional double-click/Enter until preference exists. |
+| Configurable single/double click | `COMPLETE` | 20B2 | One persisted Settings choice controls list, grid, search-result, and Miller pointer activation; Enter remains immediate in either mode. |
 | Sidebar width persists | `COMPLETE` | 6K2 | Debounced complete-state preference and reset are verified across launches. |
-| Split ratio persists | `PLANNED` | 7D/20 | Depends on split state. |
-| Consistent focus after navigation | `PARTIAL` | 6H/20 | Existing location flow restores view focus; future surfaces require audit. |
+| Split ratio persists | `COMPLETE` | 7D/20B2 | Pointer and keyboard changes remain clamped to 20–80% and round-trip per split tab through the versioned workspace codec without GTK polling. |
+| Consistent focus after navigation | `COMPLETE` | 6H/20B2 | Location, search, context-menu, preview, and Escape exits restore the active browser view; split-pane text and outline communicate ownership. |
 | Predictable Ctrl+L | `COMPLETE` | 6H | Seeds/selects current display path and validates explicit absolute submission. |
-| Predictable Escape hierarchy | `PARTIAL` | 4D/6H/6J/20 | Rename/location/selection paths exist; preview, filter, dialogs, tabs, and panes need one hierarchy. |
+| Predictable Escape hierarchy | `COMPLETE` | 4D/6H/6J/20B2 | Escape closes the innermost active context menu, location editor, search surface, quick-preview/inspector, then selection, returning focus to the active view. Window-parented dialogs retain their native close/cancel behavior. |
 | Browsing during operations | `COMPLETE` | 4B | Non-modal Operations Island and background workers keep the browser available. |
 | Non-blocking error feedback | `COMPLETE` | 1-6K2 | Toasts/dialog recovery preserve application usability. |
-| Detailed errors available | `PARTIAL` | 1-6K2/20 | Structured failures and logs exist; a user-facing details surface is incomplete. |
+| Detailed errors available | `COMPLETE` | 1-20B2 | Failure toasts show a concise summary and a Details action carrying its own bounded memory-only technical payload, avoiding stale-toast races; the dialog remains non-blocking. |
 | Hidden/filter/search mode obvious | `COMPLETE` | 1/13A/13B | Hidden toggle, Text/Glob/Regex filter mode, and distinct filename-search mode expose visible scope, Search, Stop, Close, progress, and result state. |
-| Active pane/tab obvious | `PLANNED` | 7B/7E | Non-color-only state and predictable focus. |
+| Active pane/tab obvious | `COMPLETE` | 7B/7E/20B2 | Active-side text, pane labels, focus restoration, and a high-contrast outline provide redundant non-color ownership cues. |
 | Private/vault/sandbox status obvious | `PLANNED` | 18H/18K/18M | Text/icon/accessibility state, never color alone. |
 | Watcher storms coalesced | `COMPLETE` | 6S | One 140 ms cancellable timer deduplicates paths and caps 16,384 events, 4,096 paths, and 1,024 rename pairs before conservative overflow reconciliation. |
 | Context menus selection-aware | `COMPLETE` | 6J | Existing multi-selection is preserved when appropriate. |

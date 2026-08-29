@@ -355,8 +355,9 @@ use crate::{
         MillerPresentationState, resolve_action_context_entries,
     },
     preferences::{
-        PreferenceSubmitError, PreferenceWorker, SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN,
-        SidebarDensity, ViewPreferences, clamp_sidebar_width,
+        ClickPolicy, ColorSchemePreference, PreferenceSubmitError, PreferenceWorker,
+        SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, SidebarDensity, ViewPreferences, WindowSize,
+        clamp_font_scale, clamp_sidebar_width, validated_font_family,
     },
     preview::{
         PREVIEW_QUEUE_CAPACITY, PreviewCachePolicy, PreviewLimits, PreviewOutcome, PreviewRequest,
@@ -455,6 +456,7 @@ impl CreateDialogKind {
 }
 
 const SIDEBAR_PERSIST_DEBOUNCE: Duration = Duration::from_millis(320);
+const WINDOW_SIZE_PERSIST_DEBOUNCE: Duration = Duration::from_millis(320);
 
 #[cfg(test)]
 fn with_current_view_preferences(
@@ -479,6 +481,24 @@ fn sidebar_width_from_position(position: i32) -> u16 {
 fn preferences_after_sidebar_reset(mut preferences: ViewPreferences) -> ViewPreferences {
     preferences.sidebar_width = None;
     preferences
+}
+
+fn remember_window_size_if_normal(
+    preferences: &mut ViewPreferences,
+    width: i32,
+    height: i32,
+    maximized: bool,
+    fullscreen: bool,
+) -> bool {
+    let Some(size) = WindowSize::from_normal_allocation(width, height, maximized, fullscreen)
+    else {
+        return false;
+    };
+    if preferences.window_size == Some(size) {
+        return false;
+    }
+    preferences.window_size = Some(size);
+    true
 }
 
 pub struct BrowserServices {
@@ -629,6 +649,7 @@ pub struct BrowserController {
     session_saved: Cell<bool>,
     pending_preferences: Cell<Option<ViewPreferences>>,
     current_preferences: RefCell<ViewPreferences>,
+    window_size_save_source: RefCell<Option<glib::SourceId>>,
     sidebar_save_source: RefCell<Option<glib::SourceId>>,
     ignore_sidebar_position_signal: Cell<bool>,
     split_snapshots: RefCell<HashMap<BrowserSessionId, [SplitPaneSnapshot; 2]>>,
@@ -701,14 +722,7 @@ impl Drop for BrowserController {
         if let Some(worker) = self.metadata_index_worker.get_mut().as_mut() {
             worker.cancel();
         }
-        self.persist_session_for_shutdown();
-        let Some(worker) = self.preference_worker.get_mut().as_ref() else {
-            return;
-        };
-        if let Err(error) = worker.save_before_shutdown(self.current_preferences.get_mut().clone())
-        {
-            tracing::warn!(%error, "could not submit final view preferences");
-        }
+        self.persist_for_shutdown();
     }
 }
 
@@ -833,6 +847,8 @@ impl BrowserController {
             }
         };
         widgets.miller_view.set_vim_mode(view_preferences.vim_mode);
+        widgets.apply_click_policy(view_preferences.click_policy);
+        widgets.apply_appearance_preferences(&view_preferences);
         Rc::new(Self {
             widgets,
             command_palette,
@@ -927,6 +943,7 @@ impl BrowserController {
             session_saved: Cell::new(false),
             pending_preferences: Cell::new(None),
             current_preferences: RefCell::new(view_preferences),
+            window_size_save_source: RefCell::new(None),
             sidebar_save_source: RefCell::new(None),
             ignore_sidebar_position_signal: Cell::new(false),
             split_snapshots: RefCell::new(HashMap::new()),
@@ -1134,6 +1151,7 @@ impl BrowserController {
 
         self.install_file_view_shortcuts(&self.widgets.list_view);
         self.install_file_view_shortcuts(&self.widgets.grid_view);
+        self.install_file_view_shortcuts(&self.widgets.grouped_grid_view);
         self.install_file_view_shortcuts(&self.widgets.search_results_view);
         self.install_file_view_shortcuts(self.widgets.miller_view.widget());
 
@@ -1906,7 +1924,7 @@ impl BrowserController {
                 glib::Propagation::Stop
             } else if key == gtk::gdk::Key::Escape && modifiers.is_empty() {
                 if let Some(controller) = controller.upgrade() {
-                    controller.clear_selection();
+                    controller.handle_escape();
                 }
                 glib::Propagation::Stop
             } else if is_context_menu_shortcut(key, modifiers) {
@@ -1937,6 +1955,7 @@ impl BrowserController {
 
     pub fn present_and_start(self: &Rc<Self>) {
         self.widgets.window.present();
+        self.arm_window_size_persistence();
         self.arm_sidebar_width_persistence();
         self.discover_terminals();
         self.load_current();
@@ -1984,6 +2003,93 @@ impl BrowserController {
         {
             tracing::warn!(%error, "could not submit final browser session");
         }
+    }
+
+    pub fn persist_for_shutdown(&self) {
+        self.finish_window_size_tracking();
+        self.persist_session_for_shutdown();
+        let Some(worker) = self.preference_worker.borrow_mut().take() else {
+            return;
+        };
+        if let Err(error) = worker.save_before_shutdown(self.current_preferences.borrow().clone()) {
+            tracing::warn!(%error, "could not submit final view preferences");
+        }
+    }
+
+    fn arm_window_size_persistence(self: &Rc<Self>) {
+        let controller = Rc::downgrade(self);
+        self.widgets.window.connect_close_request(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.finish_window_size_tracking();
+            }
+            glib::Propagation::Proceed
+        });
+
+        if let Some(surface) = self.widgets.window.surface() {
+            self.attach_window_surface_tracking(surface);
+            return;
+        }
+
+        let controller = Rc::downgrade(self);
+        self.widgets.window.connect_realize(move |window| {
+            let (Some(controller), Some(surface)) = (controller.upgrade(), window.surface()) else {
+                return;
+            };
+            controller.attach_window_surface_tracking(surface);
+        });
+    }
+
+    fn attach_window_surface_tracking(self: &Rc<Self>, surface: gdk::Surface) {
+        let controller = Rc::downgrade(self);
+        surface.connect_width_notify(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.schedule_window_size_persistence();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        surface.connect_height_notify(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.schedule_window_size_persistence();
+            }
+        });
+        self.schedule_window_size_persistence();
+    }
+
+    fn schedule_window_size_persistence(self: &Rc<Self>) {
+        if let Some(source) = self.window_size_save_source.borrow_mut().take() {
+            source.remove();
+        }
+        let controller = Rc::downgrade(self);
+        let source = glib::timeout_add_local_once(WINDOW_SIZE_PERSIST_DEBOUNCE, move || {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            controller.window_size_save_source.borrow_mut().take();
+            if controller.capture_normal_window_size() {
+                controller.queue_preferences();
+            }
+        });
+        self.window_size_save_source.borrow_mut().replace(source);
+    }
+
+    fn capture_normal_window_size(&self) -> bool {
+        let Some(surface) = self.widgets.window.surface() else {
+            return false;
+        };
+        remember_window_size_if_normal(
+            &mut self.current_preferences.borrow_mut(),
+            surface.width(),
+            surface.height(),
+            self.widgets.window.is_maximized(),
+            self.widgets.window.is_fullscreen(),
+        )
+    }
+
+    fn finish_window_size_tracking(&self) {
+        if let Some(source) = self.window_size_save_source.borrow_mut().take() {
+            source.remove();
+        }
+        self.capture_normal_window_size();
     }
 
     fn arm_sidebar_width_persistence(self: &Rc<Self>) {
@@ -3551,6 +3657,18 @@ impl BrowserController {
         self.add_action("settings", |controller| {
             controller.show_settings_center();
         });
+        let show_error_details =
+            gio::SimpleAction::new("show-error-details", Some(&String::static_variant_type()));
+        let controller = Rc::downgrade(self);
+        show_error_details.connect_activate(move |_, parameter| {
+            let Some(details) = parameter.and_then(glib::Variant::str) else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                controller.show_feedback_details(details);
+            }
+        });
+        self.widgets.window.add_action(&show_error_details);
         let breadcrumb_action =
             gio::SimpleAction::new("breadcrumb", Some(&u64::static_variant_type()));
         let controller = Rc::downgrade(self);
@@ -3708,6 +3826,9 @@ impl BrowserController {
         });
         self.add_action("open-trash", |controller| controller.open_trash());
         self.add_action("select-all", |controller| controller.select_all());
+        self.add_action("invert-selection", |controller| {
+            controller.invert_selection();
+        });
         self.add_action("clear-selection", |controller| controller.clear_selection());
         self.add_action("new-tab", |controller| controller.new_tab());
         self.add_action("close-tab-active", |controller| {
@@ -4093,6 +4214,23 @@ impl BrowserController {
         });
         self.widgets.window.add_action(&grouping_action);
 
+        let toggle_group =
+            gio::SimpleAction::new("toggle-group", Some(&String::static_variant_type()));
+        let controller = Rc::downgrade(self);
+        toggle_group.connect_activate(move |_, parameter| {
+            let Some(label) = parameter.and_then(glib::Variant::str) else {
+                return;
+            };
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let labels = controller.widgets.toggle_group_collapse(label);
+            controller.current_preferences.borrow_mut().collapsed_groups = labels;
+            controller.queue_preferences();
+            controller.widgets.focus_view(controller.view_mode.get());
+        });
+        self.widgets.window.add_action(&toggle_group);
+
         let placement = self.sort_order.get().directories;
         let placement_action = gio::SimpleAction::new_stateful(
             "directory-placement",
@@ -4140,6 +4278,15 @@ impl BrowserController {
         self.add_action("widen-name", |controller| {
             controller.resize_list_column(ListColumn::Name, 16);
         });
+        self.add_action("autosize-name", |controller| {
+            controller.autosize_list_column(ListColumn::Name);
+        });
+        self.add_action("move-column-left-name", |controller| {
+            controller.move_list_column(ListColumn::Name, -1);
+        });
+        self.add_action("move-column-right-name", |controller| {
+            controller.move_list_column(ListColumn::Name, 1);
+        });
         for column in ListColumn::OPTIONAL {
             let action_name = format!("column-{}", column.persisted());
             let visible = self.list_columns.get().is_visible(column);
@@ -4169,6 +4316,18 @@ impl BrowserController {
             let wider = format!("widen-{}", column.persisted());
             self.add_action(&wider, move |controller| {
                 controller.resize_list_column(column, 16);
+            });
+            let autosize = format!("autosize-{}", column.persisted());
+            self.add_action(&autosize, move |controller| {
+                controller.autosize_list_column(column);
+            });
+            let move_left = format!("move-column-left-{}", column.persisted());
+            self.add_action(&move_left, move |controller| {
+                controller.move_list_column(column, -1);
+            });
+            let move_right = format!("move-column-right-{}", column.persisted());
+            self.add_action(&move_right, move |controller| {
+                controller.move_list_column(column, 1);
             });
         }
 
@@ -5191,6 +5350,78 @@ impl BrowserController {
         self.show_toast(&format!("Appearance: {}", preset.label()), 3);
     }
 
+    fn change_color_scheme(&self, scheme: ColorSchemePreference) {
+        if self.current_preferences.borrow().color_scheme == scheme {
+            return;
+        }
+        self.current_preferences.borrow_mut().color_scheme = scheme;
+        self.widgets
+            .apply_appearance_preferences(&self.current_preferences.borrow());
+        self.queue_preferences();
+        self.show_toast(&format!("Color scheme: {}", scheme.label()), 3);
+    }
+
+    fn change_click_policy(&self, policy: ClickPolicy) {
+        if self.current_preferences.borrow().click_policy == policy {
+            return;
+        }
+        self.current_preferences.borrow_mut().click_policy = policy;
+        self.widgets.apply_click_policy(policy);
+        self.queue_preferences();
+        self.show_toast(policy.label(), 3);
+    }
+
+    fn change_font_preferences(&self, family: Option<&str>, scale_percent: u16) {
+        let family = family.and_then(validated_font_family);
+        let scale_percent = clamp_font_scale(scale_percent);
+        {
+            let mut preferences = self.current_preferences.borrow_mut();
+            if preferences.font_family == family && preferences.font_scale_percent == scale_percent
+            {
+                return;
+            }
+            preferences.font_family = family;
+            preferences.font_scale_percent = scale_percent;
+        }
+        self.widgets
+            .apply_appearance_preferences(&self.current_preferences.borrow());
+        self.queue_preferences();
+    }
+
+    fn change_reduced_motion(&self, enabled: bool) {
+        if self.current_preferences.borrow().reduced_motion == enabled {
+            return;
+        }
+        self.current_preferences.borrow_mut().reduced_motion = enabled;
+        self.widgets
+            .apply_appearance_preferences(&self.current_preferences.borrow());
+        self.queue_preferences();
+        self.show_toast(
+            if enabled {
+                "Reduced motion enabled"
+            } else {
+                "Reduced motion disabled"
+            },
+            3,
+        );
+    }
+
+    fn reset_appearance_preferences(&self) {
+        {
+            let mut preferences = self.current_preferences.borrow_mut();
+            preferences.appearance = AppearancePreset::Frosted;
+            preferences.color_scheme = ColorSchemePreference::System;
+            preferences.font_family = None;
+            preferences.font_scale_percent = 100;
+            preferences.reduced_motion = false;
+        }
+        self.widgets.apply_appearance(AppearancePreset::Frosted);
+        self.widgets
+            .apply_appearance_preferences(&self.current_preferences.borrow());
+        self.queue_preferences();
+        self.show_toast("Appearance settings reset", 3);
+    }
+
     fn change_entry_icon_style(&self, style: EntryIconStyle) {
         if self.widgets.entry_icon_style() == style {
             return;
@@ -5574,7 +5805,7 @@ impl BrowserController {
     }
 
     fn set_miller_context_navigation_actions_enabled(&self, enabled: bool) {
-        for name in ["refresh", "location", "select-all"] {
+        for name in ["refresh", "location", "select-all", "invert-selection"] {
             if let Some(action) = self
                 .widgets
                 .window
@@ -5802,6 +6033,52 @@ impl BrowserController {
 
         let controller = Rc::downgrade(self);
         settings
+            .color_scheme
+            .connect_selected_notify(move |dropdown| {
+                let Some(scheme) = ColorSchemePreference::ALL.get(dropdown.selected() as usize)
+                else {
+                    return;
+                };
+                if let Some(controller) = controller.upgrade() {
+                    controller.change_color_scheme(*scheme);
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        let scale_for_family = settings.font_scale.clone();
+        settings.font_family.connect_activate(move |entry| {
+            if let Some(controller) = controller.upgrade() {
+                controller.change_font_preferences(
+                    Some(entry.text().as_str()),
+                    scale_for_family.value_as_int().max(0) as u16,
+                );
+            }
+        });
+
+        let controller = Rc::downgrade(self);
+        let family_for_scale = settings.font_family.clone();
+        settings.font_scale.connect_value_changed(move |spin| {
+            if let Some(controller) = controller.upgrade() {
+                controller.change_font_preferences(
+                    Some(family_for_scale.text().as_str()),
+                    spin.value_as_int().max(0) as u16,
+                );
+            }
+        });
+
+        let controller = Rc::downgrade(self);
+        let dialog_for_reset = settings.dialog.downgrade();
+        settings.appearance_reset.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.reset_appearance_preferences();
+            }
+            if let Some(dialog) = dialog_for_reset.upgrade() {
+                dialog.close();
+            }
+        });
+
+        let controller = Rc::downgrade(self);
+        settings
             .icon_style
             .connect_selected_notify(move |dropdown| {
                 let Some(style) = EntryIconStyle::ALL.get(dropdown.selected() as usize) else {
@@ -5827,6 +6104,18 @@ impl BrowserController {
                 };
                 if let Some(controller) = controller.upgrade() {
                     controller.activate_window_action(action, None);
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        settings
+            .click_policy
+            .connect_selected_notify(move |dropdown| {
+                let Some(policy) = ClickPolicy::ALL.get(dropdown.selected() as usize) else {
+                    return;
+                };
+                if let Some(controller) = controller.upgrade() {
+                    controller.change_click_policy(*policy);
                 }
             });
 
@@ -5964,6 +6253,15 @@ impl BrowserController {
                 controller.queue_preferences();
                 if !enabled {
                     controller.privileged_access.cancel_and_close();
+                }
+            });
+
+        let controller = Rc::downgrade(self);
+        settings
+            .reduced_motion
+            .connect_active_notify(move |toggle| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.change_reduced_motion(toggle.is_active());
                 }
             });
 
@@ -6855,6 +7153,62 @@ impl BrowserController {
             self.sort_order.get().grouping,
         );
         self.queue_preferences();
+    }
+
+    fn move_list_column(&self, column: ListColumn, delta: isize) {
+        let mut layout = self.list_columns.get();
+        if !layout.move_column(column, delta) {
+            return;
+        }
+        self.list_columns.set(layout);
+        self.widgets.apply_file_view_policy(
+            self.file_density.get(),
+            layout,
+            self.sort_order.get().grouping,
+        );
+        self.queue_preferences();
+        self.show_toast(&format!("Moved {} column", column.label()), 3);
+    }
+
+    fn autosize_list_column(&self, column: ListColumn) {
+        const AUTOSIZE_SAMPLE_CAPACITY: usize = 4_096;
+        let max_chars = self
+            .visible_entries
+            .borrow()
+            .iter()
+            .take(AUTOSIZE_SAMPLE_CAPACITY)
+            .map(|entry| match column {
+                ListColumn::Name => entry.display_name_lossy().chars().count(),
+                ListColumn::Type => 14,
+                ListColumn::Size => entry.size().map_or(1, |size| {
+                    format!("{size}").chars().count().saturating_add(4)
+                }),
+                ListColumn::Modified | ListColumn::Created | ListColumn::Accessed => 19,
+                ListColumn::Extension => std::path::Path::new(entry.display_name())
+                    .extension()
+                    .map_or(1, |extension| extension.to_string_lossy().chars().count()),
+                ListColumn::Mime => 32,
+                ListColumn::Permissions => 12,
+                ListColumn::Dimensions => 14,
+                ListColumn::Duration => 10,
+                ListColumn::Artist | ListColumn::Album => 28,
+                ListColumn::Track => 8,
+            })
+            .max()
+            .unwrap_or_else(|| column.label().chars().count())
+            .max(column.label().chars().count());
+        let mut layout = self.list_columns.get();
+        layout.autosize_from_max_chars(column, max_chars);
+        if layout == self.list_columns.replace(layout) {
+            return;
+        }
+        self.widgets.apply_file_view_policy(
+            self.file_density.get(),
+            layout,
+            self.sort_order.get().grouping,
+        );
+        self.queue_preferences();
+        self.show_toast(&format!("Auto-sized {} column", column.label()), 3);
     }
 
     fn set_remember_per_folder(&self, enabled: bool) {
@@ -8212,8 +8566,54 @@ impl BrowserController {
         self.widgets.selection.select_all();
     }
 
+    fn invert_selection(&self) {
+        let count = self.widgets.selection.n_items();
+        let selected = (0..count).filter(|position| self.widgets.selection.is_selected(*position));
+        let inverted = crate::completeness::inverted_positions(count, selected);
+        self.widgets.selection.unselect_all();
+        for position in inverted {
+            self.widgets.selection.select_item(position, false);
+        }
+    }
+
     fn clear_selection(&self) {
         self.widgets.selection.unselect_all();
+    }
+
+    fn handle_escape(&self) {
+        use crate::completeness::EscapeSurface;
+
+        let target = EscapeSurface::innermost(|surface| match surface {
+            EscapeSurface::ContextMenu => self.widgets.context_menu_visible(),
+            EscapeSurface::InlineRename => false,
+            EscapeSurface::LocationEditor => {
+                self.widgets.path_stack.visible_child_name().as_deref() == Some("entry")
+            }
+            EscapeSurface::Search => self.widgets.search_bar.is_visible(),
+            EscapeSurface::QuickPreview => self.miller_detail.borrow().state().is_visible(),
+            EscapeSurface::Selection => self.widgets.selection.selection().size() > 0,
+        });
+        match target {
+            Some(EscapeSurface::ContextMenu) => {
+                self.widgets.popdown_context_menus();
+                self.widgets.focus_view(self.view_mode.get());
+            }
+            Some(EscapeSurface::LocationEditor) => self.cancel_location_entry(),
+            Some(EscapeSurface::Search) => self.clear_folder_filter(),
+            Some(EscapeSurface::QuickPreview) => {
+                let surface = self
+                    .miller_detail
+                    .borrow()
+                    .state()
+                    .surface()
+                    .unwrap_or(MillerDetailSurface::Preview);
+                self.toggle_miller_detail(surface);
+            }
+            Some(EscapeSurface::Selection) => self.clear_selection(),
+            Some(EscapeSurface::InlineRename) | None => {
+                self.widgets.focus_view(self.view_mode.get());
+            }
+        }
     }
 
     fn set_open_enabled(&self, enabled: bool) {
@@ -11330,10 +11730,58 @@ impl BrowserController {
     }
 
     fn show_toast(&self, title: &str, timeout: u32) {
-        let title = escaped_toast_title(title);
-        self.widgets
-            .toast_overlay
-            .add_toast(adw::Toast::builder().title(title).timeout(timeout).build());
+        let failure = ["could not", "failed", "failure", "error"]
+            .iter()
+            .any(|needle| title.to_ascii_lowercase().contains(needle));
+        let feedback = if failure {
+            crate::completeness::DetailedFeedback::from_failure(title)
+        } else {
+            crate::completeness::DetailedFeedback::new(title, None, false)
+        };
+        let mut builder = adw::Toast::builder()
+            .title(escaped_toast_title(&feedback.summary))
+            .timeout(timeout);
+        if let Some(details) = feedback.details.as_deref() {
+            builder = builder
+                .button_label(crate::completeness::message(
+                    crate::completeness::MessageId::Details,
+                ))
+                .action_name("win.show-error-details")
+                .action_target(&details.to_variant());
+        }
+        self.widgets.toast_overlay.add_toast(builder.build());
+
+        if !failure
+            && title.to_ascii_lowercase().contains("completed")
+            && crate::completeness::should_send_completion_notification(
+                self.widgets.window.is_active(),
+            )
+            && let Some(application) = self.widgets.window.application()
+        {
+            let notification = gio::Notification::new(crate::completeness::message(
+                crate::completeness::MessageId::OperationCompleted,
+            ));
+            notification.set_body(Some(crate::completeness::message(
+                crate::completeness::MessageId::OperationCompletedBody,
+            )));
+            application.send_notification(None, &notification);
+        }
+    }
+
+    fn show_feedback_details(&self, details: &str) {
+        let dialog = adw::AlertDialog::builder()
+            .heading(crate::completeness::message(
+                crate::completeness::MessageId::OperationFailed,
+            ))
+            .body(details)
+            .build();
+        dialog.add_response(
+            "close",
+            crate::completeness::message(crate::completeness::MessageId::Dismiss),
+        );
+        dialog.set_default_response(Some("close"));
+        dialog.set_close_response("close");
+        dialog.present(Some(&self.widgets.window));
     }
 
     fn review_guardrail(
@@ -11748,7 +12196,7 @@ fn permanent_delete_target_label(path: &Path) -> String {
                 escaped.push(character);
             }
         }
-        return escaped;
+        return crate::completeness::direction_safe_path(Path::new(&escaped));
     }
 
     let mut escaped = String::new();
@@ -12317,6 +12765,41 @@ mod tests {
         assert_eq!(updated.sidebar_density, SidebarDensity::Comfortable);
         assert_eq!(updated.sidebar_width, Some(312));
         assert_eq!(SIDEBAR_PERSIST_DEBOUNCE, Duration::from_millis(320));
+    }
+
+    #[test]
+    fn phase_20b2a_window_size_tracking_keeps_only_changed_normal_geometry() {
+        let mut preferences = ViewPreferences::default();
+        assert!(remember_window_size_if_normal(
+            &mut preferences,
+            1500,
+            900,
+            false,
+            false
+        ));
+        let normal = preferences.window_size;
+        assert!(!remember_window_size_if_normal(
+            &mut preferences,
+            1500,
+            900,
+            false,
+            false
+        ));
+        assert!(!remember_window_size_if_normal(
+            &mut preferences,
+            3840,
+            2160,
+            true,
+            false
+        ));
+        assert!(!remember_window_size_if_normal(
+            &mut preferences,
+            3840,
+            2160,
+            false,
+            true
+        ));
+        assert_eq!(preferences.window_size, normal);
     }
 
     #[test]

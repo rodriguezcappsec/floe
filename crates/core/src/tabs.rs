@@ -928,6 +928,21 @@ mod tests {
     }
 
     #[test]
+    fn phase_20b2_split_ratio_persists_per_tab_and_rejects_out_of_range_values() {
+        let mut tabs =
+            BrowserTabs::new(PathBuf::from("/left"), FolderViewState::default()).expect("tabs");
+        tabs.split_active(PathBuf::from("/right"), FolderViewState::default())
+            .expect("split");
+        let ratio = SplitRatio::new(6_750).expect("bounded ratio");
+        tabs.set_split_ratio(ratio);
+        let encoded = tabs.encode_workspace().expect("workspace");
+        let restored = BrowserTabs::decode_workspace(&encoded).expect("restore");
+        assert_eq!(restored.active_split().ratio(), ratio);
+        assert!(SplitRatio::new(crate::SPLIT_RATIO_MIN - 1).is_err());
+        assert!(SplitRatio::new(crate::SPLIT_RATIO_MAX + 1).is_err());
+    }
+
+    #[test]
     fn phase_7d_split_codec_rejects_hostile_split_fields_and_duplicate_ids() {
         let mut tabs = BrowserTabs::new(PathBuf::from("/left"), FolderViewState::default())
             .expect("initial tab");

@@ -344,18 +344,19 @@ capability, isolation, permission, and failure-containment design exist.
 
 ## Phase 20 — Settings, visual, accessibility, and QoL audit
 
-Status: **IN PROGRESS**
+Status: **COMPLETE**
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
 | 20A — Settings Center | COMPLETE | `phase-20a-settings-center` | Dedicated searchable native Settings Center organizing appearance, browsing, views/layout, search/preview, operations/safety, applications, shortcuts/menus, and accessibility. | Verified case-insensitive plain-language search, live authoritative preferences, specialized-editor links, `Ctrl+,`, stable GTK accessibility metadata, no duplicate settings store or weakened irreversible confirmations. |
 | 20B1 — Sort By completeness | COMPLETE | `phase-20b1-sort-by-menu` | Discoverable native Sort By menu; created/accessed and bounded KDE-compatible rating/tag/comment ordering; direction, folders-first, and hidden-last policy. | Worker-owned deterministic local sorting, exact-path tie-breakers, unknown-last semantics, v15 preference/v2 session migration, honest disabled indexed-media fields, focused/core/native gates. |
 | 20B1A — Advanced metadata sort index | COMPLETE | `phase-20b1a-metadata-index` | Replace every disabled Document/Image/Audio/Video/Other sort row with an explicit bounded local-directory metadata scan, progress/cancellation, and private cache controls. | Reuses Phase 10F providers, optional reviewed `ffprobe`, exact raw paths, no-follow identity, 4,096-entry/read/process/cache bounds, watcher invalidation, v16 preference migration; no global/background/remote indexing or metadata editing. |
-| 20B2 — Visual, accessibility, and QoL audit | NEXT | `phase-20b2-completeness-audit` | Close remaining matrix gaps across fonts, density, motion, focus, Orca, high contrast, localization, RTL, HiDPI, fractional scaling, errors, and recorded daily-driver QoL. | 20A–20B1A and preceding user-facing families; measured matrix audit and native desktop smoke. |
+| 20B2A — Window size persistence | COMPLETE | `phase-20b2a-window-size-persistence` | Restore the last normal Floe width/height across launches. | Version-17 private preference tuple, bounded corruption-safe migration, actual GDK surface notifications, debounce and shutdown capture; no polling, window position, monitor/workspace, maximized/fullscreen, or compositor-specific persistence. |
+| 20B2 — Visual, accessibility, and QoL audit | COMPLETE | `phase-20b2-completeness-audit` | Ten bounded daily-driver outcomes: date/size collapsible groups, split persistence, click policy, invert selection, column order/autosize, appearance controls, Escape/focus, non-color accessibility, scaling policy, and detailed feedback/localization boundary. | Version-18 private preference and session-v3 migration; Grid View uses full-width group sections over one authoritative selection; deterministic/core/app/real-GTK/E2E-preflight/native-Wayland gates. Translation catalogs, Orca end-to-end, and physical multi-monitor fractional-scale measurements remain assigned to Phase 21. |
 
-Goal: close every remaining `FEATURE_MATRIX` gap across appearance, fonts,
-density, motion, views, previews, operations, shortcuts, applications, privacy,
-desktop settings, focus, Orca, high contrast, localization, RTL, HiDPI,
-fractional scaling, persistence, errors, and recorded daily-driver QoL.
+Goal: close the selected high-impact `FEATURE_MATRIX` gaps across appearance,
+grouping, layout, selection, focus, non-color accessibility, logical scaling,
+feedback, localization boundaries, and recorded daily-driver QoL without
+claiming translation or environment testing that was unavailable.
 
 Foundation already complete: the five appearance presets can be selected live
 from a persistent radio-style header submenu. Phase 20 retains only the broader
@@ -371,7 +372,7 @@ appearance controls and audit work recorded in the feature matrix.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 21A — Performance | PLANNED | `phase-21a-performance` | Profile 100k folders, thumbnails, search, operations, crypto, vault and integrity workloads. | Feature complete; no speculative rewrite; record CPU/memory/latency budgets. |
+| 21A — Performance | NEXT | `phase-21a-performance` | Profile 100k folders, thumbnails, search, operations, metadata, and integrity workloads that currently exist. | No speculative rewrite and no benchmark of unimplemented crypto/vault features; record reproducible CPU/memory/latency budgets before optimization. |
 | 21B — Packaging/migrations | PLANNED | `phase-21b-packaging` | Release profile, metadata, icons, MIME and selected Flatpak/Arch strategy. | 18AA/20; verify clean install, upgrade, rollback and cache/config/vault migrations. |
 | 21C — Release docs | PLANNED | `phase-21c-release-documentation` | User, admin, security, accessibility, recovery and debug-policy documentation. | 21B; verified claims only; run link, terminology and fresh-user walkthrough. |
 | 21D — Release candidate | PLANNED | `phase-21d-release-candidate` | Dependency/license/security follow-up, crash recovery and environment matrix. | 21A–21C; no known data-loss/security-critical defect; require reproducible artifacts. |

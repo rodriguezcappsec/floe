@@ -27,7 +27,11 @@ use crate::{
     locations::Location,
     metadata::{MetadataCache, MetadataDetails, MetadataError, MetadataKey},
     miller_view::MillerView,
-    preferences::{SIDEBAR_WIDTH_MIN, SidebarDensity, ViewPreferences, clamp_sidebar_width},
+    preferences::{
+        ClickPolicy, ColorSchemePreference, SIDEBAR_WIDTH_MIN, SidebarDensity, ViewPreferences,
+        WindowSize, clamp_sidebar_width,
+    },
+    selection_slice::SelectionSlice,
     thumbnail::{LIST_THUMBNAIL_EDGE, ThumbnailError, ThumbnailKey, ThumbnailPixels},
     view::{FileViewDensity, GRID_SIZES, GridSize, ListColumn, ListColumnLayout, ViewMode},
 };
@@ -181,6 +185,10 @@ fn initial_sidebar_width(preferences: ViewPreferences, appearance_default: i32) 
         .unwrap_or(appearance_default)
 }
 
+fn initial_window_size(preferences: &ViewPreferences) -> WindowSize {
+    preferences.window_size.unwrap_or_default()
+}
+
 fn sidebar_pane_resize_policy() -> (bool, bool) {
     (false, true)
 }
@@ -330,12 +338,13 @@ pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Properties", "win.properties"),
 ];
 #[cfg(test)]
-pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 13] = [
+pub(crate) const BACKGROUND_CONTEXT_ACTIONS: [(&str, &str); 14] = [
     ("New Folder…", "win.new-folder"),
     ("New Empty File…", "win.new-empty-file"),
     ("New From Template…", "win.new-from-template"),
     ("Paste", "win.paste"),
     ("Select All", "win.select-all"),
+    ("Invert Selection", "win.invert-selection"),
     ("Refresh", "win.refresh"),
     ("Edit Location", "win.location"),
     ("Open Terminal Here", "win.open-terminal"),
@@ -452,6 +461,9 @@ impl ThumbnailPresentation {
         edge: u16,
         icon_edge: i32,
     ) {
+        let scale = crate::completeness::PresentationScale::new(image.scale_factor(), 100);
+        let edge = scale.logical_thumbnail_edge(edge);
+        let _device_pixel_hint = scale.device_pixel_hint(edge);
         image.remove_css_class("floe-thumbnail");
         apply_entry_icon(image, entry, icon_edge, self.icon_style.get());
 
@@ -988,6 +1000,7 @@ pub struct BrowserWidgets {
     pub selection: gtk::MultiSelection,
     pub list_view: gtk::ListView,
     pub grid_view: gtk::GridView,
+    pub grouped_grid_view: gtk::ScrolledWindow,
     pub miller_view: MillerView,
     pub view_stack: gtk::Stack,
     pub list_header: gtk::Box,
@@ -1064,8 +1077,11 @@ pub struct BrowserWidgets {
     pub operations: OperationWidgets,
     list_layout: Rc<Cell<ListColumnLayout>>,
     list_grouping: Rc<Cell<DirectoryGrouping>>,
+    collapsed_groups: Rc<RefCell<HashSet<String>>>,
     list_factory: gtk::SignalListItemFactory,
     grid_factory: RefCell<gtk::SignalListItemFactory>,
+    grid_presentation_stack: gtk::Stack,
+    grouped_grid: GroupedGridPresentation,
 }
 
 struct SidebarWidgets {
@@ -1083,6 +1099,7 @@ struct DirectoryPanelWidgets {
     selection: gtk::MultiSelection,
     list_view: gtk::ListView,
     grid_view: gtk::GridView,
+    grouped_grid_view: gtk::ScrolledWindow,
     miller_view: MillerView,
     view_stack: gtk::Stack,
     list_header: gtk::Box,
@@ -1135,8 +1152,304 @@ struct DirectoryPanelWidgets {
     metadata: MetadataPresentation,
     list_layout: Rc<Cell<ListColumnLayout>>,
     list_grouping: Rc<Cell<DirectoryGrouping>>,
+    collapsed_groups: Rc<RefCell<HashSet<String>>>,
     list_factory: gtk::SignalListItemFactory,
     grid_factory: RefCell<gtk::SignalListItemFactory>,
+    grid_presentation_stack: gtk::Stack,
+    grouped_grid: GroupedGridPresentation,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct GridGroupSection {
+    label: String,
+    start: u32,
+    len: u32,
+}
+
+#[derive(Clone)]
+struct GroupedGridPresentation {
+    state: Rc<GroupedGridState>,
+}
+
+struct GroupedGridState {
+    root: gtk::ScrolledWindow,
+    sections: gtk::Box,
+    section_grids: RefCell<Vec<gtk::GridView>>,
+    selection: gtk::MultiSelection,
+    primary_grid: gtk::GridView,
+    context_menu: gtk::PopoverMenu,
+    thumbnails: ThumbnailPresentation,
+    grouping: Rc<Cell<DirectoryGrouping>>,
+    collapsed_groups: Rc<RefCell<HashSet<String>>>,
+    grid_size: Cell<GridSize>,
+    density: Cell<FileViewDensity>,
+    single_click: Cell<bool>,
+    rebuild_pending: Cell<bool>,
+    drop_dispatcher: DropDispatcher,
+}
+
+struct GroupedGridDependencies<'a> {
+    selection: &'a gtk::MultiSelection,
+    primary_grid: &'a gtk::GridView,
+    context_menu: &'a gtk::PopoverMenu,
+    thumbnails: &'a ThumbnailPresentation,
+    grouping: &'a Rc<Cell<DirectoryGrouping>>,
+    collapsed_groups: &'a Rc<RefCell<HashSet<String>>>,
+    drop_dispatcher: &'a DropDispatcher,
+}
+
+struct GridFactoryDependencies<'a> {
+    selection: &'a gtk::MultiSelection,
+    context_menu: &'a gtk::PopoverMenu,
+    thumbnails: &'a ThumbnailPresentation,
+    grouping: &'a Rc<Cell<DirectoryGrouping>>,
+    collapsed_groups: &'a Rc<RefCell<HashSet<String>>>,
+    drop_dispatcher: &'a DropDispatcher,
+}
+
+impl GroupedGridPresentation {
+    fn new(
+        dependencies: GroupedGridDependencies<'_>,
+        grid_size: GridSize,
+        density: FileViewDensity,
+    ) -> Self {
+        let sections = gtk::Box::builder()
+            .orientation(gtk::Orientation::Vertical)
+            .spacing(12)
+            .hexpand(true)
+            .vexpand(false)
+            .margin_top(8)
+            .margin_bottom(8)
+            .margin_start(8)
+            .margin_end(8)
+            .build();
+        sections.add_css_class("floe-grid-sections");
+        let root = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vscrollbar_policy(gtk::PolicyType::Automatic)
+            .child(&sections)
+            .vexpand(true)
+            .build();
+        root.add_css_class("floe-grouped-grid");
+
+        let state = Rc::new(GroupedGridState {
+            root,
+            sections,
+            section_grids: RefCell::new(Vec::new()),
+            selection: dependencies.selection.clone(),
+            primary_grid: dependencies.primary_grid.clone(),
+            context_menu: dependencies.context_menu.clone(),
+            thumbnails: dependencies.thumbnails.clone(),
+            grouping: Rc::clone(dependencies.grouping),
+            collapsed_groups: Rc::clone(dependencies.collapsed_groups),
+            grid_size: Cell::new(grid_size),
+            density: Cell::new(density),
+            single_click: Cell::new(false),
+            rebuild_pending: Cell::new(false),
+            drop_dispatcher: dependencies.drop_dispatcher.clone(),
+        });
+        let presentation = Self { state };
+
+        let weak_state = Rc::downgrade(&presentation.state);
+        dependencies
+            .selection
+            .connect_items_changed(move |_, _, _, _| {
+                let Some(state) = weak_state.upgrade() else {
+                    return;
+                };
+                GroupedGridPresentation::queue_rebuild(&state);
+            });
+        presentation.rebuild();
+        presentation
+    }
+
+    fn widget(&self) -> &gtk::ScrolledWindow {
+        &self.state.root
+    }
+
+    fn set_grouping(&self, grouping: DirectoryGrouping) {
+        self.state.grouping.set(grouping);
+        self.rebuild();
+    }
+
+    fn set_grid_size(&self, size: GridSize) {
+        if self.state.grid_size.replace(size) != size {
+            self.rebuild();
+        }
+    }
+
+    fn set_density(&self, density: FileViewDensity) {
+        self.state.density.set(density);
+        let class_name = file_view_density_class(density);
+        for grid in self.state.section_grids.borrow().iter() {
+            for class in ["view-compact", "view-comfortable", "view-spacious"] {
+                grid.remove_css_class(class);
+            }
+            grid.add_css_class(class_name);
+        }
+    }
+
+    fn set_single_click_activate(&self, active: bool) {
+        self.state.single_click.set(active);
+        for grid in self.state.section_grids.borrow().iter() {
+            grid.set_single_click_activate(active);
+        }
+    }
+
+    fn refresh_collapsed_groups(&self) {
+        self.rebuild();
+    }
+
+    fn focus_first_section(&self) {
+        if let Some(grid) = self
+            .state
+            .section_grids
+            .borrow()
+            .iter()
+            .find(|grid| grid.is_visible())
+        {
+            grid.grab_focus();
+        } else if let Some(header) = self
+            .state
+            .sections
+            .first_child()
+            .and_then(|section| section.first_child())
+        {
+            header.grab_focus();
+        }
+    }
+
+    fn queue_rebuild(state: &Rc<GroupedGridState>) {
+        if state.rebuild_pending.replace(true) {
+            return;
+        }
+        let weak_state = Rc::downgrade(state);
+        glib::idle_add_local_once(move || {
+            let Some(state) = weak_state.upgrade() else {
+                return;
+            };
+            state.rebuild_pending.set(false);
+            GroupedGridPresentation { state }.rebuild();
+        });
+    }
+
+    fn rebuild(&self) {
+        while let Some(child) = self.state.sections.first_child() {
+            self.state.sections.remove(&child);
+        }
+        self.state.section_grids.borrow_mut().clear();
+
+        let grouping = self.state.grouping.get();
+        if grouping == DirectoryGrouping::None {
+            return;
+        }
+        let sections = grid_group_sections(&self.state.selection, grouping);
+        let collapsed = self.state.collapsed_groups.borrow();
+        let no_grouping = Rc::new(Cell::new(DirectoryGrouping::None));
+        let no_collapsed_groups = Rc::new(RefCell::new(HashSet::new()));
+
+        for section in sections {
+            let is_collapsed = collapsed.contains(&section.label);
+            let section_box = gtk::Box::builder()
+                .orientation(gtk::Orientation::Vertical)
+                .spacing(4)
+                .hexpand(true)
+                .build();
+            section_box.add_css_class("floe-grid-section");
+
+            let header = gtk::Button::builder()
+                .halign(gtk::Align::Fill)
+                .hexpand(true)
+                .has_frame(false)
+                .build();
+            initialize_group_header(&header, true);
+            header.add_css_class("floe-grid-section-header");
+            let header_label = gtk::Label::builder()
+                .label(format!(
+                    "{} {}",
+                    if is_collapsed { "▸" } else { "▾" },
+                    section.label
+                ))
+                .halign(gtk::Align::Fill)
+                .hexpand(true)
+                .xalign(0.0)
+                .build();
+            header.set_child(Some(&header_label));
+            header.set_tooltip_text(Some(&section.label));
+            set_accessible_label(&header, &header_label.label());
+            header.update_state(&[gtk::accessible::State::Expanded(Some(!is_collapsed))]);
+            section_box.append(&header);
+
+            let model = SelectionSlice::new(&self.state.selection, section.start, section.len);
+            let factory = build_grid_factory(
+                GridFactoryDependencies {
+                    selection: &self.state.selection,
+                    context_menu: &self.state.context_menu,
+                    thumbnails: &self.state.thumbnails,
+                    grouping: &no_grouping,
+                    collapsed_groups: &no_collapsed_groups,
+                    drop_dispatcher: &self.state.drop_dispatcher,
+                },
+                self.state.grid_size.get(),
+                section.start,
+            );
+            let grid = gtk::GridView::new(Some(model), Some(factory));
+            grid.add_css_class("floe-directory-grid");
+            grid.add_css_class("floe-grid-section-body");
+            grid.add_css_class(file_view_density_class(self.state.density.get()));
+            grid.set_single_click_activate(self.state.single_click.get());
+            grid.set_enable_rubberband(true);
+            grid.set_min_columns(1);
+            grid.set_max_columns(24);
+            grid.set_hexpand(true);
+            grid.set_vexpand(false);
+            grid.set_visible(!is_collapsed);
+
+            let primary_grid = self.state.primary_grid.clone();
+            let start = section.start;
+            grid.connect_activate(move |_, position| {
+                let global_position = start.saturating_add(position);
+                primary_grid.emit_by_name::<()>("activate", &[&global_position]);
+            });
+            section_box.append(&grid);
+            self.state.sections.append(&section_box);
+            self.state.section_grids.borrow_mut().push(grid);
+        }
+    }
+}
+
+fn grid_group_sections(
+    selection: &gtk::MultiSelection,
+    grouping: DirectoryGrouping,
+) -> Vec<GridGroupSection> {
+    if grouping == DirectoryGrouping::None {
+        return Vec::new();
+    }
+    let mut sections = Vec::<GridGroupSection>::new();
+    for position in 0..selection.n_items() {
+        let Some(object) = selection
+            .item(position)
+            .and_downcast::<glib::BoxedAnyObject>()
+        else {
+            continue;
+        };
+        let Ok(entry) = object.try_borrow::<std::sync::Arc<DirectoryEntry>>() else {
+            continue;
+        };
+        let Some(label) = grouping.label(&entry) else {
+            continue;
+        };
+        if let Some(section) = sections.last_mut().filter(|section| section.label == label) {
+            section.len = section.len.saturating_add(1);
+        } else {
+            sections.push(GridGroupSection {
+                label,
+                start: position,
+                len: 1,
+            });
+        }
+    }
+    sections
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1189,6 +1502,23 @@ impl BrowserWidgets {
     pub fn apply_appearance(&self, preset: AppearancePreset) {
         self.appearance_manager
             .apply(self.window.upcast_ref(), preset);
+    }
+
+    pub fn apply_appearance_preferences(&self, preferences: &ViewPreferences) {
+        let scheme = match preferences.color_scheme {
+            ColorSchemePreference::System => adw::ColorScheme::Default,
+            ColorSchemePreference::Light => adw::ColorScheme::ForceLight,
+            ColorSchemePreference::Dark => adw::ColorScheme::ForceDark,
+        };
+        adw::StyleManager::default().set_color_scheme(scheme);
+        self.appearance_manager.apply_accessibility(
+            self.window.upcast_ref(),
+            preferences.font_family.as_deref(),
+            preferences.font_scale_percent,
+            preferences.reduced_motion,
+        );
+        self.miller_view
+            .set_reduced_motion(preferences.reduced_motion);
     }
 
     pub fn entry_icon_style(&self) -> EntryIconStyle {
@@ -1330,6 +1660,15 @@ impl BrowserWidgets {
         let list_requires_rebind = self.list_layout.get() != layout || grouping_changed;
         self.list_layout.set(layout);
         self.list_grouping.set(grouping);
+        self.grouped_grid.set_density(density);
+        self.grouped_grid.set_grouping(grouping);
+        self.grid_presentation_stack.set_visible_child_name(
+            if grouping == DirectoryGrouping::None {
+                "ungrouped"
+            } else {
+                "grouped"
+            },
+        );
         self.group_header_spacer
             .set_visible(grouping != DirectoryGrouping::None);
         for class_name in ["view-compact", "view-comfortable", "view-spacious"] {
@@ -1345,6 +1684,20 @@ impl BrowserWidgets {
                 .widget
                 .set_width_request(i32::from(layout.width(header.column)));
         }
+        if let Some(icon_spacer) = self.group_header_spacer.next_sibling() {
+            let mut previous = icon_spacer;
+            for column in layout.order() {
+                if let Some(header) = self
+                    .column_headers
+                    .iter()
+                    .find(|header| header.column == column)
+                {
+                    self.list_header
+                        .reorder_child_after(&header.widget, Some(&previous));
+                    previous = header.widget.clone();
+                }
+            }
+        }
         if list_requires_rebind {
             self.list_view
                 .set_factory(None::<&gtk::SignalListItemFactory>);
@@ -1358,6 +1711,39 @@ impl BrowserWidgets {
         }
     }
 
+    pub fn toggle_group_collapse(&self, label: &str) -> Vec<String> {
+        if label.is_empty() {
+            return self.collapsed_group_labels();
+        }
+        {
+            let mut collapsed = self.collapsed_groups.borrow_mut();
+            if !collapsed.remove(label) {
+                collapsed.insert(label.to_owned());
+            }
+        }
+        self.list_view
+            .set_factory(None::<&gtk::SignalListItemFactory>);
+        self.list_view.set_factory(Some(&self.list_factory));
+        self.grid_view
+            .set_factory(None::<&gtk::SignalListItemFactory>);
+        let grid_factory = self.grid_factory.borrow();
+        self.grid_view.set_factory(Some(&*grid_factory));
+        self.grouped_grid.refresh_collapsed_groups();
+        self.collapsed_group_labels()
+    }
+
+    pub fn collapsed_group_labels(&self) -> Vec<String> {
+        let mut labels = self
+            .collapsed_groups
+            .borrow()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        labels.sort();
+        labels.truncate(crate::preferences::COLLAPSED_GROUP_CAPACITY);
+        labels
+    }
+
     pub fn set_view_mode(&self, mode: ViewMode) {
         self.view_stack.set_visible_child_name(mode.stack_name());
         self.list_header.set_visible(mode == ViewMode::List);
@@ -1367,21 +1753,44 @@ impl BrowserWidgets {
         self.miller_view_button.set_active(mode == ViewMode::Miller);
     }
 
+    pub fn apply_click_policy(&self, policy: ClickPolicy) {
+        let single = policy.activates_on_single_click();
+        self.list_view.set_single_click_activate(single);
+        self.grid_view.set_single_click_activate(single);
+        self.grouped_grid.set_single_click_activate(single);
+        self.search_results_view.set_single_click_activate(single);
+        self.miller_view.set_single_click_activate(single);
+        let description = if single {
+            "Single-click opens items; Enter always opens the selected item"
+        } else {
+            "Double-click opens items; Enter always opens the selected item"
+        };
+        self.list_view
+            .update_property(&[gtk::accessible::Property::Description(description)]);
+        self.grid_view
+            .update_property(&[gtk::accessible::Property::Description(description)]);
+    }
+
     pub fn set_grid_size(&self, size: GridSize) {
         self.grid_size_scale.set_value(size.index() as f64);
         let label = format!("Grid icon size: {} pixels", size.edge());
         self.grid_size_scale.set_tooltip_text(Some(&label));
         set_accessible_label(&self.grid_size_scale, &label);
         let factory = build_grid_factory(
-            &self.selection,
-            &self.grid_context_menu,
-            &self.thumbnails,
-            &self.list_grouping,
+            GridFactoryDependencies {
+                selection: &self.selection,
+                context_menu: &self.grid_context_menu,
+                thumbnails: &self.thumbnails,
+                grouping: &self.list_grouping,
+                collapsed_groups: &self.collapsed_groups,
+                drop_dispatcher: &self.drop_dispatcher,
+            },
             size,
-            &self.drop_dispatcher,
+            0,
         );
         self.grid_view.set_factory(Some(&factory));
         self.grid_factory.replace(factory);
+        self.grouped_grid.set_grid_size(size);
     }
 
     pub fn focus_view(&self, mode: ViewMode) {
@@ -1390,7 +1799,11 @@ impl BrowserWidgets {
                 self.list_view.grab_focus();
             }
             ViewMode::Grid => {
-                self.grid_view.grab_focus();
+                if self.list_grouping.get() == DirectoryGrouping::None {
+                    self.grid_view.grab_focus();
+                } else {
+                    self.grouped_grid.focus_first_section();
+                }
             }
             ViewMode::Miller => {
                 self.miller_view.focus_active();
@@ -1401,6 +1814,7 @@ impl BrowserWidgets {
     pub fn set_views_sensitive(&self, sensitive: bool) {
         self.list_view.set_sensitive(sensitive);
         self.grid_view.set_sensitive(sensitive);
+        self.grouped_grid_view.set_sensitive(sensitive);
         self.search_results_view.set_sensitive(sensitive);
         self.miller_view.widget().set_sensitive(sensitive);
     }
@@ -1460,6 +1874,19 @@ impl BrowserWidgets {
         self.search_background_menu.popdown();
         self.list_background_menu.popdown();
         self.grid_background_menu.popdown();
+    }
+
+    pub fn context_menu_visible(&self) -> bool {
+        [
+            &self.list_context_menu,
+            &self.grid_context_menu,
+            &self.search_context_menu,
+            &self.search_background_menu,
+            &self.list_background_menu,
+            &self.grid_background_menu,
+        ]
+        .into_iter()
+        .any(gtk::prelude::WidgetExt::is_visible)
     }
 
     pub fn apply_context_menu_preferences(
@@ -1654,12 +2081,13 @@ pub fn build(
     appearance: Appearance,
     preferences: ViewPreferences,
 ) -> BrowserWidgets {
+    let window_size = initial_window_size(&preferences);
     let window = adw::ApplicationWindow::builder()
         .application(application)
         .title("Floe")
         .icon_name(crate::iconography::APPLICATION_ICON_NAME)
-        .default_width(1060)
-        .default_height(720)
+        .default_width(window_size.width())
+        .default_height(window_size.height())
         .width_request(720)
         .height_request(480)
         .build();
@@ -1967,6 +2395,8 @@ pub fn build(
         ("None", "none"),
         ("Type", "type"),
         ("Extension", "extension"),
+        ("Date", "date"),
+        ("Size", "size"),
     ] {
         grouping_model.append(Some(label), Some(&format!("win.grouping::{value}")));
     }
@@ -1980,6 +2410,9 @@ pub fn build(
     let name_column_menu = gio::Menu::new();
     name_column_menu.append(Some("Narrower"), Some("win.narrow-name"));
     name_column_menu.append(Some("Wider"), Some("win.widen-name"));
+    name_column_menu.append(Some("Auto Size"), Some("win.autosize-name"));
+    name_column_menu.append(Some("Move Left"), Some("win.move-column-left-name"));
+    name_column_menu.append(Some("Move Right"), Some("win.move-column-right-name"));
     columns_model.append_submenu(Some("Name"), &name_column_menu);
     for column in ListColumn::OPTIONAL {
         let column_menu = gio::Menu::new();
@@ -1994,6 +2427,18 @@ pub fn build(
         column_menu.append(
             Some("Wider"),
             Some(&format!("win.widen-{}", column.persisted())),
+        );
+        column_menu.append(
+            Some("Auto Size"),
+            Some(&format!("win.autosize-{}", column.persisted())),
+        );
+        column_menu.append(
+            Some("Move Left"),
+            Some(&format!("win.move-column-left-{}", column.persisted())),
+        );
+        column_menu.append(
+            Some("Move Right"),
+            Some(&format!("win.move-column-right-{}", column.persisted())),
         );
         columns_model.append_submenu(Some(column.label()), &column_menu);
     }
@@ -2181,6 +2626,7 @@ pub fn build(
         selection,
         list_view,
         grid_view,
+        grouped_grid_view,
         miller_view,
         view_stack,
         list_header,
@@ -2233,8 +2679,11 @@ pub fn build(
         metadata,
         list_layout,
         list_grouping,
+        collapsed_groups,
         list_factory,
         grid_factory,
+        grid_presentation_stack,
+        grouped_grid,
     } = build_directory_panel(preferences.clone(), &drop_dispatcher, &entry_icon_style);
 
     content.set_width_request(420);
@@ -2433,6 +2882,7 @@ pub fn build(
         selection,
         list_view,
         grid_view,
+        grouped_grid_view,
         miller_view,
         view_stack,
         list_header,
@@ -2509,8 +2959,11 @@ pub fn build(
         operations,
         list_layout,
         list_grouping,
+        collapsed_groups,
         list_factory,
         grid_factory,
+        grid_presentation_stack,
+        grouped_grid,
     }
 }
 
@@ -3890,6 +4343,27 @@ fn sidebar_heading(label: &str) -> gtk::Label {
     heading
 }
 
+fn initialize_group_header(group: &gtk::Button, grid: bool) {
+    group.add_css_class("flat");
+    group.add_css_class("heading");
+    group.add_css_class("floe-group-label");
+    if grid {
+        group.add_css_class("floe-grid-group-label");
+    }
+    group.update_property(&[gtk::accessible::Property::Description(
+        crate::completeness::GROUP_HEADER_DESCRIPTION,
+    )]);
+    let group_for_toggle = group.clone();
+    group.connect_clicked(move |_| {
+        let Some(label) = group_for_toggle.tooltip_text() else {
+            return;
+        };
+        if !label.is_empty() {
+            let _ = group_for_toggle.activate_action("win.toggle-group", Some(&label.to_variant()));
+        }
+    });
+}
+
 fn build_directory_panel(
     preferences: ViewPreferences,
     drop_dispatcher: &DropDispatcher,
@@ -3918,6 +4392,13 @@ fn build_directory_panel(
     let metadata = MetadataPresentation::default();
     let list_layout = Rc::new(Cell::new(preferences.columns));
     let list_grouping = Rc::new(Cell::new(preferences.sort.grouping));
+    let collapsed_groups = Rc::new(RefCell::new(
+        preferences
+            .collapsed_groups
+            .iter()
+            .cloned()
+            .collect::<HashSet<String>>(),
+    ));
     let factory = gtk::SignalListItemFactory::new();
     let row_selection = selection.clone();
     let row_context_menu = list_context_menu.clone();
@@ -3931,15 +4412,13 @@ fn build_directory_panel(
             .spacing(12)
             .build();
         row.add_css_class("floe-list-row");
-        let group = gtk::Label::builder()
+        let group = gtk::Button::builder()
             .halign(gtk::Align::Start)
             .width_request(112)
-            .ellipsize(gtk::pango::EllipsizeMode::End)
-            .single_line_mode(true)
+            .has_frame(false)
             .visible(false)
             .build();
-        group.add_css_class("heading");
-        group.add_css_class("floe-group-label");
+        initialize_group_header(&group, false);
         let icon = gtk::Image::builder().pixel_size(LIST_ICON_EDGE).build();
         icon.set_accessible_role(gtk::AccessibleRole::Presentation);
         let name = gtk::Label::builder()
@@ -4074,6 +4553,7 @@ fn build_directory_panel(
     let metadata_for_bind = metadata.clone();
     let layout_for_bind = Rc::clone(&list_layout);
     let grouping_for_bind = Rc::clone(&list_grouping);
+    let collapsed_for_bind = Rc::clone(&collapsed_groups);
     let selection_for_bind = selection.clone();
     factory.connect_bind(move |_, object| {
         let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
@@ -4082,7 +4562,7 @@ fn build_directory_panel(
         let Some(row) = list_item.child().and_downcast::<gtk::Box>() else {
             return;
         };
-        let Some(group) = row.first_child().and_downcast::<gtk::Label>() else {
+        let Some(group) = row.first_child().and_downcast::<gtk::Button>() else {
             return;
         };
         let Some(icon) = group.next_sibling().and_downcast::<gtk::Image>() else {
@@ -4142,9 +4622,27 @@ fn build_directory_panel(
             .and_downcast::<glib::BoxedAnyObject>()
             .map(|object| object.borrow::<std::sync::Arc<DirectoryEntry>>().clone());
         let group_label = visible_group_label(grouping, &entry, previous.as_deref());
-        group.set_visible(grouping != DirectoryGrouping::None);
-        group.set_label(group_label.as_deref().unwrap_or_default());
+        let entry_group = grouping.label(&entry);
+        let collapsed = entry_group
+            .as_ref()
+            .is_some_and(|label| collapsed_for_bind.borrow().contains(label));
+        let is_group_header = group_label.is_some();
+        let presentation = crate::completeness::group_row_presentation(collapsed, is_group_header);
+        row.set_visible(presentation.visible);
+        list_item.set_selectable(presentation.selectable);
+        group.set_visible(is_group_header);
+        group.set_label(
+            group_label
+                .as_ref()
+                .map(|label| format!("{} {label}", if collapsed { "▸" } else { "▾" }))
+                .as_deref()
+                .unwrap_or_default(),
+        );
         group.set_tooltip_text(group_label.as_deref());
+        group.update_state(&[gtk::accessible::State::Expanded(Some(
+            presentation.expanded,
+        ))]);
+        icon.set_visible(!collapsed);
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
         let tooltip = entry
@@ -4194,6 +4692,32 @@ fn build_directory_panel(
         extension.set_tooltip_text((!extension_text.is_empty()).then_some(extension_text.as_str()));
 
         let layout = layout_for_bind.get();
+        let column_widgets: [(ListColumn, &gtk::Widget); 14] = [
+            (ListColumn::Name, name.upcast_ref()),
+            (ListColumn::Type, entry_type.upcast_ref()),
+            (ListColumn::Size, size.upcast_ref()),
+            (ListColumn::Modified, modified.upcast_ref()),
+            (ListColumn::Extension, extension.upcast_ref()),
+            (ListColumn::Mime, mime.upcast_ref()),
+            (ListColumn::Created, created.upcast_ref()),
+            (ListColumn::Accessed, accessed.upcast_ref()),
+            (ListColumn::Permissions, permissions.upcast_ref()),
+            (ListColumn::Dimensions, dimensions.upcast_ref()),
+            (ListColumn::Duration, duration.upcast_ref()),
+            (ListColumn::Artist, artist.upcast_ref()),
+            (ListColumn::Album, album.upcast_ref()),
+            (ListColumn::Track, track.upcast_ref()),
+        ];
+        let mut previous = icon.clone().upcast::<gtk::Widget>();
+        for column in layout.order() {
+            if let Some((_, widget)) = column_widgets
+                .iter()
+                .find(|(candidate, _)| *candidate == column)
+            {
+                row.reorder_child_after(*widget, Some(&previous));
+                previous = (*widget).clone();
+            }
+        }
         for (column, label) in [
             (ListColumn::Name, &name),
             (ListColumn::Type, &entry_type),
@@ -4210,7 +4734,7 @@ fn build_directory_panel(
             (ListColumn::Album, &album),
             (ListColumn::Track, &track),
         ] {
-            label.set_visible(layout.is_visible(column));
+            label.set_visible(!collapsed && layout.is_visible(column));
             label.set_width_request(i32::from(layout.width(column)));
         }
         if layout.needs_lazy_metadata() {
@@ -4252,7 +4776,7 @@ fn build_directory_panel(
         let Some(row) = list_item.child().and_downcast::<gtk::Box>() else {
             return;
         };
-        let Some(group) = row.first_child().and_downcast::<gtk::Label>() else {
+        let Some(group) = row.first_child().and_downcast::<gtk::Button>() else {
             return;
         };
         let Some(icon) = group.next_sibling().and_downcast::<gtk::Image>() else {
@@ -4281,12 +4805,16 @@ fn build_directory_panel(
         .vexpand(true)
         .build();
     let grid_factory = build_grid_factory(
-        &selection,
-        &grid_context_menu,
-        &thumbnails,
-        &list_grouping,
+        GridFactoryDependencies {
+            selection: &selection,
+            context_menu: &grid_context_menu,
+            thumbnails: &thumbnails,
+            grouping: &list_grouping,
+            collapsed_groups: &collapsed_groups,
+            drop_dispatcher,
+        },
         preferences.grid_size,
-        drop_dispatcher,
+        0,
     );
     let grid_view = gtk::GridView::new(Some(selection.clone()), Some(grid_factory.clone()));
     grid_view.add_css_class("floe-directory-grid");
@@ -4309,6 +4837,43 @@ fn build_directory_panel(
         .child(&grid_view)
         .vexpand(true)
         .build();
+    let grouped_grid = GroupedGridPresentation::new(
+        GroupedGridDependencies {
+            selection: &selection,
+            primary_grid: &grid_view,
+            context_menu: &grid_context_menu,
+            thumbnails: &thumbnails,
+            grouping: &list_grouping,
+            collapsed_groups: &collapsed_groups,
+            drop_dispatcher,
+        },
+        preferences.grid_size,
+        preferences.file_density,
+    );
+    let grouped_grid_view = grouped_grid.widget().clone();
+    let grid_presentation_stack = gtk::Stack::new();
+    grid_presentation_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
+    grid_presentation_stack.add_named(&grid_scroller, Some("ungrouped"));
+    grid_presentation_stack.add_named(&grouped_grid_view, Some("grouped"));
+    grid_presentation_stack.set_visible_child_name(
+        if preferences.sort.grouping == DirectoryGrouping::None {
+            "ungrouped"
+        } else {
+            "grouped"
+        },
+    );
+    grid_presentation_stack.set_vexpand(true);
+
+    grid_context_menu.unparent();
+    grid_context_menu.set_parent(&grid_presentation_stack);
+    grid_background_menu.unparent();
+    grid_background_menu.set_parent(&grid_presentation_stack);
+    install_background_context_menu(
+        grouped_grid.widget(),
+        &selection,
+        &grid_background_menu,
+        "floe-grid-cell",
+    );
 
     let search_factory =
         build_filename_search_factory(&selection, &search_context_menu, entry_icon_style);
@@ -4344,7 +4909,7 @@ fn build_directory_panel(
     let view_stack = gtk::Stack::new();
     view_stack.set_transition_type(gtk::StackTransitionType::Crossfade);
     view_stack.add_named(&list_scroller, Some("list"));
-    view_stack.add_named(&grid_scroller, Some("grid"));
+    view_stack.add_named(&grid_presentation_stack, Some("grid"));
     view_stack.add_named(miller_view.widget(), Some("miller"));
     view_stack.add_named(&search_scroller, Some("search-results"));
     view_stack.set_visible_child_name(preferences.mode.stack_name());
@@ -4681,6 +5246,7 @@ fn build_directory_panel(
         selection,
         list_view,
         grid_view,
+        grouped_grid_view,
         miller_view,
         view_stack,
         list_header,
@@ -4733,8 +5299,11 @@ fn build_directory_panel(
         metadata,
         list_layout,
         list_grouping,
+        collapsed_groups,
         list_factory: factory,
         grid_factory: RefCell::new(grid_factory),
+        grid_presentation_stack,
+        grouped_grid,
     }
 }
 
@@ -4886,13 +5455,18 @@ fn build_filename_search_factory(
 }
 
 fn build_grid_factory(
-    selection: &gtk::MultiSelection,
-    context_menu: &gtk::PopoverMenu,
-    thumbnails: &ThumbnailPresentation,
-    grouping: &Rc<Cell<DirectoryGrouping>>,
+    dependencies: GridFactoryDependencies<'_>,
     grid_size: GridSize,
-    drop_dispatcher: &DropDispatcher,
+    position_offset: u32,
 ) -> gtk::SignalListItemFactory {
+    let GridFactoryDependencies {
+        selection,
+        context_menu,
+        thumbnails,
+        grouping,
+        collapsed_groups,
+        drop_dispatcher,
+    } = dependencies;
     let factory = gtk::SignalListItemFactory::new();
     let row_selection = selection.clone();
     let row_context_menu = context_menu.clone();
@@ -4920,17 +5494,13 @@ fn build_grid_factory(
             .height_request(20)
             .width_request(tile_width - 16)
             .build();
-        let group = gtk::Label::builder()
+        let group = gtk::Button::builder()
             .halign(gtk::Align::Fill)
             .valign(gtk::Align::Center)
             .hexpand(true)
-            .ellipsize(gtk::pango::EllipsizeMode::End)
-            .xalign(0.0)
+            .has_frame(false)
             .build();
-        group.add_css_class("floe-group-label");
-        group.add_css_class("floe-grid-group-label");
-        group.set_accessible_role(gtk::AccessibleRole::Heading);
-        group.set_can_target(false);
+        initialize_group_header(&group, true);
         group_slot.append(&group);
         let icon = gtk::Image::builder()
             .pixel_size(grid_icon_edge(edge))
@@ -4964,10 +5534,11 @@ fn build_grid_factory(
             let Some(list_item) = list_item_weak.upgrade() else {
                 return;
             };
-            let position = list_item.position();
-            if !is_bound_list_position(position) {
+            let local_position = list_item.position();
+            if !is_bound_list_position(local_position) {
                 return;
             }
+            let position = position_offset.saturating_add(local_position);
             if context_selection_for_secondary(selection.is_selected(position))
                 == ContextSelection::SelectOnly
             {
@@ -5002,10 +5573,11 @@ fn build_grid_factory(
             let Some(item) = middle_item.upgrade() else {
                 return;
             };
-            let position = item.position();
-            if !is_bound_list_position(position) {
+            let local_position = item.position();
+            if !is_bound_list_position(local_position) {
                 return;
             }
+            let position = position_offset.saturating_add(local_position);
             middle_selection.select_item(position, true);
             if let Some(widget) = gesture.widget() {
                 let _ = widget.activate_action("win.open-background-tab", None);
@@ -5034,6 +5606,7 @@ fn build_grid_factory(
 
     let thumbnails_for_bind = thumbnails.clone();
     let grouping_for_bind = Rc::clone(grouping);
+    let collapsed_for_bind = Rc::clone(collapsed_groups);
     let selection_for_bind = selection.clone();
     factory.connect_bind(move |_, object| {
         let Some(list_item) = object.downcast_ref::<gtk::ListItem>() else {
@@ -5045,7 +5618,7 @@ fn build_grid_factory(
         let Some(group_slot) = cell.first_child().and_downcast::<gtk::Box>() else {
             return;
         };
-        let Some(group) = group_slot.first_child().and_downcast::<gtk::Label>() else {
+        let Some(group) = group_slot.first_child().and_downcast::<gtk::Button>() else {
             return;
         };
         let Some(icon) = group_slot.next_sibling().and_downcast::<gtk::Image>() else {
@@ -5059,17 +5632,36 @@ fn build_grid_factory(
         };
         let entry = object.borrow::<std::sync::Arc<DirectoryEntry>>();
         let grouping = grouping_for_bind.get();
-        let previous = list_item
-            .position()
+        let previous = position_offset
+            .saturating_add(list_item.position())
             .checked_sub(1)
             .and_then(|position| selection_for_bind.item(position))
             .and_downcast::<glib::BoxedAnyObject>()
             .map(|object| object.borrow::<std::sync::Arc<DirectoryEntry>>().clone());
         let group_label = visible_group_label(grouping, &entry, previous.as_deref());
-        group_slot.set_visible(grouping != DirectoryGrouping::None);
-        group.set_visible(group_label.is_some());
-        group.set_label(group_label.as_deref().unwrap_or_default());
+        let entry_group = grouping.label(&entry);
+        let collapsed = entry_group
+            .as_ref()
+            .is_some_and(|label| collapsed_for_bind.borrow().contains(label));
+        let is_group_header = group_label.is_some();
+        let presentation = crate::completeness::group_row_presentation(collapsed, is_group_header);
+        cell.set_visible(presentation.visible);
+        list_item.set_selectable(presentation.selectable);
+        group_slot.set_visible(is_group_header);
+        group.set_visible(is_group_header);
+        group.set_label(
+            group_label
+                .as_ref()
+                .map(|label| format!("{} {label}", if collapsed { "▸" } else { "▾" }))
+                .as_deref()
+                .unwrap_or_default(),
+        );
         group.set_tooltip_text(group_label.as_deref());
+        group.update_state(&[gtk::accessible::State::Expanded(Some(
+            presentation.expanded,
+        ))]);
+        icon.set_visible(!collapsed);
+        name.set_visible(!collapsed);
         let display_name = entry.display_name_lossy();
         name.set_label(&display_name);
         let tooltip = entry
@@ -5094,12 +5686,19 @@ fn build_grid_factory(
         let Some(group_slot) = cell.first_child().and_downcast::<gtk::Box>() else {
             return;
         };
-        let Some(group) = group_slot.first_child().and_downcast::<gtk::Label>() else {
+        let Some(group) = group_slot.first_child().and_downcast::<gtk::Button>() else {
             return;
         };
         let Some(icon) = group_slot.next_sibling().and_downcast::<gtk::Image>() else {
             return;
         };
+        let Some(name) = icon.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        cell.set_visible(true);
+        list_item.set_selectable(true);
+        icon.set_visible(true);
+        name.set_visible(true);
         group.set_label("");
         group.set_tooltip_text(None);
         thumbnails_for_unbind.unbind(&icon);
@@ -5404,6 +6003,7 @@ fn populate_background_context_menu_model(menu: &gio::Menu, preferences: Context
 
     let view = gio::Menu::new();
     view.append(Some("Select All"), Some("win.select-all"));
+    view.append(Some("Invert Selection"), Some("win.invert-selection"));
     view.append(Some("Refresh"), Some("win.refresh"));
     view.append(Some("Edit Location"), Some("win.location"));
     if preferences.is_visible(ContextMenuGroup::Terminal) {
@@ -5594,9 +6194,14 @@ fn install_background_context_menu<W>(
         }
 
         selection.unselect_all();
+        let point = gtk::prelude::WidgetExt::parent(&context_menu)
+            .and_then(|parent| {
+                view_widget.compute_point(&parent, &gtk::graphene::Point::new(x as f32, y as f32))
+            })
+            .unwrap_or_else(|| gtk::graphene::Point::new(x as f32, y as f32));
         context_menu.set_pointing_to(Some(&gtk::gdk::Rectangle::new(
-            x.round() as i32,
-            y.round() as i32,
+            point.x().round() as i32,
+            point.y().round() as i32,
             1,
             1,
         )));
@@ -6352,6 +6957,217 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_testing_gtk_phase_20b2_accessibility_group_header_contract() {
+        gtk::init().expect("GTK component gate requires an available display");
+        let group = gtk::Button::builder().label("Date group").build();
+        initialize_group_header(&group, true);
+
+        assert_eq!(group.accessible_role(), gtk::AccessibleRole::Button);
+        assert!(group.is_focusable());
+        assert!(group.has_css_class("floe-group-label"));
+        assert!(group.has_css_class("floe-grid-group-label"));
+        assert!(group.has_css_class("heading"));
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_testing_gtk_grouped_grid_uses_spanning_sections_and_shared_selection() {
+        gtk::init().expect("GTK component gate requires an available display");
+
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        fs::create_dir(temporary.path().join("folder-a")).expect("first folder");
+        fs::create_dir(temporary.path().join("folder-b")).expect("second folder");
+        fs::write(temporary.path().join("tiny-a.txt"), b"one").expect("first file");
+        fs::write(temporary.path().join("tiny-b.txt"), b"two").expect("second file");
+        let grouping = DirectoryGrouping::Type;
+        let mut entries = floe_core::enumerate_directory(temporary.path())
+            .expect("enumeration")
+            .entries()
+            .to_vec();
+        DirectorySort::new(SortColumn::Name, SortDirection::Ascending)
+            .with_grouping(grouping)
+            .sort_entries(&mut entries);
+
+        let mut preferences = ViewPreferences::default();
+        preferences.sort = preferences.sort.with_grouping(grouping);
+        let icon_style = Rc::new(Cell::new(EntryIconStyle::default()));
+        let panel = build_directory_panel(preferences, &DropDispatcher::default(), &icon_style);
+        let store = gio::ListStore::new::<glib::BoxedAnyObject>();
+        for entry in &entries {
+            store.append(&glib::BoxedAnyObject::new(std::sync::Arc::new(
+                entry.clone(),
+            )));
+        }
+        panel.selection.set_model(Some(&store));
+        panel.grouped_grid.rebuild();
+
+        let sections = panel.grouped_grid.state.sections.clone();
+        assert_eq!(sections.observe_children().n_items(), 2);
+        let first_section = sections
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("group is a vertical section");
+        let first_header = first_section
+            .first_child()
+            .and_downcast::<gtk::Button>()
+            .expect("spanning header is outside the item grid");
+        let first_grid = first_header
+            .next_sibling()
+            .and_downcast::<gtk::GridView>()
+            .expect("section body follows its header");
+        assert!(first_header.hexpands());
+        assert!(first_header.is_focusable());
+        assert_eq!(first_header.accessible_role(), gtk::AccessibleRole::Button);
+        assert!(first_header.has_css_class("floe-grid-section-header"));
+        assert!(first_grid.has_css_class("floe-grid-section-body"));
+
+        let slice = first_grid
+            .model()
+            .and_downcast::<SelectionSlice>()
+            .expect("section uses a selection slice");
+        assert!(slice.select_item(0, true));
+        assert!(panel.selection.is_selected(slice.start()));
+        let local = slice
+            .item(0)
+            .and_downcast::<glib::BoxedAnyObject>()
+            .expect("local item");
+        let global = panel
+            .selection
+            .item(slice.start())
+            .and_downcast::<glib::BoxedAnyObject>()
+            .expect("global item");
+        assert_eq!(
+            local.borrow::<std::sync::Arc<DirectoryEntry>>().path(),
+            global.borrow::<std::sync::Arc<DirectoryEntry>>().path()
+        );
+
+        let collapsed_label = first_header.tooltip_text().expect("group label");
+        panel
+            .collapsed_groups
+            .borrow_mut()
+            .insert(collapsed_label.to_string());
+        panel.grouped_grid.refresh_collapsed_groups();
+        let first_section = panel
+            .grouped_grid
+            .state
+            .sections
+            .first_child()
+            .and_downcast::<gtk::Box>()
+            .expect("rebuilt first section");
+        let first_body = first_section
+            .last_child()
+            .and_downcast::<gtk::GridView>()
+            .expect("first body");
+        let second_body = first_section
+            .next_sibling()
+            .and_downcast::<gtk::Box>()
+            .and_then(|section| section.last_child())
+            .and_downcast::<gtk::GridView>()
+            .expect("second body");
+        assert!(!first_body.is_visible());
+        assert!(second_body.is_visible());
+
+        panel.grouped_grid.set_single_click_activate(true);
+        assert!(
+            panel
+                .grouped_grid
+                .state
+                .section_grids
+                .borrow()
+                .iter()
+                .all(gtk::GridView::is_single_click_activate)
+        );
+        let larger = GridSize::from_index(GRID_SIZES.len().saturating_sub(1))
+            .expect("last configured grid size");
+        panel.grouped_grid.set_grid_size(larger);
+        assert_eq!(panel.grouped_grid.state.grid_size.get(), larger);
+
+        let alternate_surface_store = gio::ListStore::new::<glib::BoxedAnyObject>();
+        alternate_surface_store.append(&glib::BoxedAnyObject::new(String::from(
+            "content-search-row",
+        )));
+        panel.selection.set_model(Some(&alternate_surface_store));
+        panel.grouped_grid.rebuild();
+        assert_eq!(
+            panel
+                .grouped_grid
+                .state
+                .sections
+                .observe_children()
+                .n_items(),
+            0,
+            "shared search models must not be interpreted as directory entries",
+        );
+        // This low-level component fixture intentionally has no application
+        // window to own and tear down the manually parented popovers. The
+        // native smoke below covers ordinary full-window shutdown.
+        std::mem::forget(panel);
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_testing_gtk_phase_20b2_appearance_click_accessibility_contract() {
+        gtk::init().expect("GTK component gate requires an available display");
+        adw::init().expect("libadwaita must initialize in GTK component gate");
+        let application = adw::Application::builder()
+            .application_id("io.github.floe.FileManager.Phase20B2ComponentTest")
+            .build();
+        application
+            .register(None::<&gio::Cancellable>)
+            .expect("component-test application must register before creating window");
+        let mut preferences = ViewPreferences::default();
+        preferences.color_scheme = ColorSchemePreference::Dark;
+        preferences.click_policy = ClickPolicy::Single;
+        preferences.font_family = Some("Sans".to_owned());
+        preferences.font_scale_percent = 150;
+        preferences.reduced_motion = true;
+        let widgets = build(
+            &application,
+            &[],
+            Appearance::for_preset(AppearancePreset::Native),
+            preferences.clone(),
+        );
+        widgets.apply_appearance_preferences(&preferences);
+        widgets.apply_click_policy(preferences.click_policy);
+
+        assert_eq!(
+            adw::StyleManager::default().color_scheme(),
+            adw::ColorScheme::ForceDark
+        );
+        assert!(widgets.window.has_css_class("floe-reduced-motion"));
+        assert!(widgets.list_view.is_single_click_activate());
+        assert!(widgets.grid_view.is_single_click_activate());
+        assert!(widgets.search_results_view.is_single_click_activate());
+        widgets.window.close();
+        adw::StyleManager::default().set_color_scheme(adw::ColorScheme::Default);
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_testing_gtk_phase_20b2a_window_size_restore_contract() {
+        gtk::init().expect("GTK component gate requires an available display");
+        adw::init().expect("libadwaita must initialize in GTK component gate");
+        let application = adw::Application::builder()
+            .application_id("io.github.floe.FileManager.WindowSizeComponentTest")
+            .build();
+        application
+            .register(None::<&gio::Cancellable>)
+            .expect("component-test application must register before creating window");
+        let preferences = ViewPreferences::parse("window-size=1460x880\n");
+
+        let widgets = build(
+            &application,
+            &[],
+            Appearance::for_preset(AppearancePreset::Native),
+            preferences,
+        );
+        assert_eq!(widgets.window.default_width(), 1460);
+        assert_eq!(widgets.window.default_height(), 880);
+        widgets.window.close();
+    }
+
+    #[test]
     fn phase_13a_filter_exposes_three_visible_matching_modes() {
         assert_eq!(FOLDER_FILTER_MODES, ["Text", "Glob", "Regex"]);
         assert_eq!(FOLDER_FILTER_MODE_HELP.len(), FOLDER_FILTER_MODES.len());
@@ -6892,6 +7708,18 @@ mod tests {
     }
 
     #[test]
+    fn phase_20b2a_window_size_policy_restores_or_uses_default() {
+        assert_eq!(
+            initial_window_size(&ViewPreferences::default()),
+            WindowSize::default()
+        );
+
+        let preferences = ViewPreferences::parse("window-size=1600x960\n");
+        let restored = initial_window_size(&preferences);
+        assert_eq!((restored.width(), restored.height()), (1600, 960));
+    }
+
+    #[test]
     fn phase_6a_columns_have_stable_scannable_semantics() {
         assert_eq!(
             LIST_COLUMN_LABELS,
@@ -7004,6 +7832,7 @@ mod tests {
                 ("New From Template…", "win.new-from-template"),
                 ("Paste", "win.paste"),
                 ("Select All", "win.select-all"),
+                ("Invert Selection", "win.invert-selection"),
                 ("Refresh", "win.refresh"),
                 ("Edit Location", "win.location"),
                 ("Open Terminal Here", "win.open-terminal"),

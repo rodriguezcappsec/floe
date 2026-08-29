@@ -1313,6 +1313,49 @@ is active, and **Integrity verified** only after verification completes.
 
 ## Active status
 
+Last updated: `2026-08-29`
+
+Current phase: **Phase 20B2 — Visual, Accessibility, and QoL Completeness Audit (complete)**
+
+Completed this session:
+
+- Corrected grouped Grid View's presentation: group headings now span the
+  content width above virtualized group bodies instead of occupying the first
+  file tile. Bounded selection-slice models delegate to Floe's one authoritative
+  `GtkMultiSelection`, so exact paths, Ctrl-selection, activation, context
+  actions, collapse persistence, click policy, and grid sizing stay coherent.
+- Date and size grouping now have deterministic list/grid boundaries and
+  focusable, expanded-state-aware collapsible buttons with bounded private
+  persistence. Invert Selection is available from Ctrl+Shift+I, command
+  registry, and the background context menu.
+- Split ratios retain typed per-tab persistence. One version-18 preference
+  controls list/grid/search/Miller single versus double click while Enter stays
+  immediate. Complete column order and bounded content autosize persist
+  globally, per folder, and through session codec v3.
+- Settings add libadwaita System/Light/Dark, validated font-family name,
+  75–200% scale, reduced motion, and reset. Escape closes the innermost browser
+  surface and restores active-view focus; panes/groups have redundant non-color
+  cues.
+- Each failure toast carries its own bounded memory-only details target.
+  Inactive-window completion notifications use generic path-free text. New
+  feedback strings use a translation-ready message-ID boundary and displayed
+  paths use Unicode first-strong isolation without changing exact identity.
+- Focused selection-slice and grouping tests plus the real-GTK spanning-section
+  regression pass. An isolated `view=grid`, `grouping=size` Wayland launch
+  answers D-Bus Ping and quits cleanly without GTK/libadwaita criticals. Full
+  workspace gate totals are recorded in `GATES.md`.
+
+Known limitations: Python Dogtail/pyatspi is unavailable, so no native semantic
+E2E/Orca claim is made. Translation catalogs and a physical multi-monitor
+fractional-scale matrix remain Phase 21 work. Wayland position and compositor
+workspace placement remain deliberately unpersisted.
+
+Recommended next task: create `phase-21a-performance` and establish reproducible
+100k-directory, thumbnail, search, operation, metadata, and integrity baselines
+before optimizing.
+
+## Prior active status (superseded)
+
 Last updated: `2026-08-28`
 
 Current phase: **Phase 20B1A — Advanced Metadata Sort Index (complete)**
@@ -1337,7 +1380,7 @@ is not claimed sandboxed. Dogtail/pyatspi remains unavailable on this host.
 Recommended next task: create `phase-20b2-completeness-audit` and continue the
 bounded visual, accessibility, localization, scaling, and daily-driver QoL audit.
 
-## Prior active status (superseded)
+## Earlier active status (superseded)
 
 Last updated:
 
