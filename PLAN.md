@@ -1,3 +1,47 @@
+# Plan: Floe Phase 14B — Privileged Local Browsing
+
+## Contract
+
+Add an experimental, read-only **Open as Administrator…** view for one exact
+absolute local directory using a typed application-owned resource/provider
+boundary and GIO/GVfs `admin://` access. GVfs and the desktop polkit agent own
+authentication; Floe remains the caller's unprivileged process and never sees a
+password. Administrator identity must never enter the existing local `PathBuf`
+browser worker, mutation jobs, previews, thumbnails, terminals, launchers,
+custom actions, archives, plugins, clipboard, or ordinary navigation history.
+
+This phase implements bounded read-only navigation, explicit authority state,
+cancellation/timeout/stale-response handling, graceful unsupported/denied
+fallback, and an opt-in preference. It does not implement privileged mutation,
+remote browsing, encrypted-volume unlocking, arbitrary administrator URIs, a
+helper process, `sudo`, `pkexec`, or shell execution.
+
+## Implementation order
+
+1. Freeze private validated local/administrator resource identities, provider
+   routing, access state, error classification, generation, history, and
+   bounded-page contracts.
+2. Implement a GIO-main-context privileged service that constructs `admin` URIs
+   from canonical GFile URIs, enumerates with `NOFOLLOW_SYMLINKS`, pages results,
+   supports cancellation/timeouts, and returns typed events only.
+3. Add an experimental setting and explicit current-folder action that opens a
+   persistent Administrator-labelled read-only view with Back/Forward/Parent,
+   Cancel, Retry, Return to Standard Access, and no local operation affordances.
+4. Add hostile URI/raw-path, fake-service state-machine, stale generation,
+   cancellation/timeout, page-bound, routing, and real-GTK accessibility tests.
+5. Run full workspace/native gates, update README/User Guide/security/roadmap/
+   matrix/status ledgers, set exactly one next phase, publish/merge, and stop.
+
+## Status
+
+**COMPLETE.** Phase 14B passes exact-path/URI identity, bounded provider/state,
+failure rollback, read-only routing, real-GTK accessibility, native Wayland
+UID/liveness, full workspace, E2E harness, documentation, and diff-hygiene
+gates. Exactly Phase 20B — Visual, Accessibility, and QoL Audit is `NEXT`; stop
+before implementing it on this branch.
+
+---
+
 # Plan: Floe Phase 19B — Associations and Custom Actions
 
 ## Contract

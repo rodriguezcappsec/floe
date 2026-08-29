@@ -258,7 +258,7 @@ broaden Phase 15.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 14B — Privileged local browsing | NEXT | `phase-14b-privileged-local-browsing` | Open a local folder through a typed GIO/GVfs `admin://` provider with polkit-owned authentication and persistent visible authority state. | `docs/PRIVILEGED_ACCESS.md`; never elevate Floe, capture passwords, accept arbitrary admin URIs, reuse local `PathBuf` jobs, expose privileged resources to previews/terminals/custom actions, or silently fall back. |
+| 14B — Privileged local browsing | COMPLETE | `phase-14b-privileged-local-browsing` | Open a local folder through a typed GIO/GVfs `admin://` provider with polkit-owned authentication and persistent visible authority state. | Verified experimental read-only opt-in, private validated URI identity, exact non-UTF-8 paths, 128-entry pages/4,096-entry cap, no-follow metadata, generation rejection, 120-second authorization/30-second page cancellation, accessible badge/navigation/return controls, UID-stable native lifecycle. No elevation, password handling, arbitrary admin URI, local-job reuse, preview/terminal/archive/launcher/custom-action/plugin capability, silent fallback, or privileged mutation. |
 
 ### Phase 15 — Niri integration
 
@@ -336,7 +336,7 @@ and add hostile-input and cache/notification/history leak tests.
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
 | 19A — Git awareness | PLANNED | `phase-19a-git-awareness` | Cheap opt-in repository root, branch, status badges and relative-path actions. | 6T/11E; no cost outside repositories; verify large repos and missing Git. |
-| 19B — Associations and custom actions | COMPLETE | `phase-19b-associations-custom-actions` | Inspect/set/reset XDG MIME defaults plus context/palette file-type actions with safe argv and eligibility. | Verified bounded GIO mutation worker, explicit result feedback, version-13 private preference records, 32-action/128-selection limits, exact raw argv placeholders, MIME/file/folder/multi-selection eligibility, direct fixed-capacity child launch/reaping, native editor/context/palette flows; no shell, remote, privileged, secret, or plugin authority. |
+| 19B — Associations and custom actions | COMPLETE | `phase-19b-associations-custom-actions` | Inspect/set/reset XDG MIME defaults plus context/palette file-type actions with safe argv and eligibility. | Verified bounded GIO mutation worker, explicit result feedback, version-14 private preference records, 32-action/128-selection limits, exact raw argv placeholders, MIME/file/folder/multi-selection eligibility, direct fixed-capacity child launch/reaping, native editor/context/palette flows; no shell, remote, privileged, secret, or plugin authority. |
 | 19C — Customization | PLANNED | `phase-19c-customization` | Theme tokens, templates, editor, compare and Share tools. | Appearance/12D/19B; no plugin runtime; verify validation, rollback and upgrades. |
 
 A general plugin runtime is **DEFERRED** until demonstrated demand and a
@@ -348,7 +348,7 @@ Status: **IN PROGRESS**
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
 | 20A — Settings Center | COMPLETE | `phase-20a-settings-center` | Dedicated searchable native Settings Center organizing appearance, browsing, views/layout, search/preview, operations/safety, applications, shortcuts/menus, and accessibility. | Verified case-insensitive plain-language search, live authoritative preferences, specialized-editor links, `Ctrl+,`, stable GTK accessibility metadata, no duplicate settings store or weakened irreversible confirmations. |
-| 20B — Visual, accessibility, and QoL audit | PLANNED | `phase-20b-completeness-audit` | Close remaining matrix gaps across fonts, density, motion, focus, Orca, high contrast, localization, RTL, HiDPI, fractional scaling, errors, and recorded daily-driver QoL. | 20A and preceding user-facing families; measured matrix audit and native desktop smoke. |
+| 20B — Visual, accessibility, and QoL audit | NEXT | `phase-20b-completeness-audit` | Close remaining matrix gaps across fonts, density, motion, focus, Orca, high contrast, localization, RTL, HiDPI, fractional scaling, errors, and recorded daily-driver QoL. | 20A and preceding user-facing families; measured matrix audit and native desktop smoke. |
 
 Goal: close every remaining `FEATURE_MATRIX` gap across appearance, fonts,
 density, motion, views, previews, operations, shortcuts, applications, privacy,

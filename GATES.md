@@ -1,3 +1,57 @@
+# Gates: Floe Phase 14B — Privileged Local Browsing
+
+Scope: experimental read-only local `admin://` provider only; no elevated Floe,
+password handling, arbitrary URIs, privileged mutation, or capability leakage.
+
+- [x] P1: Private resource constructors preserve exact local path identity and
+  canonical GFile URI encoding while rejecting relative paths, hosts, user-info,
+  query, fragment, foreign schemes, arbitrary `admin://`, and round-trip drift.
+  CHECK: `cargo test -p floe-app phase_14b_identity -- --nocapture`
+  EVIDENCE: Three identity tests pass exact non-UTF-8 and colliding-lossy-name
+  preservation plus relative, host, credential, query, fragment, foreign URI,
+  arbitrary administrator URI, and round-trip-drift rejection.
+- [x] P2: Provider/state routing is authority-explicit, bounded, cancellable,
+  generation-safe, and fake-service tests cover success, denial, unavailable,
+  disconnect, cancellation, timeout, stale pages, and exact return location.
+  CHECK: `cargo test -p floe-app phase_14b_state -- --nocapture`
+  EVIDENCE: Five state tests pass active-generation paging, success and every
+  classified terminal outcome, exact history/return, stale-event rejection,
+  and failed-child rollback of the prior typed location and visible entry model.
+- [x] P3: GIO/GVfs service stays on its owning GLib context, enumerates at most
+  one bounded page at a time with `NOFOLLOW_SYMLINKS`, preserves child GFiles and
+  exact name bytes, classifies failures, and never invokes a helper or shell.
+  CHECK: `cargo test -p floe-app phase_14b_provider -- --nocapture`
+  EVIDENCE: Two provider tests pass page/capacity and one-active-request bounds,
+  typed path-free failure classification, and source-boundary checks confirm
+  no shell/helper while `NOFOLLOW_SYMLINKS` remains mandatory.
+- [x] P4: Opt-in read-only Administrator view has explicit persistent authority,
+  accessible action/badge/status, Back/Forward/Parent, Cancel/Retry/Return, and
+  exposes no local mutation, preview, launcher, terminal, archive, or custom action.
+  CHECK: `cargo test -p floe-app phase_14b_ui -- --nocapture`
+  EVIDENCE: Three deterministic UI/routing tests pass and one real-display GTK
+  component test passes dialog/list/status/control accessibility plus failed
+  child-navigation restoration. The version-14 opt-in setting, folder/background
+  context action, Command Palette command, badge, navigation, and return action
+  expose no privileged file-operation affordance.
+- [x] P5: Formatting, workspace check, strict Clippy, workspace tests, native
+  build, real-GTK/E2E/Wayland capability/fallback/lifecycle gates, process UID,
+  diff hygiene, README/User Guide/security/status ledgers, one NEXT phase pass.
+  EVIDENCE: `cargo fmt --all -- --check`, workspace check, strict all-target/
+  all-feature Clippy, workspace tests, native build, and `git diff --check` pass.
+  App tests: 535 total, 526 passed and nine intentional graphical ignores; 21
+  app integration, 150 core, and six duplicate-workflow tests pass. E2E harness
+  reports three passed and the native suite skipped because Python Dogtail/
+  pyatspi are unavailable. Real GTK passes with display access. Isolated native
+  Wayland actions open and return, D-Bus `Peer.Ping`, UID/eUID/sUID/fsUID all
+  remain 1000 before and after, and Quit exits cleanly; only host RADV and
+  unavailable AT-SPI warnings remain. README, User Guide, architecture,
+  development, privacy/security, roadmap, matrix, plan/status ledgers are
+  updated with exactly Phase 20B `NEXT`. Separate Niri, dedicated Plasma, and
+  disposable root-owned-fixture stable-release gates were unavailable, so the
+  feature remains experimental and read-only.
+
+---
+
 # Gates: Floe Phase 19B — Associations and Custom Actions
 
 Scope: local XDG MIME defaults and explicitly configured unprivileged external

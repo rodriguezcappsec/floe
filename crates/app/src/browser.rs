@@ -635,6 +635,7 @@ pub struct BrowserController {
     cli_route_worker: RefCell<Option<CliRouteWorker>>,
     association_worker: Option<Rc<launcher::AssociationWorker>>,
     custom_action_worker: RefCell<Option<crate::custom_actions::CustomActionWorker>>,
+    privileged_access: Rc<crate::privileged_access::PrivilegedAccessController>,
     application_state: Rc<ApplicationState>,
     bookmark_worker: RefCell<Option<BookmarkWorker>>,
     bookmarks: RefCell<Vec<PathBuf>>,
@@ -778,6 +779,7 @@ impl BrowserController {
                 None
             }
         };
+        let privileged_access = crate::privileged_access::PrivilegedAccessController::new();
         let filter_worker = match crate::folder_filter::FolderFilterWorker::spawn() {
             Ok(worker) => Some(worker),
             Err(error) => {
@@ -925,6 +927,7 @@ impl BrowserController {
             cli_route_worker: RefCell::new(cli_route_worker),
             association_worker,
             custom_action_worker: RefCell::new(custom_action_worker),
+            privileged_access,
             application_state,
             bookmark_worker: RefCell::new(bookmarks),
             bookmarks: RefCell::new(Vec::new()),
@@ -3581,6 +3584,12 @@ impl BrowserController {
         self.add_action("custom-action-chooser", |controller| {
             controller.show_custom_action_chooser();
         });
+        self.add_action("open-as-administrator", |controller| {
+            controller.open_as_administrator();
+        });
+        self.add_action("return-standard-access", |controller| {
+            controller.privileged_access.cancel_and_close();
+        });
         let custom_action =
             gio::SimpleAction::new("run-custom-action", Some(glib::VariantTy::UINT64));
         let controller = Rc::downgrade(self);
@@ -5745,6 +5754,32 @@ impl BrowserController {
             }
         });
 
+        let controller = Rc::downgrade(self);
+        settings
+            .privileged_access
+            .connect_active_notify(move |toggle| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                let enabled = toggle.is_active();
+                if controller
+                    .current_preferences
+                    .borrow()
+                    .privileged_access_enabled
+                    == enabled
+                {
+                    return;
+                }
+                controller
+                    .current_preferences
+                    .borrow_mut()
+                    .privileged_access_enabled = enabled;
+                controller.queue_preferences();
+                if !enabled {
+                    controller.privileged_access.cancel_and_close();
+                }
+            });
+
         for (action, button) in &settings.action_buttons {
             let action = action
                 .strip_prefix("win.")
@@ -5958,6 +5993,42 @@ impl BrowserController {
         content.append(&list);
         dialog.set_child(Some(&content));
         dialog.present(Some(&self.widgets.window));
+    }
+
+    fn open_as_administrator(&self) {
+        if self.trash_active.get() {
+            self.show_toast("Administrator access is unavailable for Trash", 5);
+            return;
+        }
+        if !self.current_preferences.borrow().privileged_access_enabled {
+            self.show_toast(
+                "Enable Experimental administrator browsing in Settings → Applications first",
+                6,
+            );
+            return;
+        }
+        if !crate::privileged_access::admin_scheme_supported() {
+            self.show_toast(
+                "The desktop does not advertise a GVfs administrator backend",
+                6,
+            );
+            return;
+        }
+
+        let selected_folder = {
+            let selected = self.selected_entries.borrow();
+            if selected.is_empty() {
+                None
+            } else if selected.len() == 1 && selected[0].kind() == EntryKind::Directory {
+                Some(selected[0].path().to_path_buf())
+            } else {
+                self.show_toast("Select one local folder for administrator browsing", 5);
+                return;
+            }
+        };
+        let target = selected_folder.unwrap_or_else(|| self.action_directory());
+        self.privileged_access
+            .present(&self.widgets.window, &target);
     }
 
     fn recent_locations(&self) -> Vec<PathBuf> {

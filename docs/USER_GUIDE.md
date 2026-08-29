@@ -209,6 +209,29 @@ pipes, redirects, `$(commands)`, or any other shell syntax. Custom actions are
 ordinary unprivileged external applications: they never inherit administrator
 access, vault keys, or remote-resource authority from Floe.
 
+### Read-only administrator browsing
+
+Administrator browsing is experimental and disabled by default. Open
+**Settings → Applications**, enable **Experimental administrator browsing**,
+then right-click one local folder or empty folder space and choose **Open as
+Administrator…**. The same command is available from the Command Palette.
+
+Floe asks the desktop GVfs `admin` backend to open that exact local folder. The
+desktop polkit agent owns any password prompt; Floe never asks for, receives,
+stores, or logs the password, and its process remains your normal user. If the
+desktop has no GVfs administrator backend or authentication agent, Floe reports
+that limitation and keeps ordinary browsing unchanged.
+
+The separate view is deliberately read-only and always shows an
+**Administrator** badge after authorization succeeds. It supports folder
+activation plus Back, Forward, Parent, Cancel, Retry, and **Return to Standard
+Access**. Files, symbolic links, previews, thumbnails, terminals, archives,
+Open With, custom actions, clipboard operations, and every create/copy/move/
+rename/Trash/delete/permission operation are unavailable there. Closing or
+returning cancels outstanding reads and discards privileged selections. The
+desktop may retain its own short-lived polkit authorization cache; Floe cannot
+revoke that desktop-owned cache.
+
 ## Create and organize files
 
 Right-click empty folder space or use the Command Palette to create a folder,
@@ -546,8 +569,8 @@ optional service does not disable ordinary local browsing.
 
 - Niri-specific, Plasma-specific, remote/network, and Android/MTP integration
   are deferred; generic GTK/GIO/XDG Wayland behavior remains the active path.
-- Open as Administrator remains intentionally unavailable until its privileged
-  access design and security gates are implemented.
+- Open as Administrator is an experimental opt-in read-only view. Privileged
+  mutations and an unguarded stable release remain intentionally unavailable.
 - Interrupted local copy/move/rename/create recovery is implemented. It is
   conservative restart review, not a transaction log, rollback guarantee, or
   automatic partial-output cleanup.

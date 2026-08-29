@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::command_registry::{self, CommandDefinition, CommandRisk};
 
-pub const KEYBINDING_OVERRIDE_CAPACITY: usize = 96;
+pub const KEYBINDING_OVERRIDE_CAPACITY: usize = 128;
 pub const KEYBINDINGS_PER_COMMAND_CAPACITY: usize = 4;
 pub const KEYBINDING_TEXT_CAPACITY: usize = 64;
 const LOCAL_FILE_VIEW_SHORTCUTS: [(&str, &str); 1] = [("win.quick-preview", "space")];
@@ -433,7 +433,7 @@ mod tests {
             .set_from_text("win.forward", "")
             .expect("disabled binding");
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=13\n"));
+        assert!(serialized.starts_with("version=14\n"));
         assert!(serialized.contains("keybinding=win.back\t<Control>b\n"));
         assert!(serialized.contains("keybinding=win.forward\t!\n"));
         assert_eq!(

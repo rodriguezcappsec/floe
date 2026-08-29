@@ -5078,6 +5078,10 @@ fn populate_file_context_menu_model(
         Some("Open in New Background Tab"),
         Some("win.open-background-tab"),
     );
+    primary.append(
+        Some("Open as Administrator…"),
+        Some("win.open-as-administrator"),
+    );
     primary.append(Some("Reveal in Folder"), Some("win.reveal-in-folder"));
     menu.append_section(None, &primary);
     if !custom_actions.is_empty() {
@@ -5266,6 +5270,10 @@ fn populate_background_context_menu_model(menu: &gio::Menu, preferences: Context
     if preferences.is_visible(ContextMenuGroup::Terminal) {
         view.append(Some("Open Terminal Here"), Some("win.open-terminal"));
     }
+    view.append(
+        Some("Open as Administrator…"),
+        Some("win.open-as-administrator"),
+    );
     menu.append_section(None, &view);
 
     if preferences.is_visible(ContextMenuGroup::Checksums) {
@@ -6453,6 +6461,25 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn phase_14b_ui_administrator_action_is_reachable_from_folder_contexts() {
+        let file = build_configured_file_context_menu_model(ContextMenuPreferences::empty());
+        let background =
+            build_configured_background_context_menu_model(ContextMenuPreferences::empty());
+        for actions in [
+            menu_actions(file.upcast_ref()),
+            menu_actions(background.upcast_ref()),
+        ] {
+            assert!(
+                actions
+                    .iter()
+                    .any(|action| action == "win.open-as-administrator")
+            );
+        }
+        assert!(crate::command_registry::command("win.open-as-administrator").is_some());
+        assert!(crate::command_registry::command("win.return-standard-access").is_some());
     }
 
     #[test]

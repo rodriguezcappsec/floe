@@ -885,3 +885,25 @@ crash or persistent rendering defect separately from this warning.
 Cargo requires registry access the first time dependencies are resolved. Once
 `Cargo.lock` and crate sources are present, normal local checks should not need
 to modify system packages.
+
+## Phase 14B privileged read-only development gates
+
+Focused deterministic coverage:
+
+```bash
+cargo test -p floe-app phase_14b_identity -- --nocapture
+cargo test -p floe-app phase_14b_state -- --nocapture
+cargo test -p floe-app phase_14b_provider -- --nocapture
+cargo test -p floe-app phase_14b_ui -- --nocapture
+cargo test -p floe-app phase_testing_gtk_phase_14b_ui_accessibility -- --ignored --nocapture
+```
+
+The native Wayland smoke must use private HOME/XDG persistent roots, enable only
+`privileged-access-enabled=true`, confirm `open-as-administrator` and
+`return-standard-access` are parameterless window actions, record `/proc/PID`
+UID before and after activation, return/cancel explicitly, answer `Peer.Ping`,
+and quit cleanly. It must never use a user's inaccessible folder as a fixture or
+invent a root-owned test target. This host passed the active generic/Plasma
+Wayland lifecycle at UID 1000; it lacked Python Dogtail/pyatspi and did not
+provide separate Niri or disposable root-owned-fixture gates, so the feature
+must remain experimental.

@@ -164,7 +164,9 @@ Security state must use text and accessible semantics, never color alone. A fail
   by the active/retained Miller state. Horizontal deltas and focus transitions
   are not logged or persisted.
 
-- Floe runs as the calling desktop user. It does not run its GTK process as root and does not expose `Open as Administrator...` today.
+- Floe runs as the calling desktop user. Experimental read-only administrator
+  browsing delegates one typed local GFile to GVfs/polkit; the GTK process does
+  not become root and Floe never receives authentication secrets.
 - The Cargo workspace forbids Rust `unsafe` code. The core crate is GTK-independent, and filesystem work stays out of GTK callbacks.
 - Filesystem identities retain `PathBuf` and `OsString`. Lossy display labels are not reconstructed into operation targets. GIO launches receive a URI created from the exact local path.
 - Directory enumeration uses `symlink_metadata`. Copy has an explicit preserve-or-reject symlink policy. Same-filesystem move and rename use `RENAME_NOREPLACE`, so a conflict cannot overwrite an existing target. Phase 6O cross-filesystem move copies to a hidden sibling, revalidates exact no-follow source identity, atomically publishes without overwrite, synchronizes the destination parent, and classifies post-commit source-cleanup failure as non-retryable partial completion.
@@ -880,11 +882,28 @@ All filenames, paths, URI components, links, metadata, device fields, cache reco
 
 ## Privileged access boundary
 
-Status: **PLANNED**. `docs/PRIVILEGED_ACCESS.md` is the authoritative detailed design.
+Status: **EXPERIMENTAL READ-ONLY IMPLEMENTED**. `docs/PRIVILEGED_ACCESS.md` is
+the authoritative detailed design. Version-14 preferences add one explicit
+opt-in; the non-prompting capability probe stores no path or credential.
+Private constructors accept only absolute local paths, round-trip their GIO
+`file` URI exactly, change only the URI scheme through GLib/GIO builders, and
+reject authority, credentials, query, fragment, foreign scheme, arbitrary
+`admin://`, or child-identity drift.
 
-Floe must never elevate its whole process, interpolate a path into `sudo` or `pkexec`, collect the polkit password, or disguise a normal `PathBuf` as an `admin://` URI.
+The application-owned provider uses GIO async enumeration on its owning GLib
+context, `NOFOLLOW_SYMLINKS`, 128-entry pages, a 4,096-entry cap, cancellables,
+120-second authorization and 30-second page deadlines, and generation-bound
+events. Only a successful current first page displays privileged content and a
+persistent accessible Administrator badge. Denied, unsupported, unavailable,
+cancelled, timed-out, backend, and invalid-identity outcomes retain ordinary
+browsing and show path/URI-free classified feedback.
 
-Privileged identity remains a typed GFile and GVfs authority routed to a separate provider, visibly Administrator-badged and reversible. External applications, terminals, plugins, thumbnailers, previews, and context tools do not inherit that authority. The action remains unavailable until the resource model and security gates pass.
+Floe must still never elevate its whole process, interpolate a path into `sudo`
+or `pkexec`, collect a polkit password, or disguise a normal `PathBuf` as an
+`admin://` URI. The privileged view has no mutation, preview, thumbnail,
+terminal, launcher, Open With, archive, custom-action, clipboard, plugin, or
+local-job route. Privileged mutations and removal of the experimental guard
+remain planned and require independent security and native environment gates.
 
 Encrypted-volume mount authentication is separate. The desktop-owned `GtkMountOperation` flow is **IMPLEMENTED**, but a successful mount grants only the permissions supplied by that filesystem and desktop service.
 
