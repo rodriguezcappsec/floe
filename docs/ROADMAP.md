@@ -372,8 +372,8 @@ appearance controls and audit work recorded in the feature matrix.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 21A — Performance | NEXT | `phase-21a-performance` | Profile 100k folders, thumbnails, search, operations, metadata, and integrity workloads that currently exist. | No speculative rewrite and no benchmark of unimplemented crypto/vault features; record reproducible CPU/memory/latency budgets before optimization. |
-| 21B — Packaging/migrations | PLANNED | `phase-21b-packaging` | Release profile, metadata, icons, MIME and selected Flatpak/Arch strategy. | 18AA/20; verify clean install, upgrade, rollback and cache/config/vault migrations. |
+| 21A — Performance | COMPLETE | `phase-21a-performance` | Release-only tempfile harness covers real 100k enumeration/sort/filter/search plus bounded thumbnails, content search, copy/checksum, duplicates, integrity and advanced metadata. | Reproducible host/budget/peak-memory evidence and measured 49.8% ASCII metadata text-fact optimization with semantic parity; native 100k Ping/Quit passed while critical-free logging is explicitly abandoned because host AT-SPI refused connections. |
+| 21B — Packaging/migrations | NEXT | `phase-21b-packaging` | Release profile, metadata, icons, MIME and selected Flatpak/Arch strategy. | 18AA/20/21A; verify clean install, upgrade, rollback and cache/config migrations without inventing migrations for unimplemented vaults. |
 | 21C — Release docs | PLANNED | `phase-21c-release-documentation` | User, admin, security, accessibility, recovery and debug-policy documentation. | 21B; verified claims only; run link, terminology and fresh-user walkthrough. |
 | 21D — Release candidate | PLANNED | `phase-21d-release-candidate` | Dependency/license/security follow-up, crash recovery and environment matrix. | 21A–21C; no known data-loss/security-critical defect; require reproducible artifacts. |
 

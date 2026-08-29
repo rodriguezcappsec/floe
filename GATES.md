@@ -1363,3 +1363,57 @@ lazy worker-owned metadata and exact Linux path identity.
   - EVIDENCE: `phase-12f-docs-ok`; ROADMAP, FEATURE_MATRIX,
     PRIVACY_SECURITY, DESIGN, README, PLAN, GATES, and AGENTS now describe the
     verified boundary and exactly Phase 13A is NEXT.
+# Gates: Floe Phase 21A — Performance
+
+- [x] A1: One opt-in release-mode harness exercises real Floe implementations
+  for 100,000-entry enumeration/sort/search plus bounded thumbnail, content
+  search, copy/checksum, duplicate, integrity, and metadata workloads entirely
+  below disposable temporary roots.
+  CHECK: cargo test -p floe-app phase_21a_performance --release -- --ignored --nocapture --test-threads=1
+  EXPECT: /PHASE21A_RESULT.*status=pass/
+  EVIDENCE: Release harness passes all 15 `PHASE21A_RESULT` workload lines: real
+  100k enumeration/search, bounded thumbnails/content/copy/checksum/duplicate/
+  integrity/metadata, 119,876 KiB peak RSS, final `status=pass`.
+- [x] A2: The benchmark contract records reproducible workload sizes, host and
+  Rust context, elapsed/throughput evidence, peak-memory measurement procedure,
+  budgets, limitations, and a baseline/current comparison without claiming
+  unimplemented features.
+  CHECK: test -f docs/PERFORMANCE.md && rg -n '100,000|thumbnail|search|copy|checksum|duplicate|integrity|metadata|peak memory|Baseline|Current|Limitations' docs/PERFORMANCE.md
+  EXPECT: /Limitations/
+  EVIDENCE: `docs/PERFORMANCE.md` records Linux/Rust/CPU/tmpfs context, exact
+  fixtures/budgets/current results, `/proc/self/status` VmHWM procedure and
+  limitations.
+- [x] A3: At least one observed bottleneck receives a bounded implementation
+  improvement, before/after evidence, and a deterministic regression that
+  preserves exact paths, cancellation, no-follow behavior, and stable results.
+  CHECK: rg -n 'Measured optimization|Before|After|Correctness' docs/PERFORMANCE.md
+  EXPECT: /Correctness/
+  EVIDENCE: 16,652,288-byte ASCII text facts improved 64,108 us to 32,212 us
+  (49.8%); exhaustive ASCII, line-ending and Unicode-fallback parity passes.
+- [ ] A4: A native Wayland launch against a disposable 100,000-entry directory
+  becomes D-Bus responsive, remains alive long enough to answer Ping, and quits
+  cleanly without GTK/libadwaita criticals; semantic E2E is claimed only when
+  the host provides its dependencies.
+  EVIDENCE: Disposable native 100k launch answered Ping, Quit exited 0 and
+  peaked at 114,296 KiB. Host AT-SPI refused both existing and private bus
+  sockets, so the only GTK critical was external accessibility-bus failure.
+ABANDON: A4 critical-free native log unavailable because host AT-SPI refuses
+connections; lifecycle evidence passed and no semantic E2E claim is made.
+- [x] A5: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, native build, performance harness, E2E preflight, applicable
+  GTK/native gates, and diff hygiene all pass.
+  CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check
+  EXPECT: /Finished/
+  EVIDENCE: fmt/check/strict Clippy/workspace tests/native build/diff pass; 549
+  app + 21 controller + 162 core + six duplicate tests pass, 14 graphical
+  ignores; 11 GTK contracts pass separately; E2E preflight passes, native suite
+  skips exact missing Dogtail/pyatspi.
+- [x] A6: Persistent status and user/developer documentation describe verified
+  Phase 21A results and limitations, mark 21A complete only after A1-A5, and set
+  exactly Phase 21B as `NEXT` without beginning packaging.
+  CHECK: test "$(rg -c '\| NEXT \|' docs/ROADMAP.md)" -eq 1 && rg -n '21A.*COMPLETE|21B.*NEXT' docs/ROADMAP.md
+  EXPECT: /21B.*NEXT/
+  EVIDENCE: README, DEVELOPMENT, PERFORMANCE, ROADMAP, FEATURE_MATRIX, AGENTS,
+  PLAN and both gate ledgers agree; exactly Phase 21B is `NEXT`.
+
+---

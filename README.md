@@ -142,6 +142,14 @@ stored choice unless you select another preset in the application.
 Close an existing Floe window before switching presets. Floe is single-instance,
 so another launch otherwise reactivates the already-running appearance.
 
+For reproducible 100,000-entry, search, thumbnail, operation, metadata, and
+integrity release measurements, see the [performance contract](./docs/PERFORMANCE.md).
+Run its opt-in serial gate with:
+
+```bash
+cargo test -p floe-app phase_21a_performance --release -- --ignored --nocapture --test-threads=1
+```
+
 For more build, logging, smoke-test, and troubleshooting guidance, see
 [Developing Floe](./docs/DEVELOPMENT.md).
 
@@ -216,15 +224,13 @@ standards-based path.
 
 ## Project status
 
-**Phase 20B2 — Visual, Accessibility, and QoL Completeness Audit** is complete.
-Floe now adds deterministic date/size collapsible groups, persistent split
-ratios, configurable single/double-click opening, Invert Selection, column
-reorder/autosize, System/Light/Dark plus font/scale/motion controls, a predictable
-Escape/focus hierarchy, non-color accessible group/pane cues, logical scaling
-policy, and per-toast detailed feedback with privacy-generic completion
-notifications. Window size persistence from Phase 20B2A and every advanced Sort
-By row remain available. The next bounded milestone is **Phase 21A —
-Performance**.
+**Phase 21A — Performance** is complete. Floe now has a reproducible
+release-only, tempfile-isolated 100,000-entry and bounded expensive-workload
+harness, recorded latency/budget/peak-memory evidence, and a measured one-pass
+metadata text-fact optimization with correctness parity. The native 100k app
+answered Ping and Quit with exit 0; the host's unavailable AT-SPI bus prevents
+a critical-free native-log claim. The next bounded milestone is **Phase 21B —
+Packaging and migrations**.
 
 Floe has completed the generic desktop integration baseline through **Phase
 14**, the documentation-only **Phase 18A Security Threat Model**, and runtime

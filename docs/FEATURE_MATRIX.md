@@ -653,10 +653,10 @@ advanced predicates and explicit Match Case control.
 | --- | --- | --- | --- |
 | Bounded queues/caches and no unbounded threads | `COMPLETE` | 1-6K2 | Current directory, operation, preference, bookmark, and thumbnail work is bounded. |
 | Startup profiling | `PLANNED` | 21 | Measure cold/warm startup on supported Wayland environments. |
-| 10k/100k directory benchmark | `PLANNED` | 21 | Verify enumeration, insertion, sorting, selection, memory, and interaction latency. |
-| Thumbnail-scroll/cache stress | `PLANNED` | 21 | Include huge image/system-thumbnailer folders and worker saturation. |
-| Copy/move/hash/encryption throughput | `PLANNED` | 21 | Measure without weakening cancellation, integrity, or responsiveness. |
-| Vault/metadata/scanner/integrity performance | `PLANNED` | 21 | Required only after owning features exist. |
+| 10k/100k directory benchmark | `COMPLETE` | 21A | Release-only tempfile harness measures 100,000 real entries through enumeration, metadata sort, filter, filename search, process peak memory and native Wayland liveness. |
+| Thumbnail-scroll/cache stress | `PARTIAL` | 21A | Bounded production decode covers 32 generated 512px PNGs at 192px output; physical GTK scroll and external system-thumbnailer saturation remain unclaimed. |
+| Copy/move/hash/encryption throughput | `PARTIAL` | 21A | Local 32 MiB copy and SHA-256 are measured with production engines; move-specific and unimplemented encryption benchmarks are not claimed. |
+| Vault/metadata/scanner/integrity performance | `PARTIAL` | 21A | Advanced metadata, duplicate scan, saved fingerprint and verification are measured; no vault benchmark exists because no vault exists. |
 | Desktop file/app metadata/icons | `PLANNED` | 21 | Release-quality application integration and MIME declarations. |
 | `.age` association | `DEFERRED` | 21 | Only after portable encryption format is selected and implemented. |
 | Flatpak/Arch/AUR packaging | `DEFERRED` | 21 | Select after dependency, sandbox, portal, and vault/FUSE requirements are known. |

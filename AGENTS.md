@@ -1315,6 +1315,46 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-29`
 
+Current phase: **Phase 21A — Performance (complete)**
+
+Completed this session:
+
+- Added one opt-in release-only, serial, tempfile-isolated performance harness
+  covering real 100,000-entry enumeration, metadata sort, quick filter and
+  filename search plus bounded thumbnail, content-search, copy/checksum,
+  duplicate, integrity, and advanced-metadata workloads.
+- Recorded the host, toolchain, exact fixture sizes, elapsed budgets, baseline
+  and current measurements, and Linux `VmHWM` peak-memory procedure in
+  `docs/PERFORMANCE.md`. The recorded run peaked at 119,876 KiB.
+- Replaced two full ASCII metadata text passes with one pass. The 16,652,288-byte
+  CPU workload improved from 64,108 us to 32,212 us (49.8%) with deterministic
+  parity coverage for ASCII controls/whitespace, line endings, empty text, and
+  Unicode fallback.
+
+Verified:
+
+- Release performance harness, formatting, workspace check, strict
+  all-target/all-feature Clippy, 549 app tests (14 graphical ignores), 21 app
+  integration tests, 162 core tests, six duplicate workflows, native build,
+  11 focused real-GTK contracts in separate processes, E2E preflight, and diff
+  hygiene pass.
+- Disposable native 100k Wayland app answered D-Bus Ping, quit with exit 0,
+  and peaked at 114,296 KiB. Critical-free logging is explicitly unavailable:
+  the host AT-SPI socket refused connections even with a private address.
+
+Known limitations:
+
+- Recorded filesystem timings use host `/tmp` tmpfs and warm page cache; they
+  are not cold-disk promises. Dogtail/pyatspi remains unavailable, so no native
+  semantic E2E claim is made.
+
+Recommended next task: create `phase-21b-packaging` and implement only Phase
+21B packaging and safe settings/cache migrations.
+
+## Prior active status (Phase 20B2)
+
+Last updated: `2026-08-29`
+
 Current phase: **Phase 20B2 — Visual, Accessibility, and QoL Completeness Audit (complete)**
 
 Completed this session:
