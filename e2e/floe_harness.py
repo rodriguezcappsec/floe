@@ -59,7 +59,7 @@ class Preflight:
         binary = (
             Path(configured).expanduser()
             if configured
-            else Path(__file__).resolve().parents[1] / "target" / "debug" / "floe-app"
+            else Path(__file__).resolve().parents[1] / "target" / "debug" / "floe"
         )
         if not binary.is_file() or not os.access(binary, os.X_OK):
             missing.append(f"built Floe executable at {binary}")
@@ -208,7 +208,7 @@ class FloeSession:
             if self.process is not None and self.process.poll() is not None:
                 stderr = self.process.stderr.read().decode("utf-8", "replace")
                 raise RuntimeError(f"Floe exited during launch: {stderr[-2000:]}")
-            for name in ("floe-app", "Floe", "io.github.floe.FileManager"):
+            for name in ("floe", "Floe", "io.github.rodriguezcappsec.Floe"):
                 try:
                     return root.application(name)
                 except self._search_errors:

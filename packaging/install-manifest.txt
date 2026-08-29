@@ -1,0 +1,9 @@
+# source|prefix-relative destination|mode
+target/release/floe|bin/floe|0755
+data/io.github.rodriguezcappsec.Floe.desktop|share/applications/io.github.rodriguezcappsec.Floe.desktop|0644
+data/io.github.rodriguezcappsec.Floe.metainfo.xml|share/metainfo/io.github.rodriguezcappsec.Floe.metainfo.xml|0644
+data/icons/hicolor/512x512/apps/io.github.rodriguezcappsec.Floe.png|share/icons/hicolor/512x512/apps/io.github.rodriguezcappsec.Floe.png|0644
+LICENSE|share/licenses/floe/LICENSE|0644
+THIRD_PARTY_LICENSES/Phosphor-Icons.txt|share/licenses/floe/Phosphor-Icons.txt|0644
+docs/INSTALLATION.md|share/doc/floe/INSTALLATION.md|0644
+docs/MIGRATIONS.md|share/doc/floe/MIGRATIONS.md|0644

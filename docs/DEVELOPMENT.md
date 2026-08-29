@@ -129,6 +129,26 @@ Never point the harness at a user directory or mounted volume, and do not
 weaken path identity, no-follow, cancellation, or capacity checks to improve a
 number.
 
+## Release packaging and migration gates
+
+The verified native release path is the manifest-driven source installer plus
+the Arch `PKGBUILD`; Flatpak remains deferred. Build and validate without
+modifying the live system or user state:
+
+```bash
+cargo build --frozen --release -p floe-app --bin floe
+desktop-file-validate data/io.github.rodriguezcappsec.Floe.desktop
+appstreamcli validate --no-net data/io.github.rodriguezcappsec.Floe.metainfo.xml
+sh packaging/tests/test-package-layout.sh
+sh packaging/tests/test-migrations.sh
+```
+
+`packaging/release-source.sh` creates a deterministic source archive. Its
+SHA-256 must match `packaging/arch/PKGBUILD`. Package scripts may stage only
+the paths in `packaging/install-manifest.txt`; they must never write user XDG
+roots or set a default MIME handler. See [Installation](./INSTALLATION.md) and
+[Migrations](./MIGRATIONS.md) for the supported release contract.
+
 Useful focused commands include:
 
 ```bash
@@ -221,7 +241,7 @@ system capabilities are:
 - Python 3 with `dogtail` and `pyatspi` imports;
 - `at-spi2-core` and a functioning accessibility bus;
 - a Wayland graphical test session and D-Bus session bus;
-- a built `target/debug/floe-app` (or `FLOE_E2E_BINARY` pointing to one).
+- a built `target/debug/floe` (or `FLOE_E2E_BINARY` pointing to one).
 
 Package names vary by distribution; verify the Python imports rather than
 assuming the Rust workspace installs these system components:
@@ -336,7 +356,7 @@ sizes, and all fifteen registered full-color SVG resource aliases.
 
 Phase 6H adds no dependency. Focused tests run with `cargo test -p floe-app phase_6h -- --nocapture` and cover location syntax, absolute-path trimming, file-versus-directory recovery wording, non-UTF-8 display ownership, and exact navigation-snapshot rollback. Native checking should exercise both the clickable header path and Ctrl+L, Enter success/failure, Escape cancellation, and restored file-view focus.
 
-Phase 6I adds no dependency. Run `cargo test -p floe-app phase_6i -- --nocapture` for deterministic default/no-default routing coverage. Native smoke should confirm the Open and Open With window actions remain registered and Floe owns/releases `io.github.floe.FileManager`; installed host application associations are intentionally not changed during tests.
+Phase 6I adds no dependency. Run `cargo test -p floe-app phase_6i -- --nocapture` for deterministic default/no-default routing coverage. Native smoke should confirm the Open and Open With window actions remain registered and Floe owns/releases `io.github.rodriguezcappsec.Floe`; installed host application associations are intentionally not changed during tests.
 
 Phase 6J adds no dependency. Run
 `cargo test -p floe-app phase_6j -- --nocapture` for multi-selection policy,
@@ -359,8 +379,8 @@ asynchronous, expose Busy while in flight, accept desktop authentication through
 navigates only mounted local filesystem roots; remote/network roots remain
 explicitly unavailable and are deferred to Phase 17.
 
-The Phase 6K native smoke built `target/debug/floe-app`, owned
-`io.github.floe.FileManager`, exported 24 window actions, activated `refresh`,
+The Phase 6K native smoke built `target/debug/floe`, owned
+`io.github.rodriguezcappsec.Floe`, exported 24 window actions, activated `refresh`,
 and answered `Peer.Ping` afterward. Its `quit` action returned successfully, the
 process exited 0, and the D-Bus name was released. Only the documented host
 libadwaita and RADV warnings appeared.
@@ -392,7 +412,7 @@ Reset removed `sidebar-width` while preserving view, grid size, and density, and
 clean Quit kept it absent. A second launch with no width kept it absent through
 allocation and shutdown. Both isolated instances answered
 `org.freedesktop.DBus.Peer.Ping`, exited 0, and released
-`io.github.floe.FileManager`; only the known RADV/Vulkan
+`io.github.rodriguezcappsec.Floe`; only the known RADV/Vulkan
 `VK_SUBOPTIMAL_KHR` host warning appeared. The earlier action smoke also emitted
 the documented Adwaita dark-setting warning.
 
@@ -477,7 +497,7 @@ identity, asynchronous reveal policy, and lossless text/URI clipboard behavior.
 Native Wayland smoke used isolated HOME/XDG roots, exported 42 window actions,
 activated `new-folder` to open the validated-name dialog without creating a
 file, answered `Peer.Ping`, quit cleanly, and released
-`io.github.floe.FileManager`.
+`io.github.rodriguezcappsec.Floe`.
 
 Phase 6R adds no dependency. Focused checks are:
 
@@ -527,7 +547,7 @@ smoke used isolated HOME/XDG roots, exported 73 window actions, activated and
 restored Compact density, Extension grouping, folders-last, MIME/Permissions
 columns, and a widened Name column across two launches. Both instances answered
 `Peer.Ping`, exited through the application Quit action, and released
-`io.github.floe.FileManager`. Spectacle did not produce an image on this host;
+`io.github.rodriguezcappsec.Floe`. Spectacle did not produce an image on this host;
 action state, persistence, D-Bus health, and clean process lifecycle are the
 runtime evidence. The first live resizing pass emitted transient one-pixel GTK
 measurement warnings plus the documented RADV `VK_SUBOPTIMAL_KHR` warning; the
@@ -570,7 +590,7 @@ The full gate passes 304 tests: 226 application and 78 core, plus formatting,
 workspace check, strict all-target/all-feature Clippy, and diff hygiene. A native
 Niri/Wayland smoke exported and activated new/switch/reorder/duplicate/close tab
 actions, answered `org.freedesktop.DBus.Peer.Ping`, quit cleanly, and released
-`io.github.floe.FileManager`. Only the documented RADV/Vulkan swapchain warning
+`io.github.rodriguezcappsec.Floe`. Only the documented RADV/Vulkan swapchain warning
 appeared. Spectacle again produced no file, so no visual capture is claimed.
 
 Phase 7C adds no dependency. Focused checks are:
@@ -831,7 +851,7 @@ Run Floe inside an active graphical session with `WAYLAND_DISPLAY` and
 ### Niri
 
 No Niri IPC integration exists. Floe starts as a normal Wayland application
-with app ID `io.github.floe.FileManager`. A missing `NIRI_SOCKET` is irrelevant
+with app ID `io.github.rodriguezcappsec.Floe`. A missing `NIRI_SOCKET` is irrelevant
 to current operation and must remain non-fatal when integration is added.
 
 ### KDE Plasma

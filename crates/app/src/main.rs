@@ -64,6 +64,8 @@ mod preferences;
 pub mod preview;
 mod privileged_access;
 mod properties;
+#[cfg(test)]
+mod release_metadata;
 pub mod restore_executor;
 mod search_index;
 mod selection_slice;

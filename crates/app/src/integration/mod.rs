@@ -566,7 +566,7 @@ mod tests {
         gtk::init().expect("GTK component gate requires an available display");
         adw::init().expect("libadwaita must initialize in GTK component gate");
         let application = adw::Application::builder()
-            .application_id("io.github.floe.FileManager.Phase14GtkTest")
+            .application_id("io.github.rodriguezcappsec.Floe.Phase14GtkTest")
             .build();
         application
             .register(None::<&gtk::gio::Cancellable>)

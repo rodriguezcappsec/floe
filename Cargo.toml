@@ -6,6 +6,10 @@ resolver = "2"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
+description = "Floe — a spatial file manager for Wayland"
+repository = "https://github.com/rodriguezcappsec/floe"
+homepage = "https://github.com/rodriguezcappsec/floe"
+license = "LicenseRef-proprietary"
 
 [workspace.dependencies]
 floe-core = { path = "crates/core" }
@@ -34,3 +38,7 @@ unsafe_code = "forbid"
 dbg_macro = "deny"
 todo = "warn"
 unwrap_used = "warn"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

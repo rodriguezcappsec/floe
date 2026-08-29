@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.rodriguezcappsec.Floe</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <name>Floe</name>
+  <summary>A spatial file manager for Wayland</summary>
+  <developer id="io.github.rodriguezcappsec">
+    <name>Floe project contributors</name>
+  </developer>
+  <description>
+    <p>
+      Floe is a keyboard-friendly GTK file manager for modern Wayland desktops.
+      It provides list, grid, and Miller-column navigation, asynchronous file
+      operations, search, previews, integrity tools, and standards-based Linux
+      desktop integration.
+    </p>
+    <p>
+      Floe currently operates with the signed-in user's normal filesystem and
+      desktop-session authority. It is not a sandbox, encrypted vault, malware
+      scanner, or secure-erasure tool.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.rodriguezcappsec.Floe.desktop</launchable>
+  <provides>
+    <binary>floe</binary>
+  </provides>
+  <categories>
+    <category>System</category>
+    <category>FileTools</category>
+    <category>FileManager</category>
+  </categories>
+  <url type="homepage">https://github.com/rodriguezcappsec/floe</url>
+  <url type="bugtracker">https://github.com/rodriguezcappsec/floe/issues</url>
+  <url type="vcs-browser">https://github.com/rodriguezcappsec/floe</url>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-08-29">
+      <description>
+        <p>Initial development release with local file-management workflows.</p>
+      </description>
+    </release>
+  </releases>
+</component>

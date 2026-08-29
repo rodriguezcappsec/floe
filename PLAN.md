@@ -1288,3 +1288,58 @@ not add speculative async/runtime or allocator dependencies.
   host AT-SPI refused connections. Exactly Phase 21B is now `NEXT`.
 
 ---
+# Plan: Floe Phase 21B — Packaging and Migrations
+
+## Contract
+
+Turn the verified workspace into an installable Linux application without
+changing user defaults or inventing legal, sandbox, vault, or remote-support
+claims. Freeze `io.github.rodriguezcappsec.Floe` as the application, desktop,
+AppStream, resource, and icon identity and `floe` as the installed command.
+Select Arch Linux plus a source `DESTDIR` installer as the first verified
+packaging path; Flatpak remains deferred because its build tools are absent and
+Floe's current broad host-integration contract has not received a truthful
+sandbox design.
+
+Package only the binary, desktop file, validated AppStream metadata, reviewed
+512px icon derivative, notices, and documentation. Register only
+`inode/directory`; installation must never set Floe as the default handler or
+write into any user's HOME/XDG roots. Project and icon redistribution remain
+explicitly `LicenseRef-proprietary`/all-rights-reserved until the owner chooses
+an open-source license; packaging must not imply permission that is absent.
+
+Harden versioned preference persistence and verify supported upgrades,
+corrupt/future inputs, rebuildable cache policy, backup/rollback instructions,
+and private atomic storage entirely below disposable XDG roots. No vault exists,
+so this phase must explicitly test and document that there is no vault migration.
+
+## Depth tree
+
+1. Release identity and metadata
+   1. Final application/binary/resource/icon identity and release Cargo profile.
+   2. Desktop/AppStream/hicolor assets with native validators.
+2. Install and package
+   1. Manifest-driven `DESTDIR` install/uninstall with exact ownership.
+   2. Arch PKGBUILD/release-source workflow and host-available package checks.
+3. Migration safety
+   1. No-follow private atomic preferences plus backward/future/corrupt tests.
+   2. Disposable clean install, upgrade, cache rebuild, backup/rollback tests.
+4. Verification and status
+   1. Frozen release build, ELF/runtime/native staged launch, full workspace gates.
+   2. Update docs/status and set exactly Phase 21C `NEXT` only after evidence.
+
+## Status log
+
+- 2026-08-29: Phase 21B started on `phase-21b-packaging` from verified Phase 21A
+  commit `691098e`; gates are in `gates/phase-21b.md`.
+- 2026-08-29 pass 1: froze stable identity, release profile, desktop/AppStream
+  metadata, icon, manifest-driven installer, deterministic source workflow,
+  and Arch package contract.
+- 2026-08-29 pass 2: hardened version-18 preference storage and verified clean,
+  legacy, corrupt, oversized, symlink, future-version, residue, cache rebuild,
+  backup, and rollback behavior below disposable XDG roots.
+- 2026-08-29 pass 3: frozen release, native validators, source/package layout,
+  real `makepkg`, staged directory/Ping/Quit lifecycle, and documentation audit
+  pass. Phase 21B is complete; exactly Phase 21C is `NEXT`.
+
+---
