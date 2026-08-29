@@ -60,23 +60,28 @@ pub fn enumerate_directory_with_cancel(
         let hidden = is_hidden(&name);
         let size = matches!(kind, EntryKind::RegularFile).then_some(metadata.len());
         let modified = metadata.modified().ok();
+        let created = metadata.created().ok();
+        let accessed = metadata.accessed().ok();
         #[cfg(unix)]
         let executable =
             matches!(kind, EntryKind::RegularFile) && metadata.permissions().mode() & 0o111 != 0;
         #[cfg(not(unix))]
         let executable = false;
 
-        entries.push(DirectoryEntry::new(
-            entry_path,
-            name,
-            kind,
-            size,
-            modified,
-            None,
-            hidden,
-            executable,
-            ThumbnailState::NotRequested,
-        ));
+        entries.push(
+            DirectoryEntry::new(
+                entry_path,
+                name,
+                kind,
+                size,
+                modified,
+                None,
+                hidden,
+                executable,
+                ThumbnailState::NotRequested,
+            )
+            .with_additional_timestamps(created, accessed),
+        );
     }
 
     DirectorySort::default().sort_entries(&mut entries);

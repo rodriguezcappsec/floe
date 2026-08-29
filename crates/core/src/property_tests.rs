@@ -80,6 +80,7 @@ mod unix {
             column_index in 0usize..SortColumn::ALL.len(),
             descending in any::<bool>(),
             directories_last in any::<bool>(),
+            hidden_last in any::<bool>(),
             grouping_index in 0usize..3,
         ) {
             let mut first: Vec<_> = raw_names
@@ -108,7 +109,8 @@ mod unix {
             } else {
                 DirectoryPlacement::First
             })
-            .with_grouping(grouping);
+            .with_grouping(grouping)
+            .with_hidden_last(hidden_last);
 
             policy.sort_entries(&mut first);
             policy.sort_entries(&mut second);

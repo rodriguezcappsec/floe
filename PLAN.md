@@ -1,3 +1,50 @@
+# Plan: Floe Phase 20B1 — Sort By Completeness
+
+## Contract
+
+Add a compact, keyboard-accessible **Sort By** popover matching the requested
+Dolphin-style information hierarchy. Name, Size, Modified, Created, Accessed,
+Type, Rating, Tags, and Comment must be real sort policies with deterministic
+exact-path tie-breakers and unknown values last in both directions. Direction,
+Folders First, and Hidden Files Last are independent, visible stateful choices.
+
+Created/accessed timestamps come from metadata already obtained by the bounded
+directory worker. Rating/tags/comment are loaded only after the user explicitly
+selects one of those policies, from KDE-compatible no-follow xattrs
+`user.baloo.rating`, `user.xdg.tags`, and `user.xdg.comment`; unsupported,
+missing, malformed, or oversized values remain unknown. No GTK callback reads
+the filesystem, no path is reconstructed from UI text, and no tag/comment data
+is logged or persisted by Floe.
+
+Document, Image, Audio, Video, and Other category submenus are present for
+discoverability but must clearly expose their currently unavailable indexed
+metadata fields as disabled. This leaf does not silently scan file contents,
+add a metadata index, create or edit ratings/tags/comments, or claim the later
+advanced metadata sort phase complete.
+
+## Implementation order
+
+1. Extend the core entry/sort policy with created/accessed, bounded lazy user
+   metadata, hidden-last ordering, cancellation, deterministic missing-value
+   behavior, and property/regression tests.
+2. Add stateful sort-column, direction, folders-first, and hidden-last actions;
+   preserve existing clickable list headings and worker supersession.
+3. Add one accessible native Sort By menu beside view controls and reuse its
+   model in Browser View options without creating a menu wall.
+4. Persist the complete policy through versioned global/per-folder preferences
+   and backward-compatible session migration.
+5. Run focused/full Rust, real-GTK, E2E, and native Wayland gates; update README,
+   User Guide, matrix, roadmap, architecture/security/status ledgers, and stop.
+
+## Status
+
+**COMPLETE.** This bounded Phase 20B quality-of-life leaf owns branch
+`phase-20b1-sort-by-menu`. Every gate below passes; advanced indexed metadata
+fields remain explicitly disabled and Phase 20B2 is the sole recommended next
+leaf.
+
+---
+
 # Plan: Floe Phase 14B — Privileged Local Browsing
 
 ## Contract

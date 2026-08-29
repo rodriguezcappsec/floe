@@ -136,6 +136,18 @@ mount exposed by the desktop can still appear as an ordinary mounted device.
 
 ## Choose a view
 
+The **Sort files and folders** button sits beside the view controls. The same
+menu is available at **Main Menu → View & Layout → Browser View → Sort By**.
+Choose Name, Size, Modified, Created, Accessed, Type, Rating, Tags, Comment, or
+**Other → Extension**. Direction, **Folders First**, and **Hidden Files Last**
+are independent; hidden-last changes ordering but does not reveal hidden files.
+
+Missing timestamps and metadata stay last. Rating, Tags, and Comment read
+existing KDE-compatible local extended attributes only after that sort is
+chosen; Floe does not create, edit, log, or persist those values. Document,
+Image, Audio, Video, and remaining Other metadata fields are visibly disabled
+with “metadata index required” until a bounded provider can sort them truthfully.
+
 - Press `Ctrl+1` for List View.
 - Press `Ctrl+2` for Grid View.
 - Choose Miller/Columns from the view controls or Command Palette for spatial

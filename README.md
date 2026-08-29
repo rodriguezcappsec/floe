@@ -64,7 +64,7 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 | Area | Current highlights |
 | --- | --- |
 | **Customize** | Searchable Settings Center, five live appearance presets, three icon styles, default views, grid/sidebar/file density, per-folder view memory, private index toggle, and links to specialized editors |
-| **Browse** | Virtualized list and grid views, adjustable grid size, sorting, grouping, optional metadata columns, hidden files, and large-folder-friendly loading |
+| **Browse** | Virtualized list and grid views, adjustable grid size, a persistent Sort By menu with timestamps/KDE user metadata/folder and hidden placement, grouping, optional metadata columns, and large-folder-friendly loading |
 | **Navigate** | Exact-path breadcrumbs, editable location completion, recent locations, back/forward/parent history, tabs, restored sessions, split panes, spatial Miller columns, and local CLI folder/file routing |
 | **Select and organize** | Desktop-style multi-selection, drag and drop, copy, cut, paste, move, rename, duplicate, links, folders, empty files, FIFOs, and templates |
 | **Trash and recovery** | Standards-compatible Trash browsing, restore, empty Trash, confirmed permanent deletion, conflict handling, operation history, private interrupted-operation journal and conservative Recovery Center |
@@ -215,6 +215,12 @@ must fail gracefully. The current application primarily uses the generic,
 standards-based path.
 
 ## Project status
+
+**Phase 20B1 — Sort By Completeness** is complete: a dedicated native menu now
+offers persisted criteria, direction, folders-first, and hidden-last state;
+created/accessed ordering and explicit-demand KDE-compatible rating/tag/comment
+sorting are bounded and worker-owned. The next bounded milestone is
+**Phase 20B2 — Visual, accessibility, and QoL audit**.
 
 Floe has completed the generic desktop integration baseline through **Phase
 14**, the documentation-only **Phase 18A Security Threat Model**, and runtime

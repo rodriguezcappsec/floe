@@ -10,7 +10,8 @@ use std::{
 
 use floe_core::{
     DirectoryEntry, DirectoryError, DirectorySort, TrashEnumerateError, TrashRoot,
-    enumerate_directory_with_cancel, enumerate_trash_with_cancel,
+    UserSortMetadataError, enrich_user_sort_metadata, enumerate_directory_with_cancel,
+    enumerate_trash_with_cancel,
 };
 
 enum RequestKind {
@@ -35,9 +36,17 @@ struct Request {
 
 pub enum ResponseKind {
     Listing(Result<Vec<DirectoryEntry>, DirectoryError>),
+    ListingWithSortWarning {
+        entries: Vec<DirectoryEntry>,
+        error: UserSortMetadataError,
+    },
     TrashListing(Result<Vec<DirectoryEntry>, TrashEnumerateError>),
     Sorted {
         entries: Vec<Arc<DirectoryEntry>>,
+        sort: DirectorySort,
+    },
+    SortFailed {
+        error: UserSortMetadataError,
         sort: DirectorySort,
     },
 }
@@ -74,21 +83,54 @@ impl BrowserWorker {
                     }
 
                     let kind = match request.kind {
-                        RequestKind::Enumerate { sort } => {
-                            let result = enumerate_directory_with_cancel(&path, || {
-                                worker_generation.load(Ordering::Acquire) != generation
-                            })
-                            .map(|listing| {
-                                let mut entries = listing.into_entries();
-                                sort.sort_entries(&mut entries);
-                                entries
-                            });
-                            ResponseKind::Listing(result)
+                RequestKind::Enumerate { sort } => {
+                    let result = enumerate_directory_with_cancel(&path, || {
+                        worker_generation.load(Ordering::Acquire) != generation
+                    });
+                    match result {
+                        Ok(listing) => {
+                            let mut entries = listing.into_entries();
+                            let enrichment = enrich_user_sort_metadata(
+                                &mut entries,
+                                sort.column,
+                                || worker_generation.load(Ordering::Acquire) != generation,
+                            );
+                            sort.sort_entries(&mut entries);
+                            match enrichment {
+                                Ok(()) => ResponseKind::Listing(Ok(entries)),
+                                Err(UserSortMetadataError::Cancelled) => continue,
+                                Err(error) => {
+                                    ResponseKind::ListingWithSortWarning { entries, error }
+                                }
+                            }
                         }
-                        RequestKind::Sort { mut entries, sort } => {
-                            entries.sort_by(|left, right| sort.compare_entries(left, right));
-                            ResponseKind::Sorted { entries, sort }
+                        Err(error) => ResponseKind::Listing(Err(error)),
+                    }
+                }
+                RequestKind::Sort { mut entries, sort } => {
+                    if sort.column.needs_user_metadata() {
+                        let mut owned = entries
+                            .iter()
+                            .map(|entry| entry.as_ref().clone())
+                            .collect::<Vec<_>>();
+                        match enrich_user_sort_metadata(&mut owned, sort.column, || {
+                            worker_generation.load(Ordering::Acquire) != generation
+                        }) {
+                            Ok(()) => {
+                                sort.sort_entries(&mut owned);
+                                ResponseKind::Sorted {
+                                    entries: owned.into_iter().map(Arc::new).collect(),
+                                    sort,
+                                }
+                            }
+                            Err(UserSortMetadataError::Cancelled) => continue,
+                            Err(error) => ResponseKind::SortFailed { error, sort },
                         }
+                    } else {
+                        entries.sort_by(|left, right| sort.compare_entries(left, right));
+                        ResponseKind::Sorted { entries, sort }
+                    }
+                }
                         RequestKind::EnumerateTrash { roots, sort } => {
                             let mut combined = Vec::new();
                             let mut result = Ok(());

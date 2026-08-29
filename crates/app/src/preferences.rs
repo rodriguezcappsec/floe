@@ -254,6 +254,7 @@ impl ViewPreferences {
                         preferences.sort.grouping = grouping;
                     }
                 }
+                "hidden-last" => preferences.sort.hidden_last = value == "true",
                 "columns" => {
                     preferences.columns = ListColumnLayout::parse_visible(value);
                 }
@@ -321,7 +322,7 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=14\nappearance={}\nicon-style={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\nprivileged-access-enabled={}\n",
+            "version=15\nappearance={}\nicon-style={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\nhidden-last={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\nprivileged-access-enabled={}\n",
             self.appearance.persisted(),
             self.icon_style.persisted(),
             self.mode.persisted(),
@@ -334,6 +335,7 @@ impl ViewPreferences {
             self.sort.direction.persisted(),
             self.sort.directories.persisted(),
             self.sort.grouping.persisted(),
+            self.sort.hidden_last,
             self.columns.visible_names(),
             self.columns.widths_text(),
             self.remember_per_folder,
@@ -387,7 +389,7 @@ fn serialize_folder_override(folder: &FolderViewOverride) -> Option<String> {
     let path = hex_encode(folder.path.as_os_str().as_bytes());
     let state = folder.state;
     Some(format!(
-        "{path}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        "{path}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
         state.mode.persisted(),
         state.grid_size.edge(),
         state.density.persisted(),
@@ -395,6 +397,7 @@ fn serialize_folder_override(folder: &FolderViewOverride) -> Option<String> {
         state.sort.direction.persisted(),
         state.sort.directories.persisted(),
         state.sort.grouping.persisted(),
+        state.sort.hidden_last,
         state.columns.visible_names(),
         state.columns.widths_text(),
     ))
@@ -419,11 +422,14 @@ fn parse_folder_override(value: &str) -> Option<FolderViewOverride> {
     let direction = SortDirection::from_persisted(fields.next()?)?;
     let directories = DirectoryPlacement::from_persisted(fields.next()?)?;
     let grouping = DirectoryGrouping::from_persisted(fields.next()?)?;
-    let mut columns = ListColumnLayout::parse_visible(fields.next()?);
-    columns.apply_widths_text(fields.next()?);
-    if fields.next().is_some() {
-        return None;
-    }
+    let remaining = fields.collect::<Vec<_>>();
+    let (hidden_last, visible, widths) = match remaining.as_slice() {
+        [visible, widths] => (false, *visible, *widths),
+        [hidden_last, visible, widths] => ((*hidden_last).parse::<bool>().ok()?, *visible, *widths),
+        _ => return None,
+    };
+    let mut columns = ListColumnLayout::parse_visible(visible);
+    columns.apply_widths_text(widths);
     Some(FolderViewOverride {
         path,
         state: FolderViewState {
@@ -432,7 +438,8 @@ fn parse_folder_override(value: &str) -> Option<FolderViewOverride> {
             density,
             sort: DirectorySort::new(column, direction)
                 .with_directories(directories)
-                .with_grouping(grouping),
+                .with_grouping(grouping)
+                .with_hidden_last(hidden_last),
             columns,
         },
     })
@@ -685,7 +692,7 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=14\n"));
+        assert!(serialized.starts_with("version=15\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
     }
@@ -704,7 +711,7 @@ mod tests {
         );
         assert_eq!(customized.context_menu.persisted(), "archives,checksums");
         let serialized = customized.serialize();
-        assert!(serialized.starts_with("version=14\n"));
+        assert!(serialized.starts_with("version=15\n"));
         assert!(serialized.contains("context-menu-groups=archives,checksums\n"));
         assert_eq!(ViewPreferences::parse(&serialized), customized);
 
@@ -727,7 +734,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=14\n"));
+        assert!(serialized.starts_with("version=15\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,
@@ -750,7 +757,7 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=14\n"));
+            assert!(serialized.starts_with("version=15\n"));
             assert!(serialized.contains(&format!("appearance={}\n", preset.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).appearance, preset);
         }
@@ -771,7 +778,7 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=14\n"));
+            assert!(serialized.starts_with("version=15\n"));
             assert!(serialized.contains(&format!("icon-style={}\n", style.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).icon_style, style);
         }
@@ -804,7 +811,7 @@ mod tests {
         let mut preferences = ViewPreferences::default();
         preferences.saved_searches.add(saved).expect("catalog add");
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=14\n"));
+        assert!(serialized.starts_with("version=15\n"));
         assert!(serialized.contains("saved-search="));
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored.saved_searches, preferences.saved_searches);
@@ -847,7 +854,7 @@ mod tests {
         let mut enabled = defaults;
         enabled.search_index_enabled = true;
         let serialized = enabled.serialize();
-        assert!(serialized.starts_with("version=14\n"));
+        assert!(serialized.starts_with("version=15\n"));
         assert!(serialized.contains("search-index-enabled=true\n"));
         assert!(ViewPreferences::parse(&serialized).search_index_enabled);
         assert!(!ViewPreferences::parse("search-index-enabled=invalid\n").search_index_enabled);
@@ -918,7 +925,7 @@ mod tests {
             allow_multiple: false,
         });
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=14\n"));
+        assert!(serialized.starts_with("version=15\n"));
         assert!(serialized.contains("custom-action="));
         assert_eq!(ViewPreferences::parse(&serialized), preferences);
 
@@ -936,8 +943,44 @@ mod tests {
         let mut enabled = defaults;
         enabled.privileged_access_enabled = true;
         let serialized = enabled.serialize();
-        assert!(serialized.starts_with("version=14\n"));
+        assert!(serialized.starts_with("version=15\n"));
         assert!(serialized.contains("privileged-access-enabled=true\n"));
         assert!(ViewPreferences::parse(&serialized).privileged_access_enabled);
+    }
+
+    #[test]
+    fn phase_20b1_sort_persistence_round_trips_and_migrates_hidden_last() {
+        let legacy =
+            ViewPreferences::parse("version=14\nsort-column=created\nsort-direction=descending\n");
+        assert_eq!(legacy.sort.column, SortColumn::Created);
+        assert_eq!(legacy.sort.direction, SortDirection::Descending);
+        assert!(!legacy.sort.hidden_last);
+
+        let path = PathBuf::from("/tmp/hidden-last-folder");
+        let mut preferences = ViewPreferences {
+            sort: DirectorySort::new(SortColumn::Accessed, SortDirection::Descending)
+                .with_hidden_last(true),
+            remember_per_folder: true,
+            ..ViewPreferences::default()
+        };
+        preferences.remember_folder_state(
+            path.clone(),
+            FolderViewState {
+                sort: DirectorySort::new(SortColumn::Comment, SortDirection::Ascending)
+                    .with_directories(DirectoryPlacement::Last)
+                    .with_hidden_last(true),
+                ..FolderViewState::default()
+            },
+        );
+
+        let serialized = preferences.serialize();
+        assert!(serialized.starts_with("version=15\n"));
+        assert!(serialized.contains("hidden-last=true\n"));
+        let restored = ViewPreferences::parse(&serialized);
+        assert!(restored.sort.hidden_last);
+        let folder = restored.effective_state(&path);
+        assert_eq!(folder.sort.column, SortColumn::Comment);
+        assert_eq!(folder.sort.directories, DirectoryPlacement::Last);
+        assert!(folder.sort.hidden_last);
     }
 }

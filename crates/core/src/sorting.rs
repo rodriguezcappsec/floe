@@ -10,16 +10,26 @@ pub enum SortColumn {
     Type,
     Size,
     Modified,
+    Created,
+    Accessed,
     Extension,
+    Rating,
+    Tags,
+    Comment,
 }
 
 impl SortColumn {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 10] = [
         Self::Name,
         Self::Type,
         Self::Size,
         Self::Modified,
+        Self::Created,
+        Self::Accessed,
         Self::Extension,
+        Self::Rating,
+        Self::Tags,
+        Self::Comment,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -28,7 +38,12 @@ impl SortColumn {
             Self::Type => "Type",
             Self::Size => "Size",
             Self::Modified => "Modified",
+            Self::Created => "Created",
+            Self::Accessed => "Accessed",
             Self::Extension => "Extension",
+            Self::Rating => "Rating",
+            Self::Tags => "Tags",
+            Self::Comment => "Comment",
         }
     }
 
@@ -38,7 +53,12 @@ impl SortColumn {
             Self::Type => "type",
             Self::Size => "size",
             Self::Modified => "modified",
+            Self::Created => "created",
+            Self::Accessed => "accessed",
             Self::Extension => "extension",
+            Self::Rating => "rating",
+            Self::Tags => "tags",
+            Self::Comment => "comment",
         }
     }
 
@@ -46,6 +66,10 @@ impl SortColumn {
         Self::ALL
             .into_iter()
             .find(|column| column.persisted() == value)
+    }
+
+    pub const fn needs_user_metadata(self) -> bool {
+        matches!(self, Self::Rating | Self::Tags | Self::Comment)
     }
 }
 
@@ -185,6 +209,7 @@ pub struct DirectorySort {
     pub direction: SortDirection,
     pub directories: DirectoryPlacement,
     pub grouping: DirectoryGrouping,
+    pub hidden_last: bool,
 }
 
 impl DirectorySort {
@@ -194,6 +219,7 @@ impl DirectorySort {
             direction,
             directories: DirectoryPlacement::First,
             grouping: DirectoryGrouping::None,
+            hidden_last: false,
         }
     }
 
@@ -207,6 +233,11 @@ impl DirectorySort {
         self
     }
 
+    pub const fn with_hidden_last(mut self, hidden_last: bool) -> Self {
+        self.hidden_last = hidden_last;
+        self
+    }
+
     pub fn next_for(self, column: SortColumn) -> Self {
         let next = if self.column == column {
             Self::new(column, self.direction.reversed())
@@ -215,6 +246,7 @@ impl DirectorySort {
         };
         next.with_directories(self.directories)
             .with_grouping(self.grouping)
+            .with_hidden_last(self.hidden_last)
     }
 
     pub fn sort_entries(self, entries: &mut [DirectoryEntry]) {
@@ -222,6 +254,13 @@ impl DirectorySort {
     }
 
     pub fn compare_entries(self, left: &DirectoryEntry, right: &DirectoryEntry) -> Ordering {
+        if self.hidden_last {
+            let hidden_order = left.is_hidden().cmp(&right.is_hidden());
+            if hidden_order != Ordering::Equal {
+                return hidden_order;
+            }
+        }
+
         let directory_order = match self.directories {
             DirectoryPlacement::First => u8::from(!left.is_navigable_directory())
                 .cmp(&u8::from(!right.is_navigable_directory())),
@@ -248,11 +287,16 @@ impl DirectorySort {
             ),
             SortColumn::Size => optional(left.size(), right.size(), self.direction),
             SortColumn::Modified => optional(left.modified(), right.modified(), self.direction),
+            SortColumn::Created => optional(left.created(), right.created(), self.direction),
+            SortColumn::Accessed => optional(left.accessed(), right.accessed(), self.direction),
             SortColumn::Extension => optional_os_str(
                 entry_extension(left),
                 entry_extension(right),
                 self.direction,
             ),
+            SortColumn::Rating => optional(left.rating(), right.rating(), self.direction),
+            SortColumn::Tags => optional(left.tags(), right.tags(), self.direction),
+            SortColumn::Comment => optional(left.comment(), right.comment(), self.direction),
         };
 
         primary
@@ -548,5 +592,98 @@ mod tests {
 
         assert_eq!(names(&entries), [low, high]);
         assert!(DirectoryGrouping::Extension.starts_group(&entries[1], Some(&entries[0])));
+    }
+
+    #[test]
+    fn phase_20b1_sort_created_and_accessed_keep_unknown_values_last() {
+        let older = entry("older".into(), EntryKind::RegularFile, Some(1), None)
+            .with_additional_timestamps(
+                Some(UNIX_EPOCH + Duration::from_secs(10)),
+                Some(UNIX_EPOCH + Duration::from_secs(30)),
+            );
+        let newer = entry("newer".into(), EntryKind::RegularFile, Some(1), None)
+            .with_additional_timestamps(
+                Some(UNIX_EPOCH + Duration::from_secs(20)),
+                Some(UNIX_EPOCH + Duration::from_secs(40)),
+            );
+        let unknown = entry("unknown".into(), EntryKind::RegularFile, Some(1), None);
+
+        let mut entries = vec![unknown.clone(), newer.clone(), older.clone()];
+        DirectorySort::new(SortColumn::Created, SortDirection::Ascending)
+            .sort_entries(&mut entries);
+        assert_eq!(names(&entries), ["older", "newer", "unknown"]);
+
+        DirectorySort::new(SortColumn::Created, SortDirection::Descending)
+            .sort_entries(&mut entries);
+        assert_eq!(names(&entries), ["newer", "older", "unknown"]);
+
+        DirectorySort::new(SortColumn::Accessed, SortDirection::Ascending)
+            .sort_entries(&mut entries);
+        assert_eq!(names(&entries), ["older", "newer", "unknown"]);
+    }
+
+    #[test]
+    fn phase_20b1_sort_user_metadata_is_real_and_unknown_last() {
+        let mut alpha = entry("alpha".into(), EntryKind::RegularFile, Some(1), None);
+        alpha.set_rating_sort_metadata(Some(2));
+        alpha.set_tags_sort_metadata(Some(b"work".to_vec().into_boxed_slice()));
+        alpha.set_comment_sort_metadata(Some(b"zeta".to_vec().into_boxed_slice()));
+        let mut beta = entry("beta".into(), EntryKind::RegularFile, Some(1), None);
+        beta.set_rating_sort_metadata(Some(8));
+        beta.set_tags_sort_metadata(Some(b"archive".to_vec().into_boxed_slice()));
+        beta.set_comment_sort_metadata(Some(b"alpha".to_vec().into_boxed_slice()));
+        let unknown = entry("unknown".into(), EntryKind::RegularFile, Some(1), None);
+        let mut entries = vec![unknown, beta, alpha];
+
+        DirectorySort::new(SortColumn::Rating, SortDirection::Descending)
+            .sort_entries(&mut entries);
+        assert_eq!(names(&entries), ["beta", "alpha", "unknown"]);
+        DirectorySort::new(SortColumn::Tags, SortDirection::Ascending).sort_entries(&mut entries);
+        assert_eq!(names(&entries), ["beta", "alpha", "unknown"]);
+        DirectorySort::new(SortColumn::Comment, SortDirection::Ascending)
+            .sort_entries(&mut entries);
+        assert_eq!(names(&entries), ["beta", "alpha", "unknown"]);
+    }
+
+    #[test]
+    fn phase_20b1_hidden_last_partitions_before_folder_placement() {
+        let visible_folder = entry("visible-folder".into(), EntryKind::Directory, None, None);
+        let visible_file = entry("visible-file".into(), EntryKind::RegularFile, Some(1), None);
+        let hidden_folder = DirectoryEntry::new(
+            PathBuf::from("/tmp/.hidden-folder"),
+            ".hidden-folder".into(),
+            EntryKind::Directory,
+            None,
+            None,
+            None,
+            true,
+            false,
+            ThumbnailState::NotRequested,
+        );
+        let hidden_file = DirectoryEntry::new(
+            PathBuf::from("/tmp/.hidden-file"),
+            ".hidden-file".into(),
+            EntryKind::RegularFile,
+            Some(1),
+            None,
+            None,
+            true,
+            false,
+            ThumbnailState::NotRequested,
+        );
+        let mut entries = vec![hidden_file, visible_file, hidden_folder, visible_folder];
+
+        DirectorySort::default()
+            .with_hidden_last(true)
+            .sort_entries(&mut entries);
+        assert_eq!(
+            names(&entries),
+            [
+                "visible-folder",
+                "visible-file",
+                ".hidden-folder",
+                ".hidden-file"
+            ]
+        );
     }
 }

@@ -79,6 +79,18 @@ populated and thumbnail state remains `NotRequested`.
 
 ### `sorting.rs`
 
+`DirectorySort` now covers Name, Type, Size, Modified, Created, Accessed,
+Extension, Rating, Tags, and Comment. Hidden-last partitioning is independent
+from folder placement, grouping, and direction; unavailable facts stay last
+and exact raw names/paths remain deterministic tie-breakers.
+
+### `user_sort_metadata.rs`
+
+Explicit Rating, Tags, and Comment sorts use a core-owned bounded enrichment
+step on the application browser worker. KDE-compatible xattrs are read with
+no-follow semantics, strict entry/value limits, and generation cancellation;
+GTK receives only enriched immutable entries and never reads the filesystem.
+
 `DirectorySort` is the GTK-independent ordering policy for Name, Type, Size,
 Modified, and Extension. It owns direction cycling, first/last directory
 placement, None/Type/Extension grouping, stable raw `OsStr`/`Path` tie-breaking,

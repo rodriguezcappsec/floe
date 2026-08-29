@@ -65,11 +65,19 @@ pub struct DirectoryEntry {
     kind: EntryKind,
     size: Option<u64>,
     modified: Option<SystemTime>,
+    created: Option<SystemTime>,
+    accessed: Option<SystemTime>,
     mime_type: Option<String>,
     hidden: bool,
     executable: bool,
     thumbnail: ThumbnailState,
     trash: Option<TrashMetadata>,
+    rating_loaded: bool,
+    tags_loaded: bool,
+    comment_loaded: bool,
+    rating: Option<u8>,
+    tags: Option<Box<[u8]>>,
+    comment: Option<Box<[u8]>>,
 }
 
 impl DirectoryEntry {
@@ -91,12 +99,45 @@ impl DirectoryEntry {
             kind,
             size,
             modified,
+            created: None,
+            accessed: None,
             mime_type,
             hidden,
             executable,
             thumbnail,
             trash: None,
+            rating_loaded: false,
+            tags_loaded: false,
+            comment_loaded: false,
+            rating: None,
+            tags: None,
+            comment: None,
         }
+    }
+
+    pub(crate) fn with_additional_timestamps(
+        mut self,
+        created: Option<SystemTime>,
+        accessed: Option<SystemTime>,
+    ) -> Self {
+        self.created = created;
+        self.accessed = accessed;
+        self
+    }
+
+    pub(crate) fn set_rating_sort_metadata(&mut self, rating: Option<u8>) {
+        self.rating_loaded = true;
+        self.rating = rating;
+    }
+
+    pub(crate) fn set_tags_sort_metadata(&mut self, tags: Option<Box<[u8]>>) {
+        self.tags_loaded = true;
+        self.tags = tags;
+    }
+
+    pub(crate) fn set_comment_sort_metadata(&mut self, comment: Option<Box<[u8]>>) {
+        self.comment_loaded = true;
+        self.comment = comment;
     }
 
     pub(crate) fn with_trash_metadata(mut self, metadata: TrashMetadata) -> Self {
@@ -126,6 +167,38 @@ impl DirectoryEntry {
 
     pub fn modified(&self) -> Option<SystemTime> {
         self.modified
+    }
+
+    pub fn created(&self) -> Option<SystemTime> {
+        self.created
+    }
+
+    pub fn accessed(&self) -> Option<SystemTime> {
+        self.accessed
+    }
+
+    pub(crate) fn rating_sort_metadata_loaded(&self) -> bool {
+        self.rating_loaded
+    }
+
+    pub(crate) fn tags_sort_metadata_loaded(&self) -> bool {
+        self.tags_loaded
+    }
+
+    pub(crate) fn comment_sort_metadata_loaded(&self) -> bool {
+        self.comment_loaded
+    }
+
+    pub fn rating(&self) -> Option<u8> {
+        self.rating
+    }
+
+    pub fn tags(&self) -> Option<&[u8]> {
+        self.tags.as_deref()
+    }
+
+    pub fn comment(&self) -> Option<&[u8]> {
+        self.comment.as_deref()
     }
 
     pub fn mime_type(&self) -> Option<&str> {

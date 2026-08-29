@@ -362,6 +362,13 @@ fn context_selection_for_secondary(already_selected: bool) -> ContextSelection {
 
 const CONFLICT_DECISION_LABELS: [&str; 2] = ["Keep Existing", "Retry with New Name"];
 const LIST_COLUMN_LABELS: [&str; 5] = ["Name", "Type", "Size", "Modified", "Extension"];
+const LIST_SORT_COLUMNS: [SortColumn; 5] = [
+    SortColumn::Name,
+    SortColumn::Type,
+    SortColumn::Size,
+    SortColumn::Modified,
+    SortColumn::Extension,
+];
 const TYPE_COLUMN_WIDTH: i32 = 11;
 const SIZE_COLUMN_WIDTH: i32 = 10;
 const MODIFIED_COLUMN_WIDTH: i32 = 18;
@@ -993,6 +1000,7 @@ pub struct BrowserWidgets {
     pub list_view_button: gtk::ToggleButton,
     pub grid_view_button: gtk::ToggleButton,
     pub miller_view_button: gtk::ToggleButton,
+    pub sort_menu_button: gtk::MenuButton,
     pub vim_mode_button: gtk::ToggleButton,
     pub grid_size_controls: gtk::Box,
     pub grid_size_scale: gtk::Scale,
@@ -1523,6 +1531,88 @@ fn organize_header_options_menu(
     menu
 }
 
+pub(crate) fn build_sort_by_menu_model() -> gio::Menu {
+    let menu = gio::Menu::new();
+    let criteria = gio::Menu::new();
+    for column in [
+        SortColumn::Name,
+        SortColumn::Size,
+        SortColumn::Modified,
+        SortColumn::Created,
+        SortColumn::Accessed,
+        SortColumn::Type,
+        SortColumn::Rating,
+        SortColumn::Tags,
+        SortColumn::Comment,
+    ] {
+        criteria.append(
+            Some(column.label()),
+            Some(&format!("win.sort-column::{}", column.persisted())),
+        );
+    }
+    menu.append_section(None, &criteria);
+
+    let advanced = gio::Menu::new();
+    for (category, fields) in [
+        ("Document", &["Word Count", "Line Count"] as &[&str]),
+        ("Image", &["Dimensions", "Orientation", "Width", "Height"]),
+        (
+            "Audio",
+            &["Artist", "Album", "Duration", "Track", "Genre", "Bitrate"],
+        ),
+        (
+            "Video",
+            &[
+                "Duration",
+                "Dimensions",
+                "Width",
+                "Height",
+                "Frame Rate",
+                "Bitrate",
+            ],
+        ),
+    ] {
+        let submenu = gio::Menu::new();
+        for field in fields {
+            submenu.append(
+                Some(&format!("{field} (metadata index required)")),
+                Some("win.metadata-sort-unavailable"),
+            );
+        }
+        advanced.append_submenu(Some(category), &submenu);
+    }
+    let other = gio::Menu::new();
+    other.append(
+        Some(SortColumn::Extension.label()),
+        Some("win.sort-column::extension"),
+    );
+    for field in ["Path", "Link Destination", "Permissions", "Owner", "Group"] {
+        other.append(
+            Some(&format!("{field} (metadata index required)")),
+            Some("win.metadata-sort-unavailable"),
+        );
+    }
+    advanced.append_submenu(Some("Other"), &other);
+    menu.append_section(None, &advanced);
+
+    let direction = gio::Menu::new();
+    direction.append(
+        Some("Ascending / Oldest First"),
+        Some("win.sort-direction::ascending"),
+    );
+    direction.append(
+        Some("Descending / Newest First"),
+        Some("win.sort-direction::descending"),
+    );
+    menu.append_section(None, &direction);
+
+    let placement = gio::Menu::new();
+    placement.append(Some("Folders First"), Some("win.folders-first"));
+    placement.append(Some("Hidden Files Last"), Some("win.hidden-last"));
+    menu.append_section(None, &placement);
+    menu
+}
+
 pub fn build(
     application: &adw::Application,
     locations: &[Location],
@@ -1873,6 +1963,8 @@ pub fn build(
         columns_model.append_submenu(Some(column.label()), &column_menu);
     }
     let browser_view_model = gio::Menu::new();
+    let sort_by_model = build_sort_by_menu_model();
+    browser_view_model.append_submenu(Some("Sort By"), &sort_by_model);
     browser_view_model.append_submenu(Some("File Density"), &file_density_model);
     browser_view_model.append_submenu(Some("Group By"), &grouping_model);
     browser_view_model.append_submenu(Some("Folder Placement"), &directory_model);
@@ -1942,6 +2034,16 @@ pub fn build(
     set_accessible_label(&file_actions, "Main menu");
     file_actions.update_property(&[gtk::accessible::Property::Description(
         "Create, open, manage, view, and inspect files; access tools and settings",
+    )]);
+
+    let sort_menu_button = gtk::MenuButton::builder()
+        .icon_name("floe-phosphor-arrows-down-up-symbolic")
+        .tooltip_text("Sort files and folders")
+        .menu_model(&sort_by_model)
+        .build();
+    set_accessible_label(&sort_menu_button, "Sort files and folders");
+    sort_menu_button.update_property(&[gtk::accessible::Property::Description(
+        "Choose the sort property, direction, folder placement, and hidden-file placement",
     )]);
 
     let list_view_button = gtk::ToggleButton::builder()
@@ -2031,6 +2133,7 @@ pub fn build(
     header.pack_end(&vim_mode_button);
     header.pack_end(&grid_size_controls);
     header.pack_end(&view_controls);
+    header.pack_end(&sort_menu_button);
 
     let sidebar = build_sidebar(
         locations,
@@ -2307,6 +2410,7 @@ pub fn build(
         list_view_button,
         grid_view_button,
         miller_view_button,
+        sort_menu_button,
         vim_mode_button,
         grid_size_controls,
         grid_size_scale,
@@ -5570,8 +5674,8 @@ fn build_list_header(
             .width_request(i32::from(LIST_THUMBNAIL_EDGE))
             .build(),
     );
-    let mut widgets = Vec::with_capacity(SortColumn::ALL.len());
-    for (index, ((column, label), width)) in SortColumn::ALL
+    let mut widgets = Vec::with_capacity(LIST_SORT_COLUMNS.len());
+    for (index, ((column, label), width)) in LIST_SORT_COLUMNS
         .into_iter()
         .zip(LIST_COLUMN_LABELS)
         .zip([
@@ -5610,6 +5714,7 @@ fn build_list_header(
             SortColumn::Size => ListColumn::Size,
             SortColumn::Modified => ListColumn::Modified,
             SortColumn::Extension => ListColumn::Extension,
+            _ => unreachable!("only visible list-header columns are iterated"),
         };
         button.set_width_request(i32::from(layout.width(list_column)));
         button.set_visible(layout.is_visible(list_column));
@@ -5632,6 +5737,7 @@ fn build_list_header(
                 SortColumn::Size => ListColumn::Size,
                 SortColumn::Modified => ListColumn::Modified,
                 SortColumn::Extension => ListColumn::Extension,
+                _ => unreachable!("only visible list-header columns are retained"),
             },
             widget: header.button.clone().upcast(),
         })
@@ -5703,6 +5809,11 @@ fn sort_action_name(column: SortColumn) -> &'static str {
         SortColumn::Size => "win.sort-size",
         SortColumn::Modified => "win.sort-modified",
         SortColumn::Extension => "win.sort-extension",
+        SortColumn::Created => "win.sort-created",
+        SortColumn::Accessed => "win.sort-accessed",
+        SortColumn::Rating => "win.sort-rating",
+        SortColumn::Tags => "win.sort-tags",
+        SortColumn::Comment => "win.sort-comment",
     }
 }
 
@@ -6070,6 +6181,18 @@ mod tests {
             gtk::AccessibleRole::ToggleButton
         );
         assert_eq!(
+            widgets.sort_menu_button.accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert_eq!(
+            widgets.sort_menu_button.tooltip_text().as_deref(),
+            Some("Sort files and folders")
+        );
+        assert_eq!(
+            widgets.sort_menu_button.icon_name().as_deref(),
+            Some("floe-phosphor-arrows-down-up-symbolic")
+        );
+        assert_eq!(
             widgets.hidden_button.action_name().as_deref(),
             Some("win.hidden")
         );
@@ -6257,6 +6380,79 @@ mod tests {
                     .and_then(|value| value.str().map(str::to_owned))
             })
             .collect()
+    }
+
+    fn collect_all_menu_labels(model: &gio::MenuModel, labels: &mut Vec<String>) {
+        for index in 0..model.n_items() {
+            if let Some(label) = model
+                .item_attribute_value(index, "label", None)
+                .and_then(|value| value.str().map(str::to_owned))
+            {
+                labels.push(label);
+            }
+            for link in ["section", "submenu"] {
+                if let Some(child) = model.item_link(index, link) {
+                    collect_all_menu_labels(&child, labels);
+                }
+            }
+        }
+    }
+
+    fn all_menu_labels(model: &gio::MenuModel) -> Vec<String> {
+        let mut labels = Vec::new();
+        collect_all_menu_labels(model, &mut labels);
+        labels
+    }
+
+    #[test]
+    fn phase_20b1_sort_ui_contains_requested_stateful_options() {
+        let model = build_sort_by_menu_model();
+        let model = model.upcast_ref::<gio::MenuModel>();
+        let labels = all_menu_labels(model);
+        for required in [
+            "Name",
+            "Size",
+            "Modified",
+            "Created",
+            "Accessed",
+            "Type",
+            "Rating",
+            "Tags",
+            "Comment",
+            "Document",
+            "Image",
+            "Audio",
+            "Video",
+            "Other",
+            "Ascending / Oldest First",
+            "Descending / Newest First",
+            "Folders First",
+            "Hidden Files Last",
+        ] {
+            assert!(
+                labels.iter().any(|label| label == required),
+                "missing {required}"
+            );
+        }
+
+        let actions = menu_actions(model);
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|action| action.as_str() == "win.sort-column")
+                .count(),
+            10
+        );
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|action| action.as_str() == "win.sort-direction")
+                .count(),
+            2
+        );
+        assert!(actions.contains(&"win.folders-first".to_owned()));
+        assert!(actions.contains(&"win.hidden-last".to_owned()));
+        assert!(actions.contains(&"win.metadata-sort-unavailable".to_owned()));
     }
 
     fn max_menu_depth(model: &gio::MenuModel) -> usize {

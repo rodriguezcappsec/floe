@@ -23,7 +23,7 @@ use floe_core::{
     MillerSelectionTransition, MoveRequest, OwnerFilter, PermanentDeleteRequest, RecentSearches,
     RenameRequest, RestoreRequest, SAVED_SEARCH_NAME_CAPACITY, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN,
     SavedSearch, SearchHistoryPolicy, SearchKind, SearchQuery, SearchResultOrder,
-    SessionScrollAnchor, SortColumn, SplitRatio, SplitSide, TabActivation, TabError,
+    SessionScrollAnchor, SortColumn, SortDirection, SplitRatio, SplitSide, TabActivation, TabError,
     TrashEnumerateError, TrashRoot, VerifiedCopyRequest,
 };
 
@@ -3923,6 +3923,82 @@ impl BrowserController {
         });
         self.widgets.window.add_action(&file_density_action);
 
+        let sort = self.sort_order.get();
+        let sort_column_action = gio::SimpleAction::new_stateful(
+            "sort-column",
+            Some(&String::static_variant_type()),
+            &sort.column.persisted().to_variant(),
+        );
+        let controller = Rc::downgrade(self);
+        sort_column_action.connect_activate(move |_, parameter| {
+            let Some(column) = parameter
+                .and_then(glib::Variant::str)
+                .and_then(SortColumn::from_persisted)
+            else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                controller.change_sort_column(column);
+            }
+        });
+        self.widgets.window.add_action(&sort_column_action);
+
+        let sort_direction_action = gio::SimpleAction::new_stateful(
+            "sort-direction",
+            Some(&String::static_variant_type()),
+            &sort.direction.persisted().to_variant(),
+        );
+        let controller = Rc::downgrade(self);
+        sort_direction_action.connect_activate(move |_, parameter| {
+            let Some(direction) = parameter
+                .and_then(glib::Variant::str)
+                .and_then(SortDirection::from_persisted)
+            else {
+                return;
+            };
+            if let Some(controller) = controller.upgrade() {
+                controller.change_sort_direction(direction);
+            }
+        });
+        self.widgets.window.add_action(&sort_direction_action);
+
+        let folders_first = sort.directories == DirectoryPlacement::First;
+        let folders_first_action =
+            gio::SimpleAction::new_stateful("folders-first", None, &folders_first.to_variant());
+        let controller = Rc::downgrade(self);
+        folders_first_action.connect_activate(move |action, _| {
+            let enabled = !action
+                .state()
+                .and_then(|state| state.get::<bool>())
+                .unwrap_or(true);
+            if let Some(controller) = controller.upgrade() {
+                controller.change_directory_placement(if enabled {
+                    DirectoryPlacement::First
+                } else {
+                    DirectoryPlacement::Last
+                });
+            }
+        });
+        self.widgets.window.add_action(&folders_first_action);
+
+        let hidden_last_action =
+            gio::SimpleAction::new_stateful("hidden-last", None, &sort.hidden_last.to_variant());
+        let controller = Rc::downgrade(self);
+        hidden_last_action.connect_activate(move |action, _| {
+            let enabled = !action
+                .state()
+                .and_then(|state| state.get::<bool>())
+                .unwrap_or(false);
+            if let Some(controller) = controller.upgrade() {
+                controller.change_hidden_last(enabled);
+            }
+        });
+        self.widgets.window.add_action(&hidden_last_action);
+
+        let metadata_unavailable = gio::SimpleAction::new("metadata-sort-unavailable", None);
+        metadata_unavailable.set_enabled(false);
+        self.widgets.window.add_action(&metadata_unavailable);
+
         let grouping = self.sort_order.get().grouping;
         let grouping_action = gio::SimpleAction::new_stateful(
             "grouping",
@@ -6448,6 +6524,40 @@ impl BrowserController {
         self.resort_with(sort);
     }
 
+    fn change_sort_column(&self, column: SortColumn) {
+        let current = self.sort_order.get();
+        if self.sort_in_flight.get() || current.column == column {
+            return;
+        }
+        self.resort_with(
+            DirectorySort::new(column, current.direction)
+                .with_directories(current.directories)
+                .with_grouping(current.grouping)
+                .with_hidden_last(current.hidden_last),
+        );
+    }
+
+    fn change_sort_direction(&self, direction: SortDirection) {
+        let current = self.sort_order.get();
+        if self.sort_in_flight.get() || current.direction == direction {
+            return;
+        }
+        self.resort_with(
+            DirectorySort::new(current.column, direction)
+                .with_directories(current.directories)
+                .with_grouping(current.grouping)
+                .with_hidden_last(current.hidden_last),
+        );
+    }
+
+    fn change_hidden_last(&self, hidden_last: bool) {
+        let current = self.sort_order.get();
+        if self.sort_in_flight.get() || current.hidden_last == hidden_last {
+            return;
+        }
+        self.resort_with(current.with_hidden_last(hidden_last));
+    }
+
     fn resort_with(&self, sort: DirectorySort) {
         if self.sort_in_flight.get() {
             return;
@@ -6567,6 +6677,28 @@ impl BrowserController {
         for header in &self.widgets.sort_headers {
             ui::update_sort_header(header, sort);
         }
+        for (name, state) in [
+            ("sort-column", sort.column.persisted().to_variant()),
+            ("sort-direction", sort.direction.persisted().to_variant()),
+            (
+                "directory-placement",
+                sort.directories.persisted().to_variant(),
+            ),
+            (
+                "folders-first",
+                (sort.directories == DirectoryPlacement::First).to_variant(),
+            ),
+            ("hidden-last", sort.hidden_last.to_variant()),
+        ] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_state(&state);
+            }
+        }
         if self.trash_active.get() {
             self.widgets.set_trash_mode(true);
         }
@@ -6577,6 +6709,23 @@ impl BrowserController {
             let trash_supported = !self.trash_active.get()
                 || matches!(header.column, SortColumn::Name | SortColumn::Size);
             header.button.set_sensitive(sensitive && trash_supported);
+        }
+        let menu_sensitive = sensitive && !self.trash_active.get();
+        self.widgets.sort_menu_button.set_sensitive(menu_sensitive);
+        for name in [
+            "sort-column",
+            "sort-direction",
+            "folders-first",
+            "hidden-last",
+        ] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(menu_sensitive);
+            }
         }
     }
 
@@ -7293,6 +7442,34 @@ impl BrowserController {
                     self.set_sort_controls_sensitive(true);
                     self.show_listing(entries);
                 }
+                ResponseKind::ListingWithSortWarning { entries, error } => {
+                    if self
+                        .pending_location
+                        .borrow()
+                        .as_ref()
+                        .is_some_and(|pending| pending.matches(response.generation))
+                    {
+                        self.pending_location.borrow_mut().take();
+                        self.hide_location_entry();
+                    }
+                    let requested = self.sort_order.get();
+                    let fallback =
+                        DirectorySort::new(SortColumn::Name, floe_core::SortDirection::Ascending)
+                            .with_directories(requested.directories)
+                            .with_grouping(requested.grouping)
+                            .with_hidden_last(requested.hidden_last);
+                    self.sort_order.set(fallback);
+                    self.update_sort_headers();
+                    self.queue_preferences();
+                    self.set_sort_controls_sensitive(true);
+                    self.show_listing(entries);
+                    self.show_toast(
+                        &format!(
+                            "Could not use that metadata sort: {error}. Sorted by Name instead."
+                        ),
+                        7,
+                    );
+                }
                 ResponseKind::Listing(Err(DirectoryError::Cancelled)) => {}
                 ResponseKind::Listing(Err(error)) => {
                     if self.restore_failed_location(response.generation, &error) {
@@ -7321,6 +7498,23 @@ impl BrowserController {
                     self.widgets.set_views_sensitive(true);
                     self.widgets.status_label.set_label("Could not load Trash");
                     self.show_toast(&format!("Could not load Trash: {error}"), 7);
+                }
+                ResponseKind::SortFailed { error, sort } => {
+                    self.sort_in_flight.set(false);
+                    self.set_sort_controls_sensitive(true);
+                    self.widgets.set_views_sensitive(true);
+                    let fallback =
+                        DirectorySort::new(SortColumn::Name, floe_core::SortDirection::Ascending)
+                            .with_directories(sort.directories)
+                            .with_grouping(sort.grouping)
+                            .with_hidden_last(sort.hidden_last);
+                    self.show_toast(
+                        &format!(
+                            "Could not use that metadata sort: {error}. Sorted by Name instead."
+                        ),
+                        7,
+                    );
+                    self.resort_with(fallback);
                 }
                 ResponseKind::Sorted { entries, sort } => {
                     self.sort_in_flight.set(false);
