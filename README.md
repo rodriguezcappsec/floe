@@ -63,10 +63,10 @@ Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
 
 | Area | Current highlights |
 | --- | --- |
-| **Customize** | Searchable Settings Center, five live appearance presets, three icon styles, default views, grid/sidebar/file density, per-folder view memory, private index toggle, and links to specialized editors |
-| **Browse** | Virtualized list and grid views, adjustable grid size, a persistent Sort By menu with timestamps/KDE user metadata/folder and hidden placement, grouping, optional metadata columns, and large-folder-friendly loading |
+| **Customize** | Searchable Settings Center, five live appearance presets, System/Light/Dark, font family and 75–200% scale, reduced motion, single/double-click opening, three icon styles, density, and per-folder memory |
+| **Browse** | Virtualized list and grid views, adjustable grid size, complete Sort By menu, Type/Extension/Date/Size collapsible groups, reordered/autosized metadata columns, and large-folder-friendly loading |
 | **Navigate** | Exact-path breadcrumbs, editable location completion, recent locations, back/forward/parent history, tabs, restored sessions, split panes, spatial Miller columns, and local CLI folder/file routing |
-| **Select and organize** | Desktop-style multi-selection, drag and drop, copy, cut, paste, move, rename, duplicate, links, folders, empty files, FIFOs, and templates |
+| **Select and organize** | Desktop-style multi-selection with invert selection, drag and drop, copy, cut, paste, move, rename, duplicate, links, folders, empty files, FIFOs, and templates |
 | **Trash and recovery** | Standards-compatible Trash browsing, restore, empty Trash, confirmed permanent deletion, conflict handling, operation history, private interrupted-operation journal and conservative Recovery Center |
 | **Preview** | Space-bar Quick Preview for images, bounded text/code, PDF and office documents, audio/video, fonts, and archive listings |
 | **Inspect** | Properties, folder totals, filesystem details, permissions and ownership editing, checksums, EXIF, and media metadata |
@@ -216,13 +216,15 @@ standards-based path.
 
 ## Project status
 
-**Phase 20B1A — Advanced Metadata Sort Index** is complete: every Sort By row
-is actionable through an explicit, cancellable local-directory scan. Floe
-reuses bounded image/EXIF/audio providers, optional `ffprobe` video facts,
-bounded UTF-8 text counts, and no-follow Unix/link facts; repeated sorts may
-reuse a private fingerprint-validated cache that users can disable or clear.
-The next bounded milestone is
-**Phase 20B2 — Visual, accessibility, and QoL audit**.
+**Phase 20B2 — Visual, Accessibility, and QoL Completeness Audit** is complete.
+Floe now adds deterministic date/size collapsible groups, persistent split
+ratios, configurable single/double-click opening, Invert Selection, column
+reorder/autosize, System/Light/Dark plus font/scale/motion controls, a predictable
+Escape/focus hierarchy, non-color accessible group/pane cues, logical scaling
+policy, and per-toast detailed feedback with privacy-generic completion
+notifications. Window size persistence from Phase 20B2A and every advanced Sort
+By row remain available. The next bounded milestone is **Phase 21A —
+Performance**.
 
 Floe has completed the generic desktop integration baseline through **Phase
 14**, the documentation-only **Phase 18A Security Threat Model**, and runtime

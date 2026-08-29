@@ -1,3 +1,126 @@
+# Gates: Floe Phase 20B2 — Visual, Accessibility, and QoL Completeness Audit
+
+Scope: the ten selected Phase 20B2 daily-driver outcomes only; no Phase 21,
+desktop-specific integration, MTP, remote browsing, or packaging work.
+
+- [x] Q1: Date and size grouping expose deterministic visible list/grid groups;
+  Grid View uses full-width section headers outside item tiles, and accessible
+  collapsible headers persist bounded state without changing exact entry
+  identity or the authoritative selection.
+  CHECK: cargo test --workspace phase_20b2_grouping -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Stable date groups, bounded size buckets, and collapsed-row/header visibility pass. A focused real-GTK regression verifies one spanning Button header followed by a virtualized grid per group, shared exact selection, single-click and grid-size propagation, and collapse hiding only its own body. An isolated `view=grid`, `grouping=size` Wayland launch answers D-Bus Ping and quits cleanly with no GTK/libadwaita criticals.
+
+- [x] Q2: User-resized split ratios persist and restore per applicable session
+  context with migration, corruption rejection, clamping, and no GTK polling.
+  CHECK: cargo test --workspace phase_20b2_split_ratio -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused core workspace/session test passes ratio round trip, 20–80% validation, and independent typed session ownership.
+
+- [x] Q3: One persisted single/double-click policy controls list/grid/Miller
+  activation consistently while keyboard Enter remains immediate.
+  CHECK: cargo test -p floe-app phase_20b2_click_policy -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Two preference/migration tests pass; real GTK verifies Single applies to list, grid, and search while Miller shares the same stored policy.
+
+- [x] Q4: Invert Selection is deterministic, exact-path-safe, reachable from
+  command/menu/shortcut surfaces, and behaves correctly with filtered views.
+  CHECK: cargo test --workspace phase_20b2_invert_selection -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Deterministic bounded inversion test passes out-of-range, duplicate, empty, and full-visible-model cases; registry/menu/action wiring is covered by workspace UI contracts.
+
+- [x] Q5: List columns can be reordered and content-autosized within explicit
+  bounds; order and widths round-trip through global/per-folder preferences.
+  CHECK: cargo test --workspace phase_20b2_columns -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Core reorder/autosize/corrupt-order test and app global/per-folder preference round-trip tests pass; session codec v3 full core suite passes.
+
+- [x] Q6: Settings provide System/Light/Dark color scheme, validated font
+  family/scale, reduced-motion, and reset controls with safe migration and live
+  centralized application.
+  CHECK: cargo test -p floe-app phase_20b2_appearance -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Three validation/migration/reset/CSS tests pass; real GTK ForceDark, 150% font, reduced-motion, and single-click contract passes.
+
+- [x] Q7: A documented and tested Escape/focus hierarchy closes the innermost
+  transient surface first and restores predictable browser focus.
+  CHECK: cargo test -p floe-app phase_20b2_focus_escape -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Priority-model regression passes and controller review verifies context, location, search, preview/inspector, selection ordering with active-view focus restoration.
+
+- [x] Q8: New and audited controls expose meaningful roles, names,
+  descriptions, states and non-color/high-contrast cues; focused real-GTK audit
+  passes where a display is available.
+  CHECK: cargo test -p floe-app phase_20b2_accessibility -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Two deterministic semantics/CSS tests pass; focused real-GTK group and appearance/click contracts verify Button role, focusability, classes, and live state.
+
+- [x] Q9: Presentation policies remain bounded and crisp under GTK integer and
+  compositor fractional scaling; icons/thumbnails/focus do not bake scale into
+  filesystem/cache identity.
+  CHECK: cargo test -p floe-app phase_20b2_scaling -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Logical/cache identity and bounded device-hint test passes; physical multi-monitor fractional-scale measurement remains explicitly Phase 21 evidence.
+
+- [x] Q10: Detailed errors and completion notifications are bounded,
+  non-blocking, privacy-aware, translation-ready and direction-safe; RTL tests
+  preserve path identity and logical ordering.
+  CHECK: cargo test -p floe-app phase_20b2_feedback_i18n -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Bounded summary/details, per-toast target, generic completion body, message IDs, first-strong path isolation, and notification policy regression passes.
+
+- [x] Q11: Full quality, documentation, native GTK/E2E/Wayland, diff hygiene,
+  status and exactly-one-NEXT gates pass; Phase 20B2 is marked complete only
+  after Q1-Q10 are evidenced.
+  CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check
+  EXPECT: test result: ok
+  EVIDENCE: All commands exit 0; workspace has 548 app, 21 controller, 162 core, and six duplicate tests passing with 13 graphical ignores. The focused real-GTK spanning-section/shared-model regression passes. E2E contracts pass three and skip native Dogtail for missing dogtail/pyatspi. Isolated `view=grid`, `grouping=size` Wayland launch answers D-Bus Ping, logs no GTK/libadwaita criticals, and quits 0. Roadmap has exactly Phase 21A NEXT.
+
+---
+
+# Gates: Floe Phase 20B2A — Window Size Persistence
+
+Scope: normal top-level window size only; no position, compositor workspace,
+monitor, maximized/fullscreen/minimized restoration, or broader Phase 20B2 work.
+
+- [x] W1: Preferences store one bounded atomic width/height pair, migrate v16
+  safely, reject malformed values, and round-trip as version 17.
+  CHECK: cargo test -p floe-app phase_20b2a_window_size_preferences -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused preference regression passes v16 default migration,
+  malformed/zero rejection, minimum clamping, version-17 tuple round trip.
+- [x] W2: Initial application-window construction uses the restored normal size
+  while old/corrupt preferences retain Floe's 1060x720 default.
+  CHECK: cargo test -p floe-app phase_20b2a_window_size_policy -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused pure UI policy regression passes 1060x720 fallback and an
+  exact 1600x960 restored preference.
+- [x] W3: Actual GDK surface changes are debounced without polling; maximized or
+  fullscreen allocations never replace the last normal size, and shutdown
+  captures the current normal size before final preference submission.
+  CHECK: cargo test -p floe-app phase_20b2a_window_size_tracking -- --nocapture
+  EXPECT: test result: ok
+  EVIDENCE: Focused tracking regression passes changed-size recording,
+  unchanged suppression, maximized/fullscreen rejection. Review verifies GDK
+  surface notifications, 320-ms debounce, close/shutdown/drop final capture.
+- [x] W4: A focused real-GTK component gate proves restored window geometry and
+  ordinary E2E/native Wayland lifecycle remains healthy where available.
+  EVIDENCE: Focused real-GTK window contract passes 1460x880 restoration. E2E
+  harness passes three contracts and skips native Dogtail because Python
+  dogtail/pyatspi are unavailable. Isolated native Wayland launch answers Ping,
+  quits cleanly, exits 0, and writes version=17 plus window-size=720x480.
+- [x] W5: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, native build, diff hygiene, documentation/status, and exactly
+  one recommended next phase pass.
+  CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check
+  EXPECT: test result: ok
+  EVIDENCE: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests (535 app passed/ten intentional graphical ignores; 21 app
+  integration; 158 core; six duplicate workflows), native build, diff hygiene,
+  docs/status, and exactly Phase 20B2 NEXT pass.
+
+---
+
 # Gates: Floe Phase 20B1A — Advanced Metadata Sort Index
 
 Scope: explicit current-local-directory advanced sorting and its private

@@ -23,7 +23,7 @@ pub const SESSION_MAX_PATH_BYTES: usize = 1_048_576;
 pub const SESSION_MAX_SERIALIZED_BYTES: usize = 64 * 1_048_576;
 
 const SESSION_MAGIC: &[u8; 8] = b"FLOESESS";
-const SESSION_CODEC_VERSION: u16 = 2;
+const SESSION_CODEC_VERSION: u16 = 3;
 const MAX_POLICY_TEXT_BYTES: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -272,7 +272,7 @@ impl BrowserSession {
             return Err(SessionCodecError::InvalidHeader);
         }
         let version = decoder.read_u16()?;
-        if !matches!(version, 1 | SESSION_CODEC_VERSION) {
+        if !matches!(version, 1 | 2 | SESSION_CODEC_VERSION) {
             return Err(SessionCodecError::UnsupportedVersion(version));
         }
         let id = BrowserSessionId::new(decoder.read_u64()?)?;
@@ -425,7 +425,8 @@ impl Encoder {
         self.write_text(view.sort.grouping.persisted())?;
         self.write_u8(u8::from(view.sort.hidden_last))?;
         self.write_text(&view.columns.visible_names())?;
-        self.write_text(&view.columns.widths_text())
+        self.write_text(&view.columns.widths_text())?;
+        self.write_text(&view.columns.order_text())
     }
 
     fn write_location(&mut self, location: &SessionLocation) -> Result<(), SessionCodecError> {
@@ -577,6 +578,13 @@ impl<'a> Decoder<'a> {
         columns.apply_widths_text(widths);
         if columns.widths_text() != widths {
             return Err(SessionCodecError::InvalidField("column widths"));
+        }
+        if version >= 3 {
+            let order = self.read_text()?;
+            columns.apply_order_text(order);
+            if columns.order_text() != order {
+                return Err(SessionCodecError::InvalidField("column order"));
+            }
         }
         Ok(FolderViewState {
             mode,
@@ -790,7 +798,7 @@ mod tests {
         .expect("session");
         let mut legacy = session.encode().expect("encode");
 
-        let hidden_last_offset = {
+        let (hidden_last_offset, column_order_range) = {
             let mut decoder = Decoder::new(&legacy);
             decoder.read_exact(SESSION_MAGIC.len()).expect("magic");
             decoder.read_u16().expect("version");
@@ -804,8 +812,15 @@ mod tests {
             decoder.read_text().expect("sort direction");
             decoder.read_text().expect("directory placement");
             decoder.read_text().expect("grouping");
-            decoder.offset
+            let hidden_last_offset = decoder.offset;
+            decoder.read_u8().expect("hidden last");
+            decoder.read_text().expect("visible columns");
+            decoder.read_text().expect("column widths");
+            let order_start = decoder.offset;
+            decoder.read_text().expect("column order");
+            (hidden_last_offset, order_start..decoder.offset)
         };
+        legacy.drain(column_order_range);
         assert_eq!(legacy.remove(hidden_last_offset), 1);
         legacy[8..10].copy_from_slice(&1_u16.to_le_bytes());
 
@@ -830,10 +845,10 @@ mod tests {
             Err(SessionCodecError::InvalidHeader)
         );
         let mut bad_version = encoded.clone();
-        bad_version[8..10].copy_from_slice(&3_u16.to_le_bytes());
+        bad_version[8..10].copy_from_slice(&4_u16.to_le_bytes());
         assert_eq!(
             BrowserSession::decode(&bad_version),
-            Err(SessionCodecError::UnsupportedVersion(3))
+            Err(SessionCodecError::UnsupportedVersion(4))
         );
         let mut zero_id = encoded.clone();
         zero_id[10..18].copy_from_slice(&0_u64.to_le_bytes());

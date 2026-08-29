@@ -787,6 +787,15 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [B, H]
     ),
     command!(
+        "invert-selection",
+        "Invert Selection",
+        "Select every visible unselected item and clear every visible selected item",
+        Selection,
+        ["inverse", "toggle files"],
+        ["<Control><Shift>i"],
+        [B, H]
+    ),
+    command!(
         "clear-selection",
         "Clear Selection",
         "Clear the current file selection",

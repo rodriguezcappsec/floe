@@ -207,6 +207,8 @@ pub enum DirectoryGrouping {
     None,
     Type,
     Extension,
+    Date,
+    Size,
 }
 
 impl DirectoryGrouping {
@@ -215,6 +217,8 @@ impl DirectoryGrouping {
             Self::None => "none",
             Self::Type => "type",
             Self::Extension => "extension",
+            Self::Date => "date",
+            Self::Size => "size",
         }
     }
 
@@ -223,6 +227,8 @@ impl DirectoryGrouping {
             "none" => Some(Self::None),
             "type" => Some(Self::Type),
             "extension" => Some(Self::Extension),
+            "date" => Some(Self::Date),
+            "size" => Some(Self::Size),
             _ => None,
         }
     }
@@ -245,6 +251,10 @@ impl DirectoryGrouping {
                     .map(|extension| format!(".{extension}"))
                     .unwrap_or_else(|| "No extension".to_owned()),
             ),
+            Self::Date if entry.is_navigable_directory() => Some("Folders".to_owned()),
+            Self::Date => Some(date_group_label(entry.modified())),
+            Self::Size if entry.is_navigable_directory() => Some("Folders".to_owned()),
+            Self::Size => Some(size_group(entry.size()).label().to_owned()),
         }
     }
 
@@ -260,8 +270,89 @@ impl DirectoryGrouping {
                 entry_extension(right),
                 SortDirection::Ascending,
             ),
+            Self::Date => optional(
+                date_group(left.modified()),
+                date_group(right.modified()),
+                SortDirection::Ascending,
+            ),
+            Self::Size => size_group(left.size()).cmp(&size_group(right.size())),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum SizeGroup {
+    Empty,
+    Tiny,
+    Small,
+    Medium,
+    Large,
+    VeryLarge,
+    Unknown,
+}
+
+impl SizeGroup {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Empty => "Empty (0 B)",
+            Self::Tiny => "Tiny (under 1 MB)",
+            Self::Small => "Small (1–100 MB)",
+            Self::Medium => "Medium (100 MB–1 GB)",
+            Self::Large => "Large (1–10 GB)",
+            Self::VeryLarge => "Very large (10 GB or more)",
+            Self::Unknown => "Size unknown",
+        }
+    }
+}
+
+fn size_group(size: Option<u64>) -> SizeGroup {
+    const MB: u64 = 1_000_000;
+    const GB: u64 = 1_000_000_000;
+    match size {
+        Some(0) => SizeGroup::Empty,
+        Some(value) if value < MB => SizeGroup::Tiny,
+        Some(value) if value < 100 * MB => SizeGroup::Small,
+        Some(value) if value < GB => SizeGroup::Medium,
+        Some(value) if value < 10 * GB => SizeGroup::Large,
+        Some(_) => SizeGroup::VeryLarge,
+        None => SizeGroup::Unknown,
+    }
+}
+
+fn date_group(modified: Option<std::time::SystemTime>) -> Option<i64> {
+    use std::time::UNIX_EPOCH;
+
+    modified.map(|value| match value.duration_since(UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_secs() / 86_400).unwrap_or(i64::MAX),
+        Err(error) => {
+            -i64::try_from(error.duration().as_secs().div_ceil(86_400)).unwrap_or(i64::MAX)
+        }
+    })
+}
+
+fn date_group_label(modified: Option<std::time::SystemTime>) -> String {
+    let Some(days) = date_group(modified) else {
+        return "Date unknown".to_owned();
+    };
+    let (year, month, day) = civil_date_from_unix_days(days);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+// Howard Hinnant's public-domain civil-from-days algorithm. Keeping the
+// conversion here avoids adding a date crate merely for stable group labels.
+fn civil_date_from_unix_days(days: i64) -> (i64, u32, u32) {
+    let days = days.saturating_add(719_468);
+    let era = if days >= 0 { days } else { days - 146_096 } / 146_097;
+    let day_of_era = days - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_prime + 2) / 5 + 1;
+    let month = month_prime + if month_prime < 10 { 3 } else { -9 };
+    year += i64::from(month <= 2);
+    (year, month as u32, day as u32)
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1047,5 +1138,72 @@ mod tests {
             .sort_entries(&mut path_entries);
         assert_eq!(names(&path_entries), ["high", "low"]);
         assert_eq!(SortColumn::ALL.len(), 33);
+    }
+
+    #[test]
+    fn phase_20b2_grouping_date_uses_stable_calendar_days_and_unknown_last() {
+        let folder = entry("folder".into(), EntryKind::Directory, None, None);
+        let first = entry(
+            "first".into(),
+            EntryKind::RegularFile,
+            Some(1),
+            Some(86_400),
+        );
+        let second = entry(
+            "second".into(),
+            EntryKind::RegularFile,
+            Some(1),
+            Some(2 * 86_400),
+        );
+        let unknown = entry("unknown".into(), EntryKind::RegularFile, Some(1), None);
+        let grouping = DirectoryGrouping::Date;
+        let mut entries = vec![unknown, second, first, folder];
+        DirectorySort::default()
+            .with_grouping(grouping)
+            .sort_entries(&mut entries);
+        assert_eq!(names(&entries), ["folder", "first", "second", "unknown"]);
+        assert_eq!(grouping.label(&entries[0]).as_deref(), Some("Folders"));
+        assert_eq!(grouping.label(&entries[1]).as_deref(), Some("1970-01-02"));
+        assert_eq!(grouping.label(&entries[2]).as_deref(), Some("1970-01-03"));
+        assert_eq!(grouping.label(&entries[3]).as_deref(), Some("Date unknown"));
+        assert_eq!(DirectoryGrouping::from_persisted("date"), Some(grouping));
+    }
+
+    #[test]
+    fn phase_20b2_grouping_size_uses_human_buckets_and_boundaries() {
+        let grouping = DirectoryGrouping::Size;
+        let mut entries = vec![
+            entry("unknown".into(), EntryKind::RegularFile, None, None),
+            entry(
+                "huge".into(),
+                EntryKind::RegularFile,
+                Some(11_000_000_000),
+                None,
+            ),
+            entry(
+                "medium".into(),
+                EntryKind::RegularFile,
+                Some(500_000_000),
+                None,
+            ),
+            entry(
+                "small".into(),
+                EntryKind::RegularFile,
+                Some(2_000_000),
+                None,
+            ),
+            entry("tiny".into(), EntryKind::RegularFile, Some(1), None),
+            entry("empty".into(), EntryKind::RegularFile, Some(0), None),
+        ];
+        DirectorySort::default()
+            .with_grouping(grouping)
+            .sort_entries(&mut entries);
+        assert_eq!(
+            names(&entries),
+            ["empty", "tiny", "small", "medium", "huge", "unknown"]
+        );
+        assert_eq!(grouping.label(&entries[0]).as_deref(), Some("Empty (0 B)"));
+        assert_eq!(grouping.label(&entries[5]).as_deref(), Some("Size unknown"));
+        assert_eq!(DirectoryGrouping::from_persisted("size"), Some(grouping));
     }
 }
