@@ -1,3 +1,118 @@
+# Plan: Floe Phase 20B2 — Visual, Accessibility, and QoL Completeness Audit
+
+## Contract
+
+Close the ten remaining daily-driver gaps selected by the user without entering
+Phase 21: date/size grouping with collapsible groups, split-ratio persistence,
+single/double-click activation policy, column reorder/autosize, invert
+selection, complete appearance controls, predictable focus/Escape behavior,
+screen-reader/high-contrast/non-color semantics, HiDPI/fractional-scale-safe
+presentation, and detailed errors/completion feedback with localization/RTL
+readiness. Preserve exact `PathBuf` identity, bounded versioned preferences,
+application-owned state, and responsive GTK. This phase does not add Niri,
+Plasma, MTP, remote browsing, packaging, performance rewrites, or translation
+catalogs presented as completed translations.
+
+## Applicable testing layers
+
+1. Deterministic core tests for grouping, ordering, invert-selection, and
+   direction-independent/raw-path-safe policies.
+2. Deterministic app tests for preference migration, split/click/column/group
+   persistence, appearance validation, focus/Escape routing, notification and
+   localized message models.
+3. Focused real-GTK component/accessibility tests for the new settings and
+   controls where a display is available.
+4. Full format/check/strict Clippy/workspace tests, native build, E2E preflight,
+   and isolated native Wayland lifecycle smoke.
+
+## Implementation tree
+
+1. Browsing organization
+   - Implement date and size buckets using already-loaded metadata.
+   - Make group headers keyboard-accessible and collapsible with bounded
+     persisted state.
+   - Add deterministic invert selection.
+2. Layout and activation
+   - Persist the per-tab split divider ratio after real user resizing.
+   - Add configurable single-click versus double-click activation.
+   - Complete column reordering and content-aware autosizing with bounds.
+3. Appearance and scaling
+   - Add System/Light/Dark color scheme, font family/scale, reduced-motion, and
+     appearance reset controls using centralized tokens.
+   - Audit CSS/icons/thumbnails/focus for GTK scale-factor and fractional-scale
+     safe behavior without fake blur.
+4. Accessibility and daily-driver feedback
+   - Define one Escape/focus ownership hierarchy across transient surfaces.
+   - Complete stable screen-reader names/descriptions/states and high-contrast,
+     non-color cues.
+   - Add reusable detailed-error disclosure and bounded completion
+     notifications; introduce translation-ready message/direction boundaries
+     and verify RTL-safe ordering/path presentation.
+5. Integration and verification
+   - Run focused and full gates, fix regressions, update README/User Guide,
+     roadmap, feature matrix, security documentation if applicable, and
+     `AGENTS.md` status. Mark 20B2 complete only with evidence and leave exactly
+     Phase 21A recommended next.
+
+## Status
+
+**COMPLETE** on the current worktree. Q1–Q11 pass: all ten focused filters,
+strict workspace gates, focused real-GTK Phase 20B2 contracts, E2E harness
+preflight, and isolated native Wayland Ping/Quit. The post-completion Q1
+regression replaces per-tile Grid View group labels with full-width sections
+backed by bounded selection slices over the one authoritative model.
+Dogtail/pyatspi remains unavailable and no translation catalogs or physical
+multi-monitor fractional-scale matrix are claimed. Phase 21A is the sole
+recommended next phase. Phase 20B2A and 20B2 are ready for publication and
+merge.
+
+---
+
+# Plan: Floe Phase 20B2A — Window Size Persistence
+
+## Contract
+
+Remember the last normal top-level Floe window size and restore it before the
+next window is presented. Persist one validated width/height pair through the
+existing private preference worker. Observe actual GDK surface configurations
+with a main-loop debounce; do not poll, perform filesystem work in GTK, or let
+maximized/fullscreen allocations overwrite the normal size.
+
+Wayland does not provide portable application-controlled window placement, so
+this leaf does not store position. It also does not restore maximized,
+fullscreen, minimized, monitor, workspace, or compositor-specific state and
+does not begin the rest of the Phase 20B2 audit.
+
+## Applicable testing layers
+
+1. Deterministic Rust preference tests for version migration, tuple parsing,
+   corruption rejection, clamping, and round trip.
+2. Deterministic controller-policy tests for normal versus maximized/fullscreen
+   allocations and unchanged-size suppression.
+3. One focused real-GTK component contract proving the restored default size.
+4. Full formatting, check, strict Clippy, workspace tests, native build, E2E
+   preflight, and applicable native Wayland lifecycle smoke.
+
+## Implementation order
+
+1. Add a bounded `WindowSize` preference value and migrate v16 to v17.
+2. Apply the restored size while constructing the application window.
+3. Debounce GDK surface width/height changes, update only normal geometry, and
+   synchronously capture normal geometry before final preference submission.
+4. Add regressions and run all applicable gates.
+5. Update the user guide, README/status/matrix/roadmap and recommend exactly one
+   next phase without implementing it.
+
+## Status
+
+**COMPLETE** on `phase-20b2a-window-size-persistence`. All W1–W5 gates pass:
+version-17 migration/policy/tracking tests, strict workspace quality gates,
+focused real-GTK restoration, E2E preflight, and isolated native Wayland
+launch/Ping/Quit with a persisted window-size record. Phase 20B2 remains the
+sole recommended next phase.
+
+---
+
 # Plan: Floe Phase 20B1A — Advanced Metadata Sort Index
 
 ## Contract

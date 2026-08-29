@@ -278,7 +278,7 @@ fn build_window(
     let browser_for_shutdown = Rc::downgrade(&controller);
     application.connect_shutdown(move |_| {
         if let Some(browser) = browser_for_shutdown.upgrade() {
-            browser.persist_session_for_shutdown();
+            browser.persist_for_shutdown();
         }
     });
     let operation_controller = OperationController::new(

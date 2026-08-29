@@ -5,7 +5,10 @@ use adw::prelude::*;
 use crate::{
     appearance::AppearancePreset,
     iconography::EntryIconStyle,
-    preferences::{SidebarDensity, ViewPreferences},
+    preferences::{
+        ClickPolicy, ColorSchemePreference, FONT_SCALE_MAX, FONT_SCALE_MIN, SidebarDensity,
+        ViewPreferences,
+    },
     view::{FileViewDensity, GRID_SIZES, GridSize, ViewMode},
 };
 
@@ -63,8 +66,13 @@ impl SettingsSection {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum SettingId {
     AppearancePreset,
+    ColorScheme,
+    FontFamily,
+    FontScale,
+    AppearanceReset,
     IconStyle,
     DefaultView,
+    ClickPolicy,
     RememberFolderView,
     VimNavigation,
     GridSize,
@@ -98,13 +106,45 @@ struct SettingDefinition {
     action: Option<&'static str>,
 }
 
-const SETTINGS: [SettingDefinition; 24] = [
+const SETTINGS: [SettingDefinition; 29] = [
     setting(
         SettingId::AppearancePreset,
         SettingsSection::Appearance,
         "Appearance preset",
         "Choose Native, Glass, Frosted, Minimal, or Compact styling.",
         "theme glass frosted transparency compact native visual",
+        None,
+    ),
+    setting(
+        SettingId::ColorScheme,
+        SettingsSection::Appearance,
+        "Color scheme",
+        "Follow the desktop or explicitly use Floe's light or dark palette.",
+        "system light dark theme color",
+        None,
+    ),
+    setting(
+        SettingId::FontFamily,
+        SettingsSection::Appearance,
+        "Interface font",
+        "Use the system font or a validated font-family name without changing filename identity.",
+        "font family typography system",
+        None,
+    ),
+    setting(
+        SettingId::FontScale,
+        SettingsSection::Appearance,
+        "Interface text scale",
+        "Scale Floe text from 75% to 200% while preserving GTK and desktop scaling.",
+        "font text zoom scale accessibility",
+        None,
+    ),
+    setting(
+        SettingId::AppearanceReset,
+        SettingsSection::Appearance,
+        "Reset appearance",
+        "Restore Frosted, system colors, system font, 100% text, and normal motion.",
+        "defaults restore reset theme font motion",
         None,
     ),
     setting(
@@ -121,6 +161,14 @@ const SETTINGS: [SettingDefinition; 24] = [
         "Default folder view",
         "Choose List, Grid, or spatial Miller columns for folders without a remembered view.",
         "list grid columns browse folder",
+        None,
+    ),
+    setting(
+        SettingId::ClickPolicy,
+        SettingsSection::Browsing,
+        "Open items",
+        "Choose conventional double-click or single-click pointer activation; Enter always opens immediately.",
+        "single double click activate open folders files",
         None,
     ),
     setting(
@@ -360,8 +408,13 @@ pub struct SettingsCenterWidgets {
     pub dialog: adw::Dialog,
     pub search: gtk::SearchEntry,
     pub appearance: gtk::DropDown,
+    pub color_scheme: gtk::DropDown,
+    pub font_family: gtk::Entry,
+    pub font_scale: gtk::SpinButton,
+    pub appearance_reset: gtk::Button,
     pub icon_style: gtk::DropDown,
     pub default_view: gtk::DropDown,
+    pub click_policy: gtk::DropDown,
     pub remember_folder_view: gtk::Switch,
     pub vim_navigation: gtk::Switch,
     pub grid_size: gtk::DropDown,
@@ -370,6 +423,7 @@ pub struct SettingsCenterWidgets {
     pub search_index: gtk::Switch,
     pub metadata_sort_cache: gtk::Switch,
     pub privileged_access: gtk::Switch,
+    pub reduced_motion: gtk::Switch,
     pub action_buttons: Vec<(&'static str, gtk::Button)>,
     #[cfg(test)]
     pub no_results: gtk::Label,
@@ -426,6 +480,39 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         "Appearance preset",
         definition(SettingId::AppearancePreset).description,
     );
+    let color_scheme = dropdown(
+        &ColorSchemePreference::ALL.map(ColorSchemePreference::label),
+        index_of(&ColorSchemePreference::ALL, preferences.color_scheme),
+        "Color scheme",
+        definition(SettingId::ColorScheme).description,
+    );
+    let font_family = gtk::Entry::builder()
+        .text(preferences.font_family.as_deref().unwrap_or_default())
+        .placeholder_text("System font")
+        .max_length(64)
+        .width_chars(20)
+        .valign(gtk::Align::Center)
+        .build();
+    font_family.update_property(&[
+        gtk::accessible::Property::Label("Interface font family"),
+        gtk::accessible::Property::Description(definition(SettingId::FontFamily).description),
+    ]);
+    let font_scale =
+        gtk::SpinButton::with_range(f64::from(FONT_SCALE_MIN), f64::from(FONT_SCALE_MAX), 5.0);
+    font_scale.set_value(f64::from(preferences.font_scale_percent));
+    font_scale.set_valign(gtk::Align::Center);
+    font_scale.update_property(&[
+        gtk::accessible::Property::Label("Interface text scale percent"),
+        gtk::accessible::Property::Description(definition(SettingId::FontScale).description),
+    ]);
+    let appearance_reset = gtk::Button::builder()
+        .label("Reset")
+        .valign(gtk::Align::Center)
+        .build();
+    appearance_reset.update_property(&[
+        gtk::accessible::Property::Label("Reset appearance settings"),
+        gtk::accessible::Property::Description(definition(SettingId::AppearanceReset).description),
+    ]);
     let icon_style = dropdown(
         &EntryIconStyle::ALL.map(EntryIconStyle::label),
         index_of(&EntryIconStyle::ALL, preferences.icon_style),
@@ -441,6 +528,12 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         },
         "Default folder view",
         definition(SettingId::DefaultView).description,
+    );
+    let click_policy = dropdown(
+        &ClickPolicy::ALL.map(ClickPolicy::label),
+        index_of(&ClickPolicy::ALL, preferences.click_policy),
+        "Pointer activation",
+        definition(SettingId::ClickPolicy).description,
     );
     let remember_folder_view = settings_switch(
         preferences.remember_per_folder,
@@ -491,6 +584,11 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         "Experimental administrator browsing",
         definition(SettingId::PrivilegedAccess).description,
     );
+    let reduced_motion = settings_switch(
+        preferences.reduced_motion,
+        "Reduce motion",
+        definition(SettingId::ReducedMotion).description,
+    );
 
     let mut action_buttons = Vec::new();
     let mut filter_groups = Vec::new();
@@ -503,8 +601,13 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         for item in SETTINGS.iter().filter(|item| item.section == section) {
             let row = match item.id {
                 SettingId::AppearancePreset => control_row(item, &appearance),
+                SettingId::ColorScheme => control_row(item, &color_scheme),
+                SettingId::FontFamily => control_row(item, &font_family),
+                SettingId::FontScale => control_row(item, &font_scale),
+                SettingId::AppearanceReset => control_row(item, &appearance_reset),
                 SettingId::IconStyle => control_row(item, &icon_style),
                 SettingId::DefaultView => control_row(item, &default_view),
+                SettingId::ClickPolicy => control_row(item, &click_policy),
                 SettingId::RememberFolderView => control_row(item, &remember_folder_view),
                 SettingId::VimNavigation => control_row(item, &vim_navigation),
                 SettingId::GridSize => control_row(item, &grid_size),
@@ -513,7 +616,8 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
                 SettingId::SearchIndex => control_row(item, &search_index),
                 SettingId::MetadataSortCache => control_row(item, &metadata_sort_cache),
                 SettingId::PrivilegedAccess => control_row(item, &privileged_access),
-                SettingId::SystemAccessibility | SettingId::ReducedMotion => info_row(item),
+                SettingId::ReducedMotion => control_row(item, &reduced_motion),
+                SettingId::SystemAccessibility => info_row(item),
                 _ => {
                     let button = gtk::Button::builder()
                         .label(
@@ -591,8 +695,13 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         dialog,
         search,
         appearance,
+        color_scheme,
+        font_family,
+        font_scale,
+        appearance_reset,
         icon_style,
         default_view,
+        click_policy,
         remember_folder_view,
         vim_navigation,
         grid_size,
@@ -601,6 +710,7 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         search_index,
         metadata_sort_cache,
         privileged_access,
+        reduced_motion,
         action_buttons,
         #[cfg(test)]
         no_results,

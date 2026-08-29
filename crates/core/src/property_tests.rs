@@ -81,7 +81,7 @@ mod unix {
             descending in any::<bool>(),
             directories_last in any::<bool>(),
             hidden_last in any::<bool>(),
-            grouping_index in 0usize..3,
+        grouping_index in 0usize..5,
         ) {
             let mut first: Vec<_> = raw_names
                 .iter()
@@ -91,11 +91,13 @@ mod unix {
                 .collect();
             let mut second = first.clone();
             let before = sorted_identities(&first);
-            let grouping = match grouping_index {
-                0 => DirectoryGrouping::None,
-                1 => DirectoryGrouping::Type,
-                _ => DirectoryGrouping::Extension,
-            };
+        let grouping = match grouping_index {
+            0 => DirectoryGrouping::None,
+            1 => DirectoryGrouping::Type,
+            2 => DirectoryGrouping::Extension,
+            3 => DirectoryGrouping::Date,
+            _ => DirectoryGrouping::Size,
+        };
             let policy = DirectorySort::new(
                 SortColumn::ALL[column_index],
                 if descending {

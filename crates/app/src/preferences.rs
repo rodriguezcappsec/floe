@@ -41,6 +41,157 @@ pub const FOLDER_VIEW_CAPACITY: usize = 256;
 pub const SIDEBAR_WIDTH_MIN: u16 = 128;
 /// Keeps the sidebar from starving the file view on ordinary desktop windows.
 pub const SIDEBAR_WIDTH_MAX: u16 = 480;
+pub const WINDOW_WIDTH_DEFAULT: u16 = 1_060;
+pub const WINDOW_HEIGHT_DEFAULT: u16 = 720;
+pub const WINDOW_WIDTH_MIN: u16 = 720;
+pub const WINDOW_HEIGHT_MIN: u16 = 480;
+pub const WINDOW_SIZE_MAX: u16 = 8_192;
+pub const FONT_SCALE_MIN: u16 = 75;
+pub const FONT_SCALE_MAX: u16 = 200;
+pub const FONT_FAMILY_MAX_CHARS: usize = 64;
+pub const COLLAPSED_GROUP_CAPACITY: usize = 32;
+pub const COLLAPSED_GROUP_MAX_CHARS: usize = 80;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ColorSchemePreference {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl ColorSchemePreference {
+    pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
+
+    pub const fn persisted(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Light => "light",
+            Self::Dark => "dark",
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::System => "Follow system",
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+        }
+    }
+
+    pub fn from_persisted(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|candidate| candidate.persisted() == value)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ClickPolicy {
+    #[default]
+    Double,
+    Single,
+}
+
+impl ClickPolicy {
+    pub const ALL: [Self; 2] = [Self::Double, Self::Single];
+
+    pub const fn persisted(self) -> &'static str {
+        match self {
+            Self::Double => "double",
+            Self::Single => "single",
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Double => "Double-click to open",
+            Self::Single => "Single-click to open",
+        }
+    }
+
+    pub fn from_persisted(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|candidate| candidate.persisted() == value)
+    }
+
+    pub const fn activates_on_single_click(self) -> bool {
+        matches!(self, Self::Single)
+    }
+}
+
+pub fn validated_font_family(value: &str) -> Option<String> {
+    if value.chars().any(|character| character.is_control()) {
+        return None;
+    }
+    let value = value.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if value.chars().count() > FONT_FAMILY_MAX_CHARS {
+        return None;
+    }
+    Some(value.to_owned())
+}
+
+pub fn clamp_font_scale(percent: u16) -> u16 {
+    percent.clamp(FONT_SCALE_MIN, FONT_SCALE_MAX)
+}
+
+/// The last normal (neither maximized nor fullscreen) top-level window size.
+///
+/// Wayland intentionally does not expose portable application-controlled
+/// placement, so Floe persists size only. One tuple avoids restoring a width
+/// from one configuration with a height from another.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WindowSize {
+    width: u16,
+    height: u16,
+}
+
+impl WindowSize {
+    pub fn from_normal_allocation(
+        width: i32,
+        height: i32,
+        maximized: bool,
+        fullscreen: bool,
+    ) -> Option<Self> {
+        if maximized || fullscreen || width <= 0 || height <= 0 {
+            return None;
+        }
+        Some(Self {
+            width: width.clamp(i32::from(WINDOW_WIDTH_MIN), i32::from(WINDOW_SIZE_MAX)) as u16,
+            height: height.clamp(i32::from(WINDOW_HEIGHT_MIN), i32::from(WINDOW_SIZE_MAX)) as u16,
+        })
+    }
+
+    fn from_persisted(value: &str) -> Option<Self> {
+        let (width, height) = value.split_once('x')?;
+        Self::from_normal_allocation(width.parse().ok()?, height.parse().ok()?, false, false)
+    }
+
+    fn persisted(self) -> String {
+        format!("{}x{}", self.width, self.height)
+    }
+
+    pub const fn width(self) -> i32 {
+        self.width as i32
+    }
+
+    pub const fn height(self) -> i32 {
+        self.height as i32
+    }
+}
+
+impl Default for WindowSize {
+    fn default() -> Self {
+        Self {
+            width: WINDOW_WIDTH_DEFAULT,
+            height: WINDOW_HEIGHT_DEFAULT,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SidebarDensity {
@@ -83,6 +234,7 @@ impl FolderViewOverride {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ViewPreferences {
+    pub window_size: Option<WindowSize>,
     pub mode: ViewMode,
     pub grid_size: GridSize,
     pub sidebar_density: SidebarDensity,
@@ -92,6 +244,12 @@ pub struct ViewPreferences {
     pub file_density: FileViewDensity,
     pub sort: DirectorySort,
     pub columns: ListColumnLayout,
+    pub color_scheme: ColorSchemePreference,
+    pub click_policy: ClickPolicy,
+    pub font_family: Option<String>,
+    pub font_scale_percent: u16,
+    pub reduced_motion: bool,
+    pub collapsed_groups: Vec<String>,
     pub remember_per_folder: bool,
     pub keybindings: KeybindingOverrides,
     pub vim_mode: bool,
@@ -111,6 +269,7 @@ impl Default for ViewPreferences {
     fn default() -> Self {
         let state = FolderViewState::default();
         Self {
+            window_size: None,
             mode: state.mode,
             grid_size: state.grid_size,
             sidebar_density: SidebarDensity::default(),
@@ -120,6 +279,12 @@ impl Default for ViewPreferences {
             file_density: state.density,
             sort: state.sort,
             columns: state.columns,
+            color_scheme: ColorSchemePreference::System,
+            click_policy: ClickPolicy::Double,
+            font_family: None,
+            font_scale_percent: 100,
+            reduced_motion: false,
+            collapsed_groups: Vec::new(),
             remember_per_folder: false,
             keybindings: KeybindingOverrides::default(),
             vim_mode: false,
@@ -199,6 +364,9 @@ impl ViewPreferences {
             };
             let value = value.trim();
             match key.trim() {
+                "window-size" => {
+                    preferences.window_size = WindowSize::from_persisted(value);
+                }
                 "view" => {
                     if let Some(mode) = ViewMode::from_persisted(value) {
                         preferences.mode = mode;
@@ -261,6 +429,38 @@ impl ViewPreferences {
                     preferences.columns = ListColumnLayout::parse_visible(value);
                 }
                 "column-widths" => preferences.columns.apply_widths_text(value),
+                "column-order" => preferences.columns.apply_order_text(value),
+                "color-scheme" => {
+                    if let Some(scheme) = ColorSchemePreference::from_persisted(value) {
+                        preferences.color_scheme = scheme;
+                    }
+                }
+                "click-policy" => {
+                    if let Some(policy) = ClickPolicy::from_persisted(value) {
+                        preferences.click_policy = policy;
+                    }
+                }
+                "font-family" => preferences.font_family = validated_font_family(value),
+                "font-scale" => {
+                    if let Ok(scale) = value.parse::<u16>() {
+                        preferences.font_scale_percent = clamp_font_scale(scale);
+                    }
+                }
+                "reduced-motion" => preferences.reduced_motion = value == "true",
+                "collapsed-group" => {
+                    let valid = !value.is_empty()
+                        && value.chars().count() <= COLLAPSED_GROUP_MAX_CHARS
+                        && !value.chars().any(char::is_control);
+                    if valid
+                        && preferences.collapsed_groups.len() < COLLAPSED_GROUP_CAPACITY
+                        && !preferences
+                            .collapsed_groups
+                            .iter()
+                            .any(|group| group == value)
+                    {
+                        preferences.collapsed_groups.push(value.to_owned());
+                    }
+                }
                 "remember-per-folder" => {
                     preferences.remember_per_folder = value == "true";
                 }
@@ -327,9 +527,13 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=16\nappearance={}\nicon-style={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\nhidden-last={}\ncolumns={}\ncolumn-widths={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\nmetadata-sort-cache-enabled={}\nprivileged-access-enabled={}\n",
+            "version=18\nappearance={}\nicon-style={}\ncolor-scheme={}\nclick-policy={}\nfont-scale={}\nreduced-motion={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\nhidden-last={}\ncolumns={}\ncolumn-widths={}\ncolumn-order={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\nmetadata-sort-cache-enabled={}\nprivileged-access-enabled={}\n",
             self.appearance.persisted(),
             self.icon_style.persisted(),
+            self.color_scheme.persisted(),
+            self.click_policy.persisted(),
+            self.font_scale_percent,
+            self.reduced_motion,
             self.mode.persisted(),
             self.grid_size.edge(),
             self.sidebar_density.persisted(),
@@ -343,6 +547,7 @@ impl ViewPreferences {
             self.sort.hidden_last,
             self.columns.visible_names(),
             self.columns.widths_text(),
+            self.columns.order_text(),
             self.remember_per_folder,
             self.vim_mode,
             self.context_menu.persisted(),
@@ -350,6 +555,21 @@ impl ViewPreferences {
             self.metadata_sort_cache_enabled,
             self.privileged_access_enabled,
         );
+        if let Some(font_family) = self.font_family.as_deref() {
+            serialized.push_str("font-family=");
+            serialized.push_str(font_family);
+            serialized.push('\n');
+        }
+        for group in self.collapsed_groups.iter().take(COLLAPSED_GROUP_CAPACITY) {
+            serialized.push_str("collapsed-group=");
+            serialized.push_str(group);
+            serialized.push('\n');
+        }
+        if let Some(window_size) = self.window_size {
+            serialized.push_str("window-size=");
+            serialized.push_str(&window_size.persisted());
+            serialized.push('\n');
+        }
         if let Some(width) = self.sidebar_width {
             serialized.push_str(&format!("sidebar-width={}\n", clamp_sidebar_width(width)));
         }
@@ -395,7 +615,7 @@ fn serialize_folder_override(folder: &FolderViewOverride) -> Option<String> {
     let path = hex_encode(folder.path.as_os_str().as_bytes());
     let state = folder.state;
     Some(format!(
-        "{path}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        "{path}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
         state.mode.persisted(),
         state.grid_size.edge(),
         state.density.persisted(),
@@ -406,6 +626,7 @@ fn serialize_folder_override(folder: &FolderViewOverride) -> Option<String> {
         state.sort.hidden_last,
         state.columns.visible_names(),
         state.columns.widths_text(),
+        state.columns.order_text(),
     ))
 }
 
@@ -429,13 +650,27 @@ fn parse_folder_override(value: &str) -> Option<FolderViewOverride> {
     let directories = DirectoryPlacement::from_persisted(fields.next()?)?;
     let grouping = DirectoryGrouping::from_persisted(fields.next()?)?;
     let remaining = fields.collect::<Vec<_>>();
-    let (hidden_last, visible, widths) = match remaining.as_slice() {
-        [visible, widths] => (false, *visible, *widths),
-        [hidden_last, visible, widths] => ((*hidden_last).parse::<bool>().ok()?, *visible, *widths),
+    let (hidden_last, visible, widths, order) = match remaining.as_slice() {
+        [visible, widths] => (false, *visible, *widths, None),
+        [hidden_last, visible, widths] => (
+            (*hidden_last).parse::<bool>().ok()?,
+            *visible,
+            *widths,
+            None,
+        ),
+        [hidden_last, visible, widths, order] => (
+            (*hidden_last).parse::<bool>().ok()?,
+            *visible,
+            *widths,
+            Some(*order),
+        ),
         _ => return None,
     };
     let mut columns = ListColumnLayout::parse_visible(visible);
     columns.apply_widths_text(widths);
+    if let Some(order) = order {
+        columns.apply_order_text(order);
+    }
     Some(FolderViewOverride {
         path,
         state: FolderViewState {
@@ -639,6 +874,112 @@ mod tests {
     }
 
     #[test]
+    fn phase_20b2a_window_size_preferences_migrate_validate_and_round_trip() {
+        assert_eq!(ViewPreferences::parse("version=16\n").window_size, None);
+        assert_eq!(
+            ViewPreferences::parse("window-size=1440x900\n").window_size,
+            WindowSize::from_normal_allocation(1440, 900, false, false)
+        );
+        assert_eq!(
+            ViewPreferences::parse("window-size=1x2\n").window_size,
+            WindowSize::from_normal_allocation(1, 2, false, false)
+        );
+        for malformed in ["", "0x720", "1060x0", "wide", "1060x720x1"] {
+            assert_eq!(
+                ViewPreferences::parse(&format!("window-size={malformed}\n")).window_size,
+                None,
+                "{malformed:?}"
+            );
+        }
+
+        let preferences = ViewPreferences {
+            window_size: WindowSize::from_normal_allocation(1728, 972, false, false),
+            ..ViewPreferences::default()
+        };
+        let serialized = preferences.serialize();
+        assert!(serialized.starts_with("version=18\n"));
+        assert!(serialized.contains("window-size=1728x972\n"));
+        assert_eq!(ViewPreferences::parse(&serialized), preferences);
+    }
+
+    #[test]
+    fn phase_20b2_appearance_click_group_and_column_preferences_migrate_safely() {
+        let mut preferences = ViewPreferences {
+            color_scheme: ColorSchemePreference::Dark,
+            click_policy: ClickPolicy::Single,
+            font_family: Some("Noto Sans".to_owned()),
+            font_scale_percent: 135,
+            reduced_motion: true,
+            collapsed_groups: vec!["Folders".to_owned(), "2026-08-29".to_owned()],
+            ..ViewPreferences::default()
+        };
+        preferences.columns.move_column(ListColumn::Size, -1);
+        let serialized = preferences.serialize();
+        assert!(serialized.starts_with("version=18\n"));
+        assert!(serialized.contains("color-scheme=dark\n"));
+        assert!(serialized.contains("click-policy=single\n"));
+        assert!(serialized.contains("column-order=name,size,type"));
+        assert_eq!(ViewPreferences::parse(&serialized), preferences);
+
+        let hostile = ViewPreferences::parse(
+            "color-scheme=unknown\nclick-policy=triple\nfont-scale=9999\nfont-family=bad\nname\ncollapsed-group=ok\ncollapsed-group=bad\nvalue\n",
+        );
+        assert_eq!(hostile.color_scheme, ColorSchemePreference::System);
+        assert_eq!(hostile.click_policy, ClickPolicy::Double);
+        assert_eq!(hostile.font_scale_percent, FONT_SCALE_MAX);
+        assert_eq!(hostile.font_family, Some("bad".to_owned()));
+        assert_eq!(
+            hostile.collapsed_groups,
+            vec!["ok".to_owned(), "bad".to_owned()]
+        );
+        assert_eq!(validated_font_family("\nunsafe"), None);
+        assert_eq!(validated_font_family(&"x".repeat(65)), None);
+    }
+
+    #[test]
+    fn phase_20b2_click_policy_is_explicit_persisted_and_keyboard_independent() {
+        assert!(!ClickPolicy::Double.activates_on_single_click());
+        assert!(ClickPolicy::Single.activates_on_single_click());
+        assert_eq!(
+            ClickPolicy::from_persisted("single"),
+            Some(ClickPolicy::Single)
+        );
+        assert_eq!(ClickPolicy::from_persisted("enter"), None);
+        let restored = ViewPreferences::parse("click-policy=single\n");
+        assert_eq!(restored.click_policy, ClickPolicy::Single);
+    }
+
+    #[test]
+    fn phase_20b2_appearance_validates_scheme_font_scale_motion_and_reset_defaults() {
+        assert_eq!(ColorSchemePreference::ALL.len(), 3);
+        assert_eq!(clamp_font_scale(1), FONT_SCALE_MIN);
+        assert_eq!(clamp_font_scale(500), FONT_SCALE_MAX);
+        assert_eq!(
+            validated_font_family("  Noto Sans  ").as_deref(),
+            Some("Noto Sans")
+        );
+        let defaults = ViewPreferences::default();
+        assert_eq!(defaults.color_scheme, ColorSchemePreference::System);
+        assert_eq!(defaults.font_scale_percent, 100);
+        assert!(!defaults.reduced_motion);
+    }
+
+    #[test]
+    fn phase_20b2_columns_and_group_collapse_round_trip_without_path_reconstruction() {
+        let mut preferences = ViewPreferences {
+            collapsed_groups: vec!["Folders".to_owned(), ".rs".to_owned()],
+            ..ViewPreferences::default()
+        };
+        preferences.columns.move_column(ListColumn::Modified, -2);
+        preferences
+            .columns
+            .autosize_from_max_chars(ListColumn::Name, 40);
+        let restored = ViewPreferences::parse(&preferences.serialize());
+        assert_eq!(restored.columns, preferences.columns);
+        assert_eq!(restored.collapsed_groups, preferences.collapsed_groups);
+    }
+
+    #[test]
     fn phase_6d_preference_worker_persists_without_blocking_submitter() {
         let directory = tempdir().expect("temporary directory");
         let path = directory.path().join("nested").join(PREFERENCE_FILE_NAME);
@@ -698,7 +1039,7 @@ mod tests {
         let serialized = preferences.serialize();
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored, preferences);
-        assert!(serialized.starts_with("version=16\n"));
+        assert!(serialized.starts_with("version=18\n"));
         assert!(serialized.contains("miller-column-width=360\n"));
         assert!(serialized.contains("inspector-width=420\n"));
     }
@@ -717,7 +1058,7 @@ mod tests {
         );
         assert_eq!(customized.context_menu.persisted(), "archives,checksums");
         let serialized = customized.serialize();
-        assert!(serialized.starts_with("version=16\n"));
+        assert!(serialized.starts_with("version=18\n"));
         assert!(serialized.contains("context-menu-groups=archives,checksums\n"));
         assert_eq!(ViewPreferences::parse(&serialized), customized);
 
@@ -740,7 +1081,7 @@ mod tests {
         let mut preferences = legacy;
         preferences.inspector_width = MillerColumnWidth::new(440);
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=16\n"));
+        assert!(serialized.starts_with("version=18\n"));
         assert!(serialized.contains("inspector-width=440\n"));
         assert_eq!(
             ViewPreferences::parse(&serialized).inspector_width,
@@ -763,7 +1104,7 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=16\n"));
+            assert!(serialized.starts_with("version=18\n"));
             assert!(serialized.contains(&format!("appearance={}\n", preset.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).appearance, preset);
         }
@@ -784,7 +1125,7 @@ mod tests {
                 ..ViewPreferences::default()
             };
             let serialized = preferences.serialize();
-            assert!(serialized.starts_with("version=16\n"));
+            assert!(serialized.starts_with("version=18\n"));
             assert!(serialized.contains(&format!("icon-style={}\n", style.persisted())));
             assert_eq!(ViewPreferences::parse(&serialized).icon_style, style);
         }
@@ -817,7 +1158,7 @@ mod tests {
         let mut preferences = ViewPreferences::default();
         preferences.saved_searches.add(saved).expect("catalog add");
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=16\n"));
+        assert!(serialized.starts_with("version=18\n"));
         assert!(serialized.contains("saved-search="));
         let restored = ViewPreferences::parse(&serialized);
         assert_eq!(restored.saved_searches, preferences.saved_searches);
@@ -860,7 +1201,7 @@ mod tests {
         let mut enabled = defaults;
         enabled.search_index_enabled = true;
         let serialized = enabled.serialize();
-        assert!(serialized.starts_with("version=16\n"));
+        assert!(serialized.starts_with("version=18\n"));
         assert!(serialized.contains("search-index-enabled=true\n"));
         assert!(ViewPreferences::parse(&serialized).search_index_enabled);
         assert!(!ViewPreferences::parse("search-index-enabled=invalid\n").search_index_enabled);
@@ -931,7 +1272,7 @@ mod tests {
             allow_multiple: false,
         });
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=16\n"));
+        assert!(serialized.starts_with("version=18\n"));
         assert!(serialized.contains("custom-action="));
         assert_eq!(ViewPreferences::parse(&serialized), preferences);
 
@@ -949,7 +1290,7 @@ mod tests {
         let mut enabled = defaults;
         enabled.privileged_access_enabled = true;
         let serialized = enabled.serialize();
-        assert!(serialized.starts_with("version=16\n"));
+        assert!(serialized.starts_with("version=18\n"));
         assert!(serialized.contains("privileged-access-enabled=true\n"));
         assert!(ViewPreferences::parse(&serialized).privileged_access_enabled);
     }
@@ -980,7 +1321,7 @@ mod tests {
         );
 
         let serialized = preferences.serialize();
-        assert!(serialized.starts_with("version=16\n"));
+        assert!(serialized.starts_with("version=18\n"));
         assert!(serialized.contains("hidden-last=true\n"));
         let restored = ViewPreferences::parse(&serialized);
         assert!(restored.sort.hidden_last);

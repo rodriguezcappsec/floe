@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use gtk::{gdk, prelude::*};
 
@@ -287,6 +287,29 @@ impl Appearance {
   padding: 0 4px;
 }}
 
+.floe-grid-sections,
+.floe-grid-section {{
+  background: transparent;
+}}
+
+.floe-grid-section-header {{
+  min-height: 28px;
+  padding: 2px 8px;
+  border-radius: 8px;
+}}
+
+.floe-grid-section-header:hover {{
+  background-color: alpha(@accent_bg_color, 0.08);
+}}
+
+.floe-grid-section-header:focus-visible {{
+  box-shadow: 0 0 0 2px alpha(@accent_bg_color, 0.76);
+}}
+
+.floe-grid-section-body {{
+  padding-top: 0;
+}}
+
 .floe-entry-icon {{
   opacity: 0.90;
 }}
@@ -554,6 +577,9 @@ impl AppearancePreset {
 pub struct AppearanceManager {
     provider: gtk::CssProvider,
     preset: Cell<AppearancePreset>,
+    font_family: RefCell<Option<String>>,
+    font_scale_percent: Cell<u16>,
+    reduced_motion: Cell<bool>,
 }
 
 impl AppearanceManager {
@@ -569,6 +595,9 @@ impl AppearanceManager {
         let manager = Self {
             provider,
             preset: Cell::new(preset),
+            font_family: RefCell::new(None),
+            font_scale_percent: Cell::new(100),
+            reduced_motion: Cell::new(false),
         };
         manager.apply(window, preset);
         manager
@@ -580,7 +609,8 @@ impl AppearanceManager {
 
     pub fn apply(&self, window: &gtk::Widget, preset: AppearancePreset) {
         let appearance = Appearance::for_preset(preset);
-        self.provider.load_from_string(&appearance.css());
+        self.provider
+            .load_from_string(&self.complete_css(appearance));
         for candidate in AppearancePreset::ALL {
             window.remove_css_class(candidate.class_name());
         }
@@ -592,11 +622,72 @@ impl AppearanceManager {
         }
         self.preset.set(preset);
     }
+
+    pub fn apply_accessibility(
+        &self,
+        window: &gtk::Widget,
+        font_family: Option<&str>,
+        font_scale_percent: u16,
+        reduced_motion: bool,
+    ) {
+        self.font_family.replace(font_family.map(ToOwned::to_owned));
+        self.font_scale_percent
+            .set(font_scale_percent.clamp(75, 200));
+        self.reduced_motion.set(reduced_motion);
+        if reduced_motion {
+            window.add_css_class("floe-reduced-motion");
+        } else {
+            window.remove_css_class("floe-reduced-motion");
+        }
+        self.apply(window, self.preset.get());
+    }
+
+    fn complete_css(&self, appearance: Appearance) -> String {
+        let mut css = appearance.css();
+        css.push_str(&accessibility_css(
+            self.font_family.borrow().as_deref(),
+            self.font_scale_percent.get(),
+            self.reduced_motion.get(),
+        ));
+        css
+    }
+}
+
+fn accessibility_css(
+    font_family: Option<&str>,
+    font_scale_percent: u16,
+    reduced_motion: bool,
+) -> String {
+    let family = font_family.map(|family| {
+        family
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\'', "\\'")
+    });
+    let family = family
+        .as_deref()
+        .map_or_else(|| "initial".to_owned(), |family| format!("\"{family}\""));
+    let motion = if reduced_motion { "0s" } else { "initial" };
+    format!(
+        "\n.floe-window {{ font-family: {family}; font-size: {}%; }}\n\
+         .floe-window.floe-reduced-motion * {{ transition-duration: {motion}; }}\n\
+         .floe-window .floe-group-label {{ border: 1px solid alpha(@borders, 0.72); }}\n\
+         .floe-window .floe-active-pane {{ outline: 2px solid @accent_color; outline-offset: -2px; }}\n",
+        font_scale_percent.clamp(75, 200)
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Appearance, AppearancePreset};
+
+    #[test]
+    fn phase_20b2_accessibility_css_keeps_non_color_focus_and_group_cues() {
+        let css = super::accessibility_css(Some("Inter"), 125, true);
+        assert!(css.contains(".floe-group-label { border:"));
+        assert!(css.contains(".floe-active-pane { outline:"));
+        assert!(css.contains("transition-duration: 0s"));
+    }
 
     #[test]
     fn phase_0_appearance_names_are_trimmed_and_case_insensitive() {
