@@ -106,6 +106,29 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+## Release performance gate
+
+Phase 21A's stress harness is opt-in, release-only, serial, and entirely
+temporary-filesystem isolated:
+
+```bash
+cargo test -p floe-app phase_21a_performance --release -- --ignored --nocapture --test-threads=1
+```
+
+It creates a real 100,000-entry directory and exercises Floe's production
+enumeration, sort, filter/search, thumbnail, content-search, copy/checksum,
+duplicate, integrity, and advanced-metadata paths. Do not add it to ordinary
+debug `cargo test`: the fixture intentionally has a higher filesystem cost.
+Each workload prints a machine-readable `PHASE21A_RESULT` line. The harness
+reads Linux `/proc/self/status` `VmHWM` for whole-process peak memory; use the
+same procedure when updating evidence. Record host, toolchain, filesystem,
+workload sizes, budgets, baseline/current results, and limitations in
+[`PERFORMANCE.md`](./PERFORMANCE.md).
+
+Never point the harness at a user directory or mounted volume, and do not
+weaken path identity, no-follow, cancellation, or capacity checks to improve a
+number.
+
 Useful focused commands include:
 
 ```bash

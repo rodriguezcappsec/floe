@@ -56,6 +56,8 @@ pub mod move_executor;
 mod operation_control;
 mod operation_recovery;
 mod operations;
+#[cfg(test)]
+mod performance;
 mod permanent_delete_executor;
 mod permission_executor;
 mod preferences;

@@ -1237,3 +1237,54 @@ Phase 13B filename search remains excluded and is the sole recommended next phas
 
 COMPLETE on `phase-12f-productivity-actions`; verified evidence is recorded in
 `GATES.md`. Phase 13A folder filter is the sole recommended next phase.
+# Plan: Floe Phase 21A — Performance
+
+## Contract
+
+Measure and improve the performance of Floe functionality that already exists.
+The phase must exercise a real 100,000-entry local directory plus bounded
+thumbnail, filename/content search, copy, checksum/integrity, duplicate, and
+advanced-metadata workloads. Fixtures stay below disposable temporary roots and
+must never inspect the user's HOME, Trash, mounts, or data. Measurements must be
+reproducible, record host/toolchain context, and distinguish elapsed time,
+throughput, memory evidence, and structural capacity bounds. Optimize only a
+measured bottleneck without weakening exact-path identity, cancellation,
+no-follow policy, bounded concurrency, cache privacy, or GTK responsiveness.
+
+This phase does not benchmark or implement vaults, encryption, remote browsing,
+MTP, Niri, Plasma-specific behavior, or any other deferred capability. It does
+not add speculative async/runtime or allocator dependencies.
+
+## Depth tree
+
+1. Benchmark contract and fixtures
+   1. Add one opt-in release-mode performance harness over real Floe APIs.
+   2. Cover 100k browsing/sorting/search and bounded representative expensive
+      workloads with machine-readable, human-readable evidence.
+2. Measurement and optimization
+   1. Record a reproducible baseline on this host.
+   2. Profile the slowest applicable path and make the smallest measured
+      architectural optimization with correctness regression coverage.
+3. Native and release verification
+   1. Exercise a real 100k folder through the native Wayland application and
+      verify liveness/clean quit without GTK criticals.
+   2. Run all deterministic, GTK/E2E where applicable, documentation, status,
+      and diff-hygiene gates.
+
+## Status log
+
+- 2026-08-29: Phase 21A started on `phase-21a-performance`; gates are defined in
+  `gates/phase-21a.md`. Exactly Phase 21A remains `NEXT` until every gate is
+  evidenced.
+- 2026-08-29 pass 1: implemented the complete release harness and measured the
+  production workload set below one temporary root.
+- 2026-08-29 pass 2: replaced the measured two-pass ASCII metadata counter with
+  one pass; 16,652,288 bytes improved 64,108 us to 32,212 us with equal facts.
+- 2026-08-29 pass 3: found and fixed vertical-tab parity, added exhaustive ASCII
+  plus Unicode/line-ending regression coverage, and reran strict Clippy/tests.
+- 2026-08-29 pass 4: polished reproduction/limitation documentation, completed
+  deterministic, GTK, E2E-preflight and native lifecycle evidence. Phase 21A is
+  complete with the critical-free native sub-gate explicitly abandoned because
+  host AT-SPI refused connections. Exactly Phase 21B is now `NEXT`.
+
+---

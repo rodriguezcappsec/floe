@@ -603,6 +603,17 @@ fn index_and_sort(
     Ok(indexed)
 }
 
+#[cfg(test)]
+pub(crate) fn index_and_sort_for_performance(
+    entries: Vec<Arc<DirectoryEntry>>,
+    sort: DirectorySort,
+) -> Result<Vec<Arc<DirectoryEntry>>, MetadataIndexError> {
+    let mut cache = MetadataCache::default();
+    let generation = AtomicU64::new(1);
+    let (responses, _receiver) = mpsc::sync_channel(RESPONSE_CAPACITY);
+    index_and_sort(entries, sort, &mut cache, None, &generation, 1, &responses)
+}
+
 fn category_for(column: SortColumn) -> u32 {
     match column {
         SortColumn::DocumentWordCount | SortColumn::DocumentLineCount => TEXT,
@@ -686,13 +697,42 @@ fn extract_text(
     let Ok(text) = std::str::from_utf8(&bytes) else {
         return Ok(());
     };
-    result.word_count = Some(text.split_whitespace().count() as u64);
-    result.line_count = Some(if text.is_empty() {
-        0
-    } else {
-        text.lines().count() as u64
-    });
+    let (word_count, line_count) = count_text_facts(text);
+    result.word_count = Some(word_count);
+    result.line_count = Some(line_count);
     Ok(())
+}
+
+pub(crate) fn count_text_facts(text: &str) -> (u64, u64) {
+    if !text.is_ascii() {
+        return (
+            text.split_whitespace().count() as u64,
+            text.lines().count() as u64,
+        );
+    }
+
+    let bytes = text.as_bytes();
+    let mut words = 0_u64;
+    let mut lines = 0_u64;
+    let mut in_word = false;
+    for byte in bytes {
+        if *byte == b'\n' {
+            lines = lines.saturating_add(1);
+        }
+        // `str::split_whitespace` includes ASCII vertical tab, while
+        // `u8::is_ascii_whitespace` intentionally does not.
+        let whitespace = byte.is_ascii_whitespace() || *byte == b'\x0b';
+        if whitespace {
+            in_word = false;
+        } else if !in_word {
+            words = words.saturating_add(1);
+            in_word = true;
+        }
+    }
+    if !bytes.is_empty() && bytes.last() != Some(&b'\n') {
+        lines = lines.saturating_add(1);
+    }
+    (words, lines)
 }
 
 fn extract_image(entry: &DirectoryEntry, result: &mut IndexedSortMetadata) {
@@ -1225,6 +1265,31 @@ mod tests {
         let mut linked_text = IndexedSortMetadata::default();
         extract_text(&link, &mut linked_text, &mut budget).unwrap();
         assert_eq!(linked_text.word_count, None);
+    }
+
+    #[test]
+    fn phase_21a_text_fact_fast_path_matches_rust_text_semantics() {
+        let all_ascii = (0_u8..=127).map(char::from).collect::<String>();
+        for text in [
+            "",
+            "one",
+            "one two\nthree\n",
+            "one\r\ntwo\r\n",
+            "one\rtwo",
+            " \t\n\r\u{000b}\u{000c}",
+            "one\n\nthree",
+            "fröhlich\u{2003}welt\nδεύτερη γραμμή",
+            &all_ascii,
+        ] {
+            assert_eq!(
+                count_text_facts(text),
+                (
+                    text.split_whitespace().count() as u64,
+                    text.lines().count() as u64,
+                ),
+                "optimized counts drifted for {text:?}"
+            );
+        }
     }
 
     #[test]

@@ -375,7 +375,7 @@ impl Drop for ThumbnailWorker {
 }
 
 #[cfg(test)]
-fn decode_thumbnail(key: &ThumbnailKey) -> Result<ThumbnailPixels, ThumbnailError> {
+pub(crate) fn decode_thumbnail(key: &ThumbnailKey) -> Result<ThumbnailPixels, ThumbnailError> {
     decode_native_thumbnail_with_cache(key, None)
 }
 
