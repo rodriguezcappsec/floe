@@ -25,7 +25,7 @@ use crate::{
     worker::BrowserWorker,
 };
 
-const APPLICATION_ID: &str = "io.github.floe.FileManager";
+pub(crate) const APPLICATION_ID: &str = "io.github.rodriguezcappsec.Floe";
 
 const MULTIPLE_OPEN_TARGETS_MESSAGE: &str = "Open one command-line file or folder at a time";
 const NON_LOCAL_OPEN_TARGET_MESSAGE: &str =

@@ -1,6 +1,6 @@
 use std::{
-    fs::{self, OpenOptions},
-    io::{self, Write},
+    fs::{self, File, OpenOptions},
+    io::{self, Read, Write},
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver, SyncSender, TrySendError},
     thread::{self, JoinHandle},
@@ -11,7 +11,7 @@ use std::{
     ffi::OsString,
     os::unix::{
         ffi::{OsStrExt, OsStringExt},
-        fs::OpenOptionsExt,
+        fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     },
 };
 
@@ -35,6 +35,9 @@ use crate::{
 
 const PREFERENCE_QUEUE_CAPACITY: usize = 1;
 const PREFERENCE_FILE_NAME: &str = "view-preferences.conf";
+const PREFERENCE_FORMAT_VERSION: u16 = 18;
+const MAX_PREFERENCE_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_TEMP_ATTEMPTS: u32 = 64;
 pub const FOLDER_VIEW_CAPACITY: usize = 256;
 
 /// The smallest useful sidebar width in Floe's compact density.
@@ -58,6 +61,134 @@ pub enum ColorSchemePreference {
     System,
     Light,
     Dark,
+}
+
+#[cfg(test)]
+mod phase_21b_migration_tests {
+    use std::{
+        fs,
+        os::unix::{fs::PermissionsExt, fs::symlink},
+    };
+
+    use tempfile::tempdir;
+
+    use super::*;
+
+    fn preference_path(root: &Path) -> PathBuf {
+        root.join("config").join("floe").join(PREFERENCE_FILE_NAME)
+    }
+
+    fn write_fixture(path: &Path, bytes: &[u8]) {
+        fs::create_dir_all(path.parent().expect("fixture parent")).expect("create fixture parent");
+        fs::write(path, bytes).expect("write preference fixture");
+    }
+
+    #[test]
+    fn phase_21b_migration_upgrades_legacy_with_private_backup_and_rollback() {
+        let fixture = tempdir().expect("temporary preferences");
+        let path = preference_path(fixture.path());
+        let legacy = b"version=16\nview=grid\ngrid-size=160\n";
+        write_fixture(&path, legacy);
+
+        let (loaded, worker) = PreferenceWorker::spawn_internal(path.clone(), None)
+            .expect("migrate supported preferences");
+        drop(worker);
+        assert_eq!(loaded.mode, ViewMode::Grid);
+        assert_eq!(loaded.grid_size.edge(), 160);
+
+        let backup = path.with_extension("conf.pre-v18-legacy");
+        assert_eq!(fs::read(&backup).expect("legacy backup"), legacy);
+        assert!(
+            fs::read_to_string(&path)
+                .expect("migrated preferences")
+                .starts_with("version=18\n")
+        );
+        assert_eq!(
+            fs::metadata(path.parent().expect("preference parent"))
+                .expect("parent metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        for private_file in [&path, &backup] {
+            assert_eq!(
+                fs::metadata(private_file)
+                    .expect("private file metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+
+        fs::copy(&backup, &path).expect("restore rollback backup");
+        let (rolled_back, worker) = PreferenceWorker::spawn_internal(path, None)
+            .expect("re-open restored legacy preferences");
+        drop(worker);
+        assert_eq!(rolled_back.mode, ViewMode::Grid);
+    }
+
+    #[test]
+    fn phase_21b_migration_backs_up_corrupt_input_and_rejects_future_and_symlink() {
+        let fixture = tempdir().expect("temporary preferences");
+        let corrupt_path = preference_path(fixture.path());
+        write_fixture(&corrupt_path, b"version=18\nfont-family=bad\xff\n");
+        let (defaults, worker) = PreferenceWorker::spawn_internal(corrupt_path.clone(), None)
+            .expect("recover corrupt preferences with backup");
+        drop(worker);
+        assert_eq!(defaults, ViewPreferences::default());
+        assert!(corrupt_path.with_extension("conf.pre-v18-corrupt").exists());
+
+        let future_path = fixture.path().join("future/floe/view-preferences.conf");
+        write_fixture(&future_path, b"version=19\nview=grid\n");
+        assert!(PreferenceWorker::spawn_internal(future_path.clone(), None).is_err());
+        assert_eq!(
+            fs::read(&future_path).expect("future input retained"),
+            b"version=19\nview=grid\n"
+        );
+
+        let sentinel = fixture.path().join("sentinel");
+        fs::write(&sentinel, b"do not replace").expect("sentinel");
+        let symlink_path = fixture.path().join("symlink/floe/view-preferences.conf");
+        fs::create_dir_all(symlink_path.parent().expect("symlink parent")).expect("symlink parent");
+        symlink(&sentinel, &symlink_path).expect("preference symlink");
+        assert!(PreferenceWorker::spawn_internal(symlink_path, None).is_err());
+        assert_eq!(
+            fs::read(sentinel).expect("sentinel unchanged"),
+            b"do not replace"
+        );
+    }
+
+    #[test]
+    fn phase_21b_migration_rejects_oversize_and_ignores_interrupted_temp_residue() {
+        let fixture = tempdir().expect("temporary preferences");
+        let oversized_path = preference_path(fixture.path());
+        write_fixture(
+            &oversized_path,
+            &vec![b'x'; (MAX_PREFERENCE_FILE_BYTES + 1) as usize],
+        );
+        assert!(PreferenceWorker::spawn_internal(oversized_path, None).is_err());
+
+        let current_path = fixture.path().join("current/floe/view-preferences.conf");
+        let current = ViewPreferences {
+            mode: ViewMode::Grid,
+            ..ViewPreferences::default()
+        };
+        write_fixture(&current_path, current.serialize().as_bytes());
+        fs::write(
+            current_path
+                .parent()
+                .expect("current parent")
+                .join(".view-preferences.conf.tmp-interrupted"),
+            b"partial",
+        )
+        .expect("interrupted residue");
+        let (loaded, worker) = PreferenceWorker::spawn_internal(current_path, None)
+            .expect("load current preference despite residue");
+        drop(worker);
+        assert_eq!(loaded.mode, ViewMode::Grid);
+    }
 }
 
 impl ColorSchemePreference {
@@ -750,7 +881,16 @@ impl PreferenceWorker {
         path: PathBuf,
         start_gate: Option<Receiver<()>>,
     ) -> io::Result<(ViewPreferences, Self)> {
-        let initial = load_preferences(&path);
+        let loaded = load_preferences(&path)?;
+        if let Some(backup_suffix) = loaded.backup_suffix {
+            persist_migrated_preferences(
+                &path,
+                &loaded.source_bytes,
+                backup_suffix,
+                &loaded.preferences,
+            )?;
+        }
+        let initial = loaded.preferences;
         let (sender, receiver) = mpsc::sync_channel(PREFERENCE_QUEUE_CAPACITY);
         let worker = thread::Builder::new()
             .name("floe-view-preferences".to_owned())
@@ -817,35 +957,208 @@ impl Drop for PreferenceWorker {
     }
 }
 
-fn load_preferences(path: &Path) -> ViewPreferences {
-    match fs::read_to_string(path) {
-        Ok(contents) => ViewPreferences::parse(&contents),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => ViewPreferences::default(),
-        Err(error) => {
-            tracing::warn!(%error, "could not read view preferences; using defaults");
-            ViewPreferences::default()
+struct LoadedPreferences {
+    preferences: ViewPreferences,
+    source_bytes: Vec<u8>,
+    backup_suffix: Option<&'static str>,
+}
+
+fn load_preferences(path: &Path) -> io::Result<LoadedPreferences> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    options.custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32);
+    let mut file = match options.open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            return Ok(LoadedPreferences {
+                preferences: ViewPreferences::default(),
+                source_bytes: Vec::new(),
+                backup_suffix: None,
+            });
         }
+        Err(error) => return Err(error),
+    };
+    let metadata = file.metadata()?;
+    if !metadata.is_file()
+        || metadata.uid() != rustix::process::geteuid().as_raw()
+        || metadata.len() > MAX_PREFERENCE_FILE_BYTES
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "view preference storage is not a bounded owned regular file",
+        ));
     }
+    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
+    Read::by_ref(&mut file)
+        .take(MAX_PREFERENCE_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_PREFERENCE_FILE_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "view preference storage exceeds its size limit",
+        ));
+    }
+    let contents = match std::str::from_utf8(&bytes) {
+        Ok(contents) if !contents.contains('\0') => contents,
+        _ => {
+            return Ok(LoadedPreferences {
+                preferences: ViewPreferences::default(),
+                source_bytes: bytes,
+                backup_suffix: Some("corrupt"),
+            });
+        }
+    };
+    let version = stored_preference_version(contents)?;
+    if version > PREFERENCE_FORMAT_VERSION {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("view preference version {version} is newer than supported"),
+        ));
+    }
+    Ok(LoadedPreferences {
+        preferences: ViewPreferences::parse(contents),
+        source_bytes: bytes,
+        backup_suffix: (version < PREFERENCE_FORMAT_VERSION).then_some("legacy"),
+    })
+}
+
+fn stored_preference_version(contents: &str) -> io::Result<u16> {
+    let mut version = None;
+    for line in contents.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "version" {
+            continue;
+        }
+        if version.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "view preference storage has duplicate version records",
+            ));
+        }
+        version = Some(value.trim().parse::<u16>().map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "view preference storage has an invalid version",
+            )
+        })?);
+    }
+    Ok(version.unwrap_or(0))
+}
+
+fn persist_migrated_preferences(
+    path: &Path,
+    source_bytes: &[u8],
+    backup_suffix: &str,
+    preferences: &ViewPreferences,
+) -> io::Result<()> {
+    let backup = path.with_extension(format!(
+        "conf.pre-v{PREFERENCE_FORMAT_VERSION}-{backup_suffix}"
+    ));
+    if !backup.exists() {
+        write_private_file(&backup, source_bytes, false)?;
+    }
+    persist_preferences(path, preferences)
 }
 
 fn persist_preferences(path: &Path, preferences: &ViewPreferences) -> io::Result<()> {
-    let Some(parent) = path.parent() else {
+    if let Ok(metadata) = fs::symlink_metadata(path)
+        && (!metadata.is_file() || metadata.file_type().is_symlink())
+    {
         return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "view preference destination is not a regular file",
+        ));
+    }
+    write_private_file(path, preferences.serialize().as_bytes(), true)
+}
+
+fn write_private_file(path: &Path, bytes: &[u8], replace: bool) -> io::Result<()> {
+    let parent = path.parent().ok_or_else(|| {
+        io::Error::new(
             io::ErrorKind::InvalidInput,
             "view preference path has no parent",
+        )
+    })?;
+    prepare_private_parent(parent)?;
+    let name = path.file_name().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "view preference path has no file name",
+        )
+    })?;
+    let mut temporary = None;
+    for attempt in 0..MAX_TEMP_ATTEMPTS {
+        let candidate = parent.join(format!(
+            ".{}.tmp-{}-{attempt}",
+            name.to_string_lossy(),
+            std::process::id()
         ));
-    };
-    fs::create_dir_all(parent)?;
-    let temporary = path.with_extension("tmp");
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut file = options.open(&temporary)?;
-    file.write_all(preferences.serialize().as_bytes())?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(temporary, path)
+        let mut options = OpenOptions::new();
+        options
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(rustix::fs::OFlags::NOFOLLOW.bits() as i32);
+        match options.open(&candidate) {
+            Ok(file) => {
+                temporary = Some((candidate, file));
+                break;
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    let (temporary_path, mut file) = temporary.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "no private preference temporary name is available",
+        )
+    })?;
+    let result = (|| -> io::Result<()> {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        if replace {
+            fs::rename(&temporary_path, path)?;
+        } else {
+            match fs::hard_link(&temporary_path, path) {
+                Ok(()) => fs::remove_file(&temporary_path)?,
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    fs::remove_file(&temporary_path)?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        File::open(parent)?.sync_all()
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary_path);
+    }
+    result
+}
+
+fn prepare_private_parent(parent: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(parent) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+        Ok(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "view preference parent is not a private directory",
+            ));
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => fs::create_dir(parent)?,
+        Err(error) => return Err(error),
+    }
+    let metadata = fs::symlink_metadata(parent)?;
+    if metadata.uid() != rustix::process::geteuid().as_raw() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "view preference parent belongs to another user",
+        ));
+    }
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
 }
 
 #[cfg(test)]
@@ -1188,7 +1501,10 @@ mod tests {
             0o600
         );
         assert_eq!(
-            load_preferences(&path).saved_searches,
+            load_preferences(&path)
+                .expect("load saved-search preferences")
+                .preferences
+                .saved_searches,
             preferences.saved_searches
         );
     }

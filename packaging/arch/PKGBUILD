@@ -1,0 +1,32 @@
+# Maintainer: Floe project contributors
+pkgname=floe
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Spatial file manager for Wayland'
+arch=('x86_64')
+url='https://github.com/rodriguezcappsec/floe'
+license=('LicenseRef-proprietary')
+depends=('gtk4>=4.14' 'libadwaita>=1.5' 'glib2' 'hicolor-icon-theme')
+makedepends=('rust' 'pkgconf')
+optdepends=(
+  'gvfs: additional GIO Trash, mount, and administrator-location support'
+  'ffmpeg: ffprobe-backed advanced video metadata'
+)
+options=('!lto')
+source=("$pkgname-$pkgver.tar.gz")
+sha256sums=('ae74aca57f9ed6ef9fdbcb21858d6e5e578679263757256f3cd08c7c06f264c0')
+
+build() {
+  cd "$pkgname-$pkgver"
+  cargo build --frozen --release -p floe-app --bin floe
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  cargo test --frozen --workspace
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  DESTDIR="$pkgdir" PREFIX=/usr sh packaging/install.sh
+}

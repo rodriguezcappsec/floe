@@ -7,9 +7,9 @@ belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 
 The generic desktop integration baseline is Phase 14; Phase 18A's
 documentation-only security architecture, runtime Phases 18T–18Y, and Phase
-20A Settings Center are complete. Phase 7G Navigation Upgrades is the only
-`NEXT` phase. Every other future capability
-remains `PLANNED` or `DEFERRED`.
+20A Settings Center are complete. Phase 21B packaging and migrations are
+complete. Phase 21C release documentation is the only `NEXT` phase. Every
+other future capability remains `PLANNED` or `DEFERRED`.
 
 ## Status key
 
@@ -657,11 +657,11 @@ advanced predicates and explicit Match Case control.
 | Thumbnail-scroll/cache stress | `PARTIAL` | 21A | Bounded production decode covers 32 generated 512px PNGs at 192px output; physical GTK scroll and external system-thumbnailer saturation remain unclaimed. |
 | Copy/move/hash/encryption throughput | `PARTIAL` | 21A | Local 32 MiB copy and SHA-256 are measured with production engines; move-specific and unimplemented encryption benchmarks are not claimed. |
 | Vault/metadata/scanner/integrity performance | `PARTIAL` | 21A | Advanced metadata, duplicate scan, saved fingerprint and verification are measured; no vault benchmark exists because no vault exists. |
-| Desktop file/app metadata/icons | `PLANNED` | 21 | Release-quality application integration and MIME declarations. |
+| Desktop file/app metadata/icons | `COMPLETE` | 21B | Stable application ID, `floe` binary, validated desktop/AppStream metadata, reviewed 512px hicolor icon; only `inode/directory` is advertised. |
 | `.age` association | `DEFERRED` | 21 | Only after portable encryption format is selected and implemented. |
-| Flatpak/Arch/AUR packaging | `DEFERRED` | 21 | Select after dependency, sandbox, portal, and vault/FUSE requirements are known. |
-| Configuration/cache migration | `PLANNED` | 20/21 | Preserve current preferences/bookmarks/cache and future versioned formats across upgrades. |
-| Vault-format compatibility policy | `PLANNED` | 18F/21 | Security-sensitive migration and backward-compatibility rules. |
+| Flatpak/Arch/AUR packaging | `PARTIAL` | 21B | Arch `PKGBUILD` plus manifest-driven source install/uninstall are verified; Flatpak and AUR publication remain deferred. |
+| Configuration/cache migration | `COMPLETE` | 20/21B | Version-18 preferences use bounded private no-follow atomic migration with legacy/corrupt backups; durable state and rebuildable cache rollback policy are documented and tested. |
+| Vault-format compatibility policy | `DEFERRED` | 18F/21 | Floe has no Encrypted Vault or vault format to migrate; policy starts only with a reviewed implementation. |
 | Dependency/security audit | `PLANNED` | 18AA/21 | Hostile files, crypto, parsers, sandbox assumptions, secrets, caches, lifecycle, and recovery. |
 | Release documentation/accessibility/readiness | `PLANNED` | 21 | Native Niri, Plasma, and generic Wayland testing with truthful limitations. |
 

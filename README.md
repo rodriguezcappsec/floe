@@ -224,13 +224,13 @@ standards-based path.
 
 ## Project status
 
-**Phase 21A — Performance** is complete. Floe now has a reproducible
-release-only, tempfile-isolated 100,000-entry and bounded expensive-workload
-harness, recorded latency/budget/peak-memory evidence, and a measured one-pass
-metadata text-fact optimization with correctness parity. The native 100k app
-answered Ping and Quit with exit 0; the host's unavailable AT-SPI bus prevents
-a critical-free native-log claim. The next bounded milestone is **Phase 21B —
-Packaging and migrations**.
+**Phase 21B — Packaging and migrations** is complete. Floe now has the stable
+`io.github.rodriguezcappsec.Floe` application identity, optimized `floe`
+binary, validated desktop/AppStream/icon metadata, a manifest-driven source
+installer, and a verified Arch package. Version-18 preference migration is
+bounded, private, no-follow, and atomic; package operations never change user
+MIME defaults or migrate user XDG state. Flatpak and publication remain
+deferred. The next bounded milestone is **Phase 21C — Release documentation**.
 
 Floe has completed the generic desktop integration baseline through **Phase
 14**, the documentation-only **Phase 18A Security Threat Model**, and runtime
@@ -276,6 +276,8 @@ filters cover type, extension, MIME, size, date, owner, hidden state, and case.
 The project tracks scope and verification explicitly:
 
 - [User guide](./docs/USER_GUIDE.md) — how to use current Floe features
+- [Installation](./docs/INSTALLATION.md) — verified source and Arch packaging
+- [Migrations](./docs/MIGRATIONS.md) — settings, cache, backup, and rollback policy
 - [Roadmap](./docs/ROADMAP.md) — ordered phases and exactly one recommended next milestone
 - [Feature matrix](./docs/FEATURE_MATRIX.md) — capability and verification ledger
 - [Design language](./DESIGN.md) — visual system and interaction rules

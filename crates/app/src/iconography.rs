@@ -4,11 +4,11 @@ use floe_core::{DirectoryEntry, EntryKind};
 use gtk::{gdk, gio};
 
 pub const LIST_ICON_EDGE: i32 = 28;
-pub const APPLICATION_ICON_NAME: &str = "io.github.floe.FileManager";
-const ICON_RESOURCE_ROOT: &str = "/io/github/floe/FileManager/icons";
+pub const APPLICATION_ICON_NAME: &str = "io.github.rodriguezcappsec.Floe";
+const ICON_RESOURCE_ROOT: &str = "/io/github/rodriguezcappsec/Floe/icons";
 #[cfg(test)]
 const APPLICATION_ICON_RESOURCE: &str =
-    "/io/github/floe/FileManager/icons/512x512/apps/io.github.floe.FileManager.png";
+    "/io/github/rodriguezcappsec/Floe/icons/512x512/apps/io.github.rodriguezcappsec.Floe.png";
 
 static RESOURCE_REGISTRATION: OnceLock<()> = OnceLock::new();
 
@@ -305,7 +305,7 @@ mod phase_6g_tests {
     #[test]
     fn phase_13b_application_icon_uses_supplied_rgba_png_under_stable_name() {
         ensure_resources();
-        assert_eq!(APPLICATION_ICON_NAME, "io.github.floe.FileManager");
+        assert_eq!(APPLICATION_ICON_NAME, "io.github.rodriguezcappsec.Floe");
         let bytes =
             gio::resources_lookup_data(APPLICATION_ICON_RESOURCE, gio::ResourceLookupFlags::NONE)
                 .expect("compiled application icon should be registered");

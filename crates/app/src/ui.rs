@@ -6671,7 +6671,7 @@ mod tests {
         crate::iconography::register(&display);
 
         let application = adw::Application::builder()
-            .application_id("io.github.floe.FileManager.ComponentTest")
+            .application_id("io.github.rodriguezcappsec.Floe.ComponentTest")
             .build();
         application
             .register(None::<&gio::Cancellable>)
@@ -7111,7 +7111,7 @@ mod tests {
         gtk::init().expect("GTK component gate requires an available display");
         adw::init().expect("libadwaita must initialize in GTK component gate");
         let application = adw::Application::builder()
-            .application_id("io.github.floe.FileManager.Phase20B2ComponentTest")
+            .application_id("io.github.rodriguezcappsec.Floe.Phase20B2ComponentTest")
             .build();
         application
             .register(None::<&gio::Cancellable>)
@@ -7149,7 +7149,7 @@ mod tests {
         gtk::init().expect("GTK component gate requires an available display");
         adw::init().expect("libadwaita must initialize in GTK component gate");
         let application = adw::Application::builder()
-            .application_id("io.github.floe.FileManager.WindowSizeComponentTest")
+            .application_id("io.github.rodriguezcappsec.Floe.WindowSizeComponentTest")
             .build();
         application
             .register(None::<&gio::Cancellable>)

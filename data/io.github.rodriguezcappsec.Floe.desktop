@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Floe
+Comment=Spatial file manager for Wayland
+Exec=floe %u
+Icon=io.github.rodriguezcappsec.Floe
+Terminal=false
+StartupNotify=true
+DBusActivatable=false
+Categories=System;FileTools;FileManager;GTK;
+Keywords=files;folders;filesystem;spatial;Wayland;
+MimeType=inode/directory;

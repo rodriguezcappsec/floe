@@ -1417,3 +1417,54 @@ connections; lifecycle evidence passed and no semantic E2E claim is made.
   PLAN and both gate ledgers agree; exactly Phase 21B is `NEXT`.
 
 ---
+# Gates: Floe Phase 21B — Packaging and migrations
+
+- [x] B1: Stable application, binary, desktop/AppStream, resource, icon, and
+  MIME identity agree and native validators pass.
+  CHECK: desktop-file-validate data/io.github.rodriguezcappsec.Floe.desktop && appstreamcli validate --no-net data/io.github.rodriguezcappsec.Floe.metainfo.xml && cargo test -p floe-app phase_21b_release_metadata -- --nocapture
+  EXPECT: /test result: ok/
+  EVIDENCE: Native validators and two release-metadata tests pass; installed
+  command is `floe` and only `inode/directory` is advertised.
+
+- [x] B2: Frozen optimized PIE, manifest staging/install/uninstall, and Arch
+  source/package layout validate without user-XDG/default-MIME mutation.
+  CHECK: cargo build --frozen --release -p floe-app --bin floe && sh packaging/tests/test-package-layout.sh
+  EXPECT: /phase-21b-package-layout-ok/
+  EVIDENCE: Frozen build has no missing libraries and exact manifest layout
+  preserves disposable user-XDG sentinels.
+
+- [x] B3: Private no-follow atomic preference migration and rollback tests
+  cover clean, supported legacy, corrupt, oversized, symlink, future input,
+  interruption residue, cache rebuild, and the no-vault boundary.
+  CHECK: cargo test -p floe-app phase_21b_migration -- --nocapture && sh packaging/tests/test-migrations.sh
+  EXPECT: /phase-21b-migrations-ok/
+  EVIDENCE: Three focused tests and disposable migration suite pass.
+
+- [x] B4: Deterministic source and real Arch package build pass.
+  CHECK: sh packaging/release-source.sh /tmp/floe-phase21b-source.tar.gz
+  EXPECT: /ae74aca57f9ed6ef9fdbcb21858d6e5e578679263757256f3cd08c7c06f264c0/
+  EVIDENCE: Two archives reproduced the recorded SHA-256. PKGBUILD checksum,
+  frozen clean build, fakeroot install, package checks, and
+  `floe-0.1.0-1-x86_64.pkg.tar.zst` creation pass.
+
+- [x] B5: Staged installed native Wayland binary accepts a local directory,
+  owns stable D-Bus identity, answers Ping, exports Quit, and exits cleanly.
+  EVIDENCE: Isolated staged lifecycle passed and persisted exact fixture path.
+  Host AT-SPI socket refusal remains the only critical; semantic E2E unclaimed.
+
+- [x] B6: Formatting, workspace check, strict Clippy, workspace tests, frozen
+  release build, package/migration validators, E2E preflight, and diff hygiene
+  all pass.
+  CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build --frozen --release -p floe-app --bin floe && git diff --check
+  EXPECT: /Finished/
+  EVIDENCE: All chained commands exit 0. Tests: 554 app passed with 14
+  intentional graphical ignores, 21 controller, 162 core, six duplicate
+  workflows. E2E contract tests pass; native suite skips exact unavailable
+  Dogtail/pyatspi dependency.
+
+- [x] B7: Persistent documents record legal/tooling/retained-data limits and
+  exactly Phase 21C is `NEXT`.
+  CHECK: test "$(rg -c '\| NEXT \|' docs/ROADMAP.md)" -eq 1 && rg -n '21B.*COMPLETE|21C.*NEXT' docs/ROADMAP.md
+  EXPECT: /21C.*NEXT/
+  EVIDENCE: README, installation, migrations, development, architecture,
+  privacy/security, matrix, roadmap, AGENTS, PLAN, and leaf ledger agree.

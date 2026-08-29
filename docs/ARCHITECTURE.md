@@ -270,7 +270,7 @@ Phase 8F lifecycle. The default registry is intentionally empty until 9B.
 ### `application.rs` and `main.rs`
 
 `main.rs` declares modules and starts `application::run`. `application.rs`
-creates application ID `io.github.floe.FileManager`, installs Ctrl+Q, selects
+creates application ID `io.github.rodriguezcappsec.Floe`, installs Ctrl+Q, selects
 appearance and XDG locations, builds the window, starts `BrowserWorker` and the
 optional thumbnail, lazy-metadata, and storage-facts workers, starts the
 view-preference and bookmark workers,
@@ -769,6 +769,23 @@ figure, and focus-visible rules without forking widget trees by preset. Phase
 forking the navigation widgets. Frosted
 is the default; `FLOE_APPEARANCE` selects Native, Glass, Frosted, Minimal, or
 Compact. Blur and settings persistence do not exist.
+
+## Keyboard input
+
+## Release packaging and persistence boundary
+
+The installed identity is `io.github.rodriguezcappsec.Floe` and the installed
+command is `floe`. `packaging/install-manifest.txt` is the single ownership
+list shared by source installation, uninstall, and Arch packaging. System
+package operations install application metadata and notices only; they do not
+read or migrate user configuration, caches, Trash, or MIME defaults.
+
+User-state migration remains application-owned. The preference worker performs
+bounded no-follow reads and private same-directory atomic replacement below the
+signed-in user's XDG configuration root. Rebuildable caches remain separate
+from durable configuration and integrity/recovery records. The exact formats,
+backup behavior, and rollback limits are documented in
+[`MIGRATIONS.md`](./MIGRATIONS.md).
 
 ## Keyboard input
 

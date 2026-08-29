@@ -7,7 +7,7 @@ recovery journals, and most other security capabilities remain **PLANNED**.
 This document does not select a cryptographic library, vault backend,
 credential backend, or sandbox mechanism.
 
-Last reviewed against the repository: `2026-08-27`, after Phase 18X.
+Last reviewed against the repository: `2026-08-29`, after Phase 21B.
 
 Phase 18A evidence is split into three focused records:
 
@@ -962,6 +962,22 @@ Floe must not claim:
 Language is part of security correctness. Use **Encrypted Vault** only for real encrypted storage, **Sensitive Folder** only for reduced Floe-owned traces, **Protected Folder** only for accidental-change guardrails, **Private Mode** only for trace minimization, **Open Safely** only for an active restriction policy, and **Integrity verified** only after real verification.
 
 ## Dependency, lifecycle, and audit gates
+
+### Phase 21B package and migration boundary
+
+The installed package contains the `floe` executable, desktop/AppStream
+metadata, one reviewed icon, notices, and public documentation. Package
+installation and removal do not read or write user XDG roots, set MIME
+defaults, or migrate user files. The desktop entry advertises only
+`inode/directory`.
+
+Application-owned `view-preferences.conf` migration uses a private `0700`
+parent, bounded no-follow owned-regular-file reads, unique `0600` same-directory
+temporary and backup files, atomic rename, and directory/file synchronization.
+Legacy or corrupt supported inputs are backed up; oversized, symlink, and
+future-version inputs are refused without overwriting the original. Rebuildable
+caches remain separate from durable recovery and integrity state. Floe has no
+Encrypted Vault or vault format, so no vault migration is claimed.
 
 No privacy or security capability moves from **PLANNED** to **IMPLEMENTED** until its phase records:
 

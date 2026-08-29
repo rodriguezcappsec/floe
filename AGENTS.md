@@ -1315,9 +1315,20 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-29`
 
-Current phase: **Phase 21A — Performance (complete)**
+Current phase: **Phase 21B — Packaging and migrations (complete)**
 
 Completed this session:
+
+- Froze stable `io.github.rodriguezcappsec.Floe` application identity,
+  installed `floe` command, validated desktop/AppStream metadata, reviewed
+  512×512 hicolor icon, manifest-driven source installation, and Arch package.
+- Hardened version-18 preference migration with bounded no-follow reads,
+  private atomic writes, supported legacy/corrupt backups, and explicit
+  future/symlink/oversize refusal. Package operations never set MIME defaults
+  or migrate user XDG state.
+- Verified metadata, layout, migration, frozen release, real `makepkg`, and
+  staged native directory/Ping/Quit lifecycle gates. Flatpak, clean-chroot,
+  `namcap`, Dogtail, and pyatspi remain unavailable and are not claimed.
 
 - Added one opt-in release-only, serial, tempfile-isolated performance harness
   covering real 100,000-entry enumeration, metadata sort, quick filter and
@@ -1348,8 +1359,9 @@ Known limitations:
   are not cold-disk promises. Dogtail/pyatspi remains unavailable, so no native
   semantic E2E claim is made.
 
-Recommended next task: create `phase-21b-packaging` and implement only Phase
-21B packaging and safe settings/cache migrations.
+Recommended next task: create `phase-21c-release-documentation` and implement
+only Phase 21C user, administrator, security, accessibility, recovery, and
+debugging documentation with a fresh-user and consistency audit.
 
 ## Prior active status (Phase 20B2)
 
