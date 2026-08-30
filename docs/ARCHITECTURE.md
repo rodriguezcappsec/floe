@@ -565,6 +565,12 @@ The controller currently polls worker responses from a GLib timeout every 16ms.
 This polling is bounded and simple, but a future event/channel integration may
 remove periodic polling.
 
+Advanced metadata sorting uses a separate capacity-32 response queue. Progress
+coalesces per generation, terminal results replace matching progress and evict
+only bounded older state when required, and worker delivery never waits for GTK
+to drain responses. Dropping the worker can therefore join it without a full
+result-channel deadlock.
+
 ### `operations.rs`
 
 `OperationController` polls structured application job events every 50 ms,

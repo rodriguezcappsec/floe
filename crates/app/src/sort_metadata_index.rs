@@ -1,7 +1,7 @@
 //! Explicit, bounded advanced metadata indexing for whole-directory sorting.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     ffi::OsString,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
@@ -13,9 +13,9 @@ use std::{
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
-        mpsc::{self, Receiver, SyncSender, TrySendError},
+        mpsc::{self, SyncSender, TrySendError},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -329,6 +329,87 @@ pub struct MetadataIndexEvent {
     pub kind: MetadataIndexEventKind,
 }
 
+#[derive(Clone, Debug, Default)]
+struct MetadataIndexResponseQueue {
+    events: Arc<Mutex<VecDeque<MetadataIndexEvent>>>,
+}
+
+impl MetadataIndexResponseQueue {
+    fn push_progress(&self, event: MetadataIndexEvent) {
+        debug_assert!(matches!(
+            event.kind,
+            MetadataIndexEventKind::Progress { .. }
+        ));
+        let mut events = self
+            .events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(existing) = events.iter_mut().rev().find(|existing| {
+            existing.generation == event.generation
+                && matches!(existing.kind, MetadataIndexEventKind::Progress { .. })
+        }) {
+            *existing = event;
+            return;
+        }
+        if events.len() == RESPONSE_CAPACITY {
+            return;
+        }
+        events.push_back(event);
+    }
+
+    fn push_terminal(&self, event: MetadataIndexEvent) {
+        debug_assert!(!matches!(
+            event.kind,
+            MetadataIndexEventKind::Progress { .. }
+        ));
+        let mut events = self
+            .events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        events.retain(|existing| {
+            existing.generation != event.generation
+                || !matches!(existing.kind, MetadataIndexEventKind::Progress { .. })
+        });
+        if events.len() == RESPONSE_CAPACITY {
+            if let Some(position) = events.iter().position(|existing| {
+                matches!(existing.kind, MetadataIndexEventKind::Progress { .. })
+            }) {
+                events.remove(position);
+            } else {
+                events.pop_front();
+            }
+        }
+        events.push_back(event);
+    }
+
+    fn pop(&self) -> Option<MetadataIndexEvent> {
+        self.events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front()
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
+    }
+
+    #[cfg(test)]
+    fn has_terminal(&self, generation: u64) -> bool {
+        self.events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .any(|event| {
+                event.generation == generation
+                    && !matches!(event.kind, MetadataIndexEventKind::Progress { .. })
+            })
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum MetadataIndexError {
     #[error("metadata index is limited to {INDEX_ENTRY_CAPACITY} entries")]
@@ -361,7 +442,7 @@ pub enum MetadataIndexSubmitError {
 
 pub struct MetadataIndexWorker {
     sender: Option<SyncSender<Request>>,
-    receiver: Receiver<MetadataIndexEvent>,
+    responses: MetadataIndexResponseQueue,
     latest_generation: Arc<AtomicU64>,
     next_generation: u64,
     worker: Option<JoinHandle<()>>,
@@ -378,7 +459,8 @@ impl MetadataIndexWorker {
 
     fn spawn_at(cache_path: PathBuf) -> io::Result<Self> {
         let (sender, requests) = mpsc::sync_channel::<Request>(REQUEST_CAPACITY);
-        let (responses, receiver) = mpsc::sync_channel(RESPONSE_CAPACITY);
+        let responses = MetadataIndexResponseQueue::default();
+        let worker_responses = responses.clone();
         let latest_generation = Arc::new(AtomicU64::new(0));
         let worker_generation = Arc::clone(&latest_generation);
         let worker = thread::Builder::new()
@@ -399,7 +481,7 @@ impl MetadataIndexWorker {
                                 ffprobe.as_deref(),
                                 &worker_generation,
                                 request.generation,
-                                &responses,
+                            &worker_responses,
                             );
                             let kind = match result {
                                 Ok(entries) => {
@@ -416,10 +498,10 @@ impl MetadataIndexWorker {
                                 Err(MetadataIndexError::Cancelled) => continue,
                                 Err(error) => MetadataIndexEventKind::Failed { error, sort },
                             };
-                            let _ = responses.send(MetadataIndexEvent {
-                                generation: request.generation,
-                                kind,
-                            });
+                        worker_responses.push_terminal(MetadataIndexEvent {
+                            generation: request.generation,
+                            kind,
+                        });
                         }
                         CommandKind::Invalidate(paths) => {
                             cache.invalidate(&paths);
@@ -428,17 +510,17 @@ impl MetadataIndexWorker {
                         CommandKind::Clear => {
                             cache.clear();
                             let _ = fs::remove_file(&cache_path);
-                            let _ = responses.send(MetadataIndexEvent {
-                                generation: request.generation,
-                                kind: MetadataIndexEventKind::Cleared,
-                            });
+                        worker_responses.push_terminal(MetadataIndexEvent {
+                            generation: request.generation,
+                            kind: MetadataIndexEventKind::Cleared,
+                        });
                         }
                     }
                 }
             })?;
         Ok(Self {
             sender: Some(sender),
-            receiver,
+            responses,
             latest_generation,
             next_generation: 0,
             worker: Some(worker),
@@ -485,7 +567,7 @@ impl MetadataIndexWorker {
     }
 
     pub fn try_response(&self) -> Option<MetadataIndexEvent> {
-        self.receiver.try_recv().ok()
+        self.responses.pop()
     }
 
     fn advance_generation(&mut self) -> u64 {
@@ -527,7 +609,7 @@ fn index_and_sort(
     ffprobe: Option<&Path>,
     generation: &AtomicU64,
     expected_generation: u64,
-    responses: &SyncSender<MetadataIndexEvent>,
+    responses: &MetadataIndexResponseQueue,
 ) -> Result<Vec<Arc<DirectoryEntry>>, MetadataIndexError> {
     if entries.len() > INDEX_ENTRY_CAPACITY {
         return Err(MetadataIndexError::TooManyEntries);
@@ -589,7 +671,7 @@ fn index_and_sort(
         owned.set_indexed_sort_metadata(metadata);
         indexed.push(Arc::new(owned));
         if index == 0 || (index + 1) % 32 == 0 || index + 1 == total {
-            let _ = responses.try_send(MetadataIndexEvent {
+            responses.push_progress(MetadataIndexEvent {
                 generation: expected_generation,
                 kind: MetadataIndexEventKind::Progress {
                     completed: index + 1,
@@ -610,7 +692,7 @@ pub(crate) fn index_and_sort_for_performance(
 ) -> Result<Vec<Arc<DirectoryEntry>>, MetadataIndexError> {
     let mut cache = MetadataCache::default();
     let generation = AtomicU64::new(1);
-    let (responses, _receiver) = mpsc::sync_channel(RESPONSE_CAPACITY);
+    let responses = MetadataIndexResponseQueue::default();
     index_and_sort(entries, sort, &mut cache, None, &generation, 1, &responses)
 }
 
@@ -1230,7 +1312,13 @@ fn validate_private_directory(path: &Path) -> Result<(), MetadataIndexError> {
 mod tests {
     use super::*;
     use floe_core::{DirectorySort, SortDirection, enumerate_directory};
-    use std::{ffi::OsString, os::unix::fs::symlink};
+    use std::{
+        ffi::OsString,
+        os::unix::fs::symlink,
+        sync::mpsc,
+        thread,
+        time::{Duration, Instant},
+    };
     use tempfile::tempdir;
 
     fn entry(path: PathBuf) -> Arc<DirectoryEntry> {
@@ -1356,7 +1444,7 @@ mod tests {
         fs::write(&second, b"one two three").unwrap();
         let mut cache = MetadataCache::default();
         let generation = AtomicU64::new(1);
-        let (sender, _receiver) = mpsc::sync_channel(32);
+        let responses = MetadataIndexResponseQueue::default();
         let sort = DirectorySort::new(SortColumn::DocumentWordCount, SortDirection::Descending);
         let sorted = index_and_sort(
             vec![entry(first), entry(second)],
@@ -1365,7 +1453,7 @@ mod tests {
             None,
             &generation,
             1,
-            &sender,
+            &responses,
         )
         .unwrap();
         assert_eq!(sorted[0].display_name_lossy(), "second.txt");
@@ -1380,9 +1468,84 @@ mod tests {
                 None,
                 &generation,
                 1,
-                &sender
+                &responses
             ),
             Err(MetadataIndexError::Cancelled)
         ));
+    }
+
+    #[test]
+    fn reliability_metadata_queue_is_bounded_and_worker_drop_never_waits_for_a_reader() {
+        let responses = MetadataIndexResponseQueue::default();
+        let sort = DirectorySort::new(SortColumn::DocumentWordCount, SortDirection::Ascending);
+        for completed in 1..=RESPONSE_CAPACITY * 4 {
+            responses.push_progress(MetadataIndexEvent {
+                generation: 7,
+                kind: MetadataIndexEventKind::Progress {
+                    completed,
+                    total: RESPONSE_CAPACITY * 4,
+                    cache_hits: 0,
+                },
+            });
+        }
+        assert_eq!(responses.len(), 1, "same-generation progress must coalesce");
+
+        for generation in 8..8 + RESPONSE_CAPACITY as u64 {
+            responses.push_progress(MetadataIndexEvent {
+                generation,
+                kind: MetadataIndexEventKind::Progress {
+                    completed: 1,
+                    total: 1,
+                    cache_hits: 0,
+                },
+            });
+        }
+        assert_eq!(responses.len(), RESPONSE_CAPACITY);
+        responses.push_terminal(MetadataIndexEvent {
+            generation: 7,
+            kind: MetadataIndexEventKind::Failed {
+                error: MetadataIndexError::ReadBudget,
+                sort,
+            },
+        });
+        assert_eq!(responses.len(), RESPONSE_CAPACITY);
+        assert!(responses.has_terminal(7));
+
+        let fixture = tempdir().unwrap();
+        let directory = fixture.path().join("entries");
+        fs::create_dir(&directory).unwrap();
+        for index in 0..1_057 {
+            fs::write(directory.join(format!("entry-{index:04}.txt")), b"word\n").unwrap();
+        }
+        let entries = enumerate_directory(&directory)
+            .unwrap()
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>();
+        assert_eq!(entries.len(), 1_057);
+
+        let cache = fixture.path().join("private/cache");
+        let mut worker = MetadataIndexWorker::spawn_at(cache).unwrap();
+        let generation = worker.request_sort(entries, sort, false).unwrap();
+        let responses = worker.responses.clone();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !responses.has_terminal(generation) && Instant::now() < deadline {
+            thread::yield_now();
+        }
+        assert!(
+            responses.has_terminal(generation),
+            "terminal sort result was not delivered under undrained progress pressure"
+        );
+        assert!(responses.len() <= RESPONSE_CAPACITY);
+
+        let (dropped, drop_result) = mpsc::sync_channel(1);
+        thread::spawn(move || {
+            drop(worker);
+            let _ = dropped.send(());
+        });
+        drop_result
+            .recv_timeout(Duration::from_secs(2))
+            .expect("metadata worker Drop blocked on response delivery");
     }
 }

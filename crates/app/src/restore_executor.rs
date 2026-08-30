@@ -9,8 +9,8 @@ use std::{
 };
 
 use floe_core::{
-    JobCommand, JobFailure, JobFailureKind, JobId, MoveCancellation, MoveError, OperationId,
-    RestoreError, RestoreRequest, execute_restore,
+    JobCommand, JobFailure, JobFailureKind, JobId, MoveCancellation, OperationId, RestoreError,
+    RestoreRequest, execute_restore,
 };
 use thiserror::Error;
 
@@ -250,7 +250,7 @@ fn execute_task(
     }
     let command = match backend.restore(&task.request, &task.cancellation) {
         Ok(()) => JobCommand::Complete,
-        Err(RestoreError::Move(MoveError::Cancelled)) => JobCommand::Cancel,
+        Err(error) if error.is_cancelled() => JobCommand::Cancel,
         Err(error) => JobCommand::Fail(restore_failure(&error)),
     };
     let _ = transition(jobs, task.job_id, command);

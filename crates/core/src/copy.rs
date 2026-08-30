@@ -190,6 +190,14 @@ pub enum CopyError {
 }
 
 impl CopyError {
+    pub const fn is_cancelled(&self) -> bool {
+        matches!(self, Self::Cancelled)
+    }
+
+    pub const fn is_partial(&self) -> bool {
+        matches!(self, Self::CleanupFailed { .. })
+    }
+
     pub fn io_kind(&self) -> Option<io::ErrorKind> {
         match self {
             Self::Io { source, .. } => Some(source.kind()),

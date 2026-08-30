@@ -299,8 +299,14 @@ impl UndoHistoryStore {
     ) -> Result<UndoHistoryTicket, UndoHistoryError> {
         validate_recipe(&recipe)?;
         let mut inner = lock(&self.inner);
+        let records_before_capacity = inner.records.clone();
         expire_records(&mut inner.records, now);
-        make_capacity(&mut inner.records)?;
+        if let Err(error) = make_capacity(&mut inner.records) {
+            if inner.records != records_before_capacity {
+                persist(&inner.path, &inner.records)?;
+            }
+            return Err(error);
+        }
         let id = inner.next_id;
         inner.next_id = inner
             .next_id
@@ -1774,6 +1780,55 @@ mod tests {
         assert_eq!(
             fs::read(&backup).expect("occupant retained"),
             b"unrelated occupant"
+        );
+    }
+
+    #[test]
+    fn reliability_undo_capacity_persists_cleanup_failed_review_transitions() {
+        let fixture = tempdir().expect("fixture");
+        let history_path = fixture.path().join("state/undo.bin");
+        let source = fixture.path().join("incoming");
+        let destination = fixture.path().join("item");
+        let backup = allocate_replace_backup(&destination, 93).expect("private backup");
+        fs::write(&backup, b"changed backup occupant").expect("backup occupant");
+
+        let store = UndoHistoryStore::open_at_time(history_path.clone(), 10).expect("history");
+        for index in 0..MAX_UNDO_HISTORY_RECORDS {
+            let ticket = store
+                .begin_at(
+                    UndoRecipe::replace(
+                        &source,
+                        &destination,
+                        &backup,
+                        ReplaceMode::Copy,
+                        SymlinkPolicy::Preserve,
+                    ),
+                    10,
+                )
+                .expect("fill history");
+            store
+                .complete_replace(ticket, identity(1_000 + index as u64), identity(999))
+                .expect("complete replacement history");
+        }
+
+        let error = store
+            .begin_at(
+                UndoRecipe::create(
+                    CreateRequest::empty_file(fixture.path().join("next")).expect("create request"),
+                ),
+                11,
+            )
+            .expect_err("unsafe backup cleanup must block history capacity");
+        assert!(matches!(error, UndoHistoryError::CapacityExceeded));
+        assert_eq!(store.reviews().len(), MAX_UNDO_HISTORY_RECORDS);
+        drop(store);
+
+        let restored = UndoHistoryStore::open_at_time(history_path, 12).expect("restart history");
+        assert_eq!(restored.reviews().len(), MAX_UNDO_HISTORY_RECORDS);
+        assert!(restored.history().is_empty());
+        assert_eq!(
+            fs::read(&backup).expect("changed occupant retained"),
+            b"changed backup occupant"
         );
     }
 }

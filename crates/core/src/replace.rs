@@ -151,11 +151,47 @@ pub enum ReplaceError {
 
 impl ReplaceError {
     pub const fn is_cancelled(&self) -> bool {
-        matches!(self, Self::Cancelled)
+        match self {
+            Self::Cancelled => true,
+            Self::Copy(error) => error.is_cancelled(),
+            Self::Move(error) => error.is_cancelled(),
+            _ => false,
+        }
     }
 
     pub const fn is_partial(&self) -> bool {
-        matches!(self, Self::RollbackFailed { .. } | Self::Partial { .. })
+        match self {
+            Self::RollbackFailed { .. } | Self::Partial { .. } => true,
+            Self::Copy(error) => error.is_partial(),
+            Self::Move(error) => error.is_partial(),
+            _ => false,
+        }
+    }
+
+    pub const fn is_conflict(&self) -> bool {
+        match self {
+            Self::SourceChanged(_) | Self::DestinationChanged(_) => true,
+            Self::Copy(error) => error.is_conflict(),
+            Self::Move(error) => error.is_conflict(),
+            _ => false,
+        }
+    }
+
+    pub const fn is_unsupported(&self) -> bool {
+        match self {
+            Self::Copy(error) => error.is_unsupported(),
+            Self::Move(error) => error.is_unsupported(),
+            _ => false,
+        }
+    }
+
+    pub fn io_kind(&self) -> Option<io::ErrorKind> {
+        match self {
+            Self::Io { source, .. } => Some(source.kind()),
+            Self::Copy(error) => error.io_kind(),
+            Self::Move(error) => error.io_kind(),
+            _ => None,
+        }
     }
 }
 

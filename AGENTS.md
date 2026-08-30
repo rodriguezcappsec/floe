@@ -1319,6 +1319,18 @@ Current phase: **USB device discovery maintenance fix (complete); Phase 6V remai
 
 Completed this session:
 
+- Reliability hardening now preserves nested Copy/Move cancellation and partial
+  outcomes through Replace, Restore, Undo/Redo, and ordinary job mapping instead
+  of conflating them with conflicts or ordinary I/O. Partial completion titles
+  are operation-specific and never describe non-delete work as permanent deletion.
+- Undo-history capacity cleanup transitions are persisted before returning a
+  capacity error, so restart retains every review-required record. The advanced
+  metadata worker now uses a bounded, coalescing, non-blocking response queue;
+  undrained UI results cannot deadlock shutdown.
+- Focused regressions and full verification are recorded in
+  `gates/phase-reliability-hardening.md`. No Phase 6W or file-chooser behavior is
+  included; Phase 6W remains the sole recommended next phase.
+
 - Fixed removable volumes disappearing as blank-looking rows when GIO exposes
   an empty or whitespace-only `GVolume::name()`. Snapshot presentation now uses
   a bounded deterministic filesystem-label, associated-drive/partition, or

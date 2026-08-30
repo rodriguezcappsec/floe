@@ -479,7 +479,7 @@ fn execute_task(
             lock(outcomes).insert(task.job_id, outcome);
             JobCommand::Complete
         }
-        Err(MoveError::Cancelled) => JobCommand::Cancel,
+        Err(error) if error.is_cancelled() => JobCommand::Cancel,
         Err(error) => JobCommand::Fail(move_failure(&error)),
     };
     let _ = transition(jobs, task.job_id, command);

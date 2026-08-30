@@ -1,3 +1,45 @@
+# Plan: Floe Reliability Hardening Before Undo Trash and File Chooser
+
+## Contract
+
+Repair the four confirmed adversarial-review defects before adding new Undo or
+chooser behavior. Preserve existing job/core/UI boundaries: core errors expose
+truthful classification, executors map them to structured job failures, the UI
+uses operation-specific terminal wording, Undo capacity transitions remain
+durable, and advanced-metadata worker results remain bounded without blocking
+shutdown. Include nested copy/move cancellation discovered while repairing the
+Replace classifier. Do not implement Phase 6W or chooser/portal behavior in
+this branch.
+
+## Depth tree
+
+1. Failure truthfulness
+   - classify Replace cancellation, partial, conflict, permission, unsupported,
+     and ordinary I/O through nested Copy/Move errors;
+   - map partial terminal titles by actual tracked operation;
+   - add lowest-layer regression coverage for every prior conflation.
+2. Durable and responsive lifecycle
+   - persist `NeedsReview` transitions before returning Undo capacity failure;
+   - replace blocking metadata-index result sends with a bounded coalescing
+     queue that preserves terminal results and cannot deadlock Drop;
+   - test restart durability, queue pressure, terminal delivery, and shutdown.
+3. Integration and handoff
+   - run focused and full Rust/native documentation gates;
+   - update persistent status without claiming Phase 6W or chooser work;
+   - retain exactly Phase 6W as the next roadmap phase.
+
+## Status log
+
+- 2026-08-30: Started on `phase-reliability-hardening` after locally
+  fast-forwarding verified USB repair commit `2ecf048` to main. Gates are in
+  `gates/phase-reliability-hardening.md`.
+- 2026-08-30: Reliability hardening is complete. Focused regressions, workspace
+  format/check/strict Clippy/tests, docs/render/release/diff, and E2E contract
+  gates pass. Semantic native E2E remains truthfully skipped for the recorded
+  missing external dependencies. Phase 6W remains the sole NEXT phase.
+
+---
+
 # Plan: Floe USB Device Discovery Bug Fix and Logical Edge Review
 
 ## Contract

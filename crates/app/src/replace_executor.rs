@@ -9,7 +9,7 @@ use std::{
 };
 
 use floe_core::{
-    JobCommand, JobFailure, JobFailureKind, JobId, OperationId, ReplaceCancellation,
+    JobCommand, JobFailure, JobFailureKind, JobId, OperationId, ReplaceCancellation, ReplaceError,
     ReplaceRequest, execute_replace,
 };
 use thiserror::Error;
@@ -260,15 +260,27 @@ fn execute_task(
     let command = match result {
         Ok(_) => JobCommand::Complete,
         Err(error) if error.is_cancelled() => JobCommand::Cancel,
-        Err(error) if error.is_partial() => {
-            JobCommand::Fail(JobFailure::new(JobFailureKind::Partial, error.to_string()))
-        }
-        Err(error) => {
-            JobCommand::Fail(JobFailure::new(JobFailureKind::Conflict, error.to_string()))
-        }
+        Err(error) => JobCommand::Fail(replace_failure(&error)),
     };
     let _ = transition(jobs, task.job_id, command);
     lock(cancellations).remove(&task.job_id);
+}
+
+fn replace_failure(error: &ReplaceError) -> JobFailure {
+    let kind = if error.is_partial() {
+        JobFailureKind::Partial
+    } else if error.is_conflict() {
+        JobFailureKind::Conflict
+    } else if error.is_unsupported() {
+        JobFailureKind::Unsupported
+    } else if error.io_kind() == Some(io::ErrorKind::PermissionDenied) {
+        JobFailureKind::PermissionDenied
+    } else if error.io_kind().is_some() {
+        JobFailureKind::Io
+    } else {
+        JobFailureKind::Internal
+    };
+    JobFailure::new(kind, error.to_string())
 }
 
 fn transition(
@@ -295,15 +307,60 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, sync::Arc, time::Duration};
+    use std::{fs, io, path::PathBuf, sync::Arc, time::Duration};
 
     use floe_core::{
-        FileIdentity, JobEventKind, JobState, ReplaceMode, SymlinkPolicy, allocate_replace_backup,
+        CopyError, FileIdentity, JobEventKind, JobState, MoveError, ReplaceError, ReplaceMode,
+        SymlinkPolicy, allocate_replace_backup,
     };
     use tempfile::tempdir;
 
     use super::*;
     use crate::{job_manager::ApplicationJobManager, undo_history::UndoHistoryStore};
+
+    #[test]
+    fn reliability_replace_failure_preserves_error_kind_and_nested_cancellation() {
+        let path = PathBuf::from("/tmp/floe-replace-classification");
+        let permission = ReplaceError::Io {
+            action: "inspect",
+            path: path.clone(),
+            source: io::Error::from(io::ErrorKind::PermissionDenied),
+        };
+        assert_eq!(
+            replace_failure(&permission).kind(),
+            JobFailureKind::PermissionDenied
+        );
+
+        let ordinary_io = ReplaceError::Move(MoveError::Io {
+            action: "rename",
+            path: path.clone(),
+            source: io::Error::other("injected I/O failure"),
+        });
+        assert_eq!(replace_failure(&ordinary_io).kind(), JobFailureKind::Io);
+
+        let conflict = ReplaceError::DestinationChanged(path.clone());
+        assert_eq!(replace_failure(&conflict).kind(), JobFailureKind::Conflict);
+
+        let unsupported = ReplaceError::Copy(CopyError::UnsupportedFileType(path.clone()));
+        assert_eq!(
+            replace_failure(&unsupported).kind(),
+            JobFailureKind::Unsupported
+        );
+
+        let partial = ReplaceError::Move(MoveError::Partial {
+            source_path: path.clone(),
+            destination_path: path.clone(),
+            reason: "injected post-commit uncertainty".to_owned(),
+        });
+        assert_eq!(replace_failure(&partial).kind(), JobFailureKind::Partial);
+
+        assert!(ReplaceError::Copy(CopyError::Cancelled).is_cancelled());
+        assert!(ReplaceError::Move(MoveError::Cancelled).is_cancelled());
+        assert_eq!(
+            replace_failure(&ReplaceError::InvalidBackup(path)).kind(),
+            JobFailureKind::Internal
+        );
+    }
 
     #[test]
     fn phase_6u_recovery_executor_commits_two_version_durable_history() {

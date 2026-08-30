@@ -472,18 +472,22 @@ fn destination_for_record(record: &UndoHistoryRecord) -> &std::path::Path {
 }
 
 fn map_copy_failure(error: CopyError) -> ActionFailure {
-    match error {
-        CopyError::Cancelled => ActionFailure::Cancelled(error.to_string()),
-        CopyError::CleanupFailed { .. } => ActionFailure::Uncertain(error.to_string()),
-        _ => ActionFailure::Certain(error.to_string()),
+    if error.is_cancelled() {
+        ActionFailure::Cancelled(error.to_string())
+    } else if error.is_partial() {
+        ActionFailure::Uncertain(error.to_string())
+    } else {
+        ActionFailure::Certain(error.to_string())
     }
 }
 
 fn map_move_failure(error: MoveError) -> ActionFailure {
-    match error {
-        MoveError::Cancelled => ActionFailure::Cancelled(error.to_string()),
-        MoveError::Partial { .. } => ActionFailure::Uncertain(error.to_string()),
-        _ => ActionFailure::Certain(error.to_string()),
+    if error.is_cancelled() {
+        ActionFailure::Cancelled(error.to_string())
+    } else if error.is_partial() {
+        ActionFailure::Uncertain(error.to_string())
+    } else {
+        ActionFailure::Certain(error.to_string())
     }
 }
 

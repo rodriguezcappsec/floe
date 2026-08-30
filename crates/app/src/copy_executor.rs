@@ -432,7 +432,7 @@ fn execute_task(
     }
     let command = match result {
         Ok(_) => JobCommand::Complete,
-        Err(CopyError::Cancelled) => JobCommand::Cancel,
+        Err(error) if error.is_cancelled() => JobCommand::Cancel,
         Err(error) => JobCommand::Fail(copy_failure(&error)),
     };
     let _ = transition(jobs, task.job_id, command);
@@ -461,7 +461,9 @@ fn fail_submission(jobs: &SharedJobManager, job_id: JobId, message: &'static str
 }
 
 fn copy_failure(error: &CopyError) -> JobFailure {
-    let kind = if error.is_conflict() {
+    let kind = if error.is_partial() {
+        JobFailureKind::Partial
+    } else if error.is_conflict() {
         JobFailureKind::Conflict
     } else if error.is_unsupported() {
         JobFailureKind::Unsupported

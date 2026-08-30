@@ -1,3 +1,46 @@
+# Gates: Floe Reliability Hardening
+
+- [x] R1: Replace and nested Copy/Move errors produce truthful Cancelled,
+  Partial, Conflict, PermissionDenied, Unsupported, or Io job outcomes.
+  CHECK: `cargo test -p floe-app reliability_replace_failure -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Focused classification regression passes all reviewed kinds.
+
+- [x] R2: Every tracked partial operation uses operation-specific or neutral
+  terminal wording and never calls non-delete work permanent deletion.
+  CHECK: `cargo test -p floe-app reliability_partial_title -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Focused operation-title regression passes.
+
+- [x] R3: Undo-history capacity failure persists every cleanup-failed
+  `NeedsReview` transition and restart restores the same review state.
+  CHECK: `cargo test -p floe-app reliability_undo_capacity -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. All 256 review-required records survive capacity rejection and restart.
+
+- [x] R4: Advanced-metadata responses remain capacity-bounded, coalesce
+  progress, preserve terminal outcomes under pressure, and worker Drop cannot
+  block on result delivery.
+  CHECK: `cargo test -p floe-app reliability_metadata_queue -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Capacity 32, 1,057-file pressure, terminal retention, and bounded Drop pass.
+
+- [x] R5: Format, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, strict docs/render/diff, and applicable native lifecycle
+  gates pass or record exact external limitations.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Full Rust, docs/render/release/diff, and E2E contract gates pass;
+  semantic native tests record exact unavailable external dependencies.
+
+- [x] R6: Persistent status records only verified reliability work and leaves
+  exactly Phase 6W as the sole roadmap `NEXT` phase.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS. Strict docs pass and exactly Phase 6W remains NEXT.
+
+---
+
 # Gates: Floe USB Device Discovery Bug Fix and Logical Edge Review
 
 - [x] D1: Every GIO drive, volume, and mount snapshot has a bounded nonempty

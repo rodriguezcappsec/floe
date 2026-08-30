@@ -254,6 +254,14 @@ pub enum MoveError {
 }
 
 impl MoveError {
+    pub const fn is_cancelled(&self) -> bool {
+        match self {
+            Self::Cancelled => true,
+            Self::Copy(error) => error.is_cancelled(),
+            _ => false,
+        }
+    }
+
     pub const fn is_conflict(&self) -> bool {
         match self {
             Self::SamePath(_) | Self::DestinationExists(_) => true,
@@ -267,7 +275,11 @@ impl MoveError {
     }
 
     pub const fn is_partial(&self) -> bool {
-        matches!(self, Self::Partial { .. })
+        match self {
+            Self::Partial { .. } => true,
+            Self::Copy(error) => error.is_partial(),
+            _ => false,
+        }
     }
 
     pub fn io_kind(&self) -> Option<io::ErrorKind> {

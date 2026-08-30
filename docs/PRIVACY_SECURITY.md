@@ -7,7 +7,12 @@ provider sandboxing, and most other security capabilities remain **PLANNED**.
 This document does not select a cryptographic library, vault backend,
 credential backend, or sandbox mechanism.
 
-Last reviewed against the repository: `2026-08-29`, after Phase 21C.
+Last reviewed against the repository: `2026-08-30`, after the pre-6W reliability checkpoint.
+
+If Undo-history capacity cleanup cannot prove that a retained replacement
+backup is still Floe-owned, the record changes to review-required and that
+transition is persisted before the new operation is rejected. Restart cannot
+silently forget uncertain retained content merely because the store was full.
 
 Phase 18A evidence is split into three focused records:
 

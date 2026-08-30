@@ -14,6 +14,12 @@ Undo Trash is the only `NEXT` phase.
 Every other future capability remains `PLANNED` or
 `DEFERRED`.
 
+The pre-6W reliability checkpoint also makes nested Copy/Move cancellation and
+partial results truthful across Replace, Restore, and Undo/Redo, persists
+capacity-induced review state before failure, and prevents undrained advanced
+metadata progress from blocking worker shutdown. It does not change capability
+status or claim Undo Trash support.
+
 ## Status key
 
 - `COMPLETE`: Implemented in code and covered by repository verification
@@ -96,7 +102,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Clear completed operations | `COMPLETE` | 6P | Clear Completed removes successful entries only and preserves conflict, failed, partial, and cancelled evidence. |
 | Operations Island | `COMPLETE` | 4B/5B/5F/6K2 | Non-modal progress, cancel, Retry, and Resolve Conflict use bounded aligned geometry. |
 | Completion notification | `PLANNED` | 14/20 | Must respect sensitive notification policy and avoid noisy foreground notifications. |
-| Partial failure reporting | `PARTIAL` | 4/6J/6P | Individual jobs fail structurally and batches summarize completed, skipped, failed, and cancelled counts; Phase 18Y now adds conservative restart review. |
+| Partial failure reporting | `PARTIAL` | 4/6J/6P | Individual jobs fail structurally and batches summarize completed, skipped, failed, and cancelled counts; nested Copy/Move/Replace/Restore/Undo outcomes retain cancellation and partial classification, and terminal titles are operation-specific. Phase 18Y adds conservative restart review. |
 | Insufficient-space preflight | `COMPLETE` | 6O | Copy compares planned regular-file bytes with destination `statvfs` user-available bytes before output creation and reports exact required/available values. This is a point-in-time check, not a reservation or completion guarantee. |
 | Self-copy/self-nesting rejection | `COMPLETE` | 4A/4C | Core preflight rejects unsafe destination relationships. |
 | Destination conflict detection | `COMPLETE` | 4/5E | Existing destinations are distinct conflict outcomes and never overwritten silently. |

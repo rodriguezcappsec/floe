@@ -419,12 +419,20 @@ pub enum RestoreError {
 }
 
 impl RestoreError {
+    pub const fn is_cancelled(&self) -> bool {
+        matches!(self, Self::Move(error) if error.is_cancelled())
+    }
+
     pub fn is_conflict(&self) -> bool {
         matches!(self, Self::Move(error) if error.is_conflict())
     }
 
     pub const fn is_partial(&self) -> bool {
-        matches!(self, Self::MetadataCleanup { .. })
+        match self {
+            Self::MetadataCleanup { .. } => true,
+            Self::Move(error) => error.is_partial(),
+            _ => false,
+        }
     }
 
     pub fn io_kind(&self) -> Option<io::ErrorKind> {

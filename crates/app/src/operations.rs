@@ -1036,16 +1036,7 @@ impl OperationController {
                 } else if let Some((title, _)) = archive_failure.as_ref() {
                     title
                 } else {
-                    match failure.kind() {
-                        JobFailureKind::Conflict => "Destination conflict",
-                        JobFailureKind::Partial
-                            if matches!(request.as_ref(), Some(TrackedOperation::Restore(_))) =>
-                        {
-                            "Restore completed with cleanup warning"
-                        }
-                        JobFailureKind::Partial => "Permanent deletion partially completed",
-                        _ => "Operation failed",
-                    }
+                    standard_failure_title(request.as_ref(), failure.kind())
                 };
                 let detail = archive_failure.as_ref().map_or_else(
                     || failure_summary(request.as_ref(), failure).to_owned(),
@@ -1861,6 +1852,43 @@ impl OperationController {
     }
 }
 
+fn standard_failure_title(
+    request: Option<&TrackedOperation>,
+    failure_kind: JobFailureKind,
+) -> &'static str {
+    match (failure_kind, request) {
+        (JobFailureKind::Conflict, _) => "Destination conflict",
+        (JobFailureKind::Partial, Some(TrackedOperation::PermanentDelete(_))) => {
+            "Permanent deletion partially completed"
+        }
+        (JobFailureKind::Partial, Some(TrackedOperation::Restore(_))) => {
+            "Restore completed with cleanup warning"
+        }
+        (JobFailureKind::Partial, Some(TrackedOperation::Copy(_))) => "Copy partially completed",
+        (JobFailureKind::Partial, Some(TrackedOperation::Move(_))) => "Move partially completed",
+        (JobFailureKind::Partial, Some(TrackedOperation::Rename(_))) => {
+            "Rename partially completed"
+        }
+        (JobFailureKind::Partial, Some(TrackedOperation::Trash(_))) => {
+            "Trash operation partially completed"
+        }
+        (JobFailureKind::Partial, Some(TrackedOperation::Create(_))) => {
+            "Create partially completed"
+        }
+        (JobFailureKind::Partial, Some(TrackedOperation::Replace(_))) => {
+            "Replacement partially completed"
+        }
+        (JobFailureKind::Partial, Some(TrackedOperation::UndoMove { .. })) => {
+            "Undo move partially completed"
+        }
+        (JobFailureKind::Partial, Some(TrackedOperation::PersistentHistoryAction { .. })) => {
+            "Undo/Redo needs review"
+        }
+        (JobFailureKind::Partial, None) => "Operation partially completed",
+        _ => "Operation failed",
+    }
+}
+
 fn batch_summary(snapshot: BatchSnapshot) -> (&'static str, String) {
     let title = match snapshot.status() {
         BatchStatus::Queued | BatchStatus::Running => "Batch in progress",
@@ -2381,6 +2409,42 @@ mod tests {
             partial.message()
         );
         assert!(!failure_recovery(Some(&request), &partial).contains("Retry"));
+    }
+
+    #[test]
+    fn reliability_partial_title_never_calls_non_delete_work_permanent_deletion() {
+        let moved = TrackedOperation::Move(MoveRequest::new(
+            PathBuf::from("/source/video.mkv"),
+            PathBuf::from("/destination/video.mkv"),
+            ConflictPolicy::FailIfExists,
+        ));
+        let history = TrackedOperation::PersistentHistoryAction {
+            history_id: 7,
+            action: UndoHistoryAction::Undo,
+            source: Some(PathBuf::from("/source/video.mkv")),
+            destination: PathBuf::from("/destination/video.mkv"),
+        };
+        let deleted = TrackedOperation::PermanentDelete(
+            PermanentDeleteRequest::new(vec![PathBuf::from("/virtual/video.mkv")])
+                .expect("permanent-delete fixture"),
+        );
+
+        assert_eq!(
+            standard_failure_title(Some(&moved), JobFailureKind::Partial),
+            "Move partially completed"
+        );
+        assert_eq!(
+            standard_failure_title(Some(&history), JobFailureKind::Partial),
+            "Undo/Redo needs review"
+        );
+        assert_eq!(
+            standard_failure_title(None, JobFailureKind::Partial),
+            "Operation partially completed"
+        );
+        assert_eq!(
+            standard_failure_title(Some(&deleted), JobFailureKind::Partial),
+            "Permanent deletion partially completed"
+        );
     }
 
     #[test]

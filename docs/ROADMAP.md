@@ -139,6 +139,12 @@ Goal: make standards-correct local Trash a first-class Floe location.
 | 6V — Selection and operation reveal polish | COMPLETE | `phase-6v-selection-operation-reveal` | Make selected rows/tiles unmistakable and reveal completed operation results. | Verified exact typed Copy/Move/Rename/Create/Duplicate/Replace results, 4,096-path job/batch reveal bounds, visible-directory/generation safety, focus-preserving list/grouped-grid/Miller scrolling, batch selection, 1.8-second recycled-widget-safe emphasis, and redundant non-color selected styling. Hidden, filtered, collapsed, stale, inactive, missing, failed, and partial results never select a substitute or navigate unexpectedly. |
 | 6W — Undo Trash | NEXT | `phase-6w-undo-trash` | Undo a Floe-owned move to standards-correct local Trash. | Build on 6N/6P/18Y2 metadata and durable recovery foundations. Require exact Trash payload/metadata ownership, no-overwrite restore, identity revalidation, bounded expiry/restart review, and explicit conflicts. Do not claim undo for unsupported Trash backends, permanent deletion, or administrator Trash without complete reversible evidence. |
 
+Reliability checkpoint before 6W: nested Copy/Move cancellation and partial
+outcomes now retain their true job classification through Replace, Restore, and
+Undo/Redo; capacity-induced Undo review transitions survive restart; and the
+advanced-metadata result queue is bounded, coalescing, and non-blocking during
+worker shutdown. This checkpoint adds no Undo Trash or chooser behavior.
+
 ## Phase 7 — Tabs and split view
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
