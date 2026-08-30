@@ -102,7 +102,11 @@ use different development-package names.
 - Niri-specific, Plasma-specific, remote/network, and Android/MTP integrations
   are deferred. Generic local Wayland behavior remains implemented.
 - Flatpak is not implemented.
-- Experimental administrator browsing is opt-in and read-only.
+- Experimental administrator access is opt-in. Its separate view supports
+  explicitly confirmed, no-overwrite New Folder, Rename, file Copy/Move, Trash,
+  empty-item permanent deletion, and Unix mode changes; previews, external
+  tools, archives, ownership, ACL/xattr, and recursive administrator copy remain
+  unavailable.
 - Provider helpers are supervised but not sandboxed and retain normal user
   authority.
 - Encrypted Vault, Sensitive Folder, Private Mode, Open Safely, Secure Share,

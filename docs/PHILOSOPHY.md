@@ -56,10 +56,10 @@ desktop authentication service, and elevated authority must never leak into
 previews, terminals, external applications, archives, custom actions, or normal
 file jobs.
 
-This is why **Open as Administrator…** is currently read-only. It provides
-authenticated folder inspection while privileged mutation remains unavailable.
-Adding administrator writes safely requires a separate reviewed job boundary,
-not a hidden `sudo` shortcut.
+This is why **Open as Administrator…** uses a separate reviewed GIO job boundary.
+Only explicit no-overwrite operations appear there; ordinary jobs, previews,
+terminals, archives, and external tools never inherit administrator authority.
+Floe still refuses to become a hidden `sudo` shortcut.
 
 ### Local first, private by default
 
@@ -119,7 +119,7 @@ Floe names security and privacy features according to what they demonstrably do.
 | Duplicate results confirm bytes after hashing | A digest narrows candidates, but Floe does not call files identical from a digest match alone. |
 | Checksums are not called signatures | Integrity evidence is different from identity or authenticity. |
 | Protected Folders are not called encryption | They guard against accidental Floe operations, not other applications or attackers. |
-| Administrator browsing is read-only | Temporary elevated authority is kept out of ordinary jobs, external tools, and the rest of the interface. |
+| Administrator operations use a separate bounded view | Temporary elevated authority is kept out of ordinary jobs, external tools, and the rest of the interface. |
 | Floe never launches itself as root | Elevating the entire GUI would needlessly expand the damage possible from a defect or untrusted file. |
 | Device passwords are handled by the desktop | Floe should not receive, store, log, or reinvent credential handling already owned by GIO and the desktop. |
 | Custom actions use direct argument vectors | Users get external-tool integration without filenames being interpreted as shell commands. |

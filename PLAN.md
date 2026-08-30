@@ -114,6 +114,56 @@ or change filesystem copy semantics. Those remain separate follow-on branches.
   Ping/Quit exited 0; Niri and Dogtail/pyatspi remain explicitly unverified.
   Phase 21D is complete and exactly Phase 14C is `NEXT`.
 
+---
+
+# Plan: Floe Phase 14C — Safe Administrator Operations
+
+## Contract
+
+Add an explicit, separately typed GIO/GVfs administrator mutation boundary to
+the existing experimental administrator view. The GTK process remains UID
+stable and never receives passwords. Every request is built from private
+`PrivilegedResourceId` values, requires a fresh visible confirmation and
+request-scoped desktop mount operation, defaults to no overwrite/no-follow,
+reports structured progress/cancellation/partial failure, and refreshes only the
+active administrator provider after terminal completion.
+
+The first bounded surface covers new folder, rename, copy/move to an explicitly
+typed absolute local destination converted privately into administrator
+identity, Trash with no delete fallback, permanent delete with irreversible
+confirmation, and Unix mode changes. Recursive copy, ownership, ACL/xattr,
+external tools, previews, archives, ordinary local-job reuse, arbitrary URIs,
+and background persistence of administrator paths are excluded.
+
+## Depth tree
+
+1. Typed operation policy
+   1. Define immutable requests, operation IDs, destination/name/mode bounds,
+      same-authority checks, no-follow fingerprints, and retry policy.
+   2. Add a capacity-one GIO service with cancellation-requested versus terminal
+      cancellation, progress, no-overwrite flags, and redacted failures.
+2. Administrator-view integration
+   1. Add accessible operation controls and explicit confirmations using current
+      exact selection/current resource identities only.
+   2. Keep navigation/Return disabled only while a mutation is active, preserve
+      visible Administrator state, and refresh after terminal results.
+3. Verification
+   1. Fake/policy tests cover raw paths, invalid names/modes, mixed authority,
+      conflicts, links, partial failure, cancellation, and no local-job reuse.
+   2. Run focused real-GTK/native administrator gates and all release gates.
+
+## Status log
+
+- 2026-08-29: Phase 14C started on `phase-14c-privileged-operations` from
+  verified Phase 21D commit `dc70468`; gates are in `gates/phase-14c.md`.
+- 2026-08-29: Phase 14C implementation and verification complete. Typed
+  administrator New Folder, Rename, single-file Copy/Move, Trash, permanent
+  delete, and Unix-mode changes pass focused policy/service/UI tests, strict
+  workspace gates, documentation/package/release gates, a real-GTK
+  accessibility gate, and isolated KDE Wayland Ping/Quit. The process remained
+  UID 1000; a disposable root-owned mutation fixture was unavailable and is
+  not claimed. Phase 18Y2 is the sole roadmap `NEXT` phase.
+
 ## Focused regression: fresh-session GVfs administrator mount
 
 Reproduced on KDE Wayland with the GVfs daemon and Plasma polkit agent active:

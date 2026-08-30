@@ -89,6 +89,23 @@ desktop-specific integration, MTP, remote browsing, or packaging work.
 
 ---
 
+# Gates: Floe Phase 14C — Safe Administrator Operations
+
+- [x] A1: Typed raw-identity policy and a capacity-one GIO/GVfs mutation
+  service reject unsafe names, mixed authority, overwrite, symlink
+  substitution, and unsupported recursion before mutation.
+- [x] A2: Accessible explicit confirmations expose bounded New Folder, Rename,
+  single-file Copy/Move, Trash, permanent delete, and Unix-mode changes without
+  elevating GTK or routing administrator resources through local jobs.
+- [x] A3: Focused policy/service/UI tests, real-GTK accessibility, workspace
+  format/check/strict Clippy/tests, docs/package/release/E2E contracts, and
+  isolated KDE Wayland UID-stable Ping/Quit pass. A root-owned mutation fixture
+  was unavailable and remains unclaimed.
+- [x] A4: Phase 14C is COMPLETE and exactly Phase 18Y2 complete Undo and
+  recovery is NEXT.
+
+---
+
 # Gates: Floe Phase 20B2A — Window Size Persistence
 
 Scope: normal top-level window size only; no position, compositor workspace,

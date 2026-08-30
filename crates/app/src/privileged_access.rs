@@ -1,4 +1,4 @@
-//! Typed, read-only GIO/GVfs administrator browsing.
+//! Typed GIO/GVfs administrator browsing and explicit operation presentation.
 //!
 //! This module deliberately does not expose administrator resources as local
 //! `PathBuf` jobs. The local path is retained only as the exact origin needed
@@ -6,7 +6,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    ffi::OsString,
+    ffi::{OsStr, OsString},
     os::unix::ffi::OsStrExt,
     path::{Component, Path, PathBuf},
     rc::Rc,
@@ -17,7 +17,15 @@ use adw::prelude::*;
 use gtk::{gio, glib};
 use thiserror::Error;
 
-const ENUMERATION_ATTRIBUTES: &str = "standard::name,standard::display-name,standard::type,standard::is-symlink,standard::size,standard::is-hidden";
+use crate::privileged_operations::{
+    GioPrivilegedOperationService, PrivilegedOperationEvent, PrivilegedOperationKind,
+    PrivilegedOperationRequest,
+};
+
+type OperationRequestBuilder =
+    dyn Fn(&PrivilegedAccessController, u64, &str) -> Result<PrivilegedOperationRequest, String>;
+
+const ENUMERATION_ATTRIBUTES: &str = "standard::name,standard::display-name,standard::type,standard::is-symlink,standard::size,standard::is-hidden,time::modified,unix::device,unix::inode";
 const ENUMERATION_PAGE_SIZE: i32 = 128;
 const ENUMERATION_ENTRY_CAPACITY: usize = 4_096;
 const AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(120);
@@ -107,7 +115,7 @@ impl PrivilegedResourceId {
             .and_then(|path| Self::from_local_path(path).ok())
     }
 
-    fn file(&self) -> gio::File {
+    pub(crate) fn file(&self) -> gio::File {
         gio::File::for_uri(&self.admin_uri)
     }
 
@@ -178,6 +186,9 @@ pub struct PrivilegedEntry {
     kind: PrivilegedEntryKind,
     size: Option<u64>,
     hidden: bool,
+    modified: Option<u64>,
+    device: Option<u64>,
+    inode: Option<u64>,
 }
 
 impl PrivilegedEntry {
@@ -199,6 +210,47 @@ impl PrivilegedEntry {
 
     pub fn is_hidden(&self) -> bool {
         self.hidden
+    }
+
+    pub(crate) fn exact_name(&self) -> &OsStr {
+        &self.exact_name
+    }
+
+    pub(crate) fn modified(&self) -> Option<u64> {
+        self.modified
+    }
+
+    pub(crate) fn device(&self) -> Option<u64> {
+        self.device
+    }
+
+    pub(crate) fn inode(&self) -> Option<u64> {
+        self.inode
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_entry(
+    path: &str,
+    kind: PrivilegedEntryKind,
+    size: Option<u64>,
+) -> PrivilegedEntry {
+    let local_path = PathBuf::from(path);
+    let exact_name = local_path
+        .file_name()
+        .unwrap_or(OsStr::new("/"))
+        .to_os_string();
+    PrivilegedEntry {
+        resource: PrivilegedResourceId::from_local_path(&local_path)
+            .unwrap_or_else(|error| panic!("test administrator identity: {error}")),
+        display_name: exact_name.to_string_lossy().into_owned(),
+        exact_name,
+        kind,
+        size,
+        hidden: false,
+        modified: None,
+        device: None,
+        inode: None,
     }
 }
 
@@ -244,6 +296,15 @@ fn entry_from_info(
         kind,
         size,
         hidden,
+        modified: info
+            .has_attribute("time::modified")
+            .then(|| info.attribute_uint64("time::modified")),
+        device: info
+            .has_attribute("unix::device")
+            .then(|| info.attribute_uint64("unix::device")),
+        inode: info
+            .has_attribute("unix::inode")
+            .then(|| info.attribute_uint64("unix::inode")),
     })
 }
 
@@ -929,19 +990,27 @@ pub struct PrivilegedViewWidgets {
     pub cancel: gtk::Button,
     pub retry: gtk::Button,
     pub return_standard: gtk::Button,
+    pub new_folder: gtk::Button,
+    pub rename: gtk::Button,
+    pub copy: gtk::Button,
+    pub move_item: gtk::Button,
+    pub trash: gtk::Button,
+    pub delete: gtk::Button,
+    pub permissions: gtk::Button,
+    selection: gtk::SingleSelection,
     model: gio::ListStore,
 }
 
 pub fn build_view() -> PrivilegedViewWidgets {
     let dialog = adw::Dialog::builder()
-        .title("Administrator — Read-only")
+        .title("Administrator File Operations")
         .content_width(820)
         .content_height(620)
         .build();
     dialog.update_property(&[
-        gtk::accessible::Property::Label("Administrator read-only folder view"),
+        gtk::accessible::Property::Label("Administrator file operations view"),
         gtk::accessible::Property::Description(
-            "Authenticated GVfs administrator browsing with file operations disabled",
+            "Authenticated GVfs administrator browsing with explicit bounded file operations",
         ),
     ]);
 
@@ -952,15 +1021,15 @@ pub fn build_view() -> PrivilegedViewWidgets {
     badge.add_css_class("error");
     badge.add_css_class("heading");
     badge.set_tooltip_text(Some(
-        "This view uses desktop-authorized administrator access and is read-only",
+        "This view uses desktop-authorized administrator access",
     ));
     badge.update_property(&[
         gtk::accessible::Property::Label("Administrator access active"),
         gtk::accessible::Property::Description(
-            "Privileged read-only content; ordinary Floe actions are unavailable",
+            "Privileged content; only the explicit administrator controls below are available",
         ),
     ]);
-    let read_only = gtk::Label::new(Some("Read-only"));
+    let read_only = gtk::Label::new(Some("Explicit operations"));
     read_only.add_css_class("dim-label");
     title.append(&badge);
     title.append(&read_only);
@@ -1080,7 +1149,7 @@ pub fn build_view() -> PrivilegedViewWidgets {
     list.update_property(&[
         gtk::accessible::Property::Label("Administrator folder contents"),
         gtk::accessible::Property::Description(
-            "Read-only entries; activate folders to navigate without following symbolic links",
+            "Administrator entries; activate folders to navigate without following symbolic links",
         ),
     ]);
     let scroller = gtk::ScrolledWindow::builder()
@@ -1089,6 +1158,34 @@ pub fn build_view() -> PrivilegedViewWidgets {
         .child(&list)
         .build();
     content.append(&scroller);
+
+    let operations = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let new_folder = operation_button("New Folder", "Create a folder as administrator");
+    let rename = operation_button("Rename", "Rename the selected item as administrator");
+    let copy = operation_button("Copy To…", "Copy the selected item as administrator");
+    let move_item = operation_button("Move To…", "Move the selected item as administrator");
+    let trash = operation_button("Trash", "Move the selected item to Trash as administrator");
+    let permissions = operation_button(
+        "Permissions",
+        "Change the selected Unix mode as administrator",
+    );
+    let delete = operation_button(
+        "Delete Permanently",
+        "Permanently delete the selected item as administrator",
+    );
+    delete.add_css_class("destructive-action");
+    for button in [
+        &new_folder,
+        &rename,
+        &copy,
+        &move_item,
+        &trash,
+        &permissions,
+        &delete,
+    ] {
+        operations.append(button);
+    }
+    content.append(&operations);
 
     let footer = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     let status = gtk::Label::builder()
@@ -1120,6 +1217,14 @@ pub fn build_view() -> PrivilegedViewWidgets {
         cancel,
         retry,
         return_standard,
+        new_folder,
+        rename,
+        copy,
+        move_item,
+        trash,
+        delete,
+        permissions,
+        selection,
         model,
     }
 }
@@ -1132,13 +1237,26 @@ fn icon_button(icon_name: &str, accessible_label: &str) -> gtk::Button {
     button
 }
 
+fn operation_button(label: &str, description: &str) -> gtk::Button {
+    let button = gtk::Button::with_label(label);
+    button.set_sensitive(false);
+    button.set_tooltip_text(Some(description));
+    button.update_property(&[
+        gtk::accessible::Property::Label(label),
+        gtk::accessible::Property::Description(description),
+    ]);
+    button
+}
+
 pub struct PrivilegedAccessController {
     pub widgets: PrivilegedViewWidgets,
     provider: GioPrivilegedProvider,
+    operations: GioPrivilegedOperationService,
     parent_window: glib::WeakRef<gtk::Window>,
     session: RefCell<PrivilegedSession>,
     accepted_entries: RefCell<Vec<PrivilegedEntry>>,
     rollback_entries: RefCell<Option<Vec<PrivilegedEntry>>>,
+    next_operation_id: Cell<u64>,
 }
 
 impl PrivilegedAccessController {
@@ -1150,16 +1268,25 @@ impl PrivilegedAccessController {
                     controller.handle_event(event);
                 }
             });
+            let operation_weak = weak.clone();
+            let operation_callback = Rc::new(move |event| {
+                if let Some(controller) = operation_weak.upgrade() {
+                    controller.handle_operation_event(event);
+                }
+            });
             Self {
                 widgets: build_view(),
                 provider: GioPrivilegedProvider::new(callback),
+                operations: GioPrivilegedOperationService::new(operation_callback),
                 parent_window: glib::WeakRef::new(),
                 session: RefCell::new(PrivilegedSession::default()),
                 accepted_entries: RefCell::new(Vec::new()),
                 rollback_entries: RefCell::new(None),
+                next_operation_id: Cell::new(1),
             }
         });
         controller.install_callbacks();
+        controller.install_operation_callbacks();
         controller
     }
 
@@ -1194,6 +1321,13 @@ impl PrivilegedAccessController {
     }
 
     pub fn cancel_and_close(&self) {
+        if self.operations.is_active() {
+            self.operations.cancel();
+            self.widgets.status.set_label(
+                "Cancellation requested; keep this Administrator view open until the backend confirms a terminal result.",
+            );
+            return;
+        }
         self.provider.cancel();
         self.session.borrow_mut().leave();
         self.accepted_entries.borrow_mut().clear();
@@ -1222,11 +1356,19 @@ impl PrivilegedAccessController {
         let controller = Rc::downgrade(self);
         self.widgets.cancel.connect_clicked(move |_| {
             if let Some(controller) = controller.upgrade() {
-                controller.provider.cancel();
-                controller
-                    .widgets
-                    .status
-                    .set_label("Cancellation requested…");
+                if controller.operations.is_active() {
+                    controller.operations.cancel();
+                    controller
+                        .widgets
+                        .status
+                        .set_label("Cancellation requested; waiting for administrator backend…");
+                } else {
+                    controller.provider.cancel();
+                    controller
+                        .widgets
+                        .status
+                        .set_label("Cancellation requested…");
+                }
                 controller.widgets.cancel.set_sensitive(false);
             }
         });
@@ -1279,9 +1421,371 @@ impl PrivilegedAccessController {
                 controller
                     .widgets
                     .status
-                    .set_label("Only folders can be opened; elevated access stays isolated from file operations and tools.");
+                    .set_label("Only folders can be opened; use the explicit administrator controls for file operations.");
             }
         });
+    }
+
+    fn install_operation_callbacks(self: &Rc<Self>) {
+        let controller = Rc::downgrade(self);
+        self.widgets.selection.connect_selected_notify(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.update_operation_controls();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.new_folder.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.prompt_new_folder();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.rename.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.prompt_rename();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.copy.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.prompt_transfer(PrivilegedOperationKind::Copy);
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.move_item.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.prompt_transfer(PrivilegedOperationKind::Move);
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.trash.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.confirm_selected(PrivilegedOperationKind::Trash);
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.delete.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.confirm_selected(PrivilegedOperationKind::DeletePermanently);
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.permissions.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.prompt_permissions();
+            }
+        });
+    }
+
+    fn selected_entry(&self) -> Option<PrivilegedEntry> {
+        self.widgets
+            .selection
+            .selected_item()
+            .and_downcast::<glib::BoxedAnyObject>()
+            .map(|item| item.borrow::<PrivilegedEntry>().clone())
+    }
+
+    fn allocate_operation_id(&self) -> u64 {
+        let id = self.next_operation_id.get().max(1);
+        self.next_operation_id.set(id.wrapping_add(1).max(1));
+        id
+    }
+
+    fn prompt_new_folder(self: &Rc<Self>) {
+        let Some(parent) = self.session.borrow().current().cloned() else {
+            return;
+        };
+        self.present_text_request(
+            "Create Folder as Administrator",
+            "Enter one folder name. Floe will not overwrite an existing item.",
+            "",
+            "Create Folder",
+            false,
+            Rc::new(move |_controller, id, text| {
+                PrivilegedOperationRequest::create_directory(id, &parent, OsStr::new(text))
+                    .map_err(|error| error.to_string())
+            }),
+        );
+    }
+
+    fn prompt_rename(self: &Rc<Self>) {
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        let initial = entry.exact_name().to_str().unwrap_or("").to_owned();
+        let body = if initial.is_empty() {
+            "This filename is not valid UTF-8, so it cannot be prefilled. Enter one new name; the original raw identity remains authoritative."
+        } else {
+            "Enter one new name. Floe will fail if that name already exists."
+        };
+        self.present_text_request(
+            "Rename as Administrator",
+            body,
+            &initial,
+            "Rename",
+            false,
+            Rc::new(move |_controller, id, text| {
+                PrivilegedOperationRequest::rename(id, &entry, OsStr::new(text))
+                    .map_err(|error| error.to_string())
+            }),
+        );
+    }
+
+    fn prompt_transfer(self: &Rc<Self>, kind: PrivilegedOperationKind) {
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        let (heading, action) = if kind == PrivilegedOperationKind::Copy {
+            ("Copy as Administrator", "Copy")
+        } else {
+            ("Move as Administrator", "Move")
+        };
+        self.present_text_request(
+            heading,
+            "Enter the complete absolute destination path, including the new filename. Existing destinations are never overwritten. Folder copy remains unavailable until recursive policy is verified.",
+            "",
+            action,
+            false,
+            Rc::new(move |_controller, id, text| {
+                PrivilegedOperationRequest::transfer(id, kind, &entry, Path::new(text))
+                    .map_err(|error| error.to_string())
+            }),
+        );
+    }
+
+    fn prompt_permissions(self: &Rc<Self>) {
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        self.present_text_request(
+            "Change Permissions as Administrator",
+            "Enter an octal Unix mode from 0000 to 7777. This changes mode bits only; ownership, ACLs, xattrs, capabilities, and immutable flags are not changed.",
+            "",
+            "Apply Mode",
+            false,
+            Rc::new(move |_controller, id, text| {
+                let mode = u32::from_str_radix(text.trim_start_matches("0o"), 8)
+                    .map_err(|_| "Enter an octal mode such as 0755".to_owned())?;
+                PrivilegedOperationRequest::set_permissions(id, &entry, mode)
+                    .map_err(|error| error.to_string())
+            }),
+        );
+    }
+
+    fn present_text_request(
+        self: &Rc<Self>,
+        heading: &str,
+        body: &str,
+        initial: &str,
+        action_label: &str,
+        destructive: bool,
+        build: Rc<OperationRequestBuilder>,
+    ) {
+        if self.operations.is_active() {
+            return;
+        }
+        let entry = gtk::Entry::builder()
+            .text(initial)
+            .max_length(4_096)
+            .activates_default(true)
+            .build();
+        entry.update_property(&[gtk::accessible::Property::Label(
+            "Administrator operation value",
+        )]);
+        let dialog = adw::AlertDialog::builder()
+            .heading(heading)
+            .body(body)
+            .extra_child(&entry)
+            .default_response("apply")
+            .close_response("cancel")
+            .build();
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("apply", action_label);
+        dialog.set_response_appearance(
+            "apply",
+            if destructive {
+                adw::ResponseAppearance::Destructive
+            } else {
+                adw::ResponseAppearance::Suggested
+            },
+        );
+        let controller = Rc::downgrade(self);
+        let entry_for_response = entry.clone();
+        dialog.connect_response(None, move |_, response| {
+            if response != "apply" {
+                return;
+            }
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let id = controller.allocate_operation_id();
+            match build(&controller, id, entry_for_response.text().as_str()) {
+                Ok(request) => controller.submit_operation(request),
+                Err(error) => controller.widgets.status.set_label(&error),
+            }
+        });
+        if let Some(parent) = self.parent_window.upgrade() {
+            dialog.present(Some(&parent));
+            entry.grab_focus();
+        }
+    }
+
+    fn confirm_selected(self: &Rc<Self>, kind: PrivilegedOperationKind) {
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        let (heading, body, action) = match kind {
+            PrivilegedOperationKind::Trash => (
+                "Move to Trash as Administrator?",
+                "The desktop administrator backend must support Trash. Floe will not fall back to permanent deletion.",
+                "Move to Trash",
+            ),
+            PrivilegedOperationKind::DeletePermanently => (
+                "Delete Permanently as Administrator?",
+                "This cannot be undone and is not secure erase. Non-empty folders are refused by the backend; symbolic links are not followed.",
+                "Delete Permanently",
+            ),
+            _ => return,
+        };
+        let dialog = adw::AlertDialog::builder()
+            .heading(heading)
+            .body(format!(
+                "{}\n\nSelected item: {}",
+                body,
+                entry.display_name()
+            ))
+            .default_response("cancel")
+            .close_response("cancel")
+            .build();
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("apply", action);
+        dialog.set_response_appearance(
+            "apply",
+            if kind.irreversible() {
+                adw::ResponseAppearance::Destructive
+            } else {
+                adw::ResponseAppearance::Suggested
+            },
+        );
+        let controller = Rc::downgrade(self);
+        dialog.connect_response(None, move |_, response| {
+            if response != "apply" {
+                return;
+            }
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let id = controller.allocate_operation_id();
+            match PrivilegedOperationRequest::selected(id, kind, &entry) {
+                Ok(request) => controller.submit_operation(request),
+                Err(error) => controller.widgets.status.set_label(&error.to_string()),
+            }
+        });
+        if let Some(parent) = self.parent_window.upgrade() {
+            dialog.present(Some(&parent));
+        }
+    }
+
+    fn submit_operation(&self, request: PrivilegedOperationRequest) {
+        let parent = self.parent_window.upgrade();
+        let mount_operation = gtk::MountOperation::new(parent.as_ref());
+        self.widgets.dialog.set_can_close(false);
+        self.widgets.return_standard.set_sensitive(false);
+        self.widgets.cancel.set_visible(true);
+        self.widgets.cancel.set_sensitive(true);
+        self.update_operation_controls();
+        if let Err(failure) = self.operations.submit(request, mount_operation.upcast()) {
+            self.widgets.dialog.set_can_close(true);
+            self.widgets.return_standard.set_sensitive(true);
+            self.widgets.cancel.set_visible(false);
+            self.widgets.status.set_label(failure.user_message());
+            self.update_operation_controls();
+        }
+    }
+
+    fn handle_operation_event(&self, event: PrivilegedOperationEvent) {
+        match event {
+            PrivilegedOperationEvent::Started { id, kind } => {
+                self.widgets.status.set_label(&format!(
+                    "{} as Administrator… Operation {id}",
+                    kind.label()
+                ));
+            }
+            PrivilegedOperationEvent::Progress { id, current, total } => {
+                self.widgets.status.set_label(&match total {
+                    Some(total) => {
+                        format!("Administrator operation {id}: {current} of {total} bytes")
+                    }
+                    None => format!("Administrator operation {id}: {current} bytes"),
+                });
+            }
+            PrivilegedOperationEvent::CancellationRequested { id } => {
+                self.widgets.status.set_label(
+                    &format!("Cancellation requested for operation {id}; it is not cancelled until the backend confirms it."),
+                );
+            }
+            PrivilegedOperationEvent::Completed {
+                id,
+                kind,
+                affected_parent,
+            } => {
+                self.finish_operation_surface();
+                let refreshes_current = self.session.borrow().current() == Some(&affected_parent);
+                self.widgets.status.set_label(&format!(
+                    "{} completed (operation {id}).{}",
+                    kind.label(),
+                    if refreshes_current {
+                        " Refreshing…"
+                    } else {
+                        ""
+                    }
+                ));
+                self.retry();
+            }
+            PrivilegedOperationEvent::Failed {
+                id,
+                kind,
+                failure,
+                destination_may_exist,
+            } => {
+                self.finish_operation_surface();
+                let suffix = if destination_may_exist {
+                    " A partial destination may remain; Floe did not remove it automatically."
+                } else {
+                    ""
+                };
+                self.widgets.status.set_label(&format!(
+                    "{} failed (operation {id}): {}{suffix}",
+                    kind.label(),
+                    failure.user_message()
+                ));
+            }
+        }
+        self.update_operation_controls();
+    }
+
+    fn finish_operation_surface(&self) {
+        self.widgets.dialog.set_can_close(true);
+        self.widgets.return_standard.set_sensitive(true);
+        self.widgets.cancel.set_visible(false);
+        self.widgets.cancel.set_sensitive(true);
+    }
+
+    fn update_operation_controls(&self) {
+        let privileged = self.session.borrow().phase == SessionPhase::Privileged;
+        let available = privileged && !self.operations.is_active();
+        let selected = available && self.selected_entry().is_some();
+        self.widgets.new_folder.set_sensitive(available);
+        for button in [
+            &self.widgets.rename,
+            &self.widgets.copy,
+            &self.widgets.move_item,
+            &self.widgets.trash,
+            &self.widgets.permissions,
+            &self.widgets.delete,
+        ] {
+            button.set_sensitive(selected);
+        }
     }
 
     fn navigate_history(
@@ -1347,6 +1851,7 @@ impl PrivilegedAccessController {
         self.widgets.cancel.set_visible(true);
         self.widgets.retry.set_visible(false);
         self.update_navigation_buttons();
+        self.update_operation_controls();
     }
 
     fn handle_event(&self, event: PrivilegedProviderEvent) {
@@ -1372,7 +1877,7 @@ impl PrivilegedAccessController {
                     self.widgets.model.append(&glib::BoxedAnyObject::new(entry));
                 }
                 self.widgets.status.set_label(&format!(
-                    "Administrator read-only view — {}",
+                    "Administrator view — {}",
                     item_count_text(self.accepted_entries.borrow().len())
                 ));
                 self.update_navigation_buttons();
@@ -1389,9 +1894,9 @@ impl PrivilegedAccessController {
                 self.widgets.status.set_label(if truncated {
                     "Showing the first 4,096 entries. Refine this folder outside administrator mode."
                 } else if self.accepted_entries.borrow().is_empty() {
-                    "Administrator read-only view — Empty folder"
-                } else {
-                    "Administrator read-only view — elevated access stays isolated from file operations and tools"
+                        "Administrator view — Empty folder"
+                    } else {
+                        "Administrator view — use only the explicit controls below for elevated operations"
                 });
             }
             PrivilegedProviderEvent::Failed {
@@ -1446,6 +1951,7 @@ impl PrivilegedAccessController {
                 self.update_navigation_buttons();
             }
         }
+        self.update_operation_controls();
     }
 
     fn update_navigation_buttons(&self) {
@@ -1706,7 +2212,7 @@ mod tests {
     }
 
     #[test]
-    fn phase_14b_ui_is_read_only_by_construction() {
+    fn phase_14c_ui_keeps_privileged_boundary_free_of_shell_and_local_jobs() {
         let source = include_str!("privileged_access.rs");
         let implementation = source
             .split("#[cfg(all(test, unix))]")
@@ -1721,7 +2227,34 @@ mod tests {
         assert!(implementation.contains("NOFOLLOW_SYMLINKS"));
         assert!(implementation.contains("mount_enclosing_volume"));
         assert!(implementation.contains("gtk::MountOperation::new"));
-        assert!(implementation.contains("Administrator — Read-only"));
+        assert!(implementation.contains("Administrator File Operations"));
+    }
+
+    #[test]
+    fn phase_14c_ui_exposes_only_explicit_confirmed_administrator_operations() {
+        let source = include_str!("privileged_access.rs");
+        let implementation = source
+            .split("#[cfg(all(test, unix))]")
+            .next()
+            .expect("implementation section");
+        for label in [
+            "New Folder",
+            "Rename",
+            "Copy To…",
+            "Move To…",
+            "Trash",
+            "Permissions",
+            "Delete Permanently",
+        ] {
+            assert!(implementation.contains(label), "missing operation: {label}");
+        }
+        assert!(implementation.contains("set_can_close(false)"));
+        assert!(
+            implementation.contains("fresh visible confirmation")
+                || implementation.contains("AlertDialog")
+        );
+        assert!(implementation.contains("will not overwrite"));
+        assert!(implementation.contains("will not fall back to permanent deletion"));
     }
 
     fn assert_failed_child_restores_visible_parent() {
@@ -1741,6 +2274,9 @@ mod tests {
             kind: PrivilegedEntryKind::File,
             size: Some(7),
             hidden: false,
+            modified: None,
+            device: None,
+            inode: None,
         };
         controller.handle_event(PrivilegedProviderEvent::Page {
             generation: parent_generation,
@@ -1815,7 +2351,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires graphical GTK session; run documented GTK component gate"]
-    fn phase_testing_gtk_phase_14b_ui_accessibility() {
+    fn phase_testing_gtk_phase_14c_ui_accessibility() {
         gtk::init().expect("GTK component gate requires a display");
         adw::init().expect("libadwaita component gate");
         assert_failed_child_restores_visible_parent();
@@ -1840,5 +2376,18 @@ mod tests {
                 .label()
                 .is_some_and(|label| label == "Cancel")
         );
+        for (button, expected) in [
+            (&widgets.new_folder, "New Folder"),
+            (&widgets.rename, "Rename"),
+            (&widgets.copy, "Copy To…"),
+            (&widgets.move_item, "Move To…"),
+            (&widgets.trash, "Trash"),
+            (&widgets.permissions, "Permissions"),
+            (&widgets.delete, "Delete Permanently"),
+        ] {
+            assert_eq!(button.accessible_role(), gtk::AccessibleRole::Button);
+            assert_eq!(button.label().as_deref(), Some(expected));
+            assert!(!button.is_sensitive());
+        }
     }
 }

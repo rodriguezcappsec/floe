@@ -1,7 +1,7 @@
 # Privileged access design
 
-Status: experimental read-only Phase 14B implementation complete; privileged
-mutations and removal of the experimental guard remain gated.
+Status: experimental Phase 14B browsing and Phase 14C bounded mutation
+implementation complete; removal of the experimental guard remains gated.
 
 ## Implemented Phase 14B boundary
 
@@ -29,6 +29,32 @@ open/cancel/return lifecycle, liveness, clean quit, and UID 1000 before and afte
 activation. Niri-specific and separate Plasma lab gates were unavailable, so
 the feature remains experimental and the unguarded stable-release gate stays
 closed.
+
+## Implemented Phase 14C mutation boundary
+
+The administrator view now exposes a separate capacity-one GIO operation
+service. Private typed requests cover New Folder, Rename, single-file Copy/Move,
+Trash, permanent delete, and Unix mode changes. Every activation comes from the
+current private administrator resource/selection, uses a new operation ID and
+request-scoped desktop mount operation, revalidates no-follow type, size,
+modified time, device, and inode facts when available, and uses no-follow,
+no-overwrite GIO flags. Ordinary local copy/move/rename/Trash/delete/permission
+requests are never constructed from an administrator URI.
+
+Each operation has a fresh accessible confirmation or value dialog. Permanent
+delete is explicitly destructive and not secure erase. Trash failure never
+falls back to delete. Cancellation-requested remains distinct from terminal
+Cancelled. Failed transfer events state that a partial destination may remain;
+Floe never removes uncertain output automatically. The administrator dialog
+cannot close or Return to Standard Access until the backend reports a terminal
+result, then the current provider refreshes.
+
+The bounded first release intentionally rejects recursive directory copy and
+does not implement ownership, ACL/xattr/capability/immutable editing, previews,
+archives, terminals, Open With, clipboard, custom tools, or external launch.
+Cross-restart administrator-operation recovery remains the next recovery phase;
+until then, partial terminal evidence is session-visible and no automatic retry
+or rollback claim is made.
 
 ## Goal and non-goals
 
@@ -380,5 +406,5 @@ The action must not be exposed until automated tests prove all of the following:
 The current working action remains behind the experimental setting because
 Niri-specific, separate Plasma, root-owned-fixture, and unguarded repeated-
 lifecycle stable-release gates are not all available. Do not remove that guard
-or add privileged mutations until their applicable gates pass; a disabled or
-classified fallback remains preferable to an unsafe or misleading path.
+until cross-restart recovery and remaining stable-release gates pass; a disabled
+or classified fallback remains preferable to an unsafe or misleading path.

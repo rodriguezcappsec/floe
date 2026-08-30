@@ -164,9 +164,13 @@ Security state must use text and accessible semantics, never color alone. A fail
   by the active/retained Miller state. Horizontal deltas and focus transitions
   are not logged or persisted.
 
-- Floe runs as the calling desktop user. Experimental read-only administrator
-  browsing delegates one typed local GFile to GVfs/polkit; the GTK process does
-  not become root and Floe never receives authentication secrets.
+- Floe runs as the calling desktop user. Experimental administrator access
+  delegates typed local GFiles and separately typed explicit mutations to
+  GVfs/polkit; the GTK process does not become root and Floe never receives
+  authentication secrets. Phase 14C operations are capacity-one, no-follow,
+  no-overwrite, fingerprint-revalidated, cancellable, and block view closure
+  until terminal backend acknowledgement. External tools and ordinary local
+  jobs receive no administrator capability.
 - The Cargo workspace forbids Rust `unsafe` code. The core crate is GTK-independent, and filesystem work stays out of GTK callbacks.
 - Filesystem identities retain `PathBuf` and `OsString`. Lossy display labels are not reconstructed into operation targets. GIO launches receive a URI created from the exact local path.
 - Directory enumeration uses `symlink_metadata`. Copy has an explicit preserve-or-reject symlink policy. Same-filesystem move and rename use `RENAME_NOREPLACE`, so a conflict cannot overwrite an existing target. Phase 6O cross-filesystem move copies to a hidden sibling, revalidates exact no-follow source identity, atomically publishes without overwrite, synchronizes the destination parent, and classifies post-commit source-cleanup failure as non-retryable partial completion.

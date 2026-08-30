@@ -9,7 +9,7 @@ The generic desktop integration baseline is Phase 14; Phase 18A's
 documentation-only security architecture, runtime Phases 18T–18Y, and Phase
 20A Settings Center are complete. Phase 21B packaging and migrations, Phase
 21C release documentation, and Phase 21D release-candidate hardening are
-complete. Phase 14C safe administrator operations is the only `NEXT` phase.
+complete. Phase 18Y2 complete Undo and recovery is the only `NEXT` phase.
 Every other future capability remains `PLANNED` or
 `DEFERRED`.
 
@@ -483,7 +483,7 @@ advanced predicates and explicit Match Case control.
 | Remote thumbnails | `DEFERRED` | 17/18J | User-deferred with remote browsing; no remote cache is added. |
 | Remote encryption | `DEFERRED` | 17/18B | Requires streaming URI I/O design; never create silent plaintext temp copies. |
 | MTP/Android browsing | `DEFERRED` | 17 | User-deferred; existing local GIO device and mount behavior remains. |
-| Open as Administrator | `COMPLETE` | 14B | Experimental opt-in read-only view constructs typed local `admin` GFiles through GLib/GIO URI APIs, performs one bounded window-parented mount/authorization and retry when a fresh location is not mounted, delegates credentials to GVfs/polkit, pages no-follow metadata, rejects stale generations, keeps a persistent accessible Administrator state, and cancels/returns explicitly. Floe stays UID-stable and privileged resources have no mutation, preview, terminal, archive, launcher, custom-action, clipboard, or plugin path. Privileged mutations and removal of the experimental guard remain separately gated. |
+| Open as Administrator | `COMPLETE` | 14B/14C | Experimental opt-in view constructs typed local `admin` GFiles through GLib/GIO URI APIs, delegates credentials to GVfs/polkit, pages no-follow metadata, and keeps persistent accessible Administrator state. Phase 14C adds separately typed, request-scoped, capacity-one GIO New Folder, Rename, single-file Copy/Move, Trash, permanent delete, and Unix-mode operations with fresh confirmation, fingerprint revalidation, no-follow/no-overwrite flags, cancellation distinction, partial-output evidence, and close blocking. Floe stays UID-stable; privileged resources never enter local jobs, previews, terminals, archives, launcher, custom actions, clipboard, or plugins. Recursive copy, ownership, ACL/xattr, and cross-restart privileged recovery remain unavailable. |
 | Elevate whole Floe process | `NOT APPLICABLE` | Policy | Prohibited; never run the GTK application as root. |
 | Capture administrator/mount passwords in Floe | `NOT APPLICABLE` | Policy | Native desktop/polkit/mount operations own authentication. |
 

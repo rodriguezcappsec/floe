@@ -201,14 +201,14 @@ pub static COMMANDS: &[CommandDefinition] = &[
     command!(
         "open-as-administrator",
         "Open as Administrator…",
-        "Open selected or current local folder in an explicit read-only GVfs administrator view",
+        "Open selected or current local folder in an explicit bounded GVfs administrator view",
         Operations,
         [
             "root",
             "permissions",
             "polkit",
             "gvfs",
-            "read only",
+            "file operations",
             "privileged"
         ],
         [],

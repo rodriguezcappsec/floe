@@ -287,8 +287,8 @@ const SETTINGS: [SettingDefinition; 29] = [
         SettingId::PrivilegedAccess,
         SettingsSection::Applications,
         "Experimental administrator browsing",
-        "Enable explicit read-only local folder browsing through the desktop GVfs admin backend and polkit agent.",
-        "root administrator privileged polkit gvfs permissions read only experimental",
+        "Enable explicit bounded local administrator browsing and file operations through the desktop GVfs admin backend and polkit agent.",
+        "root administrator privileged polkit gvfs permissions file operations experimental",
         None,
     ),
     setting(
@@ -826,7 +826,7 @@ mod tests {
         assert!(matching_settings("administrator polkit").contains(&SettingId::PrivilegedAccess));
         let definition = definition(SettingId::PrivilegedAccess);
         assert_eq!(definition.section, SettingsSection::Applications);
-        assert!(definition.description.contains("read-only"));
+        assert!(definition.description.contains("bounded"));
         assert!(definition.description.contains("GVfs"));
     }
 

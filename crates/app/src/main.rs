@@ -63,6 +63,7 @@ mod permission_executor;
 mod preferences;
 pub mod preview;
 mod privileged_access;
+mod privileged_operations;
 mod properties;
 #[cfg(test)]
 mod release_metadata;

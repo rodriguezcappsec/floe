@@ -270,7 +270,7 @@ pipes, redirects, `$(commands)`, or any other shell syntax. Custom actions are
 ordinary unprivileged external applications: they never inherit administrator
 access, vault keys, or remote-resource authority from Floe.
 
-### Read-only administrator browsing
+### Bounded administrator access
 
 Administrator browsing is experimental and disabled by default. Open
 **Settings → Applications**, enable **Experimental administrator browsing**,
@@ -281,27 +281,25 @@ Floe asks the desktop GVfs `admin` backend to open that exact local folder. The
 desktop polkit agent owns any password prompt; Floe never asks for, receives,
 stores, or logs the password, and its process remains your normal user. When a
 fresh administrator location is not mounted yet, Floe starts one bounded
-desktop mount/authorization request and retries the read-only listing after it
+desktop mount/authorization request and retries the listing after it
 succeeds. Cancelling or denying that prompt opens nothing and leaves ordinary
 browsing unchanged. If the desktop has no GVfs administrator backend or
 authentication agent, Floe reports that limitation and keeps ordinary browsing
 unchanged.
 
-The separate view is deliberately read-only and always shows an
-**Administrator** badge after authorization succeeds. It supports folder
-activation plus Back, Forward, Parent, Cancel, Retry, and **Return to Standard
-Access**. Files, symbolic links, previews, thumbnails, terminals, archives,
-Open With, custom actions, clipboard operations, and every create/copy/move/
-rename/Trash/delete/permission operation are unavailable there. Closing or
-returning cancels outstanding reads and discards privileged selections. The
-desktop may retain its own short-lived polkit authorization cache; Floe cannot
-revoke that desktop-owned cache.
+The separate view always shows an **Administrator** badge after authorization
+succeeds. It supports folder activation, Back/Forward/Parent, Cancel, Retry,
+Return to Standard Access, and explicitly confirmed New Folder, Rename,
+single-file Copy/Move, Trash, permanent delete, and Unix-mode controls. Existing
+destinations are never overwritten; links are not followed; Trash never falls
+back to deletion. Return/close is blocked while a mutation is active, and a
+failed transfer reports when a partial destination may remain.
 
-**Why read-only:** Floe keeps temporary elevated authority out of ordinary file
-jobs, external tools, previews, and the rest of the interface. Floe never runs
-its whole GUI as root. Privileged writes require a separate reviewed operation
-and recovery boundary, so they remain unavailable instead of being implemented
-as a hidden `sudo` shortcut.
+Recursive administrator copy, ownership, ACL/xattr/capability/immutable edits,
+previews, thumbnails, terminals, archives, Open With, custom actions, and
+clipboard operations remain unavailable. The desktop may retain its own
+short-lived polkit authorization cache; Floe cannot revoke that desktop-owned
+cache. This is a separate reviewed boundary, not a hidden `sudo` shortcut.
 
 ## Create and organize files
 

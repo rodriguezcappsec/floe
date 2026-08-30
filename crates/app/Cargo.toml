@@ -20,6 +20,7 @@ image.workspace = true
 kamadak-exif.workspace = true
 lofty.workspace = true
 glib.workspace = true
+gio.workspace = true
 png.workspace = true
 regex.workspace = true
 rustix.workspace = true

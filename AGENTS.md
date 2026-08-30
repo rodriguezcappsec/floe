@@ -1315,9 +1315,25 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-29`
 
-Current phase: **Phase 21D — Release Candidate (complete)**
+Current phase: **Phase 14C — Safe administrator operations (complete)**
 
 Completed this session:
+
+- Added a separately typed capacity-one GIO/GVfs administrator mutation
+  service for New Folder, Rename, single-file Copy/Move, Trash, permanent
+  delete, and Unix-mode changes. Floe remains UID-stable and never receives
+  credentials or strips administrator identities into ordinary local jobs.
+- Added exact no-follow fingerprint revalidation, no-overwrite flags, explicit
+  accessible confirmation, structured cancellation/partial-output evidence,
+  and active-mutation close blocking. Recursive copy, ownership, ACL/xattr,
+  and cross-restart privileged recovery remain unavailable.
+- Focused policy/service/UI tests, real-GTK accessibility, workspace format,
+  check, strict Clippy and tests, documentation/package/release/E2E contracts,
+  and isolated KDE Wayland Ping/Quit pass. The native process remained UID
+  1000. A disposable root-owned mutation fixture was unavailable and is not
+  claimed.
+
+Prior release-candidate evidence:
 
 - Updated `tar` from 0.4.44 to 0.4.46, resolving the three current medium
   Dependabot advisories. Added a deterministic offline policy over 204 resolved
@@ -1344,8 +1360,9 @@ Important decisions:
   support requires shared application services rather than unsafe independent
   processes racing settings and recovery stores.
 
-Recommended next task: create `phase-14c-privileged-operations` and implement
-only the bounded safe administrator mutation boundary described in the roadmap.
+Recommended next task: create `phase-18y2-complete-undo-recovery` and implement
+only the bounded operation-specific persistent Undo and recovery phase in the
+roadmap.
 
 ## Prior active status (Phase 21C)
 

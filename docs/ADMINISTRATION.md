@@ -27,17 +27,22 @@ bounded migration after launch as the signed-in user. Do not centrally delete
 recovery, guardrail, or integrity records during upgrade. See
 [Migrations](./MIGRATIONS.md).
 
-## Experimental administrator browsing
+## Experimental administrator access
 
-**Open as Administrator…** is opt-in and read-only. It delegates one local
-folder to the desktop GVfs `admin` backend and polkit agent. Floe remains the
-normal user's process and never receives the password. Preview, terminals,
-archives, external actions, clipboard operations, and every mutation are
-disabled. Missing GVfs/polkit support is a normal unavailable capability. Never
-wrap Floe in `sudo` or `pkexec`.
+**Open as Administrator…** is opt-in. It delegates one local folder to the
+desktop GVfs `admin` backend and polkit agent. Floe remains the normal user's
+process and never receives the password. The separate view offers explicitly
+confirmed New Folder, Rename, single-file Copy/Move, Trash, permanent delete,
+and Unix-mode operations. Destinations fail if they exist; links are not
+followed, Trash never falls back to deletion, and Return is blocked until an
+active operation reaches a terminal result.
 
-The read-only boundary is deliberate: temporary elevated authority must not
-leak into ordinary jobs or the rest of the application. See
+Recursive administrator copy, ownership, ACL/xattr/capability/immutable edits,
+previews, terminals, archives, Open With, clipboard actions, and external tools
+remain unavailable. Missing GVfs/polkit or backend write support is a normal
+unavailable capability. Never wrap Floe in `sudo` or `pkexec`. The separate
+typed boundary keeps elevated authority out ordinary jobs and the rest of the
+application. See
 [Floe Philosophy](./PHILOSOPHY.md) for the user-facing rationale.
 
 ## External tools and diagnostics

@@ -7,6 +7,9 @@ does not promise API or format stability beyond documented migration behavior.
 
 ### Added
 
+- Safe, separately typed administrator New Folder, Rename, single-file
+  Copy/Move, Trash, permanent delete, and Unix-mode operations through
+  GIO/GVfs with explicit confirmation and without elevating Floe itself.
 - User-facing Floe philosophy and feature-rationale contract explaining what
   important behaviors do, why they exist, their tradeoffs, and what they do not
   claim.

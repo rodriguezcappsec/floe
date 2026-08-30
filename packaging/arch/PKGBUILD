@@ -14,7 +14,7 @@ optdepends=(
 )
 options=('!lto')
 source=("$pkgname-$pkgver.tar.gz")
-sha256sums=('81dcd69448f32c403325d2bc4b2875dca50af66b1cf179db71227381afdd497c')
+sha256sums=('cae002ea5f0259ee0a35112eeaf19cf6a81cff63b049dff1f0b5524f86fd9235')
 
 build() {
   cd "$pkgname-$pkgver"
