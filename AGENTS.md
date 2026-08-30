@@ -1315,6 +1315,54 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-29`
 
+Current phase: **Phase 21C — Release Documentation (complete)**
+
+Completed this session:
+
+- Added reciprocal release manuals and reconciled installation, migration,
+  privacy, architecture, roadmap, and feature-matrix claims.
+- Added strict documentation/link/table/terminology/render checks, installed
+  public manuals with their relative-link layout, and added fresh-user release
+  walkthrough contracts.
+- Hardened deterministic source exclusions, updated the Arch checksum, and
+  verified a real clean package build plus its staged native lifecycle.
+
+Verified:
+
+- Strict documentation checks pass all 19 release-facing files and two focused
+  checker regressions; render, layout, migration, deterministic-source, and
+  diff-hygiene gates pass.
+- Formatting, workspace check, strict Clippy, 554 app tests (14 graphical
+  ignores), 21 app integration tests, 162 core tests, six duplicate workflows,
+  and the frozen release build pass.
+- `makepkg --cleanbuild --nodeps` passes. The staged binary answered D-Bus Ping,
+  exported and accepted Quit, and exited 0.
+- Two walkthrough contracts pass. Dogtail and pyatspi are unavailable, so the
+  semantic installed-artifact walkthrough remains truthfully skipped.
+
+Important decisions:
+
+- Floe remains English-only with partial RTL foundations.
+- Logs and technical details may contain sensitive paths and require review and
+  redaction before sharing.
+- Flatpak, compositor-specific features, remote/MTP, cryptography, vaults,
+  sandboxing, Open Safely, and Secure Share remain unavailable or deferred.
+
+Known issues:
+
+- Native semantic Dogtail/AT-SPI walkthrough evidence is unavailable because
+  Python Dogtail and pyatspi are not installed. The host AT-SPI socket refuses
+  connections; staged native lifecycle otherwise passed with the known RADV
+  warning only.
+
+Recommended next task: create `phase-21d-release-candidate` and perform only
+the bounded dependency, license, advisory, security, recovery,
+environment-matrix, and reproducible release-candidate audit in the roadmap.
+
+## Prior active status (Phase 21B)
+
+Last updated: `2026-08-29`
+
 Current phase: **Phase 21B — Packaging and migrations (complete)**
 
 Completed this session:

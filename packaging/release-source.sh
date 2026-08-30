@@ -19,10 +19,14 @@ rm -f -- "$temporary" "$file_list" "$tar_file"
 
 (
   cd -- "$repo_root"
-    git ls-files -z --cached --others --exclude-standard -- \
-        ':!packaging/arch/PKGBUILD' \
-        ':!AGENTS.md' ':!PLAN.md' ':!GATES.md' ':!gates' ':!gates/**' \
-        ':!.agents' ':!.codex' > "$file_list"
+  git ls-files -z --cached --others --exclude-standard -- \
+    ':!packaging/arch/PKGBUILD' \
+    ':!packaging/arch/*.tar.gz' ':!packaging/arch/*.pkg.tar.zst' \
+    ':!packaging/arch/src' ':!packaging/arch/src/**' \
+    ':!packaging/arch/pkg' ':!packaging/arch/pkg/**' \
+    ':!AGENTS.md' ':!PLAN.md' ':!GATES.md' ':!gates' ':!gates/**' \
+    ':!.agents' ':!.codex' \
+    ':!**/__pycache__' ':!**/__pycache__/**' ':!**/*.pyc' > "$file_list"
   tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
     --transform="s,^,floe-$version/," --null --files-from="$file_list" \
     -cf "$tar_file"

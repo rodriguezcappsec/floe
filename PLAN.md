@@ -1343,3 +1343,60 @@ so this phase must explicitly test and document that there is no vault migration
   pass. Phase 21B is complete; exactly Phase 21C is `NEXT`.
 
 ---
+# Plan: Floe Phase 21C — Release Documentation
+
+## Contract
+
+Create one coherent release documentation set for the verified Phase 21B
+artifact. A fresh user must be able to install, launch, learn core workflows,
+understand administrator/security/accessibility/recovery behavior, collect and
+redact debugging evidence, upgrade/rollback/uninstall, and find limitations
+without reading phase history. Current-state documents must agree with code and
+tests; historical evidence remains in gate ledgers rather than masquerading as
+current architecture.
+
+Add dependency-free link/table/terminology/status validation and render every
+release-facing Markdown document. Reconcile stale roadmap/matrix/security/
+architecture claims and malformed tables. Document Floe as English-only with
+partial RTL foundations: this phase does not invent gettext catalogs or claim a
+translated native walkthrough. Diagnostic logs and technical details may expose
+sensitive paths, so collection guidance must require review/redaction.
+
+Regenerate the deterministic source archive and Arch checksum after public docs
+are added, update the installed documentation manifest, and rerun package and
+staged-native verification. Deferred Niri/Plasma-specific, remote, MTP, vault,
+encryption, sandbox, Open Safely, Secure Share, and Flatpak functionality remain
+clearly unavailable. Dependency/advisory/security audit and release artifacts
+remain Phase 21D.
+
+## Depth tree
+
+1. Current-claim reconciliation
+   1. Repair roadmap, feature matrix, privacy, architecture and development drift.
+   2. Enforce one canonical limitation and security-term vocabulary.
+2. Release manuals
+   1. Getting started, installation, administration and accessibility.
+   2. Recovery, debugging/log policy, localization, security and changelog.
+3. Automated documentation contracts
+   1. Link, fragment, heading, table, terminology and exactly-one-NEXT checker.
+   2. GFM render sweep and bounded fresh-user walkthrough contract/native smoke.
+4. Package integration and verification
+   1. Install all release docs, regenerate archive/hash and rebuild package.
+   2. Run complete workspace/native/doc gates, update status, set 21D NEXT.
+
+## Status log
+
+- 2026-08-29: Phase 21C started on `phase-21c-release-documentation` from
+  verified Phase 21B commit `adb3182`; gates are in `gates/phase-21c.md`.
+- 2026-08-29 pass 1: added the reciprocal release manual set, strict
+  documentation checker, render sweep, and fresh-user walkthrough contracts.
+- 2026-08-29 pass 2: adversarially reconciled roadmap, matrix, security,
+  architecture, development, and malformed-table claims; strict checks pass.
+- 2026-08-29 pass 3: installed public manuals with preserved relative links,
+  added deterministic release-source coverage, rebuilt the real Arch package,
+  and verified staged D-Bus Ping/Quit exit 0. Native semantic walkthrough skips
+  truthfully because Dogtail and pyatspi are unavailable.
+- 2026-08-29 pass 4: full format/check/strict-Clippy/workspace-test/frozen-build
+  and diff gates pass; Phase 21C is complete and exactly Phase 21D is next.
+
+---

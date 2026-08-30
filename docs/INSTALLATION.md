@@ -1,10 +1,17 @@
 # Installing Floe
 
+Related: [Getting Started](./GETTING_STARTED.md) ·
+[Migrations](./MIGRATIONS.md) · [Administration](./ADMINISTRATION.md) ·
+[Debugging](./DEBUGGING.md)
+
 Floe currently provides one verified native Linux packaging path: an Arch Linux
 package contract plus a manifest-driven source installer. Flatpak is deferred.
 Floe needs broad local filesystem access, host GIO/GVfs services, installed
 thumbnailers, terminals, and explicitly configured external tools; no truthful
 Flatpak permission model has yet been implemented or tested.
+
+The installed command is `floe` and the stable application identity is
+`io.github.rodriguezcappsec.Floe`.
 
 ## Legal status
 

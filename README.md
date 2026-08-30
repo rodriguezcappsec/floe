@@ -1,316 +1,134 @@
 <div align="center">
 
-<img src="./flow_logo_transparent.png" alt="Floe — a blue folder crossed by a flowing river" width="620">
+<img src="./flow_logo_transparent.png" alt="Floe — blue folder crossed by a flowing river" width="620">
 
 <h3>A spatial file manager for Wayland</h3>
 
-<p>
-Fast, native Linux file management with flexible views, deep keyboard workflows,<br>
-and a safety-first Rust core.
-</p>
-
-<p>
-<a href="https://www.rust-lang.org/"><img alt="Rust 1.85+" src="https://img.shields.io/badge/Rust-1.85%2B-0B4F8A?style=for-the-badge&amp;logo=rust&amp;logoColor=white"></a>
-<a href="https://www.gtk.org/"><img alt="GTK 4" src="https://img.shields.io/badge/GTK-4-1683A7?style=for-the-badge&amp;logo=gtk&amp;logoColor=white"></a>
-<a href="https://wayland.freedesktop.org/"><img alt="Wayland first" src="https://img.shields.io/badge/Wayland-First-075985?style=for-the-badge&amp;logo=linux&amp;logoColor=white"></a>
-<a href="./docs/ROADMAP.md"><img alt="Active development" src="https://img.shields.io/badge/Status-Active_Development-0891B2?style=for-the-badge"></a>
-</p>
-
-<p>
-<a href="./docs/USER_GUIDE.md">User Guide</a> ·
-<a href="#what-floe-can-do">Features</a> ·
-<a href="#build-and-run">Run Floe</a> ·
-<a href="#keyboard-first-by-design">Keyboard</a> ·
-<a href="#architecture">Architecture</a> ·
-<a href="#project-status">Roadmap</a>
-</p>
+<p>Fast native Linux file management, flexible views, deep keyboard workflows,<br>and a safety-first Rust core.</p>
 
 </div>
 
----
+# Floe
 
-Floe is a modern Linux desktop file manager built in Rust with GTK4 and
-libadwaita. It combines familiar daily file-management tools with spatial
-navigation, highly configurable workflows, and a responsive application-owned
-job engine.
+Floe is a GTK4/libadwaita file manager for Linux Wayland desktops. It combines
+List, Grid, split-pane, and spatial Miller views with background file jobs,
+Quick Preview, search, archives, integrity tools, and configurable keyboard
+workflows. Exact Linux paths remain authoritative even when a filename cannot
+be displayed as valid UTF-8.
 
-It is Wayland-first, with Niri and KDE Plasma as first-class targets, while its
-core browsing and file operations stay desktop-independent through standard
-Linux APIs such as GIO, GLib, XDG, and freedesktop specifications.
+The implemented desktop path is generic GTK/GIO/XDG. Niri and KDE Plasma are
+first-class product targets, but compositor-specific integrations are deferred
+and never required by the filesystem core.
 
-> [!IMPORTANT]
-> Floe is under active development and does not have a stable packaged release
-> yet. It already has a substantial working feature set, but interfaces and
-> stored preferences may still evolve.
+## Install and start
 
-## Why Floe?
+Floe currently has one verified native packaging strategy: the Arch package
+contract and manifest-driven native installer. Flatpak is not implemented.
 
-- **Spatial when you want it.** Move between list, grid, split-pane, tabbed, and
-  Miller-column workflows without giving up navigation state.
-- **Fast where it matters.** Directory work, metadata, previews, thumbnails,
-  hashing, archives, and file operations run away from GTK's main loop.
-- **Built for Linux.** XDG folders, mounted devices, Trash, MIME associations,
-  freedesktop thumbnailers, and native application launching are foundational.
-- **Safe by design.** Original `PathBuf` values are preserved, shell
-  interpolation is avoided, symlink behavior is explicit, and destructive
-  operations require deliberate confirmation.
-- **Yours to shape.** A searchable native Settings Center organizes appearance,
-  browsing, layout, search, safety, applications, shortcuts, menus, and
-  accessibility behavior. Safe choices apply live and use Floe's existing
-  bounded preference storage.
+See [Installation](./docs/INSTALLATION.md), then launch:
 
-## What Floe can do
+```bash
+floe
+floe /path/to/folder
+floe /path/to/file.pdf
+```
 
-| Area | Current highlights |
-| --- | --- |
-| **Customize** | Searchable Settings Center, five live appearance presets, System/Light/Dark, font family and 75–200% scale, reduced motion, single/double-click opening, three icon styles, density, and per-folder memory |
-| **Browse** | Virtualized list and grid views, adjustable grid size, complete Sort By menu, Type/Extension/Date/Size collapsible groups, reordered/autosized metadata columns, and large-folder-friendly loading |
-| **Navigate** | Exact-path breadcrumbs, editable location completion, recent locations, back/forward/parent history, tabs, restored sessions, split panes, spatial Miller columns, and local CLI folder/file routing |
-| **Select and organize** | Desktop-style multi-selection with invert selection, drag and drop, copy, cut, paste, move, rename, duplicate, links, folders, empty files, FIFOs, and templates |
-| **Trash and recovery** | Standards-compatible Trash browsing, restore, empty Trash, confirmed permanent deletion, conflict handling, operation history, private interrupted-operation journal and conservative Recovery Center |
-| **Preview** | Space-bar Quick Preview for images, bounded text/code, PDF and office documents, audio/video, fonts, and archive listings |
-| **Inspect** | Properties, folder totals, filesystem details, permissions and ownership editing, checksums, EXIF, and media metadata |
-| **Archives** | Create and extract ZIP, tar, tar.gz, tar.xz, and reviewed 7z archives through bounded background jobs |
-| **Work faster** | Unified quick filtering, filename/content search, saved searches, optional indexing, duplicate finding, command palette, customizable shortcuts, optional Vim navigation, batch rename, customizable context menus, and selection-aware custom actions |
-| **Desktop integration** | XDG Places, bookmarks, drives and removable media, native mount prompts, complete GIO Open With/default-app reset workflows, experimental read-only GVfs/polkit administrator browsing, live file watching, and a truthful desktop-capability status surface |
-| **Integrity and data-loss safety** | Saved SHA-256 fingerprints, portable `SHA256SUMS`, explicit local integrity baselines, optional Copy and Verify, verified flush/eject workflow, and exact-path Protected Folder guardrails |
-| **Appearance** | Native, Glass, Frosted, Minimal, and Compact presets; adjustable sidebar density and width; optional translucent floating surfaces |
+The stable application ID is `io.github.rodriguezcappsec.Floe`. Each invocation
+accepts at most one local target; remote URIs are rejected.
 
-Glass uses real top-level alpha composition, while Frosted uses a stronger
-semantic-color tint over the same transparent window path. Actual background
-blur remains compositor-dependent. Floe keeps both presets readable when blur
-is unavailable and does not simulate expensive fake blur.
-
-## Build and run
-
-### Requirements
-
-- Linux with a Wayland session
-- Rust **1.85** or newer
-- GTK **4.14** or newer
-- libadwaita **1.5** or newer
-- `pkg-config` / `pkgconf`
-
-On Arch Linux and Arch-based distributions:
+To build from a checkout:
 
 ```bash
 sudo pacman -S --needed rust gtk4 libadwaita pkgconf
-```
-
-Other distributions use different package names, often ending in `-dev` or
-`-devel`. Confirm that the native libraries are visible before building:
-
-```bash
-pkg-config --modversion gtk4 libadwaita-1
-```
-
-### Run from source
-
-```bash
-git clone https://github.com/rodriguezcappsec/floe.git
-cd floe
 cargo run -p floe-app
 ```
 
-You can also open one local folder or reveal one local file from the command
-line. Floe routes the request to its existing window when one is already open:
+Rust 1.85+, GTK 4.14+, and libadwaita 1.5+ are required. Other distributions
+use different development-package names.
 
-```bash
-cargo run -p floe-app -- /path/to/folder
-cargo run -p floe-app -- /path/to/file.pdf
-```
+## Current capabilities
 
-Each invocation accepts one local target. Remote URIs and multi-target launches
-are rejected explicitly rather than being guessed or partly opened.
+- Virtualized List and Grid plus bounded spatial Miller columns.
+- Tabs, session restore, split panes, breadcrumbs, and local CLI routing.
+- Copy, move, rename, duplicate, links, templates, drag and drop, Trash,
+  restore, permanent deletion, conflicts, cancellation, and safe limited Undo.
+- Quick Preview, Inspector, Properties, permissions, metadata, checksums,
+  archives, search, an optional local index, and exact duplicate review.
+- Integrity fingerprints and manifests, baselines, verified copy/transfer,
+  Protected Folder guardrails, and conservative interrupted-operation recovery.
+- Searchable Settings, five appearance presets, text scale, reduced motion,
+  customizable shortcuts, optional Vim navigation, and direct-argv actions.
 
-Frosted is the current default appearance. Press `Ctrl+,` or choose
-**Main menu → Settings…**, then search for **Appearance preset** to switch
-between Native, Glass, Frosted, Minimal, and Compact. The change is immediate
-and remembered for the next launch. The focused **View & Layout → Appearance**
-menu remains available for quick switching.
-
-To override the stored preset for one launch:
-
-```bash
-FLOE_APPEARANCE=glass cargo run -p floe-app
-```
-
-Accepted values are `native`, `glass`, `frosted`, `minimal`, and `compact`.
-The environment value takes precedence for that launch without changing the
-stored choice unless you select another preset in the application.
-
-Close an existing Floe window before switching presets. Floe is single-instance,
-so another launch otherwise reactivates the already-running appearance.
-
-For reproducible 100,000-entry, search, thumbnail, operation, metadata, and
-integrity release measurements, see the [performance contract](./docs/PERFORMANCE.md).
-Run its opt-in serial gate with:
-
-```bash
-cargo test -p floe-app phase_21a_performance --release -- --ignored --nocapture --test-threads=1
-```
-
-For more build, logging, smoke-test, and troubleshooting guidance, see
-[Developing Floe](./docs/DEVELOPMENT.md).
-
-## Keyboard-first by design
-
-Floe keeps familiar desktop shortcuts while making its broader command surface
-discoverable and customizable.
+## Keyboard entry points
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl` + `Shift` + `P` | Open the command palette |
-| `Ctrl` + `,` | Open the searchable Settings Center |
-| `Ctrl` + `?` | Browse and customize keyboard shortcuts |
-| `Ctrl` + `L` | Edit the current location |
-| `Ctrl` + `T` / `Ctrl` + `W` | Open / close a tab |
-| `Ctrl` + `C` / `Ctrl` + `X` / `Ctrl` + `V` | Copy / cut / paste |
+| `Ctrl+Shift+P` | Command Palette |
+| `Ctrl+,` | Settings |
+| `Ctrl+?` | Keyboard Shortcuts |
+| `Ctrl+L` | Edit location |
+| `Ctrl+F` | Unified Search |
+| `Ctrl+T` / `Ctrl+W` | New / close tab |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste |
 | `F2` | Rename |
-| `Delete` | Move to Trash |
-| `Shift` + `Delete` | Delete permanently with confirmation |
-| `Space` | Toggle Quick Preview |
-| `Alt` + `Enter` | Open Properties |
-| `Ctrl` + `1` / `Ctrl` + `2` | Switch to list / grid view |
+| `Delete` / `Shift+Delete` | Trash / permanent-delete confirmation |
+| `Space` | Quick Preview |
+| `Ctrl+I` / `Alt+Enter` | Inspector / Properties |
 
-Optional Vim-style browser navigation can be enabled without affecting text
-fields, dialogs, or other native input controls.
+## Release documentation
 
-## Architecture
+- [Getting Started](./docs/GETTING_STARTED.md)
+- [User Guide](./docs/USER_GUIDE.md)
+- [Installation](./docs/INSTALLATION.md) and [Migrations](./docs/MIGRATIONS.md)
+- [Administration](./docs/ADMINISTRATION.md)
+- [Accessibility](./docs/ACCESSIBILITY.md)
+- [Recovery](./docs/RECOVERY.md)
+- [Debugging](./docs/DEBUGGING.md)
+- [Localization and RTL](./docs/LOCALIZATION.md)
+- [Security Policy](./SECURITY.md) and [Privacy/Security Architecture](./docs/PRIVACY_SECURITY.md)
+- [Performance](./docs/PERFORMANCE.md)
+- [Feature Matrix](./docs/FEATURE_MATRIX.md) and [Roadmap](./docs/ROADMAP.md)
+- [Changelog](./CHANGELOG.md)
 
-Floe keeps GTK presentation separate from filesystem and job logic:
+## Important limitations
+
+- Niri-specific, Plasma-specific, remote/network, and Android/MTP integrations
+  are deferred. Generic local Wayland behavior remains implemented.
+- Flatpak is not implemented.
+- Experimental administrator browsing is opt-in and read-only.
+- Provider helpers are supervised but not sandboxed and retain normal user
+  authority.
+- Encrypted Vault, Sensitive Folder, Private Mode, Open Safely, Secure Share,
+  portable encryption, and provider sandboxing are unavailable.
+- Protected Folder is an accidental-change guardrail, not encryption or access
+  control. Permanent deletion is not secure erase.
+- Hashes do not prove authenticity, authorship, malware safety, or trust.
+- Recovery is conservative restart review, not a transaction, rollback, or
+  backup guarantee.
+- Floe is English-only with partial RTL foundations. Complete Orca, translated
+  RTL, and physical multi-monitor fractional-scale verification are unclaimed.
+- Logs and technical details may contain sensitive paths; review and redact
+  them before sharing.
+
+## Architecture and development
 
 ```text
 GTK4 / libadwaita UI
-          │
-          ▼
+          |
 Application commands and state
-          │
-          ▼
-Bounded job managers and workers
-          │
-          ▼
+          |
+Bounded workers and job managers
+          |
 GTK-independent filesystem core
 ```
 
-The workspace currently contains:
-
-```text
-crates/
-├── core/   Filesystem models, navigation, jobs, and path-safe operations
-└── app/    GTK UI, application wiring, workers, and desktop integration
-```
-
-The core crate never depends on GTK. Potentially slow filesystem activity is
-bounded and asynchronous, while results return to the GTK main thread for
-presentation. Linux filenames are not assumed to be UTF-8, and displayed text
-is never used to reconstruct an existing filesystem path.
-
-Read the full [architecture guide](./docs/ARCHITECTURE.md) and
-[privacy and security model](./docs/PRIVACY_SECURITY.md) for the invariants
-behind these decisions.
-
-## Supported desktops
-
-| Environment | Direction |
-| --- | --- |
-| **Niri** | First-class target; spatial workflows complement Niri's horizontal navigation model |
-| **KDE Plasma** | First-class target using standards before optional Plasma-specific integration |
-| **Other Wayland desktops** | Generic support through GTK, GIO, XDG, portals, and freedesktop standards |
-
-Specialized compositor integrations are isolated from the filesystem core and
-must fail gracefully. The current application primarily uses the generic,
-standards-based path.
+Filesystem work does not belong in GTK callbacks. Read
+[Architecture](./docs/ARCHITECTURE.md), [Developing Floe](./docs/DEVELOPMENT.md),
+and [AGENTS.md](./AGENTS.md) before changing the project.
 
 ## Project status
 
-**Phase 21B — Packaging and migrations** is complete. Floe now has the stable
-`io.github.rodriguezcappsec.Floe` application identity, optimized `floe`
-binary, validated desktop/AppStream/icon metadata, a manifest-driven source
-installer, and a verified Arch package. Version-18 preference migration is
-bounded, private, no-follow, and atomic; package operations never change user
-MIME defaults or migrate user XDG state. Flatpak and publication remain
-deferred. The next bounded milestone is **Phase 21C — Release documentation**.
-
-Floe has completed the generic desktop integration baseline through **Phase
-14**, the documentation-only **Phase 18A Security Threat Model**, and runtime
-**Phases 18T–18Y** for integrity, data-loss safety, and interrupted-operation
-recovery, and **Phase 20A's searchable Settings Center**. Floe journals copy,
-move, rename, and create work privately before
-mutation, then offers conservative restart review without deleting uncertain
-output. Safe Create Undo revalidates identity and uses recoverable Trash; new
-contents inside a created directory block Undo. Hashes are not authenticity or
-malware safety, monitoring is not intrusion detection, and recovery is not a
-transaction or rollback guarantee. Real removable-device verification remains
-unclaimed without disposable lab media. Niri, Plasma-specific, remote, and
-Android/MTP integration remain deferred. The next bounded milestone is
-**Phase 7G — Navigation Upgrades** is complete: the header now provides
-keyboard-accessible exact-path breadcrumbs, bounded asynchronous local-folder
-completion, `Alt+Down` recent locations over restored application history, and
-single-target command-line folder/file routing without weakening exact-path or
-privacy rules.
-
-**Phase 19B — Associations and Custom Actions** is complete: Open With can
-inspect, set, or reset XDG MIME defaults through a bounded GIO worker. Users can
-configure selection- and MIME-aware external tools from Settings; Floe expands
-exact paths into direct argv items and never sends custom-action text to a shell.
-
-**Phase 14B — Privileged Local Browsing** is complete as an experimental,
-read-only feature. Users can opt in from Settings and open one local folder
-through the desktop's GVfs `admin` backend and polkit agent. Floe remains the
-normal user's process, never handles a password, keeps a persistent
-Administrator badge, and exposes no privileged mutation or external-tool path.
-
-Application chrome now uses a pinned local Phosphor icon subset, while file
-entries switch live between **Floe Color**, **Phosphor Monochrome**, and the
-active **System Theme**. Plain text, office documents, and PDF use distinct
-families; missing system-theme artwork falls back to a family-specific Floe
-icon. Thumbnails continue replacing generic icons, and the selected style
-persists across launches.
-
-Search is presented as one coherent workflow: `Ctrl+F` opens **Quick Filter**,
-the visible mode selector switches between filtering, filename search, and
-content search, and `Ctrl+Shift+F` opens **Search Files** directly. Reviewed
-filters cover type, extension, MIME, size, date, owner, hidden state, and case.
-
-The project tracks scope and verification explicitly:
-
-- [User guide](./docs/USER_GUIDE.md) — how to use current Floe features
-- [Installation](./docs/INSTALLATION.md) — verified source and Arch packaging
-- [Migrations](./docs/MIGRATIONS.md) — settings, cache, backup, and rollback policy
-- [Roadmap](./docs/ROADMAP.md) — ordered phases and exactly one recommended next milestone
-- [Feature matrix](./docs/FEATURE_MATRIX.md) — capability and verification ledger
-- [Design language](./DESIGN.md) — visual system and interaction rules
-- [Privacy and security](./docs/PRIVACY_SECURITY.md) — threat model and prohibited claims
-- [Privileged access](./docs/PRIVILEGED_ACCESS.md) — implemented experimental read-only boundary and future mutation gates
-
-Features are marked complete only after their relevant formatting, build,
-Clippy, automated test, and native Wayland gates pass.
-
-## Contributing
-
-Floe is still moving quickly. Before proposing a change, read:
-
-1. [AGENTS.md](./AGENTS.md) for project invariants and scope discipline.
-2. [Developing Floe](./docs/DEVELOPMENT.md) for dependencies and quality gates.
-3. [Architecture](./docs/ARCHITECTURE.md) for crate ownership and async boundaries.
-4. [Roadmap](./docs/ROADMAP.md) to avoid pulling future phases into a focused change.
-
-The standard local quality gate is:
-
-```bash
-cargo fmt --all -- --check
-cargo check --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-```
-
----
-
-<div align="center">
-
-<p><strong>Floe — a spatial file manager for Wayland.</strong></p>
-
-<p>Built with Rust, GTK4, and a stubborn respect for your files.</p>
-
-</div>
+Phase 21C release documentation is complete after verified Phase 21A
+performance and Phase 21B packaging/migrations. Phase 21D release-candidate
+hardening is the only next phase. [Roadmap](./docs/ROADMAP.md) is the phase-
+sequencing authority; code and tests determine completion.

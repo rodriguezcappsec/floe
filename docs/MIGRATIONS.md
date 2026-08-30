@@ -1,5 +1,8 @@
 # Floe settings, cache, and rollback policy
 
+Related: [Installation](./INSTALLATION.md) · [Administration](./ADMINISTRATION.md) ·
+[Recovery](./RECOVERY.md) · [Debugging](./DEBUGGING.md)
+
 Package installation and removal run as system operations and must never scan
 or migrate a user's `HOME`, Trash, or XDG directories. Version migration runs
 inside Floe as the signed-in user, with bounded no-follow reads and private

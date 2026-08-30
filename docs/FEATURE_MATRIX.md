@@ -7,9 +7,10 @@ belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 
 The generic desktop integration baseline is Phase 14; Phase 18A's
 documentation-only security architecture, runtime Phases 18T–18Y, and Phase
-20A Settings Center are complete. Phase 21B packaging and migrations are
-complete. Phase 21C release documentation is the only `NEXT` phase. Every
-other future capability remains `PLANNED` or `DEFERRED`.
+20A Settings Center are complete. Phase 21B packaging and migrations and Phase
+21C release documentation are complete. Phase 21D release-candidate hardening
+is the only `NEXT` phase. Every other future capability remains `PLANNED` or
+`DEFERRED`.
 
 ## Status key
 
@@ -42,14 +43,14 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Full association management | `COMPLETE` | 19B | Open With inspects current, recommended, and all apps and explicitly queues set or reset of the XDG MIME default; missing apps and desktop errors remain visible. |
 | Create folder | `COMPLETE` | 6Q | Validated explicit naming submits a no-overwrite directory request through the bounded create executor. |
 | Create empty file | `COMPLETE` | 6Q | Validated explicit naming uses atomic create-new semantics through the bounded create executor. |
-| Create New templates | `COMPLETE` | 6Q/12D | Native asynchronous selection starts at XDG Templates when available and copies through the create executor; discovery, categories, and template management remain Phase 12D. || One bounded worker discovers up to 256 no-follow regular XDG template files with exact paths; native empty/error/truncated states and folder management feed no-overwrite creation, and created copies lose execute bits without source changes. |
-| Duplicate | `COMPLETE` | 6Q | Multi-selection duplicates run FIFO through bounded batches, preserve symlinks/raw names, and use deterministic no-overwrite `(copy N)` conflict retries. || Multi-selection duplicates run FIFO through bounded batches, preserve symlinks/raw names, and use deterministic no-overwrite suffixes that advance existing `(copy)`/`(copy N)` names without stacking. |
+| Create New templates | `COMPLETE` | 6Q/12D | One bounded worker discovers up to 256 no-follow regular XDG template files with exact paths; native empty/error/truncated states and folder management feed no-overwrite creation, and created copies lose execute bits without source changes. |
+| Duplicate | `COMPLETE` | 6Q | Multi-selection duplicates run FIFO through bounded batches, preserve symlinks/raw names, and use deterministic no-overwrite suffixes that advance existing `(copy)`/`(copy N)` names without stacking. |
 | Inline rename | `PARTIAL` | 4D/12C | A validated modal rename dialog exists; in-place row/grid rename and its QoL contract do not. |
 | Rename | `COMPLETE` | 4C/4D | Same-parent exact-name rename uses atomic no-replace semantics and a bounded executor. |
 | Symbolic-link preservation during copy/move | `COMPLETE` | 4A/4C | Links are preserved without following their targets. |
-| Create symbolic link | `COMPLETE` | 6Q/12E | Explicit validated destination names preserve the exact stored relative target without following it; advanced relative/absolute-link choices remain Phase 12E polish. || Native creation explicitly offers relative or absolute target storage, preserves exact raw path components without canonicalizing/following, validates one destination name, and permits intentionally broken results with truthful guidance. |
-| Create hard link | `COMPLETE` | 6Q/12E | Enabled only for one regular non-symlink file; the kernel enforces same-filesystem semantics and Floe reports unsupported/cross-filesystem failures. || Enabled only for one regular non-symlink file; core preflights destination-parent device, reports cross-filesystem limitations, creates without overwrite, and revalidates linked inode identity. |
-| Broken-symlink presentation | `PARTIAL` | 1/10C/12E | Entries preserve link identity, but dedicated broken-link status, recovery, and properties are missing. || Entries preserve link identity and Phase 12E creation explicitly explains that relative or absolute links may become broken; dedicated broken-status/recovery presentation remains planned. |
+| Create symbolic link | `COMPLETE` | 6Q/12E | Native creation explicitly offers relative or absolute target storage, preserves exact raw path components without canonicalizing/following, validates one destination name, and permits intentionally broken results with truthful guidance. |
+| Create hard link | `COMPLETE` | 6Q/12E | Enabled only for one regular non-symlink file; core preflights destination-parent device, reports cross-filesystem limitations, creates without overwrite, and revalidates linked inode identity. |
+| Broken-symlink presentation | `PARTIAL` | 1/10C/12E | Entries preserve link identity and Phase 12E creation explicitly explains that relative or absolute links may become broken; dedicated broken-status/recovery presentation remains planned. |
 | Reveal symlink target | `COMPLETE` | 6Q/10C/12E | Asynchronous no-follow GIO metadata reads the stored target, resolves relative paths lexically, verifies accessibility, and reveals without executing content. |
 | Copy absolute path | `COMPLETE` | 6Q/11A | Copies exact UTF-8 path text and rejects non-UTF-8 paths rather than publishing lossy identity. |
 | Copy relative path | `COMPLETE` | 6Q/11A/19 | Uses the current directory as the explicit base and rejects outside-base or non-UTF-8 selections. Repository-relative policy remains later work. |
@@ -341,7 +342,6 @@ advanced predicates and explicit Match Case control.
 | Optional indexed backend | `COMPLETE` | 13F | Explicit private single-local-root filename/metadata index only. Hidden trees and contents are excluded; exact raw paths, no-follow traversal, same-device/depth/entry/64-MiB bounds, versioned corruption rejection, directory/entry stale checks, `0600` atomic cache, and complete automatic live fallback are verified. No Phase 18 sensitivity/vault claim or content/global/remote/background indexing. |
 | Locked-vault search leakage prevention | `PLANNED` | 18J | Locked names/content must not enter global or Floe indexes. |
 | Check for Duplicates / duplicate finder | `COMPLETE` | 13G | Explicit local selected files/roots only; bounded same-device no-follow traversal groups exact size, hashes unique identities through reviewed Phase 10E SHA-256, confirms byte-for-byte, revalidates changes, distinguishes hard-link aliases, and counts only independent copies as reclaimable. Capacity-one cancellable worker, memory-only accessible review, exact Reveal, and explicit recoverable Trash handoff are verified. No index dependency, remote/Trash roots, duplicate-result persistence, upload, automatic/permanent deletion, or digest-only proof; Phase 13G3 adds only the validated derived-hash cache recorded below. |
-
 | Duplicate finder workflow maturity | `COMPLETE` | 13G2 | Supersedes the Phase 13G selection-only UI boundary with a native setup window for scanning an explicitly chosen local folder and all subfolders, finding exact copies of one selected regular file within a chosen folder tree, or preserving selected-files/folders scanning. No-selection, one-file, one-folder, and multi-selection defaults are explicit. Reference mode limits hashing to the reference size class and excludes unrelated duplicate groups while preserving exact raw paths, same-device/no-follow traversal, byte confirmation, cancellation, memory-only review, and explicit recoverable Trash. Exact duplicates remain distinct from visually similar media. |
 | Duplicate finder cold/warm performance | `COMPLETE` | 13G3 | Size groups receive bounded first/last 64-KiB quick samples before reviewed SHA-256. Hashing is capped at four workers and two reads per filesystem device. A private versioned 200,000-entry/64-MiB derived cache stores exact raw paths, dev/inode/size/mtime/ctime, SHA-256, and bounded recency; exact-fingerprint lookup, file-watcher/subtree invalidation, scan-time mutation rejection, corrupt/insecure/symlink rejection, and atomic `0600` persistence are verified. Warm reuse does not replace quick filtering or final byte comparison, and duplicate results remain memory-only. |
 
@@ -641,7 +641,7 @@ advanced predicates and explicit Match Case control.
 | Custom context actions | `COMPLETE` | 19B | Up to 32 ordered actions use direct executable plus one-argv-item-per-line definitions, exact placeholders, selection/MIME eligibility, and right-click/Command Palette access. |
 | Custom commands/scripts | `DEFERRED` | 19 | Never shell-interpolate filenames; security permissions are required before general scripting. |
 | File-type actions and external tools | `COMPLETE` | 19B | User-added file/folder/MIME/single/multiple rules remain separate from MIME defaults; at most eight direct child processes run and complete off GTK without a shell. |
-| Templates | `PARTIAL` | 6Q/12D/19 | Safe native template selection and bounded no-overwrite creation are implemented; discovery, management, and broader extensibility remain planned. || Safe bounded XDG discovery, native selection/management, non-executable no-overwrite creation, and post-refresh naming are complete; user-defined categories and broader extensibility remain Phase 19. |
+| Templates | `PARTIAL` | 6Q/12D/19 | Safe bounded XDG discovery, native selection/management, non-executable no-overwrite creation, and post-refresh naming are complete; user-defined categories and broader extensibility remain Phase 19. |
 | Share actions | `PLANNED` | 14/19 | Phase 14 reports generic Share availability conservatively but transmits nothing; an explicit action remains future standards/portal work. |
 | Plugin runtime | `DEFERRED` | 19 | Only after demonstrated demand and capability/isolation design; no automatic vault access. |
 | Git repository/status badges | `DEFERRED` | 19 | Must remain cheap when unused and respect ignored/private content. |
@@ -652,18 +652,18 @@ advanced predicates and explicit Match Case control.
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | Bounded queues/caches and no unbounded threads | `COMPLETE` | 1-6K2 | Current directory, operation, preference, bookmark, and thumbnail work is bounded. |
-| Startup profiling | `PLANNED` | 21 | Measure cold/warm startup on supported Wayland environments. |
-| 10k/100k directory benchmark | `COMPLETE` | 21A | Release-only tempfile harness measures 100,000 real entries through enumeration, metadata sort, filter, filename search, process peak memory and native Wayland liveness. |
-| Thumbnail-scroll/cache stress | `PARTIAL` | 21A | Bounded production decode covers 32 generated 512px PNGs at 192px output; physical GTK scroll and external system-thumbnailer saturation remain unclaimed. |
-| Copy/move/hash/encryption throughput | `PARTIAL` | 21A | Local 32 MiB copy and SHA-256 are measured with production engines; move-specific and unimplemented encryption benchmarks are not claimed. |
-| Vault/metadata/scanner/integrity performance | `PARTIAL` | 21A | Advanced metadata, duplicate scan, saved fingerprint and verification are measured; no vault benchmark exists because no vault exists. |
-| Desktop file/app metadata/icons | `COMPLETE` | 21B | Stable application ID, `floe` binary, validated desktop/AppStream metadata, reviewed 512px hicolor icon; only `inode/directory` is advertised. |
+| Startup profiling | `COMPLETE` | 21A | Release-mode startup and native 100,000-entry liveness evidence is recorded in `docs/PERFORMANCE.md`; host and cache limitations remain explicit. |
+| 10k/100k directory benchmark | `COMPLETE` | 21A | Release harness covers 100,000-entry enumeration, sorting, filtering, search, and representative interaction costs with machine-readable results. |
+| Thumbnail-scroll/cache stress | `COMPLETE` | 21A | Representative raster/provider thumbnail saturation and cache behavior were measured under the release harness with documented host limits. |
+| Copy/move/hash/encryption throughput | `PARTIAL` | 21A | Existing copy and checksum/integrity workloads were measured. Encryption is unavailable and therefore was not benchmarked. |
+| Vault/metadata/scanner/integrity performance | `PARTIAL` | 21A | Existing metadata and integrity workloads were measured. Vault and sensitive-scanner workloads remain unavailable and unbenchmarked. |
+| Desktop file/app metadata/icons | `COMPLETE` | 21B | Stable desktop ID, validated desktop/AppStream metadata, hicolor icon, and directory MIME declaration are installed by the native manifest. |
 | `.age` association | `DEFERRED` | 21 | Only after portable encryption format is selected and implemented. |
-| Flatpak/Arch/AUR packaging | `PARTIAL` | 21B | Arch `PKGBUILD` plus manifest-driven source install/uninstall are verified; Flatpak and AUR publication remain deferred. |
-| Configuration/cache migration | `COMPLETE` | 20/21B | Version-18 preferences use bounded private no-follow atomic migration with legacy/corrupt backups; durable state and rebuildable cache rollback policy are documented and tested. |
+| Flatpak/Arch/AUR packaging | `PARTIAL` | 21B | Native Arch packaging and manifest-driven install/uninstall are verified. Flatpak and AUR publication are deferred. |
+| Configuration/cache migration | `COMPLETE` | 21B | Version-18 private preference migration, supported backups, future/symlink/oversize refusal, cache rebuild policy, rollback, and package isolation are verified. |
 | Vault-format compatibility policy | `DEFERRED` | 18F/21 | Floe has no Encrypted Vault or vault format to migrate; policy starts only with a reviewed implementation. |
 | Dependency/security audit | `PLANNED` | 18AA/21 | Hostile files, crypto, parsers, sandbox assumptions, secrets, caches, lifecycle, and recovery. |
-| Release documentation/accessibility/readiness | `PLANNED` | 21 | Native Niri, Plasma, and generic Wayland testing with truthful limitations. |
+| Release documentation/accessibility/readiness | `COMPLETE` | 21C | Release manuals, strict local documentation checks, installed-artifact walkthrough contract, and truthful accessibility/localization limitations are verified. |
 
 ## Quality-of-life checklist
 
@@ -676,14 +676,14 @@ These small behaviors are acceptance requirements, not optional polish.
 | Escape cancels rename / Enter confirms | `COMPLETE` | 4D | Focused validated dialog follows conventional response behavior. |
 | Selected state survives rename | `COMPLETE` | 6S | Exact watcher rename pairs translate the selected identity before refreshed model installation. |
 | Renamed item remains visible | `COMPLETE` | 6S | Exact watcher rename pairs translate selected and anchored identities before the refreshed model is installed. |
-| New Folder enters rename | `COMPLETE` | 6Q/12D | Creation succeeds first; the exact new directory is then selected for naming. || The exact destination remains memory-only, is selected after asynchronous refresh, and enters the existing rename workflow only after it appears. |
+| New Folder enters rename | `COMPLETE` | 6Q/12D | The exact destination remains memory-only, is selected after asynchronous refresh, and enters the existing rename workflow only after it appears. |
 | Selection survives refresh | `COMPLETE` | 6S | Exact-path reconciliation preserves surviving items and drops disappeared identities. |
 | Scroll survives refresh | `COMPLETE` | 6S | Stable anchor identity is preferred with a clamped prior-index fallback when the anchor disappears. |
 | Back restores item and scroll | `PARTIAL` | 7A/7B | Complete exact selection and path/index anchor are stored per history entry; runtime tab/browser restoration is Phase 7B. |
 | Human-readable list size | `COMPLETE` | 6A | Decimal formatting supports values through exabytes. |
-| Exact bytes in details | `PLANNED` | 10C | Inspector/Properties show both exact and human-readable values. |
+| Exact bytes in details | `COMPLETE` | 10C | Properties reports exact byte totals alongside human-readable values for eligible selections and bounded folder totals. |
 | Relative dates plus exact timestamp | `PLANNED` | 10B/20 | Exact value remains available in Inspector. |
-| Async folder-size calculation | `PLANNED` | 10C | Cancellable bounded traversal. |
+| Async folder-size calculation | `COMPLETE` | 10C | Explicit Properties demand uses cancellable descriptor-relative no-follow traversal with entry and depth bounds plus truncation evidence. |
 | Sensible tooltips | `PARTIAL` | 0-6K2/20 | Current icon controls and ellipsized names use tooltips; full audit remains. |
 | Minimal confirmation friction | `COMPLETE` | 4F | Recoverable Move to Trash is not needlessly confirmed. |
 | Strong irreversible confirmation | `COMPLETE` | 6M/18X | Permanent delete retains its irreversible confirmation and adds exact action/scope/risk guardrail review where required. |
@@ -703,7 +703,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Private/vault/sandbox status obvious | `PLANNED` | 18H/18K/18M | Text/icon/accessibility state, never color alone. |
 | Watcher storms coalesced | `COMPLETE` | 6S | One 140 ms cancellable timer deduplicates paths and caps 16,384 events, 4,096 paths, and 1,024 rename pairs before conservative overflow reconciliation. |
 | Context menus selection-aware | `COMPLETE` | 6J | Existing multi-selection is preserved when appropriate. |
-| Upgrades preserve settings | `PARTIAL` | 6D/6K2/20 | View preference parser is backward compatible; full migration framework remains. |
+| Upgrades preserve settings | `COMPLETE` | 6D/6K2/20B2/21B | Versioned preference, bookmark, and session decoders plus Phase 21B private no-follow atomic migration and backup rules cover supported formats. |
 | Shortcut discoverability | `COMPLETE` | 0-6K2/11C | Header menu, Ctrl+?, and command palette open one searchable native dialog listing every registered command, category, description, availability, effective bindings, and custom/default state. |
 | Password reveal/hide and Caps Lock feedback | `PLANNED` | 18C/18H/20 | Use native accessible password widgets where platform support exists. |
 | Password confirmation on vault creation/change | `PLANNED` | 18H | Prevent mistyped unrecoverable credentials without weakening key design. |
@@ -717,15 +717,15 @@ These small behaviors are acceptance requirements, not optional polish.
 | Dependent capability | Status | Phase | Required foundation |
 | --- | --- | --- | --- |
 | Cross-filesystem move | `COMPLETE` | 6O | Synchronized staged copy, atomic no-replace publication, source identity revalidation, and conservative partial cleanup exist. Phase 18Y now provides conservative interrupted-operation restart review. |
-| Undo | `PLANNED` | 6P | Requires explicit operation-specific reversible semantics and current-state revalidation. |
+| Undo | `PARTIAL` | 6P/18Y | Completed move, rename, and unchanged Create have identity-checked operation-specific Undo. Copy, Trash, and permanent delete do not have general Undo. |
 | Tabs/session restore | `COMPLETE` | 7A-7C | Versioned bounded raw-path workspace restores live/closed state through private atomic storage; explicit Private/Sensitive policy suppresses owned traces. |
-| Split view | `PLANNED` | 7D-7F | Reusable navigation sessions and explicit active-pane ownership. |
+| Split view | `COMPLETE` | 7D-7F/20B2 | Reusable navigation sessions, active-pane ownership, opposite-pane operations/drag, and persisted bounded split ratio are implemented. |
 | Miller columns | `COMPLETE` | 8A-8F | Exact model, virtualized columns, keyboard/trackpad, actions, cross-surface drag/drop, and truthful final-column Preview/Inspector handoff are verified. Provider content remains Phases 9/10. |
-| Quick Preview | `PLANNED` | 9A-9F | Existing thumbnails plus cancellable provider boundary designed for Phase 18L sandboxing. |
+| Quick Preview | `COMPLETE` | 9A-9F | Bounded cancellable local providers and presentation are implemented; provider helpers remain explicitly unsandboxed. |
 | Inspector | `COMPLETE` | 10A-10F | Shared bounded lazy metadata providers; no eager whole-directory enrichment, persistent metadata cache, privacy finding, or authenticity claim. |
 | Command palette | `COMPLETE` | 11A-11B | Central command registry and metadata-only palette delegate execution and eligibility to existing GActions. |
 | Archives | `COMPLETE` | 12A-12B | Engine/job lifecycle, native workflows, conflict handling, cancellation, and traversal/bomb/link defenses are complete for reviewed local formats. |
-| Search/indexing and duplicate discovery | `PARTIAL` | 13A-13G | Current-folder filtering and bounded non-indexed filename subtree search are complete; advanced/content/saved/indexed search and duplicate discovery remain later phases. |
+| Search/indexing and duplicate discovery | `COMPLETE` | 13A-13G | Quick Filter, filename/content search, predicates, saved searches, optional local index, and exact duplicate workflows are implemented within documented local bounds. |
 | Niri/Plasma integrations | `DEFERRED` | 15-16 | User-deferred; generic desktop capability boundary remains complete in Phase 14. |
 | Remote locations | `DEFERRED` | 17 | User-deferred, including Android/MTP; local browsing and mounted-device support remain. |
 | Portable encryption | `PLANNED` | 18B-18C | Phase 18A threat model plus existing progress/cancellation/conflict jobs. |
@@ -740,4 +740,4 @@ These small behaviors are acceptance requirements, not optional polish.
 | Integrity monitoring | `COMPLETE` | 18U | Explicit private baselines plus bounded coalesced same-device watcher and rescan-required gaps. |
 | Copy and Verify | `COMPLETE` | 18V | Existing safe copy engine plus source/destination revalidation and reviewed streaming SHA-256. |
 | Copy, Verify and Eject | `COMPLETE` | 18W | Verified Copy plus exact-mount flush and relationship-aware GIO eject/unmount infrastructure. |
-| Crash recovery | `PLANNED` | 18Y | Privacy-aware operation journal and explicit partial-destination semantics. |
+| Crash recovery | `COMPLETE` | 18Y | Private bounded operation journal and conservative Recovery Center review/retry/resolve behavior are implemented; this is not rollback or automatic cleanup. |
