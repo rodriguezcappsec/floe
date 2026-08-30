@@ -254,7 +254,7 @@ broaden Phase 15.
 
 | Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
 | --- | --- | --- | --- | --- |
-| 14B — Privileged local browsing | COMPLETE | `phase-14b-privileged-local-browsing` | Open a local folder through a typed GIO/GVfs `admin://` provider with polkit-owned authentication and persistent visible authority state. | Verified experimental read-only opt-in, private validated URI identity, exact non-UTF-8 paths, 128-entry pages/4,096-entry cap, no-follow metadata, generation rejection, 120-second authorization/30-second page cancellation, accessible badge/navigation/return controls, UID-stable native lifecycle. No elevation, password handling, arbitrary admin URI, local-job reuse, preview/terminal/archive/launcher/custom-action/plugin capability, silent fallback, or privileged mutation. |
+| 14B — Privileged local browsing | COMPLETE | `phase-14b-privileged-local-browsing` | Open a local folder through a typed GIO/GVfs `admin://` provider with polkit-owned authentication and persistent visible authority state. | Verified experimental read-only opt-in, one bounded fresh-location mount/authorization and retry, private validated URI identity, exact non-UTF-8 paths, 128-entry pages/4,096-entry cap, no-follow metadata, generation rejection, 120-second authorization/30-second page cancellation, accessible badge/navigation/return controls, UID-stable native lifecycle. No elevation, password handling, arbitrary admin URI, local-job reuse, preview/terminal/archive/launcher/custom-action/plugin capability, silent fallback, or privileged mutation. |
 
 ### Phase 15 — Niri integration
 

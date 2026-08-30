@@ -4,12 +4,21 @@ Release documentation: [Getting Started](./GETTING_STARTED.md) ·
 [Installation](./INSTALLATION.md) · [Administration](./ADMINISTRATION.md) ·
 [Accessibility](./ACCESSIBILITY.md) · [Recovery](./RECOVERY.md) ·
 [Debugging](./DEBUGGING.md) · [Localization](./LOCALIZATION.md) ·
-[Security](../SECURITY.md)
+[Security](../SECURITY.md) · [Why Floe works this way](./PHILOSOPHY.md)
 
 This guide explains features available in the current development version of
 Floe. Labels and menu placement may evolve. The
 [feature matrix](./FEATURE_MATRIX.md) remains the source of truth for what is
 complete, partial, planned, or deferred.
+
+## Features and their reasons
+
+Floe documents not only what a feature does, but why it behaves that way. When
+a choice is surprising, safety-sensitive, privacy-sensitive, or deliberately
+limited, the explanation should identify its purpose, tradeoff, and what it does
+not claim. The shared principles and a feature-by-feature rationale are in
+[Floe Philosophy](./PHILOSOPHY.md); important explanations are repeated beside
+the relevant workflows in this guide.
 
 ## Start Floe
 
@@ -270,9 +279,13 @@ Administrator…**. The same command is available from the Command Palette.
 
 Floe asks the desktop GVfs `admin` backend to open that exact local folder. The
 desktop polkit agent owns any password prompt; Floe never asks for, receives,
-stores, or logs the password, and its process remains your normal user. If the
-desktop has no GVfs administrator backend or authentication agent, Floe reports
-that limitation and keeps ordinary browsing unchanged.
+stores, or logs the password, and its process remains your normal user. When a
+fresh administrator location is not mounted yet, Floe starts one bounded
+desktop mount/authorization request and retries the read-only listing after it
+succeeds. Cancelling or denying that prompt opens nothing and leaves ordinary
+browsing unchanged. If the desktop has no GVfs administrator backend or
+authentication agent, Floe reports that limitation and keeps ordinary browsing
+unchanged.
 
 The separate view is deliberately read-only and always shows an
 **Administrator** badge after authorization succeeds. It supports folder
@@ -283,6 +296,12 @@ rename/Trash/delete/permission operation are unavailable there. Closing or
 returning cancels outstanding reads and discards privileged selections. The
 desktop may retain its own short-lived polkit authorization cache; Floe cannot
 revoke that desktop-owned cache.
+
+**Why read-only:** Floe keeps temporary elevated authority out of ordinary file
+jobs, external tools, previews, and the rest of the interface. Floe never runs
+its whole GUI as root. Privileged writes require a separate reviewed operation
+and recovery boundary, so they remain unavailable instead of being implemented
+as a hidden `sudo` shortcut.
 
 ## Create and organize files
 

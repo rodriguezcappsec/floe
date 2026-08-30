@@ -7,12 +7,18 @@ does not promise API or format stability beyond documented migration behavior.
 
 ### Added
 
+- User-facing Floe philosophy and feature-rationale contract explaining what
+  important behaviors do, why they exist, their tradeoffs, and what they do not
+  claim.
 - Getting-started, installation, administration, accessibility, recovery,
   debugging, localization, and security documentation.
 - Automated documentation and isolated installed-artifact walkthrough gates.
 
 ### Changed
 
+- Fixed fresh-session **Open as Administrator…** so a GVfs `NotMounted` result
+  starts desktop authorization and retries the read-only listing once instead
+  of being mislabeled as an unavailable administrator service.
 - Reconciled release claims with verified performance, native packaging,
   operation recovery, accessibility, and security terminology.
 - Documented that logs and technical details may contain sensitive paths.

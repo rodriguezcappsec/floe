@@ -935,6 +935,12 @@ terminal, launcher, Open With, archive, custom-action, clipboard, plugin, or
 local-job route. Privileged mutations and removal of the experimental guard
 remain planned and require independent security and native environment gates.
 
+Fresh administrator locations use one request-scoped, window-parented
+`GtkMountOperation` only after GIO reports `NotMounted`. GVfs and polkit own the
+authorization exchange; success retries the read-only enumeration once, while
+denial, cancellation, timeout, stale generations, or a second `NotMounted` fail
+without falling back to local access.
+
 Encrypted-volume mount authentication is separate. The desktop-owned `GtkMountOperation` flow is **IMPLEMENTED**, but a successful mount grants only the permissions supplied by that filesystem and desktop service.
 
 ## Prohibited security and privacy claims

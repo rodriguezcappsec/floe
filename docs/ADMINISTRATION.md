@@ -36,6 +36,10 @@ archives, external actions, clipboard operations, and every mutation are
 disabled. Missing GVfs/polkit support is a normal unavailable capability. Never
 wrap Floe in `sudo` or `pkexec`.
 
+The read-only boundary is deliberate: temporary elevated authority must not
+leak into ordinary jobs or the rest of the application. See
+[Floe Philosophy](./PHILOSOPHY.md) for the user-facing rationale.
+
 ## External tools and diagnostics
 
 Custom actions and terminals are ordinary user processes. Direct argument

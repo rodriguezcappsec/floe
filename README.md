@@ -16,6 +16,11 @@ Quick Preview, search, archives, integrity tools, and configurable keyboard
 workflows. Exact Linux paths remain authoritative even when a filename cannot
 be displayed as valid UTF-8.
 
+Floe's choices follow a documented product philosophy: user ownership, exact
+path identity, narrow authority, local-first processing, responsive bounded
+work, standards-based integration, and honest security language. Read
+[Why Floe works this way](./docs/PHILOSOPHY.md).
+
 The implemented desktop path is generic GTK/GIO/XDG. Niri and KDE Plasma are
 first-class product targets, but compositor-specific integrations are deferred
 and never required by the filesystem core.
@@ -79,6 +84,7 @@ use different development-package names.
 
 - [Getting Started](./docs/GETTING_STARTED.md)
 - [User Guide](./docs/USER_GUIDE.md)
+- [Floe Philosophy](./docs/PHILOSOPHY.md)
 - [Installation](./docs/INSTALLATION.md) and [Migrations](./docs/MIGRATIONS.md)
 - [Administration](./docs/ADMINISTRATION.md)
 - [Accessibility](./docs/ACCESSIBILITY.md)

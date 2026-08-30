@@ -1315,10 +1315,21 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-29`
 
-Current phase: **Phase 21C — Release Documentation (complete)**
+Current phase: **Phase 21C — Release Documentation (complete); focused Phase 14B administrator-mount regression fixed and user-facing feature rationale added**
 
 Completed this session:
 
+- Added `docs/PHILOSOPHY.md` as an installed, rendered, strictly validated
+  user-facing contract. It connects Floe's ownership, exact-identity,
+  responsiveness, narrow-authority, local-first, standards, spatial, visual,
+  and honest-security principles to concrete feature behavior and tradeoffs.
+  README, Getting Started, User Guide, Administration, and the administrator
+  view link or repeat the relevant rationale.
+- Fixed fresh-session `admin://` browsing: the provider now handles the first
+  `G_IO_ERROR_NOT_MOUNTED` with one cancellable, time-bounded,
+  window-parented GIO mount/authorization request and retries enumeration once.
+  Denial, cancellation, timeout, stale generations, and repeated `NotMounted`
+  results fail closed; the view remains read-only and UID-stable.
 - Added reciprocal release manuals and reconciled installation, migration,
   privacy, architecture, roadmap, and feature-matrix claims.
 - Added strict documentation/link/table/terminology/render checks, installed
@@ -1329,7 +1340,12 @@ Completed this session:
 
 Verified:
 
-- Strict documentation checks pass all 19 release-facing files and two focused
+- Focused and complete Phase 14B tests, the real-GTK administrator-view
+  accessibility contract, formatting, workspace check, strict Clippy, workspace
+  tests, E2E preflight, strict docs/render, deterministic release-source hash,
+  and diff hygiene pass. KDE exposes GVfs and an active polkit agent; successful
+  administrator enumeration remains a manual password-authenticated gate.
+- Strict documentation checks pass all 20 release-facing files and two focused
   checker regressions; render, layout, migration, deterministic-source, and
   diff-hygiene gates pass.
 - Formatting, workspace check, strict Clippy, 554 app tests (14 graphical

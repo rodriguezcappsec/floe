@@ -170,9 +170,10 @@ request carries a generation/request ID and `ResourceId`; every result echoes
 both. Stale results are discarded exactly as local browser generations are now.
 Enumeration uses bounded pages and lazy metadata, not one unbounded result.
 
-`PrivilegedAccessService` owns all administrator `GFile`, `GFileEnumerator`, and
-`gio::Cancellable` objects on the GLib context where they were created. The
-separate device service owns any `GMountOperation`. GTK callbacks only submit
+`PrivilegedAccessService` owns all administrator `GFile`, `GFileEnumerator`,
+`gio::Cancellable`, and request-scoped `GMountOperation` objects on the GLib
+context where they were created. The separate device service owns device mount
+operations. GTK callbacks only submit
 commands and render events. The services must not block the main loop, and GIO
 objects must not be sent to the existing `std::thread` browser worker unless
 their bindings explicitly guarantee that transfer.
@@ -193,9 +194,14 @@ At startup, querying `gio::Vfs::default().supported_uri_schemes()` may record
 whether `admin` is advertised; this check must not prompt. The action is eligible
 only for an absolute local directory and an advertised backend. Actual access is
 tested only after the user activates `Open as Administrator…`, by asynchronously
-querying/enumerating the service-created `admin://` GFile with a cancellable.
-One authorization attempt may be active per view; repeated activation focuses its
-existing progress surface instead of spawning authentication-prompt storms.
+enumerating the service-created `admin://` GFile with a cancellable. A fresh
+`G_IO_ERROR_NOT_MOUNTED` result starts one time-bounded
+`g_file_mount_enclosing_volume` request with a window-parented
+`GtkMountOperation`; success or `G_IO_ERROR_ALREADY_MOUNTED` retries enumeration
+exactly once. A second `NotMounted`, denial, cancellation, timeout, stale
+generation, or backend failure terminates explicitly. One authorization attempt
+may be active per view; repeated activation focuses its existing progress
+surface instead of spawning authentication-prompt storms.
 Scheme support grants no mutation capability: each write operation additionally
 checks the corresponding GFile capability and remains disabled until reviewed.
 

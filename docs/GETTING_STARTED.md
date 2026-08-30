@@ -2,7 +2,9 @@
 
 This walkthrough uses the installed `floe` command from the verified Arch or
 manifest-driven native package. See [Installation](./INSTALLATION.md) first.
-Floe currently targets Linux Wayland sessions.
+Floe currently targets Linux Wayland sessions. For the reasons behind its
+safety, privacy, navigation, and authority choices, read
+[Why Floe works this way](./PHILOSOPHY.md).
 
 ## First launch
 
