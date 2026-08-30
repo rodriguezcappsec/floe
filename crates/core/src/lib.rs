@@ -21,6 +21,7 @@ mod move_operation;
 mod navigation;
 mod permanent_delete;
 mod permissions;
+mod replace;
 mod saved_search;
 mod search_index;
 mod session;
@@ -129,6 +130,11 @@ pub use permanent_delete::{
 pub use permissions::{
     PERMISSION_IDENTITY_NAME_CAPACITY, PERMISSION_TARGET_CAPACITY, PermissionChange,
     PermissionIdentity, PermissionRequest, PermissionRequestError, PermissionScope,
+};
+pub use replace::{
+    REPLACE_BACKUP_CAPACITY, REPLACE_BACKUP_DIRECTORY, ReplaceCancellation, ReplaceError,
+    ReplaceMode, ReplaceOutcome, ReplaceRequest, allocate_replace_backup,
+    exchange_replace_versions, execute_replace, remove_replace_backup,
 };
 pub use saved_search::{
     RECENT_SEARCH_CAPACITY, RecentSearches, SAVED_SEARCH_CAPACITY, SAVED_SEARCH_NAME_CAPACITY,

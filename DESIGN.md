@@ -448,13 +448,19 @@ status is subordinate feedback.
 
 ### Selection, hover, and focus
 
-- Selection must remain visible without relying on color alone when more states
-  are added. The current row selection uses the semantic accent at 20% alpha.
+- Selection must remain visible without relying on color alone. List rows,
+  Grid/Search/Trash tiles, and Miller entries combine semantic color with a
+  border and stronger label weight while preserving native selected and focus
+  semantics.
 - Hover is a lightweight pointer affordance, currently 8% semantic accent.
 - Keyboard focus must remain native, visible, and unobscured. Do not remove GTK
   focus indicators without an accessible replacement.
 - Every pointer-only interaction requires a keyboard route. Drag and drop will
   require non-drag alternatives when introduced.
+- A successful local operation may add a brief non-color result emphasis only
+  after resolving the exact committed path in the active visible directory.
+  This emphasis must not move keyboard focus, unexpectedly navigate, or remain
+  attached to a recycled virtualized row or tile.
 
 ### Error, empty, and loading states
 

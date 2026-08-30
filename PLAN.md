@@ -1,3 +1,194 @@
+# Plan: Floe Phase 6V — Selection and Operation Reveal Polish
+
+## Contract
+
+Implement only Phase 6V. Selection in List, Grid, Search, Trash, and Miller
+views must be unmistakable with redundant non-color treatment while preserving
+GTK's authoritative multi-selection, pointer, keyboard, context-menu, focus,
+and accessibility semantics.
+
+After a successful local Copy, Move, Rename, Create, Duplicate, or Replace,
+Floe must derive the exact resulting `PathBuf` from the typed operation result,
+refresh the owning visible directory when appropriate, select and scroll that
+exact path into view, and apply a brief non-color emphasis without stealing
+focus. Reveal requests must be generation- and directory-bound, bounded,
+single-use, and safe when the result is hidden, filtered, sorted, grouped,
+collapsed, off-screen, in an inactive tab/pane, or no longer exists. Floe must
+never reconstruct a path from display text.
+
+Undo Trash, multi-window support, sidebar/location changes, sandboxed preview
+providers, notification policy, or unrelated view redesign is outside this
+phase.
+
+## Depth tree
+
+1. Exact reveal policy and lifecycle
+   - typed exact result paths for every in-scope successful operation;
+   - bounded directory/generation-bound pending reveal intent;
+   - stale, changed, hidden, filtered, inactive, or missing results fail safely;
+   - existing multi-selection is preserved except for the deliberate result
+     selection in the owning active view.
+2. Shared selection presentation
+   - List, Grid/Search/Trash, and Miller rows or tiles expose clear selected and
+     keyboard-focus treatment beyond color alone;
+   - context selection and native Ctrl/Shift/rubber-band semantics remain one
+     authoritative `GtkMultiSelection`;
+   - accessible selected/focused state and exact identity remain unchanged.
+3. Refresh, scroll, and transient emphasis
+   - successful operations enqueue refresh/reveal from application results, not
+     GTK filesystem callbacks;
+   - post-refresh exact-path resolution selects and scrolls without moving
+     keyboard focus;
+   - transient emphasis is bounded, cancellable, recycled-widget safe, and
+     removed automatically or on generation change.
+4. Verification and status
+   - deterministic policy/state tests and operation-result regressions;
+   - focused real-GTK list/grid/Miller accessibility and reveal contracts;
+   - full workspace, docs, package/release, E2E, and isolated Wayland gates;
+   - mark complete only with evidence, then select exactly one later phase.
+
+## Applicable testing layers
+
+1. Rust unit tests for reveal admission, exact-path matching, multi-selection,
+   generation/directory mismatch, hidden/filtered/missing outcomes, and expiry.
+2. Tempfile operation integration tests proving Copy/Move/Rename/Create/
+   Duplicate/Replace success yields the exact committed result path and failures
+   or partial outcomes do not reveal an unproven result.
+3. Focused real-GTK component/accessibility tests for selected styling,
+   scroll-to-result behavior, focus preservation, and recycled row/tile cleanup.
+4. Native Wayland action/lifecycle smoke plus the ordinary workspace, docs,
+   package, release-source, and E2E contract gates.
+
+## Status log
+
+- 2026-08-30: Phase 6V started on the current dirty
+  `phase-18y2-complete-undo-recovery` worktree after verified Phase 6U. Gates
+  are in `gates/phase-6v.md`; no other requested feature is included.
+- 2026-08-30: Phase 6V implementation and all deterministic, real-GTK,
+  workspace, documentation, packaging, release-source, E2E-contract, frozen
+  release-build, diff-hygiene, and isolated Wayland lifecycle gates pass.
+  Phase 6V is complete; Phase 6W Undo Trash is the sole recommended next phase
+  and remains unimplemented.
+
+---
+
+# Plan: Floe Phase 6U — Replace Conflict Safety
+
+## Contract
+
+Implement only explicit local Replace and batch-scoped Replace All for Copy,
+Move, and Rename conflicts. Replacement must never become a permissive
+overwrite flag. Floe must fingerprint both exact no-follow endpoints, prepare a
+private bounded backup before mutation, revalidate immediately before commit,
+publish without overwriting an unreviewed third-party occupant, and retain
+enough durable state for rollback, restart review, and operation-specific
+Undo/Redo. Cancellation is accepted only at defined reversible boundaries;
+partial or uncertain outcomes remain visible and are never cleaned
+automatically.
+
+No administrator, Trash restore, remote, archive, batch rename, multi-window,
+sidebar/location, provider-sandbox, ownership, ACL, xattr, snapshot, or general
+transaction work belongs to this phase.
+
+## Depth tree
+
+1. Replace engine and private state
+   - exact raw-path source/destination identities and reviewed operation kind;
+   - owner-only bounded backup root and versioned no-follow atomic manifest;
+   - prepare, revalidate, commit, rollback, restart-review state machine;
+   - no shell, symlink following, silent overwrite, or unbounded backup.
+2. Application execution and durable inverse
+   - capacity-bounded worker outside GTK for Copy/Move/Rename replacement;
+   - structured progress, cancellation boundaries, partial outcome evidence;
+   - durable Undo/Redo swaps reviewed replacement and backup identities safely;
+   - cleanup only after expiry or explicit resolution with owned identity proof.
+3. Batch conflict policy and UI
+   - Replace affects one conflict; Replace All is scoped to one stable batch;
+   - source/existing metadata comparison is descriptive, never equality proof;
+   - explicit destructive confirmation, accessible buttons, honest limits;
+   - Keep Existing, Keep Both, Skip All, and Retry With Name remain intact.
+4. Verification and status
+   - tempfile hostile-race, rollback, cancellation, batch-scope, restart tests;
+   - focused GTK-independent UI contracts and real-GTK accessibility where available;
+   - full workspace, docs, package, release-source, E2E, native Wayland gates;
+   - mark complete only after evidence and select exactly one later phase.
+
+## Status log
+
+- 2026-08-30: Implemented exact-identity local Replace, atomic retained-version
+  Undo/Redo, identity-owned backup lifecycle, accessible second-confirmed
+  conflict comparison, and stable-batch Replace All with fresh per-conflict
+  capture and Protected Folder pause. Focused engine, batch, recovery, and UI
+  contracts pass. Phase 6V selection and operation reveal polish is recorded as
+  the sole later recommended phase and remains unimplemented.
+
+- 2026-08-30: Phase 6U started on the current dirty Phase 18Y2 worktree because
+  the completed Phase 18Y2 changes were not committed by user request. Gates
+  are in `gates/phase-6u.md`; no later requested phase is included.
+
+---
+
+# Plan: Floe Phase 18Y2 — Complete Undo and Recovery
+
+## Contract
+
+Complete only the authoritative Phase 18Y2 data-safety leaf. Successful local
+copy, move, rename, and create operations become durable, expiring,
+operation-specific Undo/Redo records. Administrator operations participate only
+where Floe can persist and revalidate a complete inverse without broadening
+authority. Every inverse is no-overwrite, exact-path, no-follow, identity
+revalidated, asynchronous, and conservatively reviewable after interruption.
+
+Trash restore is used only when Floe owns exact standards-correct restore
+metadata. Permanent delete, unsupported Trash backends, recursive administrator
+copy, ownership, ACL/xattr changes, and any operation lacking a proven inverse
+remain explicitly irreversible or unsupported. No snapshot, rollback,
+transaction, secure-erasure, or automatic-cleanup claim is added.
+
+## Depth tree
+
+1. Durable recovery/history model
+   - a versioned private store that coexists with and preserves the Phase 18Y interruption journal;
+   - bounded exact raw-path recipes, identities, timestamps, expiry, action state;
+   - private no-follow atomic storage with fail-closed corruption handling.
+2. Local operation execution
+   - pre-mutation journal for copy/move/rename/create;
+   - successful completion becomes an Applied history record;
+   - capacity-bounded Undo/Redo worker with no-overwrite inverse actions;
+   - cancellation/failure/interruption becomes explicit review, never deletion.
+3. Administrator boundary
+   - request-scoped history only for inverses proven from typed GIO identities;
+   - fresh desktop authorization for every administrator Undo/Redo;
+   - unsupported irreversible cases remain labelled and unavailable.
+4. Native interaction and verification
+   - Operation History exposes persistent Undo/Redo and expiry plainly;
+   - Recovery Center distinguishes interrupted, uncertain, applied, and undone;
+   - deterministic, filesystem, GTK, E2E-preflight, native Wayland, docs, and
+     release gates run before COMPLETE.
+
+## Applicable testing layers
+
+1. Rust codec/state-machine tests including the v1 codec, non-UTF-8 paths,
+   expiry, capacity, corruption, insecure permissions, and interruption states.
+2. Tempfile filesystem integration tests for copy/move/rename/create Undo/Redo,
+   identity replacement, destination conflicts, changed directories,
+   cancellation, partial outcomes, and unsupported destructive operations.
+3. Focused real-GTK accessibility tests for persistent history/recovery actions.
+4. Isolated native Wayland Ping/action/Quit plus full workspace, docs, package,
+   migration, release-source, and E2E contract gates.
+
+## Status log
+
+- 2026-08-30: Started on `phase-18y2-complete-undo-recovery`; gates are in
+  `gates/phase-18y2.md`. No later conflict, multi-window, sandbox, or sidebar
+  phase is implemented in this leaf.
+- 2026-08-30: Local Copy/Move/Rename/Create durable Undo/Redo, conservative
+  interruption review, Operation History/Recovery Center UI, and explicit
+  administrator exclusions implemented and verified. Phase 6U Replace conflict
+  safety is the sole recommended next phase.
+
+---
+
 # Plan: Floe Phase 20B2 — Visual, Accessibility, and QoL Completeness Audit
 
 ## Contract

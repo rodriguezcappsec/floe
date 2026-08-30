@@ -18,6 +18,7 @@ use thiserror::Error;
 use crate::{
     job_manager::{JobManagerError, SharedJobManager},
     operation_recovery::{RecoveryCoordinator, RecoveryJournal, RecoveryOperationKind},
+    undo_history::{UndoHistoryCoordinator, UndoRecipe},
 };
 
 pub const DEFAULT_MOVE_QUEUE_CAPACITY: usize = 8;
@@ -123,11 +124,35 @@ impl MoveExecutor {
         Self::spawn_with_capacity(jobs, DEFAULT_MOVE_QUEUE_CAPACITY, None, Some(recovery))
     }
 
+    pub fn spawn_with_recovery_and_undo(
+        jobs: SharedJobManager,
+        recovery: RecoveryCoordinator,
+        undo_history: UndoHistoryCoordinator,
+    ) -> Result<Self, MoveExecutorSpawnError> {
+        Self::spawn_with_capacity_and_undo(
+            jobs,
+            DEFAULT_MOVE_QUEUE_CAPACITY,
+            None,
+            Some(recovery),
+            Some(undo_history),
+        )
+    }
+
     fn spawn_with_capacity(
         jobs: SharedJobManager,
         capacity: usize,
         start_gate: Option<Receiver<()>>,
         recovery: Option<RecoveryCoordinator>,
+    ) -> Result<Self, MoveExecutorSpawnError> {
+        Self::spawn_with_capacity_and_undo(jobs, capacity, start_gate, recovery, None)
+    }
+
+    fn spawn_with_capacity_and_undo(
+        jobs: SharedJobManager,
+        capacity: usize,
+        start_gate: Option<Receiver<()>>,
+        recovery: Option<RecoveryCoordinator>,
+        undo_history: Option<UndoHistoryCoordinator>,
     ) -> Result<Self, MoveExecutorSpawnError> {
         if capacity == 0 {
             return Err(MoveExecutorSpawnError::ZeroCapacity);
@@ -150,6 +175,7 @@ impl MoveExecutor {
                     worker_cancellations,
                     worker_outcomes,
                     recovery,
+                    undo_history,
                 );
             })
             .map_err(MoveExecutorSpawnError::Thread)?;
@@ -315,12 +341,18 @@ fn run_worker(
     cancellations: Arc<Mutex<HashMap<JobId, MoveCancellation>>>,
     outcomes: Arc<Mutex<HashMap<JobId, MoveOutcome>>>,
     recovery: Option<RecoveryCoordinator>,
+    undo_history: Option<UndoHistoryCoordinator>,
 ) {
     while let Ok(command) = receiver.recv() {
         match command {
-            MoveCommand::Execute(task) => {
-                execute_task(task, &jobs, &cancellations, &outcomes, recovery.as_ref())
-            }
+            MoveCommand::Execute(task) => execute_task(
+                task,
+                &jobs,
+                &cancellations,
+                &outcomes,
+                recovery.as_ref(),
+                undo_history.as_ref(),
+            ),
             MoveCommand::Shutdown => break,
         }
     }
@@ -332,17 +364,20 @@ fn execute_task(
     cancellations: &Arc<Mutex<HashMap<JobId, MoveCancellation>>>,
     outcomes: &Arc<Mutex<HashMap<JobId, MoveOutcome>>>,
     recovery: Option<&RecoveryCoordinator>,
+    undo_history: Option<&UndoHistoryCoordinator>,
 ) {
     if transition(jobs, task.job_id, JobCommand::Start).is_err() {
         lock(cancellations).remove(&task.job_id);
         return;
     }
 
-    let (recovery_kind, recovery_source, recovery_destination) = match &task.operation {
+    let (recovery_kind, recovery_source, recovery_destination, undo_recipe) = match &task.operation
+    {
         MoveOperation::Move(request) => (
             RecoveryOperationKind::Move,
             request.source(),
             request.destination().to_path_buf(),
+            UndoRecipe::move_item(request.source(), request.destination()),
         ),
         MoveOperation::Rename(request) => (
             RecoveryOperationKind::Rename,
@@ -352,13 +387,40 @@ fn execute_task(
                 .parent()
                 .map(|parent| parent.join(request.new_name()))
                 .unwrap_or_else(|| request.source().to_path_buf()),
+            UndoRecipe::rename(
+                request.source(),
+                request
+                    .source()
+                    .parent()
+                    .map(|parent| parent.join(request.new_name()))
+                    .unwrap_or_else(|| request.source().to_path_buf()),
+            ),
         ),
+    };
+    let undo_ticket = match undo_history.map(|history| history.begin(undo_recipe)) {
+        Some(Ok(ticket)) => Some(ticket),
+        Some(Err(error)) => {
+            let _ = transition(
+                jobs,
+                task.job_id,
+                JobCommand::Fail(JobFailure::new(
+                    JobFailureKind::Internal,
+                    format!("durable Undo history could not be prepared: {error}"),
+                )),
+            );
+            lock(cancellations).remove(&task.job_id);
+            return;
+        }
+        None => None,
     };
     let recovery_ticket = match recovery
         .map(|journal| journal.begin(recovery_kind, Some(recovery_source), &recovery_destination))
     {
         Some(Ok(ticket)) => Some(ticket),
         Some(Err(error)) => {
+            if let (Some(history), Some(ticket)) = (undo_history, undo_ticket) {
+                let _ = history.resolve(ticket.id());
+            }
             let _ = transition(
                 jobs,
                 task.job_id,
@@ -394,6 +456,22 @@ fn execute_task(
                 %error,
                 "move recovery journal could not be finalized"
             );
+        }
+    }
+    if let (Some(history), Some(ticket)) = (undo_history, undo_ticket) {
+        match &result {
+            Ok(outcome) => {
+                if let Err(error) = history.complete(ticket, outcome.destination_identity()) {
+                    tracing::error!(job_id = task.job_id.get(), %error, "move committed but durable Undo history could not be completed");
+                }
+            }
+            Err(_) => {
+                if let Err(error) =
+                    history.retain_if_destination_exists(ticket, &recovery_destination)
+                {
+                    tracing::error!(job_id = task.job_id.get(), %error, "move failure could not update durable Undo history");
+                }
+            }
         }
     }
     let command = match result {

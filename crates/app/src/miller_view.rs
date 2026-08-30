@@ -361,6 +361,19 @@ impl MillerView {
         }
     }
 
+    pub fn scroll_active_to(&self, index: u32) -> bool {
+        let Some(list) = self.active_list.borrow().as_ref().cloned() else {
+            return false;
+        };
+        if index >= list.model().map_or(0, |model| model.n_items()) {
+            return false;
+        }
+        let info = gtk::ScrollInfo::new();
+        info.set_enable_vertical(true);
+        list.scroll_to(index, gtk::ListScrollFlags::NONE, Some(info));
+        true
+    }
+
     pub fn focus_detail(&self) -> bool {
         self.detail_widget
             .borrow()

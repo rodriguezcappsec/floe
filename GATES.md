@@ -1,3 +1,127 @@
+# Gates: Floe Phase 6V — Selection and Operation Reveal Polish
+
+- [x] V1: One bounded exact-path, directory/generation-bound reveal lifecycle
+  accepts only proven successful local operation results and rejects stale,
+  mismatched, missing, hidden/filtered, inactive, or partial outcomes safely.
+  CHECK: `cargo test -p floe-app phase_6v_reveal_policy -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: Three focused tests pass exact non-UTF-8 identity, stale/directory/generation rejection, batch deduplication/isolation, and the 4,096-result bound.
+
+- [x] V2: Copy, Move, Rename, Create, Duplicate, and Replace completion routes
+  produce the exact committed result path without display-text reconstruction,
+  refresh the correct visible directory, and preserve batch/multi-selection
+  rules.
+  CHECK: `cargo test -p floe-app phase_6v_operation_results -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: The focused typed-operation regression passes all six in-scope committed destination mappings without display-text reconstruction.
+
+- [x] V3: List, Grid/Search/Trash, and Miller selection has redundant non-color
+  emphasis with native selected/focused accessibility state, while transient
+  result emphasis is bounded and recycled-widget safe.
+  CHECK: `cargo test -p floe-app phase_6v_selection_ui -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: The focused CSS/presentation contract passes border and label-weight selection cues plus bounded view-level result emphasis.
+
+- [x] V4: Focused real-GTK tests prove exact-result selection, scroll-to-item,
+  focus preservation, timer cleanup, and list/grid/Miller accessibility.
+  CHECK: `cargo test -p floe-app phase_6v_gtk -- --ignored --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: One focused native GTK widget test passes multi-selection, scroll-without-focus-movement, and transient CSS class cleanup on the active Wayland display.
+
+- [x] V5: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, docs/render/package/release/E2E contracts, diff hygiene, and
+  isolated native Wayland lifecycle pass or record exact external skips.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: Format, workspace check, strict Clippy, and workspace tests pass: 587 app tests with 18 intentional graphical ignores, 21 controller tests, 169 core tests, and six duplicate workflows. Strict 21-file docs, render, migrations, package layout, deterministic release source, 251-file release candidate, frozen release build, and diff hygiene pass. E2E contracts pass five with two truthful Dogtail/pyatspi skips. Isolated release Wayland Ping/org.gtk.Actions/Quit exits 0.
+
+- [x] V6: Persistent status marks Phase 6V COMPLETE only after V1–V5 and sets
+  exactly one truthful recommended later phase without starting it.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: Strict documentation reports phase-21c-docs-ok across 21 files; Phase 6V is COMPLETE and exactly Phase 6W Undo Trash is NEXT and unimplemented.
+
+---
+
+# Gates: Floe Phase 6U — Replace Conflict Safety
+
+- [x] R1: Exact no-follow local Replace uses an owner-only capacity-bounded backup, atomic exchange, pre-commit rollback, and explicit partial evidence.
+  CHECK: `cargo test -p floe-core phase_6u_engine -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: Six focused engine tests pass; owner-only/insecure backup-root recovery test also passes.
+
+- [x] R2: Replace All remains one stable batch with fresh identities, cancellation boundaries, Protected Folder pause, and no cross-batch leakage.
+  CHECK: `cargo test -p floe-app phase_6u_batch -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: Two-item Replace All, unrelated later-batch isolation, and cancellation-before-third-item workflows pass.
+
+- [x] R3: Durable replacement Undo/Redo, restart review, expiry, and identity-owned backup cleanup pass.
+  CHECK: `cargo test -p floe-app phase_6u_recovery -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: Four focused recovery tests pass restart, executor commit, owned expiry cleanup, and changed-occupant retention.
+
+- [x] R4: Accessible metadata comparison and explicit second-confirmed Replace actions preserve existing decisions.
+  CHECK: `cargo test -p floe-app phase_6u_ui -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: Headless wording contract and focused real-GTK semantic button gate pass.
+
+- [x] R5: Formatting, workspace check/strict Clippy/tests, docs/render/package/release/E2E, release build, diff hygiene, and native Wayland lifecycle pass.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: Workspace passes 582 app plus 17 graphical ignores, 21 controller, 169 core, six duplicate tests. Docs/package/release and isolated release Wayland Ping/Quit pass; Dogtail/pyatspi remain unavailable and truthfully skipped.
+
+- [x] R6: Persistent docs mark Phase 6U COMPLETE and exactly Phase 6V NEXT.
+  CHECK: `python3 scripts/check-docs.py --strict`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: Strict docs pass 21 files; README/User Guide/security/status ledgers updated and Phase 6V remains unimplemented.
+
+---
+
+# Gates: Floe Phase 18Y2 — Complete Undo and Recovery
+
+- [x] U1: The private versioned history coexists with the Phase 18Y journal,
+  preserves exact raw paths and identities, bounds count/bytes/age, expires only
+  completed history, and fails closed for corruption, symlinks, ownership, mode,
+  unknown versions, truncation, or interrupted writes.
+  CHECK: `cargo test -p floe-app phase_18y2_store -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: Four focused store tests pass: private atomic mode/ownership/symlink/corruption rejection, exact non-UTF-8 path round-trip, bounded retention/expiry, and persisted action states.
+- [x] U2: Local copy, move, rename, and create are journaled before mutation;
+  successful results become persistent Applied records; bounded asynchronous
+  Undo/Redo uses exact identity, no-follow inspection, no-overwrite publication,
+  and conservatively retains uncertain or partial outcomes for review.
+  CHECK: `cargo test -p floe-app phase_18y2_local -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: Five focused local tests pass, including journal-before-mutation recipes, exact identity validation, no-overwrite Undo/Redo, recoverable Trash, non-empty-directory refusal, and duplicate-submission isolation.
+- [x] U3: Administrator operations enter durable history only when a complete
+  inverse is provable, require fresh desktop authorization for Undo/Redo, and
+  never imply recovery for permanent delete, unsupported Trash restore,
+  recursive copy, ownership, ACL, or xattr changes.
+  CHECK: `cargo test -p floe-app phase_18y2_administrator -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: One focused administrator-policy test passes; current GVfs administrator mutations remain explicitly outside durable Undo until exact inverse and fresh-authorization evidence can be proven.
+- [x] U4: Operation History and Recovery Center expose persistent Applied,
+  Undone, interrupted, uncertain, expiry, Undo, Redo, and unavailable states
+  with meaningful keyboard/accessibility metadata and no GTK filesystem work.
+  CHECK: `cargo test -p floe-app phase_18y2_ui -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: UI model test and focused real-GTK semantic Undo/Redo control test pass; persistent Applied/Undone and interrupted/uncertain recovery states are distinct.
+- [x] U5: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, focused real-GTK, E2E preflight, docs/render/package/source,
+  release build, diff hygiene, and isolated native Wayland lifecycle pass or
+  record exact unavailable external dependencies.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: Format/check/strict Clippy pass; workspace tests pass 575 app plus 16 intentional GTK ignores, 21 controller, 162 core, and 6 duplicate; release build, docs/render, migrations/layout/source/candidate, diff hygiene, focused real-GTK, and isolated release-binary Wayland Ping/Quit pass. E2E contracts pass 5 with 2 truthful dependency/environment skips (Dogtail/pyatspi and unstaged installed-artifact binary).
+- [x] U6: Persistent docs mark Phase 18Y2 COMPLETE only after U1-U5, preserve
+  security terminology and exclusions, and set exactly one recommended next
+  phase without starting it.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: Strict documentation check reports phase-21c-docs-ok across 21 files; Phase 18Y2 is COMPLETE and Phase 6U is the sole NEXT row, with the other four requested features not started.
+
+---
+
 # Gates: Floe Phase 20B2 — Visual, Accessibility, and QoL Completeness Audit
 
 Scope: the ten selected Phase 20B2 daily-driver outcomes only; no Phase 21,

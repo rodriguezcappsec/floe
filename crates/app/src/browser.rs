@@ -10,6 +10,9 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use crate::operation_reveal::{
+    OPERATION_REVEAL_DURATION_MS, OperationRevealRequest, PendingOperationReveal,
+};
 use adw::prelude::*;
 use floe_core::SymbolicLinkMode;
 use floe_core::{
@@ -712,6 +715,9 @@ pub struct BrowserController {
     file_watcher: FileWatcher,
     watch_generation: Cell<u64>,
     pending_reconciliation: RefCell<Option<PendingReconciliation>>,
+    pending_operation_reveal: RefCell<Option<PendingOperationReveal>>,
+    pending_operation_emphasis: Cell<bool>,
+    operation_emphasis_source: Rc<RefCell<Option<glib::SourceId>>>,
     integrity_monitor_worker: RefCell<Option<IntegrityMonitorWorker>>,
     integrity_baseline: RefCell<Option<IntegrityBaseline>>,
     integrity_session: RefCell<IntegrityMonitorSession>,
@@ -752,6 +758,9 @@ impl Drop for BrowserController {
         }
         self.file_watcher.stop();
         if let Some(source) = self.integrity_rescan_source.get_mut().take() {
+            source.remove();
+        }
+        if let Some(source) = self.operation_emphasis_source.borrow_mut().take() {
             source.remove();
         }
         self.integrity_watch_set.get_mut().take();
@@ -1006,6 +1015,9 @@ impl BrowserController {
             file_watcher: FileWatcher::default(),
             watch_generation: Cell::new(0),
             pending_reconciliation: RefCell::new(None),
+            pending_operation_reveal: RefCell::new(None),
+            pending_operation_emphasis: Cell::new(false),
+            operation_emphasis_source: Rc::new(RefCell::new(None)),
             integrity_monitor_worker: RefCell::new(None),
             integrity_baseline: RefCell::new(None),
             integrity_session: RefCell::new(IntegrityMonitorSession::default()),
@@ -1526,21 +1538,36 @@ impl BrowserController {
         let Some(index) = self.pending_scroll_index.take() else {
             return;
         };
-        let info = gtk::ScrollInfo::new();
-        info.set_enable_vertical(true);
-        match self.view_mode.get() {
-            ViewMode::List => {
-                self.widgets
-                    .list_view
-                    .scroll_to(index, gtk::ListScrollFlags::NONE, Some(info))
-            }
-            ViewMode::Grid => {
-                self.widgets
-                    .grid_view
-                    .scroll_to(index, gtk::ListScrollFlags::NONE, Some(info))
-            }
-            ViewMode::Miller => {}
+        self.widgets
+            .scroll_to_operation_result(self.view_mode.get(), index);
+    }
+
+    fn clear_operation_result_emphasis(&self) {
+        if let Some(source) = self.operation_emphasis_source.borrow_mut().take() {
+            source.remove();
         }
+        for widget in self.widgets.operation_result_emphasis_targets() {
+            widget.remove_css_class("floe-operation-result");
+        }
+    }
+
+    fn start_operation_result_emphasis(&self) {
+        self.clear_operation_result_emphasis();
+        let targets = self.widgets.operation_result_emphasis_targets();
+        for widget in &targets {
+            widget.add_css_class("floe-operation-result");
+        }
+        let source_slot = Rc::clone(&self.operation_emphasis_source);
+        let source = glib::timeout_add_local_once(
+            Duration::from_millis(OPERATION_REVEAL_DURATION_MS),
+            move || {
+                source_slot.borrow_mut().take();
+                for widget in targets {
+                    widget.remove_css_class("floe-operation-result");
+                }
+            },
+        );
+        self.operation_emphasis_source.replace(Some(source));
     }
 
     fn add_current_bookmark(self: &Rc<Self>) {
@@ -5240,6 +5267,25 @@ impl BrowserController {
         }
     }
 
+    pub(crate) fn queue_operation_reveal(&self, request: OperationRevealRequest) {
+        if self.trash_active.get()
+            || self.filename_search_active.get()
+            || self.content_search_active.get()
+            || self.tabs.borrow().active().current().path() != request.directory()
+        {
+            return;
+        }
+
+        let mut pending = self.pending_operation_reveal.borrow_mut();
+        if pending
+            .as_mut()
+            .is_some_and(|current| current.merge(request.clone()))
+        {
+            return;
+        }
+        pending.replace(PendingOperationReveal::from_request(request));
+    }
+
     fn open_trash(&self) {
         self.restore_pending_navigation();
         self.trash_active.set(true);
@@ -7865,11 +7911,22 @@ impl BrowserController {
 
     fn load_current(&self) -> u64 {
         self.pending_reconciliation.borrow_mut().take();
+        self.pending_operation_reveal.borrow_mut().take();
         self.pending_scroll_index.set(None);
         self.load_current_inner()
     }
 
     fn load_current_inner(&self) -> u64 {
+        if self
+            .pending_operation_reveal
+            .borrow()
+            .as_ref()
+            .is_some_and(PendingOperationReveal::is_bound)
+        {
+            self.pending_operation_reveal.borrow_mut().take();
+        }
+        self.pending_operation_emphasis.set(false);
+        self.clear_operation_result_emphasis();
         if let Some(worker) = self.metadata_index_worker.borrow_mut().as_mut() {
             worker.cancel();
         }
@@ -8234,6 +8291,35 @@ impl BrowserController {
         }
     }
 
+    fn take_visible_operation_reveal(
+        &self,
+        entries: &[Arc<DirectoryEntry>],
+    ) -> Option<Vec<PathBuf>> {
+        let current = self.tabs.borrow().active().current().path().to_path_buf();
+        let generation = self.active_generation.get();
+        let matches = self
+            .pending_operation_reveal
+            .borrow()
+            .as_ref()
+            .is_some_and(|pending| pending.matches(generation, &current));
+        if !matches {
+            return None;
+        }
+
+        let mut pending = self.pending_operation_reveal.borrow_mut();
+        let pending = pending.as_mut()?;
+        let visible = pending.visible_paths(entries.iter().map(|entry| entry.path()));
+        pending.unbind();
+        if visible.is_empty() {
+            self.show_toast(
+                "Operation complete; the result is hidden by the current view",
+                5,
+            );
+            return None;
+        }
+        Some(visible)
+    }
+
     fn install_entries(
         &self,
         entries: Vec<Arc<DirectoryEntry>>,
@@ -8241,6 +8327,17 @@ impl BrowserController {
         focus_list: bool,
     ) {
         let count = entries.len();
+        let operation_paths = self.take_visible_operation_reveal(&entries);
+        let selected_paths = operation_paths.as_deref().unwrap_or(selected_paths);
+        if let Some(first) = operation_paths.as_ref().and_then(|paths| paths.first()) {
+            self.pending_scroll_index.set(
+                entries
+                    .iter()
+                    .position(|entry| entry.path() == first)
+                    .and_then(|index| u32::try_from(index).ok()),
+            );
+            self.pending_operation_emphasis.set(true);
+        }
         if count == 0 {
             self.pending_scroll_index.set(None);
         }
@@ -8261,7 +8358,7 @@ impl BrowserController {
             self.render_miller();
         }
         self.update_loading_status(0, count);
-        if focus_list {
+        if focus_list && operation_paths.is_none() {
             self.widgets.focus_view(self.view_mode.get());
         }
     }
@@ -8297,6 +8394,9 @@ impl BrowserController {
         self.update_loading_status(loaded, total);
         if loaded == total {
             self.restore_scroll_anchor();
+            if self.pending_operation_emphasis.replace(false) {
+                self.start_operation_result_emphasis();
+            }
             let rename_ready = self
                 .pending_create_rename
                 .borrow()
@@ -11540,17 +11640,22 @@ impl BrowserController {
                         == Some(directory)
             });
         if trash_directory || self.tabs.borrow().active().current().path() == directory {
-            self.reload_preserving_view(Vec::new());
+            let generation = self.reload_preserving_view(Vec::new());
+            if let Some(pending) = self.pending_operation_reveal.borrow_mut().as_mut()
+                && pending.directory() == directory
+            {
+                pending.bind_generation(generation);
+            }
         }
     }
 
-    fn reload_preserving_view(&self, renames: Vec<RenamePair>) {
+    fn reload_preserving_view(&self, renames: Vec<RenamePair>) -> u64 {
         self.pending_reconciliation
             .replace(Some(PendingReconciliation {
                 snapshot: self.capture_view_state(),
                 renames,
             }));
-        self.load_current_inner();
+        self.load_current_inner()
     }
 
     fn guardrail_target_folder(&self) -> Option<PathBuf> {

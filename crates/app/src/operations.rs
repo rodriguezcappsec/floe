@@ -9,8 +9,8 @@ use std::{
 
 use adw::prelude::*;
 use floe_core::{
-    ArchiveOutcome, DestructiveScope, JobEvent, JobEventKind, JobFailure, JobFailureKind, JobId,
-    JobProgress, ProgressUnit,
+    ArchiveOutcome, DestructiveScope, FileIdentity, JobEvent, JobEventKind, JobFailure,
+    JobFailureKind, JobId, JobProgress, ProgressUnit,
 };
 use gtk::{gio, glib};
 
@@ -25,6 +25,7 @@ use crate::{
     integrity_ui::{build_integrity_results_dialog, integrity_title, present_integrity},
     operation_control::{BatchId, BatchSnapshot, BatchStatus, TransferEstimate, TransferTelemetry},
     operation_recovery::{RecoveryPathStatus, RecoveryStoreHealth},
+    operation_reveal::OperationRevealRequest,
     state::{
         ApplicationState, ConflictDecision, ConflictResolution, TerminalOperation, TerminalOutcome,
         TrackedOperation, VerifiedCopyCompletion, validate_rename_name,
@@ -34,6 +35,7 @@ use crate::{
         build_conflict_dialog, build_operation_history_dialog, build_recovery_dialog,
         build_verified_copy_result_dialog,
     },
+    undo_history::{UndoHistoryAction, UndoHistoryHealth, UndoHistoryRecord, UndoHistoryState},
     verified_copy_executor::{VerifiedCopyResult, present_verified_copy},
 };
 
@@ -50,6 +52,26 @@ enum TerminalAction {
 struct ConflictInteractions {
     pending: VecDeque<JobId>,
     dialog_job: Option<JobId>,
+}
+
+pub struct OperationCallbacks {
+    on_operation_completed: Box<dyn Fn(&Path)>,
+    on_operation_result: Box<dyn Fn(OperationRevealRequest)>,
+    reveal_path: Box<dyn Fn(PathBuf)>,
+}
+
+impl OperationCallbacks {
+    pub fn new(
+        on_operation_completed: impl Fn(&Path) + 'static,
+        on_operation_result: impl Fn(OperationRevealRequest) + 'static,
+        reveal_path: impl Fn(PathBuf) + 'static,
+    ) -> Self {
+        Self {
+            on_operation_completed: Box::new(on_operation_completed),
+            on_operation_result: Box::new(on_operation_result),
+            reveal_path: Box::new(reveal_path),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -117,6 +139,7 @@ pub struct OperationController {
     visibility_generation: Rc<Cell<u64>>,
     guardrail_environment: Box<dyn Fn() -> PreflightEnvironment>,
     on_operation_completed: Box<dyn Fn(&Path)>,
+    on_operation_result: Box<dyn Fn(OperationRevealRequest)>,
     reveal_path: Box<dyn Fn(PathBuf)>,
 }
 
@@ -127,9 +150,13 @@ impl OperationController {
         widgets: OperationWidgets,
         state: Rc<ApplicationState>,
         guardrail_environment: impl Fn() -> PreflightEnvironment + 'static,
-        on_operation_completed: impl Fn(&Path) + 'static,
-        reveal_path: impl Fn(PathBuf) + 'static,
+        callbacks: OperationCallbacks,
     ) -> Rc<Self> {
+        let OperationCallbacks {
+            on_operation_completed,
+            on_operation_result,
+            reveal_path,
+        } = callbacks;
         Rc::new(Self {
             window,
             toast_overlay,
@@ -144,8 +171,9 @@ impl OperationController {
             indeterminate: Cell::new(false),
             visibility_generation: Rc::new(Cell::new(0)),
             guardrail_environment: Box::new(guardrail_environment),
-            on_operation_completed: Box::new(on_operation_completed),
-            reveal_path: Box::new(reveal_path),
+            on_operation_completed,
+            on_operation_result,
+            reveal_path,
         })
     }
 
@@ -219,6 +247,31 @@ impl OperationController {
             }
             RecoveryStoreHealth::Ready { .. } => {}
         }
+        match self.state.undo_history_health() {
+            UndoHistoryHealth::Ready { review, .. } if review > 0 => {
+                self.toast_overlay.add_toast(
+                    adw::Toast::builder()
+                        .title("Interrupted Undo/Redo needs review")
+                        .button_label("Review")
+                        .action_name("win.recovery-center")
+                        .timeout(0)
+                        .build(),
+                );
+            }
+            UndoHistoryHealth::Blocked { .. } => {
+                self.toast_overlay.add_toast(
+                    adw::Toast::builder()
+                        .title(
+                            "Durable Undo/Redo is blocked; protected file operations will not run",
+                        )
+                        .button_label("Review")
+                        .action_name("win.recovery-center")
+                        .timeout(0)
+                        .build(),
+                );
+            }
+            UndoHistoryHealth::Ready { .. } => {}
+        }
 
         let controller = Rc::clone(self);
         glib::timeout_add_local(JOB_POLL_INTERVAL, move || {
@@ -264,6 +317,36 @@ impl OperationController {
             dialog.present(Some(&self.window));
             return;
         }
+        if let UndoHistoryHealth::Blocked { reason } = self.state.undo_history_health() {
+            let dialog = adw::AlertDialog::builder()
+                .heading("Durable Undo/Redo history blocked")
+                .body(format!(
+                    "Floe cannot safely record reversible Copy, Move, Rename, or Create work: {reason}\n\nReset only if you accept discarding unreadable Undo/Redo records. Reset changes no source, destination, or Trash item."
+                ))
+                .default_response("cancel")
+                .close_response("cancel")
+                .build();
+            dialog.add_responses(&[("cancel", "Cancel"), ("reset", "Reset Undo History")]);
+            dialog.set_response_appearance("reset", adw::ResponseAppearance::Destructive);
+            let controller = Rc::downgrade(self);
+            dialog.connect_response(None, move |dialog, response| {
+                if response == "reset"
+                    && let Some(controller) = controller.upgrade()
+                {
+                    match controller.state.reset_undo_history() {
+                        Ok(()) => controller.show_toast(
+                            "Undo/Redo history reset; protected operations are available again",
+                            6,
+                        ),
+                        Err(error) => controller
+                            .show_toast(&format!("Could not reset Undo history: {error}"), 7),
+                    }
+                }
+                dialog.close();
+            });
+            dialog.present(Some(&self.window));
+            return;
+        }
 
         let reviews = match self.state.recovery_reviews() {
             Ok(reviews) => reviews,
@@ -272,7 +355,8 @@ impl OperationController {
                 return;
             }
         };
-        let items = reviews
+        let recovery_count = reviews.len();
+        let mut items = reviews
             .iter()
             .map(|review| {
                 let record = review.record();
@@ -296,6 +380,32 @@ impl OperationController {
                 }
             })
             .collect::<Vec<_>>();
+        match self.state.persistent_undo_reviews() {
+            Ok(undo_reviews) => {
+                items.extend(undo_reviews.into_iter().map(|record| RecoveryDialogItem {
+                    id: record.id(),
+                    title: format!("Interrupted {} Undo/Redo", record.recipe().label()),
+                    detail: format!(
+                        "State: {:?}\nReview exact paths before resolving this record.\n{} → {}",
+                        record.state(),
+                        record
+                            .recipe()
+                            .source()
+                            .map(|path| path.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "Created item".to_owned()),
+                        record.recipe().destination().to_string_lossy()
+                    ),
+                    can_retry: false,
+                    can_resolve: true,
+                    source: record.recipe().source().map(Path::to_path_buf),
+                    destination: record.recipe().destination().to_path_buf(),
+                }))
+            }
+            Err(error) => self.show_toast(
+                &format!("Could not read interrupted Undo/Redo records: {error}"),
+                7,
+            ),
+        }
         let widgets = build_recovery_dialog(&items);
         for (index, item) in items.iter().enumerate() {
             let id = item.id;
@@ -337,9 +447,21 @@ impl OperationController {
 
             let controller = Rc::downgrade(self);
             let dialog = widgets.dialog.clone();
+            let is_undo_review = index >= recovery_count;
             widgets.resolve_buttons[index].connect_clicked(move |_| {
                 if let Some(controller) = controller.upgrade() {
-                    match controller.state.resolve_recovery_record(id) {
+                    let result = if is_undo_review {
+                        controller
+                            .state
+                            .resolve_undo_history_review(id)
+                            .map_err(|error| error.to_string())
+                    } else {
+                        controller
+                            .state
+                            .resolve_recovery_record(id)
+                            .map_err(|error| error.to_string())
+                    };
+                    match result {
                         Ok(()) => {
                             controller
                                 .show_toast("Recovery record resolved; no files were changed", 5);
@@ -398,6 +520,95 @@ impl OperationController {
             };
             on_resolved(state.resolve_conflict_authorized(job_id, decision, authorization));
         });
+    }
+
+    fn confirm_replace_conflict(
+        self: &Rc<Self>,
+        job_id: JobId,
+        source_identity: FileIdentity,
+        destination_identity: FileIdentity,
+        replace_all: bool,
+        conflict_dialog: glib::WeakRef<adw::Dialog>,
+    ) {
+        let scope = if replace_all {
+            "Later compatible conflicts in only this batch will be replaced after Floe captures fresh identities for each item."
+        } else {
+            "Only this exact conflict will be replaced."
+        };
+        let dialog = adw::AlertDialog::builder()
+            .heading(if replace_all {
+                "Replace compatible batch conflicts?"
+            } else {
+                "Replace the existing item?"
+            })
+            .body(format!(
+                "{scope}\n\nFloe rechecks the incoming and existing identities immediately before an atomic exchange. The old destination is retained in a private, bounded backup for Undo. If that private backup area is full or either item changes, replacement stops without overwriting it."
+            ))
+            .default_response("cancel")
+            .close_response("cancel")
+            .build();
+        dialog.add_responses(&[
+            ("cancel", "Cancel"),
+            (
+                "replace",
+                if replace_all {
+                    "Replace All"
+                } else {
+                    "Replace"
+                },
+            ),
+        ]);
+        dialog.set_response_appearance("replace", adw::ResponseAppearance::Destructive);
+
+        let controller = Rc::downgrade(self);
+        dialog.connect_response(None, move |dialog, response| {
+            dialog.close();
+            if response != "replace" {
+                return;
+            }
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let decision = if replace_all {
+                ConflictDecision::ReplaceAll {
+                    source_identity,
+                    destination_identity,
+                }
+            } else {
+                ConflictDecision::Replace {
+                    source_identity,
+                    destination_identity,
+                }
+            };
+            let weak_controller = Rc::downgrade(&controller);
+            let conflict_dialog = conflict_dialog.clone();
+            controller.resolve_conflict_with_review(job_id, decision, move |result| {
+                let Some(controller) = weak_controller.upgrade() else {
+                    return;
+                };
+                match result {
+                    Ok(ConflictResolution::Retried(submission)) => {
+                        controller.conflicts.borrow_mut().resolve(job_id);
+                        if let Some(dialog) = conflict_dialog.upgrade() {
+                            dialog.close();
+                        }
+                        controller.track_active(submission.job_id());
+                        controller.show_running(
+                            submission.job_id(),
+                            "Safe replacement queued…",
+                            None,
+                        );
+                    }
+                    Ok(ConflictResolution::KeptExisting) => {
+                        controller.show_toast("Could not submit safe replacement", 7);
+                    }
+                    Err(error) => {
+                        controller.show_toast(&format!("Could not replace item: {error}"), 7);
+                    }
+                }
+            });
+        });
+        dialog.present(Some(&self.window));
     }
 
     fn drain_job_events(self: &Rc<Self>) {
@@ -599,6 +810,7 @@ impl OperationController {
         let permission_directories = self.state.permission_affected_directories(job_id);
         let archive_directories = self.state.archive_affected_directories(job_id);
         let batch_rename_directories = self.state.batch_rename_affected_directories(job_id);
+        let batch_id = self.state.batch_for_job(job_id);
         let request = self.state.finish_operation(job_id, outcome);
         let checksum_outcome = if checksum_operation {
             self.state.finish_checksum(job_id)
@@ -633,6 +845,13 @@ impl OperationController {
 
         match result {
             TerminalResult::Completed => {
+                if let Some(reveal) = request
+                    .as_ref()
+                    .and_then(TrackedOperation::completed_result_path)
+                    .and_then(|path| OperationRevealRequest::new(job_id, batch_id, path))
+                {
+                    (self.on_operation_result)(reveal);
+                }
                 for directory in &permission_directories {
                     (self.on_operation_completed)(directory);
                 }
@@ -1050,10 +1269,18 @@ impl OperationController {
 
     fn present_operation_history(self: &Rc<Self>) {
         let entries = self.state.terminal_history();
-        let items = entries
+        let persistent = match self.state.persistent_undo_history() {
+            Ok(records) => records,
+            Err(error) => {
+                self.show_toast(&format!("Could not read durable Undo history: {error}"), 7);
+                Vec::new()
+            }
+        };
+        let mut items = entries
             .iter()
             .map(|entry| history_item(entry, self.state.can_undo(entry.job_id())))
             .collect::<Vec<_>>();
+        items.extend(persistent.iter().map(persistent_history_item));
         let can_clear = entries
             .iter()
             .any(|entry| entry.outcome() == TerminalOutcome::Completed);
@@ -1107,6 +1334,36 @@ impl OperationController {
                 });
             });
         }
+        let persistent_offset = entries.len();
+        for (index, record) in persistent.iter().enumerate() {
+            let history_id = record.id();
+            let dialog = history.dialog.downgrade();
+            let controller = Rc::downgrade(self);
+            history.undo_buttons[persistent_offset + index].connect_clicked(move |button| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                controller.activate_persistent_history_action(
+                    history_id,
+                    UndoHistoryAction::Undo,
+                    button.clone(),
+                    dialog.clone(),
+                );
+            });
+            let dialog = history.dialog.downgrade();
+            let controller = Rc::downgrade(self);
+            history.redo_buttons[persistent_offset + index].connect_clicked(move |button| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                controller.activate_persistent_history_action(
+                    history_id,
+                    UndoHistoryAction::Redo,
+                    button.clone(),
+                    dialog.clone(),
+                );
+            });
+        }
 
         let controller = Rc::downgrade(self);
         let dialog = history.dialog.downgrade();
@@ -1124,6 +1381,74 @@ impl OperationController {
                 }
             });
         history.dialog.present(Some(&self.window));
+    }
+
+    fn activate_persistent_history_action(
+        self: &Rc<Self>,
+        history_id: u64,
+        action: UndoHistoryAction,
+        button: gtk::Button,
+        dialog: glib::WeakRef<adw::Dialog>,
+    ) {
+        let scope = match self
+            .state
+            .persistent_history_action_scope(history_id, action)
+        {
+            Ok(scope) => scope,
+            Err(error) => {
+                self.show_toast(&format!("Could not prepare Undo/Redo: {error}"), 7);
+                return;
+            }
+        };
+        if let Some(scope) = scope {
+            let controller = Rc::downgrade(self);
+            self.review_guardrail(vec![scope], move |mut authorizations| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                let authorization = authorizations.pop();
+                controller.dispatch_persistent_history_action(
+                    history_id,
+                    action,
+                    authorization,
+                    &button,
+                    &dialog,
+                );
+            });
+        } else {
+            self.dispatch_persistent_history_action(history_id, action, None, &button, &dialog);
+        }
+    }
+
+    fn dispatch_persistent_history_action(
+        self: &Rc<Self>,
+        history_id: u64,
+        action: UndoHistoryAction,
+        authorization: Option<GuardrailAuthorizationItem>,
+        button: &gtk::Button,
+        dialog: &glib::WeakRef<adw::Dialog>,
+    ) {
+        button.set_sensitive(false);
+        match self
+            .state
+            .submit_persistent_history_action(history_id, action, authorization)
+        {
+            Ok(submission) => {
+                if let Some(dialog) = dialog.upgrade() {
+                    dialog.close();
+                }
+                self.track_active(submission.job_id());
+                self.show_running(
+                    submission.job_id(),
+                    waiting_detail(self.request(submission.job_id())),
+                    None,
+                );
+            }
+            Err(error) => {
+                button.set_sensitive(true);
+                self.show_toast(&format!("Could not apply Undo/Redo: {error}"), 7);
+            }
+        }
     }
 
     fn show_retry(&self, job_id: JobId) {
@@ -1249,10 +1574,49 @@ impl OperationController {
         let source = pending.source().to_string_lossy().into_owned();
         let destination = pending.destination().to_string_lossy().into_owned();
         let existing_name = pending.destination().file_name().map(OsString::from);
-        let conflict = build_conflict_dialog(&source, &destination);
+        let conflict = build_conflict_dialog(
+            &source,
+            &destination,
+            pending.source_description(),
+            pending.destination_description(),
+            pending.replace_supported(),
+            pending.replace_all_supported(),
+        );
         conflict
             .skip_all_button
             .set_visible(self.state.batch_for_job(job_id).is_some());
+
+        let controller = Rc::downgrade(self);
+        let dialog = conflict.dialog.downgrade();
+        let source_identity = pending.source_identity();
+        let destination_identity = pending.destination_identity();
+        conflict.replace_button.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.confirm_replace_conflict(
+                    job_id,
+                    source_identity,
+                    destination_identity,
+                    false,
+                    dialog.clone(),
+                );
+            }
+        });
+
+        let controller = Rc::downgrade(self);
+        let dialog = conflict.dialog.downgrade();
+        let source_identity = pending.source_identity();
+        let destination_identity = pending.destination_identity();
+        conflict.replace_all_button.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.confirm_replace_conflict(
+                    job_id,
+                    source_identity,
+                    destination_identity,
+                    true,
+                    dialog.clone(),
+                );
+            }
+        });
 
         let retry_button = conflict.retry_button.clone();
         let name_error = conflict.name_error.clone();
@@ -1605,6 +1969,30 @@ fn history_item(entry: &TerminalOperation, can_undo: bool) -> OperationHistoryIt
         title: operation_title(Some(entry.operation())),
         detail,
         can_undo,
+        can_redo: false,
+    }
+}
+
+fn persistent_history_item(record: &UndoHistoryRecord) -> OperationHistoryItem {
+    let name = record
+        .recipe()
+        .destination()
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "item".to_owned());
+    let state = match record.state() {
+        UndoHistoryState::Applied => "Applied • Undo available",
+        UndoHistoryState::Undone => "Undone • Redo available",
+        UndoHistoryState::InProgress => "Interrupted before completion • review required",
+        UndoHistoryState::Undoing => "Interrupted during Undo • review required",
+        UndoHistoryState::Redoing => "Interrupted during Redo • review required",
+        UndoHistoryState::NeedsReview => "Uncertain result • review required",
+    };
+    OperationHistoryItem {
+        title: format!("{} {name}", record.recipe().label()),
+        detail: format!("{state} • expires at Unix {}", record.expires_at()),
+        can_undo: record.can_undo(),
+        can_redo: record.can_redo(),
     }
 }
 
@@ -1719,6 +2107,8 @@ fn operation_verb(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::PermanentDelete(_)) => "Delete Permanently",
         Some(TrackedOperation::Restore(_)) => "Restore",
         Some(TrackedOperation::UndoMove { .. }) => "Undo Move",
+        Some(TrackedOperation::PersistentHistoryAction { .. }) => "Undo/Redo",
+        Some(TrackedOperation::Replace(_)) => "Replace",
         None => "Operation",
     }
 }
@@ -1733,6 +2123,8 @@ fn operation_verb_ing(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::PermanentDelete(_)) => "Deleting permanently",
         Some(TrackedOperation::Restore(_)) => "Restoring",
         Some(TrackedOperation::UndoMove { .. }) => "Undoing move for",
+        Some(TrackedOperation::PersistentHistoryAction { .. }) => "Applying Undo/Redo for",
+        Some(TrackedOperation::Replace(_)) => "Replacing",
         None => "Working on",
     }
 }
@@ -1747,6 +2139,8 @@ fn waiting_detail(request: Option<TrackedOperation>) -> &'static str {
         Some(TrackedOperation::PermanentDelete(_)) => "Preparing permanent deletion…",
         Some(TrackedOperation::Restore(_)) => "Waiting to restore…",
         Some(TrackedOperation::UndoMove { .. }) => "Waiting to undo move…",
+        Some(TrackedOperation::PersistentHistoryAction { .. }) => "Waiting to apply Undo/Redo…",
+        Some(TrackedOperation::Replace(_)) => "Waiting to replace safely…",
         None => "Waiting…",
     }
 }
@@ -1761,6 +2155,8 @@ fn running_detail(request: Option<TrackedOperation>) -> &'static str {
         Some(TrackedOperation::PermanentDelete(_)) => "Deleting permanently…",
         Some(TrackedOperation::Restore(_)) => "Restoring to the original location…",
         Some(TrackedOperation::UndoMove { .. }) => "Restoring the original location…",
+        Some(TrackedOperation::PersistentHistoryAction { .. }) => "Applying durable Undo/Redo…",
+        Some(TrackedOperation::Replace(_)) => "Preparing backup and replacing…",
         None => "Working…",
     }
 }
@@ -1775,6 +2171,8 @@ fn completed_title(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::PermanentDelete(_)) => "Deleted permanently",
         Some(TrackedOperation::Restore(_)) => "Restore complete",
         Some(TrackedOperation::UndoMove { .. }) => "Undo complete",
+        Some(TrackedOperation::PersistentHistoryAction { .. }) => "Undo/Redo complete",
+        Some(TrackedOperation::Replace(_)) => "Replacement complete",
         None => "Operation complete",
     }
 }
@@ -1789,6 +2187,8 @@ fn completed_detail(request: Option<&TrackedOperation>) -> &'static str {
         Some(TrackedOperation::PermanentDelete(_)) => "Permanent deletion completed",
         Some(TrackedOperation::Restore(_)) => "Restored to the original location",
         Some(TrackedOperation::UndoMove { .. }) => "Moved back to the original location",
+        Some(TrackedOperation::PersistentHistoryAction { .. }) => "Undo/Redo completed safely",
+        Some(TrackedOperation::Replace(_)) => "Replaced with durable Undo available",
         None => "Completed successfully",
     }
 }
@@ -1808,6 +2208,15 @@ fn completed_toast(request: Option<&TrackedOperation>) -> String {
         Some(TrackedOperation::Restore(_)) => format!("Restored {}", operation_name(request)),
         Some(TrackedOperation::UndoMove { .. }) => {
             format!("Undid move for {}", operation_name(request))
+        }
+        Some(TrackedOperation::PersistentHistoryAction { .. }) => {
+            format!("Updated {} from durable history", operation_name(request))
+        }
+        Some(TrackedOperation::Replace(_)) => {
+            format!(
+                "Replaced {} with durable Undo available",
+                operation_name(request)
+            )
         }
         None => "Operation completed".to_owned(),
     }

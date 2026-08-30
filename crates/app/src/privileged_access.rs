@@ -19,7 +19,7 @@ use thiserror::Error;
 
 use crate::privileged_operations::{
     GioPrivilegedOperationService, PrivilegedOperationEvent, PrivilegedOperationKind,
-    PrivilegedOperationRequest,
+    PrivilegedOperationRequest, administrator_durable_undo_unavailable,
 };
 
 type OperationRequestBuilder =
@@ -1592,6 +1592,9 @@ impl PrivilegedAccessController {
         entry.update_property(&[gtk::accessible::Property::Label(
             "Administrator operation value",
         )]);
+        let body = format!(
+            "{body}\n\nAdministrator changes are not yet stored in durable Undo/Redo history because the desktop service does not return enough exact post-operation identity evidence."
+        );
         let dialog = adw::AlertDialog::builder()
             .heading(heading)
             .body(body)
@@ -1650,9 +1653,11 @@ impl PrivilegedAccessController {
         let dialog = adw::AlertDialog::builder()
             .heading(heading)
             .body(format!(
-                "{}\n\nSelected item: {}",
+                "{}\n\nSelected item: {}\n\nDurable Undo/Redo unavailable: {}.",
                 body,
-                entry.display_name()
+                entry.display_name(),
+                administrator_durable_undo_unavailable(kind)
+                    .unwrap_or("the desktop service returned insufficient inverse evidence")
             ))
             .default_response("cancel")
             .close_response("cancel")

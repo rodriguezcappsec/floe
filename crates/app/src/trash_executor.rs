@@ -152,7 +152,7 @@ impl TrashBackend for GioTrashBackend {
     }
 }
 
-fn validate_expected_source(request: &TrashRequest) -> Result<(), TrashError> {
+pub(crate) fn validate_expected_source(request: &TrashRequest) -> Result<(), TrashError> {
     let Some(expected) = request.expected_source_identity else {
         return Ok(());
     };

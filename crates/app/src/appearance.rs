@@ -231,9 +231,12 @@ impl Appearance {
                 background-color: alpha(@accent_bg_color, 0.08);
             }}
 
-            .floe-directory-list row:selected {{
-                background-color: alpha(@accent_bg_color, 0.20);
-            }}
+.floe-directory-list row:selected {{
+    background-color: alpha(@accent_bg_color, 0.20);
+    box-shadow: inset 3px 0 0 alpha(@accent_color, 0.92), inset 0 0 0 1px alpha(@borders, 0.72);
+}}
+
+.floe-directory-list row:selected .floe-entry-name {{ font-weight: 700; }}
 
             .floe-directory-list row:focus-visible {{
                 box-shadow: inset 0 0 0 2px alpha(@accent_color, 0.76);
@@ -259,13 +262,32 @@ impl Appearance {
                 background-color: alpha(@accent_bg_color, 0.08);
             }}
 
-            .floe-directory-grid child:selected {{
-                background-color: alpha(@accent_bg_color, 0.20);
-            }}
+.floe-directory-grid child:selected {{
+    background-color: alpha(@accent_bg_color, 0.20);
+    box-shadow: inset 0 0 0 2px alpha(@borders, 0.86), inset 0 -3px 0 alpha(@accent_color, 0.92);
+}}
 
-            .floe-directory-grid child:focus-visible {{
-                box-shadow: inset 0 0 0 2px alpha(@accent_color, 0.76);
-            }}
+.floe-directory-grid child:selected .floe-entry-name {{ font-weight: 700; }}
+
+.floe-directory-grid child:focus-visible {{
+    box-shadow: inset 0 0 0 2px alpha(@accent_color, 0.76);
+}}
+
+.floe-miller-column-list row:selected {{
+    background-color: alpha(@accent_bg_color, 0.20);
+    box-shadow: inset 3px 0 0 alpha(@accent_color, 0.92), inset 0 0 0 1px alpha(@borders, 0.72);
+}}
+
+.floe-miller-column-list row:selected .floe-entry-name {{ font-weight: 700; }}
+
+.floe-operation-result row:selected,
+.floe-operation-result child:selected {{
+    background-color: alpha(@accent_bg_color, 0.34);
+    box-shadow: inset 0 0 0 3px alpha(@accent_color, 0.96), inset 0 -4px 0 alpha(@window_fg_color, 0.76);
+}}
+
+.floe-operation-result row:selected .floe-entry-name,
+.floe-operation-result child:selected .floe-entry-name {{ font-weight: 800; }}
 
             .floe-grid-cell {{
                 padding: 6px;
@@ -721,6 +743,18 @@ mod tests {
         assert!(css.contains("background-color: transparent"));
         assert!(css.contains("border: 1px solid alpha(@window_fg_color, 0.18)"));
         assert!(!css.contains("border: 2px solid alpha(@accent_bg_color, 0.72)"));
+    }
+
+    #[test]
+    fn phase_6v_selection_ui_has_redundant_and_transient_non_color_cues() {
+        let css = Appearance::for_preset(AppearancePreset::Native).css();
+
+        assert!(css.contains(".floe-directory-list row:selected .floe-entry-name"));
+        assert!(css.contains(".floe-directory-grid child:selected .floe-entry-name"));
+        assert!(css.contains(".floe-miller-column-list row:selected"));
+        assert!(css.contains("inset 3px 0 0 alpha(@accent_color, 0.92)"));
+        assert!(css.contains(".floe-operation-result row:selected"));
+        assert!(css.contains("font-weight: 800"));
     }
 
     #[test]

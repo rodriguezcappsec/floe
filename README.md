@@ -56,11 +56,16 @@ use different development-package names.
 - Virtualized List and Grid plus bounded spatial Miller columns.
 - Tabs, session restore, split panes, breadcrumbs, and local CLI routing.
 - Copy, move, rename, duplicate, links, templates, drag and drop, Trash,
-  restore, permanent deletion, conflicts, cancellation, and safe limited Undo.
+  restore, permanent deletion, identity-checked Replace/Replace All, conflicts,
+  cancellation, and private 30-day Undo/Redo for reversible local work.
+- Exact completed-operation reveal: successful copy, move, rename, create,
+  duplicate, and replace results are selected, scrolled into view, and briefly
+  emphasized when their destination folder is already visible.
 - Quick Preview, Inspector, Properties, permissions, metadata, checksums,
   archives, search, an optional local index, and exact duplicate review.
 - Integrity fingerprints and manifests, baselines, verified copy/transfer,
-  Protected Folder guardrails, and conservative interrupted-operation recovery.
+  Protected Folder guardrails, and conservative interrupted-operation plus
+  Undo/Redo recovery review.
 - Searchable Settings, five appearance presets, text scale, reduced motion,
   customizable shortcuts, optional Vim navigation, and direct-argv actions.
 

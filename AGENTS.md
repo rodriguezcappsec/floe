@@ -1313,11 +1313,64 @@ is active, and **Integrity verified** only after verification completes.
 
 ## Active status
 
-Last updated: `2026-08-29`
+Last updated: `2026-08-30`
 
-Current phase: **Phase 20B3 — Compact tabs (complete)**
+Current phase: **Phase 6V — Selection and operation reveal polish (complete)**
 
 Completed this session:
+
+- Added typed exact completion-result paths for successful local Copy, Move,
+  Rename, Create, Duplicate, and Replace. Result reveal batches are capped at
+  4,096 exact `PathBuf` values and bound to one job/batch, visible directory,
+  and browser generation; failed, partial, stale, inactive, hidden, filtered,
+  missing, and collapsed results cannot select a substitute or navigate away.
+- The active List, grouped Grid/Search/Trash, and Miller view now selects and
+  scrolls successful results without moving keyboard focus. Batch results
+  accumulate into one selection and receive a 1.8-second view-level emphasis
+  that clears safely without leaking through virtualized row/tile reuse.
+- Selected list rows, grid/search/trash tiles, and Miller entries now include
+  redundant border and label-weight cues beyond color while retaining GTK's
+  authoritative multi-selection and native accessibility semantics.
+- Focused exact-path, operation-result, presentation, and real-GTK tests pass,
+  as do full workspace tests. Phase 6W — Undo Trash is the sole recommended
+  next phase and is not implemented here.
+
+- Added safe Replace for local Copy, Move, and Rename conflicts. Floe captures
+  exact no-follow incoming and existing identities, stages on the destination
+  filesystem inside owner-only capacity-bounded `.floe-replace-backups`,
+  revalidates before Linux atomic exchange, rolls back before commit, and
+  classifies rollback/post-commit uncertainty as partial instead of silently
+  overwriting or cleaning it.
+- Added durable replacement Undo/Redo with both version identities, restart
+  review, and identity-owned backup cleanup on expiry or explicit resolution.
+  Changed or insecure backup occupants are retained and marked review-required.
+- Conflict UI now compares bounded incoming/existing metadata, exposes distinct
+  destructive Replace and batch-only Replace All actions, and requires a second
+  confirmation explaining retained contents, capacity, identity checks, and
+  batch scope. Replace All captures fresh identities for every later compatible
+  conflict, does not leak to another batch, and pauses at Protected Folder
+  intersections for fresh review.
+- Deterministic Phase 6U engine, batch, recovery, and UI contract tests pass,
+  including cancellation, collision, changed-identity, restart, expiry, and
+  cross-batch isolation. Phase 6V builds on this verified completion routing.
+
+- Added a separate private durable Undo/Redo store at the XDG state path for
+  completed local Copy, Move, Rename, and Create work. It preserves exact raw
+  paths and no-follow identities, is capped at 256 records/4 MiB, uses `0700`
+  parent and atomic `0600` files, expires completed history after 30 days, and
+  keeps interrupted/uncertain action states for explicit review.
+- Added a capacity-four asynchronous Undo/Redo worker. Move/Rename use exact
+  identity-checked no-overwrite inverse moves; Copy/Create Undo uses ordinary
+  recoverable GIO Trash after identity revalidation, with non-empty created
+  directories refused. Redo republishes without overwrite. Failures restore
+  the prior action state when no mutation occurred; partial or uncertain work
+  remains reviewable and is never cleaned automatically.
+- Operation History now exposes durable Applied/Undone records, expiry, Undo,
+  and Redo. Recovery Center includes interrupted/uncertain Undo/Redo records.
+  Administrator operation dialogs explicitly state durable Undo is unavailable:
+  current GVfs completion events do not provide enough exact post-operation
+  fingerprint/Trash metadata to prove a safe fresh-authorized inverse.
+- Focused Phase 18Y2 store/local/administrator/UI tests and full workspace tests passed before Phase 6U. That durable-history foundation now supports replacement Undo/Redo and the later Phase 6V reveal path.
 
 - Replaced the 128px/34px tab presentation with 72px-minimum adaptive tabs,
   18-character centered single-line end ellipsis, 24px label-strip height,
@@ -1378,9 +1431,13 @@ Important decisions:
   support requires shared application services rather than unsafe independent
   processes racing settings and recovery stores.
 
-Recommended next task: create `phase-18y2-complete-undo-recovery` and implement
-only the bounded operation-specific persistent Undo and recovery phase in the
-roadmap.
+Recommended next task: create `phase-6w-undo-trash` and implement only durable,
+standards-correct Undo for Floe-owned local Trash operations. Reuse Phase
+6N/6P/18Y2 exact metadata and recovery foundations; require no-overwrite
+restore, identity revalidation, bounded expiry/restart review, and explicit
+conflicts. Keep unsupported Trash backends, permanent deletion, and
+administrator Trash outside the claim unless complete reversible evidence is
+available.
 
 ## Prior active status (Phase 21C)
 

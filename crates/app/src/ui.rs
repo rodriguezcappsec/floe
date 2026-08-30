@@ -916,21 +916,31 @@ pub struct ConflictDialogWidgets {
     pub keep_existing_button: gtk::Button,
     pub keep_both_button: gtk::Button,
     pub skip_all_button: gtk::Button,
+    pub replace_button: gtk::Button,
+    pub replace_all_button: gtk::Button,
     pub retry_button: gtk::Button,
 }
+
+pub const REPLACE_CONFLICT_EXPLANATION: &str =
+    "Floe identity-checks both items and privately retains the old destination for Undo.";
+pub const REPLACE_ALL_SCOPE_EXPLANATION: &str = "Replace All applies only to later compatible conflicts in this batch and captures fresh identities for every item.";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OperationHistoryItem {
     pub title: String,
     pub detail: String,
     pub can_undo: bool,
+    pub can_redo: bool,
 }
 
 pub struct OperationHistoryDialogWidgets {
     pub dialog: adw::Dialog,
     pub clear_completed_button: gtk::Button,
     pub undo_buttons: Vec<gtk::Button>,
+    pub redo_buttons: Vec<gtk::Button>,
 }
+
+pub const OPERATION_HISTORY_DURABILITY_EXPLANATION: &str = "Recent reversible work is stored privately for 30 days. Floe rechecks the exact item before Undo or Redo; interrupted or uncertain actions require review.";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RecoveryDialogItem {
@@ -1317,6 +1327,26 @@ impl GroupedGridPresentation {
         {
             header.grab_focus();
         }
+    }
+
+    fn scroll_to(&self, global_index: u32) -> bool {
+        let sections = grid_group_sections(&self.state.selection, self.state.grouping.get());
+        let grids = self.state.section_grids.borrow();
+        let Some((section, grid)) = sections.iter().zip(grids.iter()).find(|(section, grid)| {
+            grid.is_visible()
+                && global_index >= section.start
+                && global_index < section.start.saturating_add(section.len)
+        }) else {
+            return false;
+        };
+        let info = gtk::ScrollInfo::new();
+        info.set_enable_vertical(true);
+        grid.scroll_to(
+            global_index.saturating_sub(section.start),
+            gtk::ListScrollFlags::NONE,
+            Some(info),
+        );
+        true
     }
 
     fn queue_rebuild(state: &Rc<GroupedGridState>) {
@@ -1809,6 +1839,35 @@ impl BrowserWidgets {
                 self.miller_view.focus_active();
             }
         }
+    }
+
+    pub fn scroll_to_operation_result(&self, mode: ViewMode, index: u32) -> bool {
+        let info = gtk::ScrollInfo::new();
+        info.set_enable_vertical(true);
+        match mode {
+            ViewMode::List => {
+                self.list_view
+                    .scroll_to(index, gtk::ListScrollFlags::NONE, Some(info));
+                true
+            }
+            ViewMode::Grid if self.list_grouping.get() == DirectoryGrouping::None => {
+                self.grid_view
+                    .scroll_to(index, gtk::ListScrollFlags::NONE, Some(info));
+                true
+            }
+            ViewMode::Grid => self.grouped_grid.scroll_to(index),
+            ViewMode::Miller => self.miller_view.scroll_active_to(index),
+        }
+    }
+
+    pub fn operation_result_emphasis_targets(&self) -> Vec<gtk::Widget> {
+        vec![
+            self.list_view.clone().upcast(),
+            self.grid_view.clone().upcast(),
+            self.grouped_grid_view.clone().upcast(),
+            self.miller_view.widget().clone().upcast(),
+            self.search_results_view.clone().upcast(),
+        ]
     }
 
     pub fn set_views_sensitive(&self, sensitive: bool) {
@@ -3149,7 +3208,14 @@ pub fn build_empty_trash_dialog(target_labels: &[String]) -> PermanentDeleteDial
     widgets
 }
 
-pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDialogWidgets {
+pub fn build_conflict_dialog(
+    source_name: &str,
+    destination: &str,
+    source_description: &str,
+    destination_description: &str,
+    replace_supported: bool,
+    replace_all_supported: bool,
+) -> ConflictDialogWidgets {
     let heading = gtk::Label::builder()
         .label("An item already exists")
         .halign(gtk::Align::Start)
@@ -3157,7 +3223,11 @@ pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDi
     heading.add_css_class("title-2");
 
     let explanation = gtk::Label::builder()
-        .label("Keep or skip the existing item, keep both with a safe name, or retry with a different filename. Replace is unavailable.")
+        .label(if replace_supported {
+            REPLACE_CONFLICT_EXPLANATION
+        } else {
+            "Keep or skip the existing item, keep both with a safe name, or retry with a different filename."
+        })
         .halign(gtk::Align::Start)
         .wrap(true)
         .build();
@@ -3165,12 +3235,12 @@ pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDi
 
     let source_row = adw::ActionRow::builder()
         .title("Incoming item")
-        .subtitle(source_name)
+        .subtitle(format!("{source_name}\n{source_description}"))
         .build();
     source_row.add_prefix(&gtk::Image::from_icon_name("floe-phosphor-file-symbolic"));
     let destination_row = adw::ActionRow::builder()
         .title("Existing destination")
-        .subtitle(destination)
+        .subtitle(format!("{destination}\n{destination_description}"))
         .build();
     destination_row.add_prefix(&gtk::Image::from_icon_name("floe-phosphor-folder-symbolic"));
     let context = gtk::ListBox::builder()
@@ -3207,20 +3277,53 @@ pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDi
     let keep_existing_button = gtk::Button::with_label(CONFLICT_DECISION_LABELS[0]);
     let keep_both_button = gtk::Button::with_label("Keep Both");
     let skip_all_button = gtk::Button::with_label("Skip All");
+    let replace_button = gtk::Button::with_label("Replace");
+    replace_button.add_css_class("destructive-action");
+    replace_button.set_visible(replace_supported);
+    replace_button.set_tooltip_text(Some(
+        "Replace this exact destination after a second confirmation; Floe privately retains the old version for Undo",
+    ));
+    set_accessible_label(&replace_button, "Replace this existing item");
+
+    let replace_all_button = gtk::Button::with_label("Replace All");
+    replace_all_button.add_css_class("destructive-action");
+    replace_all_button.set_visible(replace_all_supported);
+    replace_all_button.set_tooltip_text(Some(REPLACE_ALL_SCOPE_EXPLANATION));
+    set_accessible_label(
+        &replace_all_button,
+        "Replace compatible conflicts in this batch",
+    );
     let retry_button = gtk::Button::with_label(CONFLICT_DECISION_LABELS[1]);
     retry_button.add_css_class("suggested-action");
     retry_button.set_sensitive(false);
 
-    let actions = gtk::Box::builder()
+    let replace_hint = gtk::Label::builder()
+        .label("Destructive choice — old version retained privately for Undo")
+        .halign(gtk::Align::End)
+        .wrap(true)
+        .visible(replace_supported)
+        .build();
+    replace_hint.add_css_class("floe-status");
+
+    let replace_actions = gtk::Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .halign(gtk::Align::End)
+        .spacing(8)
+        .visible(replace_supported)
+        .build();
+    replace_actions.append(&replace_button);
+    replace_actions.append(&replace_all_button);
+
+    let safe_actions = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
         .halign(gtk::Align::End)
         .spacing(8)
         .build();
-    actions.append(&cancel_button);
-    actions.append(&keep_existing_button);
-    actions.append(&keep_both_button);
-    actions.append(&skip_all_button);
-    actions.append(&retry_button);
+    safe_actions.append(&cancel_button);
+    safe_actions.append(&keep_existing_button);
+    safe_actions.append(&keep_both_button);
+    safe_actions.append(&skip_all_button);
+    safe_actions.append(&retry_button);
 
     let content = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -3236,7 +3339,9 @@ pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDi
     content.append(&name_label);
     content.append(&name_entry);
     content.append(&name_error);
-    content.append(&actions);
+    content.append(&replace_hint);
+    content.append(&replace_actions);
+    content.append(&safe_actions);
 
     let dialog = adw::Dialog::builder()
         .title("Resolve destination conflict")
@@ -3254,6 +3359,8 @@ pub fn build_conflict_dialog(source_name: &str, destination: &str) -> ConflictDi
         keep_existing_button,
         keep_both_button,
         skip_all_button,
+        replace_button,
+        replace_all_button,
         retry_button,
     }
 }
@@ -3268,7 +3375,7 @@ pub fn build_operation_history_dialog(
         .build();
     heading.add_css_class("title-2");
     let explanation = gtk::Label::builder()
-        .label("This history is memory-only. Undo appears only for identity-checked moves and renames.")
+        .label(OPERATION_HISTORY_DURABILITY_EXPLANATION)
         .halign(gtk::Align::Start)
         .wrap(true)
         .build();
@@ -3279,6 +3386,7 @@ pub fn build_operation_history_dialog(
         .build();
     list.add_css_class("boxed-list");
     let mut undo_buttons = Vec::with_capacity(items.len());
+    let mut redo_buttons = Vec::with_capacity(items.len());
     for item in items {
         let row = adw::ActionRow::builder()
             .title(&item.title)
@@ -3292,8 +3400,17 @@ pub fn build_operation_history_dialog(
             .build();
         set_accessible_label(&undo, "Undo operation");
         row.add_suffix(&undo);
+        let redo = gtk::Button::builder()
+            .label("Redo")
+            .tooltip_text("Repeat this operation without overwriting existing data")
+            .valign(gtk::Align::Center)
+            .visible(item.can_redo)
+            .build();
+        set_accessible_label(&redo, "Redo operation");
+        row.add_suffix(&redo);
         list.append(&row);
         undo_buttons.push(undo);
+        redo_buttons.push(redo);
     }
     if items.is_empty() {
         let empty = adw::ActionRow::builder()
@@ -3338,6 +3455,7 @@ pub fn build_operation_history_dialog(
         dialog,
         clear_completed_button,
         undo_buttons,
+        redo_buttons,
     }
 }
 
@@ -6577,6 +6695,228 @@ mod tests {
     use std::{fs, path::PathBuf, time::Duration};
 
     use super::*;
+
+    #[test]
+    fn phase_6u_ui_copy_explains_identity_undo_and_batch_scope() {
+        assert!(REPLACE_CONFLICT_EXPLANATION.contains("identity-checks"));
+        assert!(REPLACE_CONFLICT_EXPLANATION.contains("privately"));
+        assert!(REPLACE_CONFLICT_EXPLANATION.contains("Undo"));
+        assert!(REPLACE_ALL_SCOPE_EXPLANATION.contains("only"));
+        assert!(REPLACE_ALL_SCOPE_EXPLANATION.contains("this batch"));
+        assert!(REPLACE_ALL_SCOPE_EXPLANATION.contains("fresh identities"));
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_6u_ui_gtk_conflict_actions_are_distinct_and_accessible() {
+        gtk::init().expect("GTK component gate requires available display");
+        adw::init().expect("libadwaita must initialize in GTK component gate");
+        let widgets = build_conflict_dialog(
+            "/tmp/incoming.txt",
+            "/tmp/existing.txt",
+            "File • 12 B • modified now",
+            "File • 10 B • modified earlier",
+            true,
+            true,
+        );
+        assert!(widgets.replace_button.is_visible());
+        assert!(widgets.replace_all_button.is_visible());
+        assert!(widgets.replace_button.has_css_class("destructive-action"));
+        assert!(
+            widgets
+                .replace_all_button
+                .has_css_class("destructive-action")
+        );
+        assert_eq!(
+            widgets.replace_button.accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert_eq!(
+            widgets.replace_all_button.accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert!(widgets.keep_existing_button.is_visible());
+        assert!(widgets.keep_both_button.is_visible());
+        assert!(widgets.retry_button.is_visible());
+    }
+
+    #[cfg(any())]
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_6v_full_widget_selection_scroll_and_emphasis_contract() {
+        gtk::init().expect("GTK component gate requires an available display");
+        adw::init().expect("libadwaita must initialize in GTK component gate");
+        let application = adw::Application::builder()
+            .application_id("io.github.rodriguezcappsec.Floe.Phase6VComponentTest")
+            .build();
+        application
+            .register(None::<&gio::Cancellable>)
+            .expect("component-test application must register");
+        let fixture = tempfile::tempdir().expect("temporary directory");
+        fs::write(fixture.path().join("result.txt"), b"result").expect("result fixture");
+        let entries = floe_core::enumerate_directory(fixture.path())
+            .expect("enumerate fixture")
+            .entries()
+            .to_vec();
+        let widgets = build(
+            &application,
+            &[],
+            Appearance::for_preset(AppearancePreset::Native),
+            ViewPreferences::default(),
+        );
+        let store = gio::ListStore::new::<glib::BoxedAnyObject>();
+        for entry in entries {
+            store.append(&glib::BoxedAnyObject::new(std::sync::Arc::new(entry)));
+        }
+        widgets.selection.set_model(Some(&store));
+        widgets.window.present();
+        widgets.location_entry.grab_focus();
+        for _ in 0..8 {
+            if !glib::MainContext::default().pending() {
+                break;
+            }
+            glib::MainContext::default().iteration(false);
+        }
+        let focus_before = gtk::prelude::GtkWindowExt::focus(&widgets.window);
+
+        widgets.selection.select_item(0, true);
+        assert!(widgets.selection.is_selected(0));
+        assert!(widgets.scroll_to_operation_result(ViewMode::List, 0));
+        assert_eq!(
+            gtk::prelude::GtkWindowExt::focus(&widgets.window),
+            focus_before
+        );
+
+        let targets = widgets.operation_result_emphasis_targets();
+        assert_eq!(targets.len(), 5);
+        for target in &targets {
+            target.add_css_class("floe-operation-result");
+            assert!(target.has_css_class("floe-operation-result"));
+        }
+        for target in targets {
+            target.remove_css_class("floe-operation-result");
+            assert!(!target.has_css_class("floe-operation-result"));
+        }
+        widgets.window.close();
+        application.quit();
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_6v_gtk_selection_scroll_and_emphasis_preserve_focus() {
+        gtk::init().expect("GTK component gate requires available display");
+        let strings = gtk::StringList::new(&["result.txt", "other.txt"]);
+        let selection = gtk::MultiSelection::new(Some(strings));
+        let factory = gtk::SignalListItemFactory::new();
+        factory.connect_setup(|_, object| {
+            let item = object.downcast_ref::<gtk::ListItem>().expect("list item");
+            item.set_child(Some(&gtk::Label::new(None)));
+        });
+        factory.connect_bind(|_, object| {
+            let item = object.downcast_ref::<gtk::ListItem>().expect("list item");
+            let label = item.child().and_downcast::<gtk::Label>().expect("label");
+            let value = item
+                .item()
+                .and_downcast::<gtk::StringObject>()
+                .expect("string item");
+            label.set_label(&value.string());
+        });
+        let list = gtk::ListView::new(Some(selection.clone()), Some(factory));
+        list.add_css_class("floe-directory-list");
+        let location = gtk::Entry::new();
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        content.append(&location);
+        content.append(&list);
+        let window = gtk::Window::builder().child(&content).build();
+        window.present();
+        location.grab_focus();
+        let focus_before = gtk::prelude::GtkWindowExt::focus(&window);
+
+        selection.select_item(0, true);
+        assert!(selection.is_selected(0));
+        let info = gtk::ScrollInfo::new();
+        info.set_enable_vertical(true);
+        list.scroll_to(0, gtk::ListScrollFlags::NONE, Some(info));
+        assert_eq!(gtk::prelude::GtkWindowExt::focus(&window), focus_before);
+
+        list.add_css_class("floe-operation-result");
+        assert!(list.has_css_class("floe-operation-result"));
+        list.remove_css_class("floe-operation-result");
+        assert!(!list.has_css_class("floe-operation-result"));
+        window.close();
+    }
+
+    #[test]
+    fn phase_18y2_ui_model_exposes_durable_undo_redo_and_review_language() {
+        let applied = OperationHistoryItem {
+            title: "Copy report.pdf".to_owned(),
+            detail: "Applied • Undo available".to_owned(),
+            can_undo: true,
+            can_redo: false,
+        };
+        let undone = OperationHistoryItem {
+            title: "Move archive".to_owned(),
+            detail: "Undone • Redo available".to_owned(),
+            can_undo: false,
+            can_redo: true,
+        };
+        assert!(applied.can_undo && !applied.can_redo);
+        assert!(undone.can_redo && !undone.can_undo);
+        assert!(OPERATION_HISTORY_DURABILITY_EXPLANATION.contains("privately"));
+        assert!(OPERATION_HISTORY_DURABILITY_EXPLANATION.contains("30 days"));
+        assert!(OPERATION_HISTORY_DURABILITY_EXPLANATION.contains("exact item"));
+        assert!(OPERATION_HISTORY_DURABILITY_EXPLANATION.contains("require review"));
+
+        let interrupted = RecoveryDialogItem {
+            id: 7,
+            title: "Interrupted Move Undo/Redo".to_owned(),
+            detail: "Uncertain result • review exact paths".to_owned(),
+            can_retry: false,
+            can_resolve: true,
+            source: Some(PathBuf::from("/tmp/source")),
+            destination: PathBuf::from("/tmp/destination"),
+        };
+        assert!(!interrupted.can_retry);
+        assert!(interrupted.can_resolve);
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_testing_gtk_phase_18y2_history_controls_are_semantic_and_distinct() {
+        gtk::init().expect("GTK component gate requires an available display");
+        adw::init().expect("libadwaita must initialize in GTK component gate");
+        let widgets = build_operation_history_dialog(
+            &[
+                OperationHistoryItem {
+                    title: "Copy report.pdf".to_owned(),
+                    detail: "Applied • Undo available".to_owned(),
+                    can_undo: true,
+                    can_redo: false,
+                },
+                OperationHistoryItem {
+                    title: "Move archive".to_owned(),
+                    detail: "Undone • Redo available".to_owned(),
+                    can_undo: false,
+                    can_redo: true,
+                },
+            ],
+            true,
+        );
+        assert_eq!(widgets.undo_buttons.len(), 2);
+        assert_eq!(widgets.redo_buttons.len(), 2);
+        assert!(widgets.undo_buttons[0].is_visible());
+        assert!(!widgets.redo_buttons[0].is_visible());
+        assert!(!widgets.undo_buttons[1].is_visible());
+        assert!(widgets.redo_buttons[1].is_visible());
+        assert_eq!(
+            widgets.undo_buttons[0].accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert_eq!(
+            widgets.redo_buttons[1].accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+    }
 
     #[test]
     fn phase_13d_content_search_ui_uses_plain_language_modes() {

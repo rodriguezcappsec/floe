@@ -55,6 +55,7 @@ mod miller_view;
 pub mod move_executor;
 mod operation_control;
 mod operation_recovery;
+mod operation_reveal;
 mod operations;
 #[cfg(test)]
 mod performance;
@@ -67,6 +68,7 @@ mod privileged_operations;
 mod properties;
 #[cfg(test)]
 mod release_metadata;
+mod replace_executor;
 pub mod restore_executor;
 mod search_index;
 mod selection_slice;
@@ -83,6 +85,8 @@ mod thumbnail;
 mod thumbnail_cache;
 pub mod trash_executor;
 mod ui;
+mod undo_executor;
+mod undo_history;
 pub mod verified_copy_executor;
 pub mod verified_usb;
 mod view;

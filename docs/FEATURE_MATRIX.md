@@ -9,7 +9,8 @@ The generic desktop integration baseline is Phase 14; Phase 18A's
 documentation-only security architecture, runtime Phases 18T–18Y, and Phase
 20A Settings Center are complete. Phase 21B packaging and migrations, Phase
 21C release documentation, and Phase 21D release-candidate hardening are
-complete. Phase 18Y2 complete Undo and recovery is the only `NEXT` phase.
+complete. Phase 6V selection and operation reveal polish is complete. Phase 6W
+Undo Trash is the only `NEXT` phase.
 Every other future capability remains `PLANNED` or
 `DEFERRED`.
 
@@ -91,7 +92,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Pause/resume execution | `PARTIAL` | 6P | Serial multi-item batches pause truthfully after the current item and resume FIFO; in-flight syscalls and GIO work are never labelled paused. |
 | Retry failed/cancelled work | `COMPLETE` | 5A/5B | Copy, move, rename, and Trash retries keep operation ID and receive a fresh job ID. |
 | In-session terminal registry | `COMPLETE` | 5A | Bounded 64-entry terminal state supports recovery without evicting active jobs. |
-| User-visible operation history | `PARTIAL` | 6P/18Y | A bounded memory-only dialog exposes terminal work and safe Undo; Phase 18Y provides a separate private interrupted-operation journal; terminal history itself remains memory-only. |
+| User-visible operation history | `COMPLETE` | 6P/18Y/18Y2 | The bounded session list remains available while a separate private 256-record/4-MiB durable history exposes completed reversible local work for 30 days, Applied/Undone state, Undo/Redo, expiry, and interrupted/uncertain review. It is not an audit log or general rollback system. |
 | Clear completed operations | `COMPLETE` | 6P | Clear Completed removes successful entries only and preserves conflict, failed, partial, and cancelled evidence. |
 | Operations Island | `COMPLETE` | 4B/5B/5F/6K2 | Non-modal progress, cancel, Retry, and Resolve Conflict use bounded aligned geometry. |
 | Completion notification | `PLANNED` | 14/20 | Must respect sensitive notification policy and avoid noisy foreground notifications. |
@@ -102,12 +103,12 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Keep Existing | `COMPLETE` | 5E/5F | A conflict can be acknowledged without submitting another job. |
 | Retry With New Name | `COMPLETE` | 5E/5F | Validated raw `OsString` sibling names retain logical operation identity. |
 | Keep Both automatic naming | `COMPLETE` | 6P | Bounded deterministic raw-name sibling generation submits fresh atomic no-replace attempts. |
-| Replace | `PLANNED` | 6P | Requires explicit overwrite semantics, backup/undo policy, and no silent data loss. |
-| Replace All | `PLANNED` | 6P | Depends on reviewed Replace plus scoped apply-to-all decisions. |
+| Replace | `COMPLETE` | 6U | Explicit local Copy/Move/Rename conflict action rechecks exact no-follow incoming/existing identities, stages into an owner-only capacity-bounded same-filesystem backup root, atomically exchanges versions, retains the old version for durable Undo/Redo, and never silently overwrites a changed occupant. |
+| Replace All | `COMPLETE` | 6U | A second-confirmed policy applies only to later compatible conflicts in one stable batch. Every conflict captures fresh identities and backup path; unrelated batches do not inherit it, cancellation remains an item boundary, and Protected Folder intersections pause for fresh review. |
 | Skip | `PARTIAL` | 5E/5F | Keep Existing is equivalent for one conflict but is not generalized batch Skip policy. |
 | Skip All | `COMPLETE` | 6P | Applies only to one stable batch and counts later conflicts as skipped without reopening dialogs. |
-| Metadata comparison in conflicts | `PLANNED` | 6P/6T | Phase 6T supplies lazy metadata; Phase 6P uses it without implying equality from weak evidence. |
-| Apply-to-all conflict policy | `PARTIAL` | 6P | Batch-scoped Skip All exists. Replace/Replace All remain unavailable until backup/rollback semantics exist. |
+| Metadata comparison in conflicts | `COMPLETE` | 6U | Incoming and existing rows show bounded kind/size/modified descriptions for review without claiming weak metadata proves equality. |
+| Apply-to-all conflict policy | `COMPLETE` | 6P/6U | Skip All and Replace All are explicitly scoped to one stable batch; Replace All recaptures each later compatible conflict and never reuses the first identity or authorization. |
 | Metadata-complete copy | `PARTIAL` | 4A/6O | Current copy preserves regular-file bytes, directory structure, symlink targets, Unix permission bits, and file/directory access and modification timestamps. Ownership, ACLs, xattrs, security labels, sparse extents, and reflinks remain explicitly unclaimed. |
 | Timestamp preservation | `COMPLETE` | 6O | The copy plan reapplies captured access and modification timestamps to regular files and directories after content completion and synchronizes resulting metadata. Symlink metadata is explicitly reported as not preserved. |
 | Unix permission-bit preservation | `COMPLETE` | 4A/6O | The core copy plan reapplies source `Permissions` to destination files and directories; richer ACL/xattr ownership remains separate. |
@@ -116,9 +117,9 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Reflink acceleration | `DEFERRED` | 6O | Capability-driven optimization with safe fallback; never change copy semantics. |
 | Undo rename | `COMPLETE` | 6P | Completed rename captures destination identity; Undo revalidates it and uses no-overwrite move semantics. |
 | Undo move | `COMPLETE` | 6P | Completed same- or cross-filesystem move captures published destination identity; Undo rejects changed/missing objects and occupied original paths. |
-| Undo Trash | `PLANNED` | 6N/6P | Depends on standards-correct Trash metadata plus reversible-operation policy. |
+| Undo Trash | `NEXT` | 6W | Add durable, exact-identity Undo only for Floe-owned standards-correct local Trash records; unsupported backends, permanent delete, and administrator Trash remain excluded without complete reversible evidence. |
 | Undo create | `COMPLETE` | 18Y | Completed create captures the no-follow destination identity. Undo uses ordinary recoverable Trash only while identity remains unchanged; created directories must also remain empty, so later user data is never removed. |
-| Redo | `DEFERRED` | 6P | Add only after operation-specific undo semantics are proven. |
+| Redo | `COMPLETE` | 18Y2 | Completed durable local copy/move/rename/create records can be redone asynchronously with no-overwrite publication and exact current-item identity checks where an inverse moved the item. Changed, occupied, cancelled, partial, or interrupted cases fail closed or enter review. |
 
 ## Trash and permanent deletion
 
@@ -178,6 +179,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Reveal file in folder | `COMPLETE` | 6Q/7G | Existing exact post-load reveal is reused for local command-line regular files. |
 | Restore selection after sorting | `COMPLETE` | 6B/6J | Every selected entry is restored by exact `PathBuf`, including colliding lossy names. |
 | Restore selection after refresh | `COMPLETE` | 6S | Manual/job/watcher refresh reconciles exact selected paths and translates bounded rename chains. |
+| Operation result reveal and emphasis | `COMPLETE` | 6V | Successful copy/move/rename/create/duplicate/replace results use exact typed paths, bounded job/batch accumulation, visible-directory/generation validation, focus-preserving list/grouped-grid/Miller scrolling, batch selection, and transient non-color emphasis. Hidden, filtered, collapsed, stale, inactive, failed, or partial results do not select an unrelated entry or navigate away. |
 | Restore scroll after refresh | `COMPLETE` | 6S | A stable exact path plus index fallback restores the virtualized view only after 256-entry insertion completes. |
 | Back restores prior selection | `PARTIAL` | 7A/7B | Core session history preserves exact multi-selection; Phase 7B wires it to tabs and GTK. |
 | Back restores prior scroll | `PARTIAL` | 7A/7B | Core session history preserves exact path/index anchors; Phase 7B wires restoration to the browser. |
@@ -719,7 +721,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Dependent capability | Status | Phase | Required foundation |
 | --- | --- | --- | --- |
 | Cross-filesystem move | `COMPLETE` | 6O | Synchronized staged copy, atomic no-replace publication, source identity revalidation, and conservative partial cleanup exist. Phase 18Y now provides conservative interrupted-operation restart review. |
-| Undo | `PARTIAL` | 6P/18Y | Completed move, rename, and unchanged Create have identity-checked operation-specific Undo. Copy, Trash, and permanent delete do not have general Undo. |
+| Undo | `PARTIAL` | 6P/6U/18Y/18Y2 | Completed local copy/move/rename/create and safe replacement have durable 30-day operation-specific Undo/Redo. Move/rename inverses are exact and no-overwrite; copy/create Undo uses recoverable Trash; replacement swaps two exact retained versions. Trash, permanent delete, and administrator mutations lacking complete GVfs inverse evidence remain unavailable. |
 | Tabs/session restore | `COMPLETE` | 7A-7C | Versioned bounded raw-path workspace restores live/closed state through private atomic storage; explicit Private/Sensitive policy suppresses owned traces. |
 | Split view | `COMPLETE` | 7D-7F/20B2 | Reusable navigation sessions, active-pane ownership, opposite-pane operations/drag, and persisted bounded split ratio are implemented. |
 | Miller columns | `COMPLETE` | 8A-8F | Exact model, virtualized columns, keyboard/trackpad, actions, cross-surface drag/drop, and truthful final-column Preview/Inspector handoff are verified. Provider content remains Phases 9/10. |

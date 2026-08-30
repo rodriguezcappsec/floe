@@ -13,7 +13,7 @@ use crate::{
     inspector::InspectorWorker,
     locations,
     metadata::MetadataWorker,
-    operations::OperationController,
+    operations::{OperationCallbacks, OperationController},
     preferences::{PreferenceWorker, ViewPreferences},
     preview::{PreviewProviderRegistry, PreviewWorker},
     properties::PropertiesWorker,
@@ -298,19 +298,29 @@ fn build_window(
                     .unwrap_or_default()
                 })
         },
-        move |destination| {
-            if let Some(browser) = browser.upgrade() {
-                browser.refresh_if_current(destination);
-            }
-        },
-        {
-            let browser = Rc::downgrade(&controller);
-            move |path| {
+        OperationCallbacks::new(
+            move |destination| {
                 if let Some(browser) = browser.upgrade() {
-                    browser.navigate_to_revealing(path);
+                    browser.refresh_if_current(destination);
                 }
-            }
-        },
+            },
+            {
+                let browser = Rc::downgrade(&controller);
+                move |request| {
+                    if let Some(browser) = browser.upgrade() {
+                        browser.queue_operation_reveal(request);
+                    }
+                }
+            },
+            {
+                let browser = Rc::downgrade(&controller);
+                move |path| {
+                    if let Some(browser) = browser.upgrade() {
+                        browser.navigate_to_revealing(path);
+                    }
+                }
+            },
+        ),
     );
     operation_controller.wire();
     controller.wire(application, &places);

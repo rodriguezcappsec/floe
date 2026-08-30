@@ -100,6 +100,51 @@ impl FileIdentity {
     pub fn capture(path: &Path) -> io::Result<Self> {
         fs::symlink_metadata(path).map(|metadata| Self::from_metadata(&metadata))
     }
+
+    /// Rebuild an identity previously persisted by Floe's private operation
+    /// history. Callers must still compare it with fresh no-follow metadata
+    /// immediately before any inverse mutation.
+    pub const fn from_components(
+        device: u64,
+        inode: u64,
+        mode: u32,
+        length: u64,
+        modified_seconds: i64,
+        modified_nanoseconds: i64,
+    ) -> Self {
+        Self {
+            device,
+            inode,
+            mode,
+            length,
+            modified_seconds,
+            modified_nanoseconds,
+        }
+    }
+
+    pub const fn device(self) -> u64 {
+        self.device
+    }
+
+    pub const fn inode(self) -> u64 {
+        self.inode
+    }
+
+    pub const fn mode(self) -> u32 {
+        self.mode
+    }
+
+    pub const fn length(self) -> u64 {
+        self.length
+    }
+
+    pub const fn modified_seconds(self) -> i64 {
+        self.modified_seconds
+    }
+
+    pub const fn modified_nanoseconds(self) -> i64 {
+        self.modified_nanoseconds
+    }
 }
 
 /// A rename request whose destination must remain in the source parent.

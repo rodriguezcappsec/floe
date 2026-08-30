@@ -17,6 +17,7 @@ use thiserror::Error;
 use crate::{
     job_manager::{JobManagerError, SharedJobManager},
     operation_recovery::{RecoveryCoordinator, RecoveryJournal, RecoveryOperationKind},
+    undo_history::{UndoHistoryCoordinator, UndoRecipe},
 };
 
 pub const DEFAULT_CREATE_QUEUE_CAPACITY: usize = 8;
@@ -111,6 +112,19 @@ impl CreateExecutor {
         Self::spawn_inner(jobs, DEFAULT_CREATE_QUEUE_CAPACITY, Some(recovery))
     }
 
+    pub fn spawn_with_recovery_and_undo(
+        jobs: SharedJobManager,
+        recovery: RecoveryCoordinator,
+        undo_history: UndoHistoryCoordinator,
+    ) -> Result<Self, CreateExecutorSpawnError> {
+        Self::spawn_inner_with_undo(
+            jobs,
+            DEFAULT_CREATE_QUEUE_CAPACITY,
+            Some(recovery),
+            Some(undo_history),
+        )
+    }
+
     pub fn spawn_with_capacity(
         jobs: SharedJobManager,
         capacity: usize,
@@ -122,6 +136,15 @@ impl CreateExecutor {
         jobs: SharedJobManager,
         capacity: usize,
         recovery: Option<RecoveryCoordinator>,
+    ) -> Result<Self, CreateExecutorSpawnError> {
+        Self::spawn_inner_with_undo(jobs, capacity, recovery, None)
+    }
+
+    fn spawn_inner_with_undo(
+        jobs: SharedJobManager,
+        capacity: usize,
+        recovery: Option<RecoveryCoordinator>,
+        undo_history: Option<UndoHistoryCoordinator>,
     ) -> Result<Self, CreateExecutorSpawnError> {
         if capacity == 0 {
             return Err(CreateExecutorSpawnError::ZeroCapacity);
@@ -141,6 +164,7 @@ impl CreateExecutor {
                     worker_cancellations,
                     worker_outcomes,
                     recovery,
+                    undo_history,
                 );
             })
             .map_err(CreateExecutorSpawnError::Thread)?;
@@ -267,11 +291,19 @@ fn run_worker(
     cancellations: Arc<Mutex<HashMap<JobId, CreateCancellation>>>,
     outcomes: Arc<Mutex<HashMap<JobId, CreateOutcome>>>,
     recovery: Option<RecoveryCoordinator>,
+    undo_history: Option<UndoHistoryCoordinator>,
 ) {
     while let Ok(command) = receiver.recv() {
         match command {
             CreateCommand::Execute(task) => {
-                execute_task(task, &jobs, &cancellations, &outcomes, recovery.as_ref());
+                execute_task(
+                    task,
+                    &jobs,
+                    &cancellations,
+                    &outcomes,
+                    recovery.as_ref(),
+                    undo_history.as_ref(),
+                );
             }
             CreateCommand::Shutdown => break,
         }
@@ -284,11 +316,29 @@ fn execute_task(
     cancellations: &Arc<Mutex<HashMap<JobId, CreateCancellation>>>,
     outcomes: &Arc<Mutex<HashMap<JobId, CreateOutcome>>>,
     recovery: Option<&RecoveryCoordinator>,
+    undo_history: Option<&UndoHistoryCoordinator>,
 ) {
     if transition(jobs, task.job_id, JobCommand::Start).is_err() {
         lock(cancellations).remove(&task.job_id);
         return;
     }
+    let undo_ticket =
+        match undo_history.map(|history| history.begin(UndoRecipe::create(task.request.clone()))) {
+            Some(Ok(ticket)) => Some(ticket),
+            Some(Err(error)) => {
+                let _ = transition(
+                    jobs,
+                    task.job_id,
+                    JobCommand::Fail(JobFailure::new(
+                        JobFailureKind::Internal,
+                        format!("durable Undo history could not be prepared: {error}"),
+                    )),
+                );
+                lock(cancellations).remove(&task.job_id);
+                return;
+            }
+            None => None,
+        };
     let recovery_ticket = match recovery.map(|journal| {
         journal.begin(
             RecoveryOperationKind::Create,
@@ -298,6 +348,9 @@ fn execute_task(
     }) {
         Some(Ok(ticket)) => Some(ticket),
         Some(Err(error)) => {
+            if let (Some(history), Some(ticket)) = (undo_history, undo_ticket) {
+                let _ = history.resolve(ticket.id());
+            }
             let _ = transition(
                 jobs,
                 task.job_id,
@@ -328,6 +381,22 @@ fn execute_task(
                 %error,
                 "create recovery journal could not be finalized"
             );
+        }
+    }
+    if let (Some(history), Some(ticket)) = (undo_history, undo_ticket) {
+        match &result {
+            Ok(outcome) => {
+                if let Err(error) = history.complete(ticket, outcome.destination_identity()) {
+                    tracing::error!(job_id = task.job_id.get(), %error, "create committed but durable Undo history could not be completed");
+                }
+            }
+            Err(_) => {
+                if let Err(error) =
+                    history.retain_if_destination_exists(ticket, task.request.destination())
+                {
+                    tracing::error!(job_id = task.job_id.get(), %error, "create failure could not update durable Undo history");
+                }
+            }
         }
     }
     let command = match result {

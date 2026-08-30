@@ -2,6 +2,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet, VecDeque},
     ffi::{OsStr, OsString},
+    fs,
     os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
@@ -10,9 +11,10 @@ use std::{
 use floe_core::{
     ArchiveOutcome, ArchiveRequest, BatchRenameOutcome, BatchRenameRequest, ChecksumRequest,
     ConflictPolicy, CopyRequest, CreateKind, CreateRequest, CreateRequestError, DestructiveAction,
-    DestructiveScope, DestructiveScopeError, GuardrailPermitError, JobEvent, JobId, MoveRequest,
-    OperationId, PermanentDeleteRequest, PermanentDeleteRequestError, PermissionRequest,
-    RenameRequest, RestoreRequest, RestoreRequestError, SymlinkPolicy, VerifiedCopyRequest,
+    DestructiveScope, DestructiveScopeError, FileIdentity, GuardrailPermitError, JobEvent, JobId,
+    MoveRequest, OperationId, PermanentDeleteRequest, PermanentDeleteRequestError,
+    PermissionRequest, RenameRequest, ReplaceError, ReplaceMode, ReplaceRequest, RestoreRequest,
+    RestoreRequestError, SymlinkPolicy, VerifiedCopyRequest, allocate_replace_backup,
 };
 use thiserror::Error;
 
@@ -59,6 +61,10 @@ use crate::{
         PermissionExecutor, PermissionExecutorSpawnError, PermissionSubmission,
         PermissionSubmitError,
     },
+    replace_executor::{
+        ReplaceCancelError, ReplaceExecutor, ReplaceExecutorSpawnError, ReplaceSubmission,
+        ReplaceSubmitError,
+    },
     restore_executor::{
         RestoreCancelError, RestoreExecutor, RestoreExecutorSpawnError, RestoreSubmission,
         RestoreSubmitError,
@@ -66,6 +72,14 @@ use crate::{
     trash_executor::{
         TrashCancelError, TrashExecutor, TrashExecutorSpawnError, TrashRequest, TrashRequestError,
         TrashSubmission, TrashSubmitError,
+    },
+    undo_executor::{
+        UndoCancelError as PersistentUndoCancelError, UndoExecutor, UndoExecutorSpawnError,
+        UndoSubmission as PersistentUndoSubmission, UndoSubmitError,
+    },
+    undo_history::{
+        UndoHistoryAction, UndoHistoryCoordinator, UndoHistoryError, UndoHistoryHealth,
+        UndoHistoryRecord, UndoRecipe,
     },
     verified_copy_executor::{
         VerifiedCopyCancelError, VerifiedCopyExecutor, VerifiedCopyExecutorSpawnError,
@@ -187,9 +201,16 @@ pub enum TrackedOperation {
     PermanentDelete(PermanentDeleteRequest),
     Restore(RestoreRequest),
     Create(CreateRequest),
+    Replace(ReplaceRequest),
     UndoMove {
         request: MoveRequest,
         original_job_id: JobId,
+    },
+    PersistentHistoryAction {
+        history_id: u64,
+        action: UndoHistoryAction,
+        source: Option<PathBuf>,
+        destination: PathBuf,
     },
 }
 
@@ -216,6 +237,7 @@ struct BatchRecord {
     paused: bool,
     cancelling: bool,
     skip_conflicts: bool,
+    replace_conflicts: bool,
 }
 
 impl BatchRecord {
@@ -232,6 +254,7 @@ impl BatchRecord {
             paused: false,
             cancelling: false,
             skip_conflicts: false,
+            replace_conflicts: false,
         }
     }
 
@@ -296,6 +319,14 @@ pub enum ConflictDecision {
     KeepBoth,
     SkipAll,
     RetryWithName(OsString),
+    Replace {
+        source_identity: FileIdentity,
+        destination_identity: FileIdentity,
+    },
+    ReplaceAll {
+        source_identity: FileIdentity,
+        destination_identity: FileIdentity,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -351,6 +382,12 @@ pub struct PendingConflict {
     operation_id: OperationId,
     source: PathBuf,
     destination: PathBuf,
+    source_identity: FileIdentity,
+    destination_identity: FileIdentity,
+    source_description: String,
+    destination_description: String,
+    replace_supported: bool,
+    replace_all_supported: bool,
 }
 
 impl PendingConflict {
@@ -368,6 +405,30 @@ impl PendingConflict {
 
     pub fn destination(&self) -> &Path {
         &self.destination
+    }
+
+    pub const fn source_identity(&self) -> FileIdentity {
+        self.source_identity
+    }
+
+    pub const fn destination_identity(&self) -> FileIdentity {
+        self.destination_identity
+    }
+
+    pub fn source_description(&self) -> &str {
+        &self.source_description
+    }
+
+    pub fn destination_description(&self) -> &str {
+        &self.destination_description
+    }
+
+    pub const fn replace_supported(&self) -> bool {
+        self.replace_supported
+    }
+
+    pub const fn replace_all_supported(&self) -> bool {
+        self.replace_all_supported
     }
 }
 
@@ -422,7 +483,13 @@ impl TrackedOperation {
             Self::PermanentDelete(request) => request.targets()[0].as_path(),
             Self::Restore(request) => request.backing_path(),
             Self::Create(request) => request.source().unwrap_or_else(|| request.destination()),
+            Self::Replace(request) => request.source(),
             Self::UndoMove { request, .. } => request.source(),
+            Self::PersistentHistoryAction {
+                source,
+                destination,
+                ..
+            } => source.as_deref().unwrap_or(destination),
         }
     }
 
@@ -456,12 +523,45 @@ impl TrackedOperation {
             Self::Create(request) => {
                 add_parent(request.destination());
             }
+            Self::Replace(request) => {
+                add_parent(request.source());
+                add_parent(request.destination());
+                add_parent(request.backup());
+            }
             Self::UndoMove { request, .. } => {
                 add_parent(request.source());
                 add_parent(request.destination());
             }
+            Self::PersistentHistoryAction {
+                source,
+                destination,
+                ..
+            } => {
+                if let Some(source) = source {
+                    add_parent(source);
+                }
+                add_parent(destination);
+            }
         }
         directories
+    }
+
+    pub fn completed_result_path(&self) -> Option<PathBuf> {
+        match self {
+            Self::Copy(request) => Some(request.destination().to_path_buf()),
+            Self::Move(request) => Some(request.destination().to_path_buf()),
+            Self::Rename(request) => request
+                .source()
+                .parent()
+                .map(|parent| parent.join(request.new_name())),
+            Self::Create(request) => Some(request.destination().to_path_buf()),
+            Self::Replace(request) => Some(request.destination().to_path_buf()),
+            Self::Trash(_)
+            | Self::PermanentDelete(_)
+            | Self::Restore(_)
+            | Self::UndoMove { .. }
+            | Self::PersistentHistoryAction { .. } => None,
+        }
     }
 }
 
@@ -479,6 +579,7 @@ pub enum RetrySubmission {
     Trash(TrashSubmission),
     PermanentDelete(PermanentDeleteSubmission),
     Restore(RestoreSubmission),
+    Replace(ReplaceSubmission),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -538,6 +639,7 @@ impl RetrySubmission {
             Self::Trash(submission) => submission.operation_id(),
             Self::PermanentDelete(submission) => submission.operation_id(),
             Self::Restore(submission) => submission.operation_id(),
+            Self::Replace(submission) => submission.operation_id(),
         }
     }
 
@@ -549,6 +651,7 @@ impl RetrySubmission {
             Self::Trash(submission) => submission.job_id(),
             Self::PermanentDelete(submission) => submission.job_id(),
             Self::Restore(submission) => submission.job_id(),
+            Self::Replace(submission) => submission.job_id(),
         }
     }
 }
@@ -577,6 +680,8 @@ pub enum CopyInteractionError {
     EmptySelection,
     #[error("this path cannot be copied: {}", .0.display())]
     InvalidSource(PathBuf),
+    #[error("this conflict changed before replacement review: {}", .0.display())]
+    ConflictChanged(PathBuf),
     #[error("open a destination outside the copied folder, then paste again")]
     DestinationInsideSource,
     #[error("enter one filename without slashes")]
@@ -623,6 +728,12 @@ pub enum CopyInteractionError {
     RestoreSubmit(#[from] RestoreSubmitError),
     #[error(transparent)]
     RestoreCancel(#[from] RestoreCancelError),
+    #[error(transparent)]
+    ReplaceSubmit(#[from] ReplaceSubmitError),
+    #[error(transparent)]
+    ReplaceCancel(#[from] ReplaceCancelError),
+    #[error(transparent)]
+    ReplacePrepare(#[from] ReplaceError),
     #[error("permission cancellation failed: {0}")]
     PermissionCancel(String),
     #[error(transparent)]
@@ -661,6 +772,12 @@ pub enum CopyInteractionError {
     UndoAlreadySubmitted(JobId),
     #[error(transparent)]
     Recovery(#[from] RecoveryJournalError),
+    #[error(transparent)]
+    UndoHistory(#[from] UndoHistoryError),
+    #[error(transparent)]
+    PersistentUndoSubmit(#[from] UndoSubmitError),
+    #[error(transparent)]
+    PersistentUndoCancel(#[from] PersistentUndoCancelError),
     #[error("recovery record {0} cannot be retried safely")]
     RecoveryRetryUnsupported(u64),
 }
@@ -688,6 +805,8 @@ pub enum ApplicationStateSpawnError {
     #[error(transparent)]
     Move(#[from] MoveExecutorSpawnError),
     #[error(transparent)]
+    Replace(#[from] ReplaceExecutorSpawnError),
+    #[error(transparent)]
     Trash(#[from] TrashExecutorSpawnError),
     #[error(transparent)]
     PermanentDelete(#[from] PermanentDeleteExecutorSpawnError),
@@ -695,6 +814,8 @@ pub enum ApplicationStateSpawnError {
     Permission(#[from] PermissionExecutorSpawnError),
     #[error(transparent)]
     Restore(#[from] RestoreExecutorSpawnError),
+    #[error(transparent)]
+    UndoExecutor(#[from] UndoExecutorSpawnError),
 }
 
 /// Application-wide services and state that outlive any one browser concern.
@@ -706,6 +827,7 @@ pub struct ApplicationState {
     copy_executor: CopyExecutor,
     create_executor: CreateExecutor,
     move_executor: MoveExecutor,
+    replace_executor: Option<ReplaceExecutor>,
     trash_executor: TrashExecutor,
     permanent_delete_executor: PermanentDeleteExecutor,
     permission_executor: PermissionExecutor,
@@ -714,6 +836,8 @@ pub struct ApplicationState {
     verified_copy_executor: VerifiedCopyExecutor,
     restore_executor: RestoreExecutor,
     recovery: Option<RecoveryCoordinator>,
+    undo_history: Option<UndoHistoryCoordinator>,
+    undo_executor: Option<UndoExecutor>,
     guardrails: RefCell<GuardrailController>,
     guardrail_policy_worker: RefCell<GuardrailPolicyWorker>,
     guardrail_policy_pending: Cell<Option<u64>>,
@@ -745,26 +869,47 @@ impl ApplicationState {
         let recovery = Some(RecoveryCoordinator::load_at(default_recovery_journal_path()));
         #[cfg(test)]
         let recovery: Option<RecoveryCoordinator> = None;
+        #[cfg(not(test))]
+        let undo_history = Some(UndoHistoryCoordinator::load_at(default_undo_history_path()));
+        #[cfg(test)]
+        let undo_history = Some(UndoHistoryCoordinator::load_at(test_undo_history_path()));
         let archive_executor = ArchiveExecutor::spawn(Arc::clone(&jobs))?;
         let batch_rename_executor = BatchRenameExecutor::spawn(Arc::clone(&jobs))?;
-        let copy_executor = match recovery.clone() {
-            Some(recovery) => {
+        let copy_executor = match (recovery.clone(), undo_history.clone()) {
+            (Some(recovery), Some(history)) => {
+                CopyExecutor::spawn_with_recovery_and_undo(Arc::clone(&jobs), recovery, history)?
+            }
+            (Some(recovery), None) => {
                 CopyExecutor::spawn_with_recovery_coordinator(Arc::clone(&jobs), recovery)?
             }
-            None => CopyExecutor::spawn(Arc::clone(&jobs))?,
+            (None, _) => CopyExecutor::spawn(Arc::clone(&jobs))?,
         };
-        let create_executor = match recovery.clone() {
-            Some(recovery) => {
+        let create_executor = match (recovery.clone(), undo_history.clone()) {
+            (Some(recovery), Some(history)) => {
+                CreateExecutor::spawn_with_recovery_and_undo(Arc::clone(&jobs), recovery, history)?
+            }
+            (Some(recovery), None) => {
                 CreateExecutor::spawn_with_recovery_coordinator(Arc::clone(&jobs), recovery)?
             }
-            None => CreateExecutor::spawn(Arc::clone(&jobs))?,
+            (None, _) => CreateExecutor::spawn(Arc::clone(&jobs))?,
         };
-        let move_executor = match recovery.clone() {
-            Some(recovery) => {
+        let move_executor = match (recovery.clone(), undo_history.clone()) {
+            (Some(recovery), Some(history)) => {
+                MoveExecutor::spawn_with_recovery_and_undo(Arc::clone(&jobs), recovery, history)?
+            }
+            (Some(recovery), None) => {
                 MoveExecutor::spawn_with_recovery_coordinator(Arc::clone(&jobs), recovery)?
             }
-            None => MoveExecutor::spawn(Arc::clone(&jobs))?,
+            (None, _) => MoveExecutor::spawn(Arc::clone(&jobs))?,
         };
+        let undo_executor = undo_history
+            .clone()
+            .map(|history| UndoExecutor::spawn(Arc::clone(&jobs), history))
+            .transpose()?;
+        let replace_executor = undo_history
+            .clone()
+            .map(|history| ReplaceExecutor::spawn(Arc::clone(&jobs), history))
+            .transpose()?;
         let trash_executor = TrashExecutor::spawn(Arc::clone(&jobs))?;
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
         let permission_executor = PermissionExecutor::spawn(Arc::clone(&jobs))?;
@@ -783,6 +928,7 @@ impl ApplicationState {
             copy_executor,
             create_executor,
             move_executor,
+            replace_executor,
             trash_executor,
             permanent_delete_executor,
             permission_executor,
@@ -791,6 +937,8 @@ impl ApplicationState {
             verified_copy_executor,
             restore_executor,
             recovery,
+            undo_history,
+            undo_executor,
             guardrails: RefCell::new(guardrails),
             guardrail_policy_worker: RefCell::new(guardrail_policy_worker),
             guardrail_policy_pending: Cell::new(None),
@@ -825,6 +973,173 @@ impl ApplicationState {
             RecoveryStoreHealth::Ready { pending_records: 0 },
             RecoveryCoordinator::health,
         )
+    }
+
+    pub fn undo_history_health(&self) -> UndoHistoryHealth {
+        self.undo_history.as_ref().map_or_else(
+            || UndoHistoryHealth::Ready {
+                history: 0,
+                review: 0,
+            },
+            UndoHistoryCoordinator::health,
+        )
+    }
+
+    pub fn persistent_undo_history(&self) -> Result<Vec<UndoHistoryRecord>, UndoHistoryError> {
+        self.undo_history
+            .as_ref()
+            .map_or_else(|| Ok(Vec::new()), UndoHistoryCoordinator::history)
+    }
+
+    pub fn persistent_undo_reviews(&self) -> Result<Vec<UndoHistoryRecord>, UndoHistoryError> {
+        self.undo_history
+            .as_ref()
+            .map_or_else(|| Ok(Vec::new()), UndoHistoryCoordinator::reviews)
+    }
+
+    pub fn reset_undo_history(&self) -> Result<(), UndoHistoryError> {
+        self.undo_history
+            .as_ref()
+            .ok_or_else(|| UndoHistoryError::Blocked("Undo history is unavailable".to_owned()))?
+            .reset_blocked()
+    }
+
+    pub fn resolve_undo_history_review(&self, id: u64) -> Result<(), UndoHistoryError> {
+        self.undo_history
+            .as_ref()
+            .ok_or_else(|| UndoHistoryError::Blocked("Undo history is unavailable".to_owned()))?
+            .resolve(id)
+    }
+
+    pub fn persistent_history_action_scope(
+        &self,
+        history_id: u64,
+        action: UndoHistoryAction,
+    ) -> Result<Option<DestructiveScope>, CopyInteractionError> {
+        let record = self.persistent_history_record(history_id)?;
+        if (action == UndoHistoryAction::Undo && !record.can_undo())
+            || (action == UndoHistoryAction::Redo && !record.can_redo())
+        {
+            return Err(UndoHistoryError::ActionUnavailable(history_id).into());
+        }
+        let identity = record.current_identity();
+        match (action, record.recipe()) {
+            (UndoHistoryAction::Undo, UndoRecipe::Copy { .. })
+            | (UndoHistoryAction::Undo, UndoRecipe::Create(_)) => {
+                let identity = identity.ok_or(UndoHistoryError::MissingIdentity(history_id))?;
+                let request = TrashRequest::new(record.recipe().destination().to_path_buf())?
+                    .with_expected_source_identity(
+                        identity,
+                        record.recipe().require_empty_directory_on_undo(),
+                    );
+                destructive_scope_for_trash(&request)
+                    .map(Some)
+                    .map_err(CopyInteractionError::from)
+            }
+            (
+                UndoHistoryAction::Undo,
+                UndoRecipe::Move {
+                    source,
+                    destination,
+                },
+            )
+            | (
+                UndoHistoryAction::Undo,
+                UndoRecipe::Rename {
+                    source,
+                    destination,
+                },
+            ) => {
+                let identity = identity.ok_or(UndoHistoryError::MissingIdentity(history_id))?;
+                destructive_scope_for_move(
+                    &MoveRequest::new(destination, source, ConflictPolicy::FailIfExists)
+                        .with_expected_source_identity(identity),
+                )
+                .map(Some)
+                .map_err(CopyInteractionError::from)
+            }
+            (
+                UndoHistoryAction::Redo,
+                UndoRecipe::Move {
+                    source,
+                    destination,
+                },
+            )
+            | (
+                UndoHistoryAction::Redo,
+                UndoRecipe::Rename {
+                    source,
+                    destination,
+                },
+            ) => {
+                let identity = identity.ok_or(UndoHistoryError::MissingIdentity(history_id))?;
+                destructive_scope_for_move(
+                    &MoveRequest::new(source, destination, ConflictPolicy::FailIfExists)
+                        .with_expected_source_identity(identity),
+                )
+                .map(Some)
+                .map_err(CopyInteractionError::from)
+            }
+            (UndoHistoryAction::Redo, UndoRecipe::Copy { .. })
+            | (UndoHistoryAction::Redo, UndoRecipe::Create(_)) => Ok(None),
+            (
+                UndoHistoryAction::Undo | UndoHistoryAction::Redo,
+                UndoRecipe::Replace {
+                    destination,
+                    backup,
+                    ..
+                },
+            ) => DestructiveScope::new(
+                DestructiveAction::Move,
+                vec![destination.to_path_buf(), backup.to_path_buf()],
+                Some(destination.to_path_buf()),
+            )
+            .map(Some)
+            .map_err(CopyInteractionError::from),
+        }
+    }
+
+    pub fn submit_persistent_history_action(
+        &self,
+        history_id: u64,
+        action: UndoHistoryAction,
+        authorization: Option<GuardrailAuthorizationItem>,
+    ) -> Result<PersistentUndoSubmission, CopyInteractionError> {
+        let record = self.persistent_history_record(history_id)?;
+        let scope = self.persistent_history_action_scope(history_id, action)?;
+        if let Some(scope) = scope {
+            let authorization = authorization
+                .ok_or_else(|| CopyInteractionError::AuthorizationRequired(scope.clone()))?;
+            self.guardrails
+                .borrow_mut()
+                .consume_authorization(authorization, &scope)?;
+        } else {
+            self.discard_pending_authorization(authorization);
+        }
+        let executor = self.undo_executor.as_ref().ok_or_else(|| {
+            UndoHistoryError::Blocked("Undo/Redo executor is unavailable".to_owned())
+        })?;
+        let submission = executor.submit(history_id, action)?;
+        self.track(
+            submission.job_id(),
+            TrackedOperation::PersistentHistoryAction {
+                history_id,
+                action,
+                source: record.recipe().source().map(Path::to_path_buf),
+                destination: record.recipe().destination().to_path_buf(),
+            },
+        );
+        Ok(submission)
+    }
+
+    fn persistent_history_record(
+        &self,
+        history_id: u64,
+    ) -> Result<UndoHistoryRecord, CopyInteractionError> {
+        self.persistent_undo_history()?
+            .into_iter()
+            .find(|record| record.id() == history_id)
+            .ok_or_else(|| UndoHistoryError::UnknownRecord(history_id).into())
     }
 
     pub fn recovery_reviews(
@@ -2099,9 +2414,31 @@ impl ApplicationState {
                     }
                 }
             }
+            TrackedOperation::Replace(request) => {
+                let executor = self.replace_executor.as_ref().ok_or_else(|| {
+                    CopyInteractionError::UndoHistory(UndoHistoryError::Blocked(
+                        "durable replacement history is unavailable".to_owned(),
+                    ))
+                })?;
+                match executor.submit(request.clone()) {
+                    Ok(submission) => {
+                        self.track(submission.job_id(), operation.clone());
+                        Ok(submission.job_id())
+                    }
+                    Err(error) => {
+                        if let Some(job_id) = error.job_id() {
+                            self.track(job_id, operation.clone());
+                            Ok(job_id)
+                        } else {
+                            Err(error.into())
+                        }
+                    }
+                }
+            }
             TrackedOperation::Rename(_)
             | TrackedOperation::PermanentDelete(_)
-            | TrackedOperation::UndoMove { .. } => {
+            | TrackedOperation::UndoMove { .. }
+            | TrackedOperation::PersistentHistoryAction { .. } => {
                 unreachable!("operation is never queued as a per-item multi-selection batch")
             }
         }
@@ -2226,6 +2563,18 @@ impl ApplicationState {
         }
         if self.batch_active.get() == Some(job_id) {
             self.batch_active.set(None);
+        }
+
+        let auto_replace = batch_id.is_some()
+            && outcome == TerminalOutcome::Conflict
+            && self
+                .batches
+                .borrow()
+                .iter()
+                .find(|batch| Some(batch.id) == batch_id)
+                .is_some_and(|batch| batch.replace_conflicts && !batch.cancelling);
+        if auto_replace {
+            self.try_auto_replace_batch_conflict(job_id);
         }
         self.pump_batch();
         operation
@@ -2574,6 +2923,10 @@ impl ApplicationState {
                     }
                 }
             }
+            TrackedOperation::PersistentHistoryAction { .. } => {
+                Err(CopyInteractionError::RetryNotFound(failed_job_id))
+            }
+            TrackedOperation::Replace(_) => Err(CopyInteractionError::RetryNotFound(failed_job_id)),
         }
     }
 
@@ -2598,13 +2951,32 @@ impl ApplicationState {
             TrackedOperation::UndoMove { .. } => {
                 return Err(CopyInteractionError::ConflictUnsupported(job_id));
             }
+            TrackedOperation::PersistentHistoryAction { .. } => {
+                return Err(CopyInteractionError::ConflictUnsupported(job_id));
+            }
+            TrackedOperation::Replace(_) => {
+                return Err(CopyInteractionError::ConflictUnsupported(job_id));
+            }
         };
 
+        let source = terminal.operation().source().to_path_buf();
+        let replace_supported = matches!(
+            terminal.operation(),
+            TrackedOperation::Copy(_) | TrackedOperation::Move(_) | TrackedOperation::Rename(_)
+        );
+        let (source_identity, source_description) = conflict_identity(&source)?;
+        let (destination_identity, destination_description) = conflict_identity(&destination)?;
         Ok(PendingConflict {
             job_id,
             operation_id: terminal.operation_id(),
-            source: terminal.operation().source().to_path_buf(),
+            source,
             destination,
+            source_identity,
+            destination_identity,
+            source_description,
+            destination_description,
+            replace_supported,
+            replace_all_supported: replace_supported && self.batch_for_job(job_id).is_some(),
         })
     }
 
@@ -2631,6 +3003,12 @@ impl ApplicationState {
         decision: &ConflictDecision,
     ) -> Result<Option<DestructiveScope>, CopyInteractionError> {
         let terminal = self.pending_conflict_operation(job_id)?;
+        if matches!(
+            decision,
+            ConflictDecision::Replace { .. } | ConflictDecision::ReplaceAll { .. }
+        ) {
+            return replace_scope_for_operation(terminal.operation(), job_id).map(Some);
+        }
         let new_name = match decision {
             ConflictDecision::KeepExisting | ConflictDecision::SkipAll => return Ok(None),
             ConflictDecision::RetryWithName(new_name) => {
@@ -2671,6 +3049,9 @@ impl ApplicationState {
                 }
                 .ok_or(CopyInteractionError::ConflictUnsupported(job_id))?
             }
+            ConflictDecision::Replace { .. } | ConflictDecision::ReplaceAll { .. } => {
+                unreachable!("replacement decisions return before filename planning")
+            }
         };
 
         match terminal.operation() {
@@ -2701,9 +3082,11 @@ impl ApplicationState {
             }
             TrackedOperation::Trash(_)
             | TrackedOperation::PermanentDelete(_)
-            | TrackedOperation::UndoMove { .. } => {
+            | TrackedOperation::UndoMove { .. }
+            | TrackedOperation::PersistentHistoryAction { .. } => {
                 Err(CopyInteractionError::ConflictUnsupported(job_id))
             }
+            TrackedOperation::Replace(_) => Err(CopyInteractionError::ConflictUnsupported(job_id)),
         }
     }
 
@@ -2721,7 +3104,7 @@ impl ApplicationState {
         match decision {
             ConflictDecision::KeepExisting => {
                 self.resolved_conflicts.borrow_mut().insert(job_id);
-                self.complete_batch_conflict(job_id, None, true, false);
+                self.complete_batch_conflict(job_id, None, true, false, false);
                 Ok(ConflictResolution::KeptExisting)
             }
             ConflictDecision::SkipAll => {
@@ -2729,7 +3112,7 @@ impl ApplicationState {
                     return Err(CopyInteractionError::ConflictUnsupported(job_id));
                 }
                 self.resolved_conflicts.borrow_mut().insert(job_id);
-                self.complete_batch_conflict(job_id, None, true, true);
+                self.complete_batch_conflict(job_id, None, true, true, false);
                 Ok(ConflictResolution::KeptExisting)
             }
             ConflictDecision::KeepBoth => {
@@ -2772,7 +3155,13 @@ impl ApplicationState {
                     authorization.take(),
                 )?;
                 self.resolved_conflicts.borrow_mut().insert(job_id);
-                self.complete_batch_conflict(job_id, Some(submission.job_id()), false, false);
+                self.complete_batch_conflict(
+                    job_id,
+                    Some(submission.job_id()),
+                    false,
+                    false,
+                    false,
+                );
                 Ok(ConflictResolution::Retried(submission))
             }
             ConflictDecision::RetryWithName(new_name) => {
@@ -2784,7 +3173,48 @@ impl ApplicationState {
                     authorization.take(),
                 )?;
                 self.resolved_conflicts.borrow_mut().insert(job_id);
-                self.complete_batch_conflict(job_id, Some(submission.job_id()), false, false);
+                self.complete_batch_conflict(
+                    job_id,
+                    Some(submission.job_id()),
+                    false,
+                    false,
+                    false,
+                );
+                Ok(ConflictResolution::Retried(submission))
+            }
+            ConflictDecision::Replace {
+                source_identity,
+                destination_identity,
+            }
+            | ConflictDecision::ReplaceAll {
+                source_identity,
+                destination_identity,
+            } => {
+                let replace_all = matches!(decision, ConflictDecision::ReplaceAll { .. });
+                if replace_all && self.batch_for_job(job_id).is_none() {
+                    return Err(CopyInteractionError::ConflictUnsupported(job_id));
+                }
+                let scope = replace_scope_for_operation(terminal.operation(), job_id)?;
+                let authorization = authorization
+                    .take()
+                    .ok_or_else(|| CopyInteractionError::AuthorizationRequired(scope.clone()))?;
+                self.guardrails
+                    .borrow_mut()
+                    .consume_authorization(authorization, &scope)?;
+                let submission = self.submit_conflict_replace(
+                    job_id,
+                    terminal.operation(),
+                    source_identity,
+                    destination_identity,
+                )?;
+                self.resolved_conflicts.borrow_mut().insert(job_id);
+                self.complete_batch_conflict(
+                    job_id,
+                    Some(submission.job_id()),
+                    false,
+                    false,
+                    replace_all,
+                );
                 Ok(ConflictResolution::Retried(submission))
             }
         }
@@ -2796,6 +3226,7 @@ impl ApplicationState {
         retry_job_id: Option<JobId>,
         skipped: bool,
         skip_all: bool,
+        replace_all: bool,
     ) {
         let Some(batch_id) = self.batch_for_job(failed_job_id) else {
             return;
@@ -2812,6 +3243,7 @@ impl ApplicationState {
         {
             batch.blocked_conflict = None;
             batch.skip_conflicts |= skip_all;
+            batch.replace_conflicts |= replace_all;
             if skipped {
                 batch.skipped = batch.skipped.saturating_add(1);
             }
@@ -2819,6 +3251,53 @@ impl ApplicationState {
         }
         if retry_job_id.is_none() {
             self.pump_batch();
+        }
+    }
+
+    fn try_auto_replace_batch_conflict(&self, failed_job_id: JobId) {
+        let pending = match self.pending_conflict(failed_job_id) {
+            Ok(pending) if pending.replace_supported() => pending,
+            Ok(_) | Err(_) => return,
+        };
+
+        // Replace All is an explicit batch decision, but Protected Folder
+        // boundaries still require a fresh per-item review. Leave this conflict
+        // blocked so the normal dialog and guardrail flow can perform it.
+        let policy = self.guardrail_policy();
+        let touches_protected = [pending.source(), pending.destination()]
+            .into_iter()
+            .any(|path| {
+                policy
+                    .intersections(path)
+                    .map_or(true, |items| !items.is_empty())
+            });
+        if touches_protected {
+            return;
+        }
+
+        let terminal = match self.pending_conflict_operation(failed_job_id) {
+            Ok(terminal) => terminal,
+            Err(_) => return,
+        };
+        match self.submit_conflict_replace(
+            failed_job_id,
+            terminal.operation(),
+            pending.source_identity(),
+            pending.destination_identity(),
+        ) {
+            Ok(submission) => {
+                self.resolved_conflicts.borrow_mut().insert(failed_job_id);
+                self.complete_batch_conflict(
+                    failed_job_id,
+                    Some(submission.job_id()),
+                    false,
+                    false,
+                    false,
+                );
+            }
+            Err(error) => {
+                tracing::warn!(%error, "Replace All paused for explicit conflict review");
+            }
         }
     }
 
@@ -2840,6 +3319,67 @@ impl ApplicationState {
             return Err(CopyInteractionError::ConflictAlreadyResolved(job_id));
         }
         Ok(terminal)
+    }
+
+    fn submit_conflict_replace(
+        &self,
+        failed_job_id: JobId,
+        operation: &TrackedOperation,
+        source_identity: FileIdentity,
+        destination_identity: FileIdentity,
+    ) -> Result<RetrySubmission, CopyInteractionError> {
+        let (source, destination, mode, symlink_policy) = match operation {
+            TrackedOperation::Copy(request) => (
+                request.source().to_path_buf(),
+                request.destination().to_path_buf(),
+                ReplaceMode::Copy,
+                request.symlink_policy(),
+            ),
+            TrackedOperation::Move(request) => (
+                request.source().to_path_buf(),
+                request.destination().to_path_buf(),
+                ReplaceMode::Move,
+                SymlinkPolicy::Preserve,
+            ),
+            TrackedOperation::Rename(request) => (
+                request.source().to_path_buf(),
+                request
+                    .source()
+                    .parent()
+                    .ok_or(CopyInteractionError::ConflictUnsupported(failed_job_id))?
+                    .join(request.new_name()),
+                ReplaceMode::Move,
+                SymlinkPolicy::Preserve,
+            ),
+            _ => return Err(CopyInteractionError::ConflictUnsupported(failed_job_id)),
+        };
+        let backup = allocate_replace_backup(&destination, failed_job_id.get())?;
+        let request = ReplaceRequest::new(
+            source,
+            destination,
+            backup,
+            mode,
+            symlink_policy,
+            source_identity,
+            destination_identity,
+        );
+        let executor = self.replace_executor.as_ref().ok_or_else(|| {
+            CopyInteractionError::UndoHistory(UndoHistoryError::Blocked(
+                "durable replacement history is unavailable".to_owned(),
+            ))
+        })?;
+        match executor.submit(request.clone()) {
+            Ok(submission) => {
+                self.track(submission.job_id(), TrackedOperation::Replace(request));
+                Ok(RetrySubmission::Replace(submission))
+            }
+            Err(error) => {
+                if let Some(job_id) = error.job_id() {
+                    self.track(job_id, TrackedOperation::Replace(request));
+                }
+                Err(error.into())
+            }
+        }
     }
 
     fn submit_conflict_retry(
@@ -2983,6 +3523,12 @@ impl ApplicationState {
             TrackedOperation::UndoMove { .. } => {
                 Err(CopyInteractionError::ConflictUnsupported(failed_job_id))
             }
+            TrackedOperation::PersistentHistoryAction { .. } => {
+                Err(CopyInteractionError::ConflictUnsupported(failed_job_id))
+            }
+            TrackedOperation::Replace(_) => {
+                Err(CopyInteractionError::ConflictUnsupported(failed_job_id))
+            }
         }
     }
 
@@ -3030,6 +3576,16 @@ impl ApplicationState {
                 self.permanent_delete_executor.cancel(job_id)?;
             }
             Some(TrackedOperation::Restore(_)) => self.restore_executor.cancel(job_id)?,
+            Some(TrackedOperation::Replace(_)) => self
+                .replace_executor
+                .as_ref()
+                .ok_or(ReplaceCancelError::NotActive(job_id))?
+                .cancel(job_id)?,
+            Some(TrackedOperation::PersistentHistoryAction { .. }) => self
+                .undo_executor
+                .as_ref()
+                .ok_or(PersistentUndoCancelError::NotActive(job_id))?
+                .cancel(job_id)?,
             None => return Err(MoveCancelError::NotActive(job_id).into()),
         }
         Ok(())
@@ -3107,6 +3663,7 @@ impl ApplicationState {
             copy_executor,
             create_executor,
             move_executor,
+            replace_executor: None,
             trash_executor,
             permanent_delete_executor,
             permission_executor,
@@ -3115,6 +3672,8 @@ impl ApplicationState {
             verified_copy_executor,
             restore_executor,
             recovery: None,
+            undo_history: None,
+            undo_executor: None,
             guardrails: RefCell::new(guardrails),
             guardrail_policy_worker: RefCell::new(guardrail_policy_worker),
             guardrail_policy_pending: Cell::new(None),
@@ -3181,6 +3740,15 @@ fn default_recovery_journal_path() -> PathBuf {
     state_root.join("floe").join("operation-recovery-v1.bin")
 }
 
+#[cfg(not(test))]
+fn default_undo_history_path() -> PathBuf {
+    let state_root = std::env::var_os("XDG_STATE_HOME")
+        .filter(|value| Path::new(value).is_absolute())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| glib::home_dir().join(".local").join("state"));
+    state_root.join("floe").join("operation-undo-v1.bin")
+}
+
 pub(crate) fn destructive_scope_for_move(
     request: &MoveRequest,
 ) -> Result<DestructiveScope, DestructiveScopeError> {
@@ -3235,6 +3803,30 @@ pub(crate) fn destructive_scope_for_restore(
     )
 }
 
+fn replace_scope_for_operation(
+    operation: &TrackedOperation,
+    job_id: JobId,
+) -> Result<DestructiveScope, CopyInteractionError> {
+    let (source, destination) = match operation {
+        TrackedOperation::Copy(request) => (request.source(), request.destination().to_path_buf()),
+        TrackedOperation::Move(request) => (request.source(), request.destination().to_path_buf()),
+        TrackedOperation::Rename(request) => (
+            request.source(),
+            request
+                .source()
+                .parent()
+                .unwrap_or_else(|| Path::new("/"))
+                .join(request.new_name()),
+        ),
+        _ => return Err(CopyInteractionError::ConflictUnsupported(job_id)),
+    };
+    Ok(DestructiveScope::new(
+        DestructiveAction::Move,
+        vec![source.to_path_buf(), destination.clone()],
+        Some(destination),
+    )?)
+}
+
 pub(crate) fn destructive_scope_for_operation(
     operation: &TrackedOperation,
 ) -> Result<Option<DestructiveScope>, DestructiveScopeError> {
@@ -3248,6 +3840,17 @@ pub(crate) fn destructive_scope_for_operation(
         }
         TrackedOperation::Restore(request) => destructive_scope_for_restore(request).map(Some),
         TrackedOperation::UndoMove { request, .. } => destructive_scope_for_move(request).map(Some),
+        TrackedOperation::PersistentHistoryAction { .. } => Ok(None),
+        TrackedOperation::Replace(request) => DestructiveScope::new(
+            DestructiveAction::Move,
+            vec![
+                request.source().to_path_buf(),
+                request.destination().to_path_buf(),
+                request.backup().to_path_buf(),
+            ],
+            Some(request.destination().to_path_buf()),
+        )
+        .map(Some),
     }
 }
 
@@ -3279,6 +3882,20 @@ fn test_guardrail_store_path() -> PathBuf {
     ))
 }
 
+#[cfg(test)]
+fn test_undo_history_path() -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+    std::env::temp_dir()
+        .join(format!(
+            "floe-phase-6u-state-{}-{}",
+            std::process::id(),
+            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+        ))
+        .join("operation-undo-v1.bin")
+}
+
 fn retry_destination(
     destination: &Path,
     new_name: &OsStr,
@@ -3301,8 +3918,34 @@ fn conflict_destination(operation: &TrackedOperation) -> Option<PathBuf> {
         TrackedOperation::Restore(request) => Some(request.destination().to_path_buf()),
         TrackedOperation::Trash(_)
         | TrackedOperation::PermanentDelete(_)
-        | TrackedOperation::UndoMove { .. } => None,
+        | TrackedOperation::UndoMove { .. }
+        | TrackedOperation::PersistentHistoryAction { .. } => None,
+        TrackedOperation::Replace(request) => Some(request.destination().to_path_buf()),
     }
+}
+
+fn conflict_identity(path: &Path) -> Result<(FileIdentity, String), CopyInteractionError> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|_| CopyInteractionError::ConflictChanged(path.to_path_buf()))?;
+    let identity = FileIdentity::from_metadata(&metadata);
+    let kind = if metadata.file_type().is_dir() {
+        "Folder"
+    } else if metadata.file_type().is_symlink() {
+        "Symbolic link"
+    } else if metadata.file_type().is_file() {
+        "File"
+    } else {
+        "Special item"
+    };
+    Ok((
+        identity,
+        format!(
+            "{kind} • {} bytes • modified Unix {}.{:09}",
+            metadata.len(),
+            identity.modified_seconds(),
+            identity.modified_nanoseconds().max(0)
+        ),
+    ))
 }
 
 pub(crate) fn transfer_destination(
@@ -5332,5 +5975,178 @@ mod tests {
         ));
         assert!(!state.is_verified_usb_copy_operation(job_id));
         assert!(state.finish_verified_copy(job_id).is_none());
+    }
+
+    #[test]
+    fn phase_6u_batch_replace_all_is_scoped_and_recaptures_each_conflict() {
+        let fixture = tempdir().expect("temporary fixture");
+        let destination = fixture.path().join("destination");
+        let first_root = fixture.path().join("first");
+        let second_root = fixture.path().join("second");
+        fs::create_dir(&destination).expect("destination directory");
+        fs::create_dir(&first_root).expect("first source directory");
+        fs::create_dir(&second_root).expect("second source directory");
+        let first = first_root.join("item.txt");
+        let second = second_root.join("item.txt");
+        fs::write(&first, b"first replacement").expect("first source");
+        fs::write(&second, b"second replacement").expect("second source");
+        fs::write(destination.join("item.txt"), b"original").expect("existing item");
+
+        let state = ApplicationState::new().expect("application state");
+        state
+            .stage_copy_many(vec![first, second])
+            .expect("stage copy batch");
+        let batch = submit_paste_batch(&state, &destination).expect("submit copy batch");
+
+        let first_conflict = state.batch_active.get().expect("first copy job");
+        assert_eq!(wait_for_terminal(&state, first_conflict), JobState::Failed);
+        state.finish_operation(first_conflict, TerminalOutcome::Conflict);
+        let pending = state
+            .pending_conflict(first_conflict)
+            .expect("pending conflict");
+        assert!(pending.replace_all_supported());
+        let decision = ConflictDecision::ReplaceAll {
+            source_identity: pending.source_identity(),
+            destination_identity: pending.destination_identity(),
+        };
+        let scope = state
+            .conflict_guardrail_scope(first_conflict, &decision)
+            .expect("replacement scope")
+            .expect("replacement requires review");
+        let authorization = authorize_scope(&state, scope);
+        let ConflictResolution::Retried(first_replace) = state
+            .resolve_conflict_authorized(first_conflict, decision, authorization)
+            .expect("Replace All should submit first replacement")
+        else {
+            panic!("Replace All must retry through replacement executor");
+        };
+        assert_eq!(
+            wait_for_terminal(&state, first_replace.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(first_replace.job_id(), TerminalOutcome::Completed);
+
+        let second_conflict = state.batch_active.get().expect("second copy job");
+        assert_eq!(wait_for_terminal(&state, second_conflict), JobState::Failed);
+        state.finish_operation(second_conflict, TerminalOutcome::Conflict);
+        let second_replace = state
+            .batch_active
+            .get()
+            .expect("Replace All should queue a fresh replacement");
+        assert_ne!(second_replace, second_conflict);
+        assert_eq!(
+            wait_for_terminal(&state, second_replace),
+            JobState::Completed
+        );
+        state.finish_operation(second_replace, TerminalOutcome::Completed);
+        assert_eq!(
+            state
+                .batch_snapshot(batch.id())
+                .expect("batch snapshot")
+                .status(),
+            BatchStatus::Completed
+        );
+        assert_eq!(
+            fs::read(destination.join("item.txt")).expect("final destination"),
+            b"second replacement"
+        );
+
+        // A later independent batch must not inherit the first batch's policy.
+        let unrelated_root = fixture.path().join("unrelated");
+        fs::create_dir(&unrelated_root).expect("unrelated source directory");
+        let unrelated = unrelated_root.join("item.txt");
+        fs::write(&unrelated, b"unrelated").expect("unrelated source");
+        state.stage_copy(unrelated).expect("stage unrelated copy");
+        let unrelated_batch = submit_paste_batch(&state, &destination).expect("unrelated batch");
+        let unrelated_conflict = state.batch_active.get().expect("unrelated copy job");
+        assert_eq!(
+            wait_for_terminal(&state, unrelated_conflict),
+            JobState::Failed
+        );
+        state.finish_operation(unrelated_conflict, TerminalOutcome::Conflict);
+        assert!(state.batch_active.get().is_none());
+        assert_eq!(
+            state
+                .batch_snapshot(unrelated_batch.id())
+                .expect("unrelated batch snapshot")
+                .status(),
+            BatchStatus::Paused
+        );
+        assert!(state.pending_conflict(unrelated_conflict).is_ok());
+    }
+
+    #[test]
+    fn phase_6u_batch_cancellation_stops_replace_all_before_next_item() {
+        let fixture = tempdir().expect("temporary fixture");
+        let destination = fixture.path().join("destination");
+        fs::create_dir(&destination).expect("destination directory");
+        fs::write(destination.join("item.txt"), b"original").expect("existing item");
+        let mut sources = Vec::new();
+        for (name, contents) in [
+            ("first", b"first replacement".as_slice()),
+            ("second", b"second replacement".as_slice()),
+            ("third", b"third replacement".as_slice()),
+        ] {
+            let root = fixture.path().join(name);
+            fs::create_dir(&root).expect("source directory");
+            let source = root.join("item.txt");
+            fs::write(&source, contents).expect("source item");
+            sources.push(source);
+        }
+
+        let state = ApplicationState::new().expect("application state");
+        state.stage_copy_many(sources).expect("stage copy batch");
+        let batch = submit_paste_batch(&state, &destination).expect("submit copy batch");
+        let first_conflict = state.batch_active.get().expect("first copy job");
+        assert_eq!(wait_for_terminal(&state, first_conflict), JobState::Failed);
+        state.finish_operation(first_conflict, TerminalOutcome::Conflict);
+        let pending = state
+            .pending_conflict(first_conflict)
+            .expect("pending conflict");
+        let decision = ConflictDecision::ReplaceAll {
+            source_identity: pending.source_identity(),
+            destination_identity: pending.destination_identity(),
+        };
+        let authorization = authorize_scope(
+            &state,
+            state
+                .conflict_guardrail_scope(first_conflict, &decision)
+                .expect("replacement scope")
+                .expect("replacement review"),
+        );
+        let ConflictResolution::Retried(first_replace) = state
+            .resolve_conflict_authorized(first_conflict, decision, authorization)
+            .expect("submit first replacement")
+        else {
+            panic!("Replace All must submit first replacement");
+        };
+        assert_eq!(
+            wait_for_terminal(&state, first_replace.job_id()),
+            JobState::Completed
+        );
+        state.finish_operation(first_replace.job_id(), TerminalOutcome::Completed);
+
+        let second_conflict = state.batch_active.get().expect("second copy job");
+        assert_eq!(wait_for_terminal(&state, second_conflict), JobState::Failed);
+        state.finish_operation(second_conflict, TerminalOutcome::Conflict);
+        let second_replace = state.batch_active.get().expect("second replacement");
+        state
+            .cancel_batch(batch.id())
+            .expect("cancel Replace All batch");
+        let terminal = wait_for_terminal(&state, second_replace);
+        let outcome = match terminal {
+            JobState::Completed => TerminalOutcome::Completed,
+            JobState::Cancelled => TerminalOutcome::Cancelled,
+            other => panic!("replacement cancellation ended unexpectedly: {other:?}"),
+        };
+        state.finish_operation(second_replace, outcome);
+
+        let snapshot = state.batch_snapshot(batch.id()).expect("batch snapshot");
+        assert!(snapshot.status().is_terminal());
+        assert!(state.batch_active.get().is_none());
+        assert_ne!(
+            fs::read(destination.join("item.txt")).expect("destination retained"),
+            b"third replacement"
+        );
     }
 }

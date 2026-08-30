@@ -322,9 +322,21 @@ not overwrite an existing entry.
 | Drag and drop | Drag selected items to a folder, Place, bookmark, device, pane, or Miller column |
 
 Split View offers commands to copy, move, open, or link items to the opposite
-pane. Floe never silently replaces an existing destination. A conflict surface
-offers only reviewed choices safe for the current operation, such as Keep
-Existing, Keep Both, or Retry With New Name.
+pane. Floe never silently replaces an existing destination. The conflict
+surface compares the incoming and existing item with bounded type, size, and
+modified details. Choose **Keep Existing**, **Keep Both**, or **Retry With New
+Name** to preserve both versions. For local Copy, Move, and Rename conflicts,
+**Replace** is also available after a second destructive confirmation. Floe
+rechecks both exact no-follow identities, atomically exchanges the versions,
+and privately retains the old destination for Undo. Replacement stops if
+either item changed, the private 64-entry backup area is full, or the
+filesystem cannot perform an atomic exchange.
+
+**Replace All** appears only for a batch. It applies to later compatible
+conflicts in that batch—not other batches—and captures fresh identities for
+every item. Cancelling the batch stops pending items. A conflict touching a
+Protected Folder pauses for a fresh review instead of inheriting the earlier
+authorization.
 
 ### Operation progress and history
 
@@ -341,6 +353,15 @@ memory-only technical message. Each toast owns its own details, so a newer
 notification cannot replace an older toast's explanation. When Floe is not the
 active window, completion notifications use generic text and do not include
 filenames or paths.
+
+After a successful local Copy, Move, Rename, Create, Duplicate, or Replace,
+Floe refreshes the destination if that folder is already visible, selects the
+exact resulting item, scrolls it into view, and briefly emphasizes it. Batch
+results remain selected together. Floe does not steal keyboard focus or switch
+tabs, panes, or folders just to reveal a result. If the result is hidden by the
+current filter, inside a collapsed group, missing, or no longer belongs to the
+current browser generation, Floe leaves the visible selection alone and shows
+general completion feedback instead.
 
 ### Recover interrupted operations
 
@@ -361,10 +382,23 @@ browsing continues but copy, move, rename, and create fail closed. Open Operatio
 Recovery to review the reason. **Reset Recovery Store** discards only the
 unreadable journal after an explicit warning; it never deletes recorded files.
 
-Operation History remains a bounded in-session list. Safe Undo is available for
-identity-checked moves and renames, and for newly created items that have not
-changed. Undo Create uses ordinary recoverable Trash; a created directory must
-still be empty so files added later are never removed.
+Operation History combines the bounded in-session list with a separate private
+durable history for completed local Copy, Move, Rename, and Create work. Durable
+records expire 30 days after their last completed Undo or Redo state. Choose
+**Undo** for Applied work or **Redo** for Undone work. Floe executes both on a
+bounded worker, never overwrites an occupied destination, and rechecks the exact
+no-follow identity before an inverse mutation.
+
+Copy and Create Undo use ordinary recoverable Trash. A created directory must
+still be empty, so files added later are never removed. Interrupted Undo/Redo
+and uncertain partial outcomes appear in Recovery Center for Reveal and
+record-only resolution; Floe never deletes uncertain output automatically.
+Permanent deletion, Undo Trash, and administrator changes remain outside
+durable Undo. Safe local replacement participates in durable Undo/Redo by
+atomically swapping the exact current and retained versions; changed or
+occupied paths fail closed or enter Recovery Center review. Administrator
+dialogs explain that GVfs currently does not return enough exact post-operation
+identity evidence to prove a safe fresh-authorized inverse.
 
 ## Trash and permanent deletion
 

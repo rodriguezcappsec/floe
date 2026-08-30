@@ -48,6 +48,33 @@ impl PrivilegedOperationKind {
     }
 }
 
+/// Administrator mutations remain outside durable Undo until the GVfs
+/// service returns a complete no-follow post-commit fingerprint and a later
+/// request can obtain fresh desktop authorization for the exact inverse.
+/// Merely knowing a local display path is not sufficient proof.
+pub const fn administrator_durable_undo_unavailable(
+    kind: PrivilegedOperationKind,
+) -> Option<&'static str> {
+    Some(match kind {
+        PrivilegedOperationKind::CreateDirectory => {
+            "the administrator backend does not return an exact created-directory fingerprint"
+        }
+        PrivilegedOperationKind::Rename | PrivilegedOperationKind::Move => {
+            "the administrator backend does not return an exact post-move fingerprint for a fresh-authorized inverse"
+        }
+        PrivilegedOperationKind::Copy => {
+            "the administrator backend does not return an exact copied-item fingerprint; recursive copy is also unsupported"
+        }
+        PrivilegedOperationKind::Trash => {
+            "the administrator backend does not expose standards-correct Trash restore metadata"
+        }
+        PrivilegedOperationKind::DeletePermanently => "permanent deletion has no inverse",
+        PrivilegedOperationKind::SetPermissions => {
+            "the administrator backend does not capture a complete prior mode, ownership, ACL, and xattr snapshot"
+        }
+    })
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PrivilegedFingerprint {
     kind: PrivilegedEntryKind,
@@ -930,5 +957,38 @@ mod tests {
         }
         assert!(implementation.contains("NOFOLLOW_SYMLINKS"));
         assert!(implementation.contains("FileCopyFlags::NOFOLLOW_SYMLINKS"));
+    }
+
+    #[test]
+    fn phase_18y2_administrator_undo_is_fail_closed_until_exact_inverse_evidence_exists() {
+        let kinds = [
+            PrivilegedOperationKind::CreateDirectory,
+            PrivilegedOperationKind::Rename,
+            PrivilegedOperationKind::Copy,
+            PrivilegedOperationKind::Move,
+            PrivilegedOperationKind::Trash,
+            PrivilegedOperationKind::DeletePermanently,
+            PrivilegedOperationKind::SetPermissions,
+        ];
+        for kind in kinds {
+            let reason = administrator_durable_undo_unavailable(kind)
+                .expect("every current administrator mutation must remain explicitly excluded");
+            assert!(!reason.is_empty());
+        }
+        assert!(
+            administrator_durable_undo_unavailable(PrivilegedOperationKind::Move)
+                .expect("move reason")
+                .contains("fresh-authorized inverse")
+        );
+        assert!(
+            administrator_durable_undo_unavailable(PrivilegedOperationKind::Trash)
+                .expect("Trash reason")
+                .contains("restore metadata")
+        );
+        assert!(
+            administrator_durable_undo_unavailable(PrivilegedOperationKind::DeletePermanently)
+                .expect("delete reason")
+                .contains("no inverse")
+        );
     }
 }

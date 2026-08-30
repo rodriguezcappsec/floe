@@ -9,8 +9,8 @@ use std::{
 };
 
 use floe_core::{
-    CopyCancellation, CopyError, CopyRequest, JobCommand, JobFailure, JobFailureKind, JobId,
-    JobProgress, OperationId, execute_copy,
+    CopyCancellation, CopyError, CopyRequest, FileIdentity, JobCommand, JobFailure, JobFailureKind,
+    JobId, JobProgress, OperationId, execute_copy,
 };
 use thiserror::Error;
 
@@ -19,6 +19,7 @@ use crate::job_manager::ApplicationJobManager;
 use crate::{
     job_manager::{JobManagerError, SharedJobManager},
     operation_recovery::{RecoveryCoordinator, RecoveryJournal, RecoveryOperationKind},
+    undo_history::{UndoHistoryCoordinator, UndoRecipe},
 };
 
 pub const DEFAULT_COPY_QUEUE_CAPACITY: usize = 8;
@@ -114,14 +115,34 @@ impl CopyExecutor {
         jobs: SharedJobManager,
         recovery: RecoveryCoordinator,
     ) -> Result<Self, CopyExecutorSpawnError> {
-        Self::spawn_inner(jobs, DEFAULT_COPY_QUEUE_CAPACITY, None, Some(recovery))
+        Self::spawn_inner(
+            jobs,
+            DEFAULT_COPY_QUEUE_CAPACITY,
+            None,
+            Some(recovery),
+            None,
+        )
+    }
+
+    pub fn spawn_with_recovery_and_undo(
+        jobs: SharedJobManager,
+        recovery: RecoveryCoordinator,
+        undo_history: UndoHistoryCoordinator,
+    ) -> Result<Self, CopyExecutorSpawnError> {
+        Self::spawn_inner(
+            jobs,
+            DEFAULT_COPY_QUEUE_CAPACITY,
+            None,
+            Some(recovery),
+            Some(undo_history),
+        )
     }
 
     pub fn spawn_with_capacity(
         jobs: SharedJobManager,
         capacity: usize,
     ) -> Result<Self, CopyExecutorSpawnError> {
-        Self::spawn_inner(jobs, capacity, None, None)
+        Self::spawn_inner(jobs, capacity, None, None, None)
     }
 
     fn spawn_inner(
@@ -129,6 +150,7 @@ impl CopyExecutor {
         capacity: usize,
         start_gate: Option<Receiver<()>>,
         recovery: Option<RecoveryCoordinator>,
+        undo_history: Option<UndoHistoryCoordinator>,
     ) -> Result<Self, CopyExecutorSpawnError> {
         if capacity == 0 {
             return Err(CopyExecutorSpawnError::ZeroCapacity);
@@ -144,7 +166,13 @@ impl CopyExecutor {
                 if let Some(gate) = start_gate {
                     let _ = gate.recv();
                 }
-                run_worker(receiver, worker_jobs, worker_cancellations, recovery);
+                run_worker(
+                    receiver,
+                    worker_jobs,
+                    worker_cancellations,
+                    recovery,
+                    undo_history,
+                );
             })
             .map_err(CopyExecutorSpawnError::Thread)?;
 
@@ -243,7 +271,7 @@ impl CopyExecutor {
         capacity: usize,
     ) -> Result<(Self, SyncSender<()>), CopyExecutorSpawnError> {
         let (gate_sender, gate_receiver) = mpsc::sync_channel(1);
-        Self::spawn_inner(jobs, capacity, Some(gate_receiver), None)
+        Self::spawn_inner(jobs, capacity, Some(gate_receiver), None, None)
             .map(|executor| (executor, gate_sender))
     }
 }
@@ -270,12 +298,17 @@ fn run_worker(
     jobs: SharedJobManager,
     cancellations: Arc<Mutex<HashMap<JobId, CopyCancellation>>>,
     recovery: Option<RecoveryCoordinator>,
+    undo_history: Option<UndoHistoryCoordinator>,
 ) {
     while let Ok(command) = receiver.recv() {
         match command {
-            CopyCommand::Execute(task) => {
-                execute_task(task, &jobs, &cancellations, recovery.as_ref())
-            }
+            CopyCommand::Execute(task) => execute_task(
+                task,
+                &jobs,
+                &cancellations,
+                recovery.as_ref(),
+                undo_history.as_ref(),
+            ),
             CopyCommand::Shutdown => break,
         }
     }
@@ -286,12 +319,35 @@ fn execute_task(
     jobs: &SharedJobManager,
     cancellations: &Arc<Mutex<HashMap<JobId, CopyCancellation>>>,
     recovery: Option<&RecoveryCoordinator>,
+    undo_history: Option<&UndoHistoryCoordinator>,
 ) {
     if transition(jobs, task.job_id, JobCommand::Start).is_err() {
         lock(cancellations).remove(&task.job_id);
         return;
     }
 
+    let undo_ticket = match undo_history.map(|history| {
+        history.begin(UndoRecipe::copy(
+            task.request.source(),
+            task.request.destination(),
+            task.request.symlink_policy(),
+        ))
+    }) {
+        Some(Ok(ticket)) => Some(ticket),
+        Some(Err(error)) => {
+            let _ = transition(
+                jobs,
+                task.job_id,
+                JobCommand::Fail(JobFailure::new(
+                    JobFailureKind::Internal,
+                    format!("durable Undo history could not be prepared: {error}"),
+                )),
+            );
+            lock(cancellations).remove(&task.job_id);
+            return;
+        }
+        None => None,
+    };
     let recovery_ticket = match recovery.map(|journal| {
         journal.begin(
             RecoveryOperationKind::Copy,
@@ -301,6 +357,9 @@ fn execute_task(
     }) {
         Some(Ok(ticket)) => Some(ticket),
         Some(Err(error)) => {
+            if let (Some(history), Some(ticket)) = (undo_history, undo_ticket) {
+                let _ = history.resolve(ticket.id());
+            }
             let _ = transition(
                 jobs,
                 task.job_id,
@@ -351,6 +410,24 @@ fn execute_task(
                 %error,
                 "copy recovery journal could not be finalized"
             );
+        }
+    }
+    if let (Some(history), Some(ticket)) = (undo_history, undo_ticket) {
+        if result.is_ok() {
+            match FileIdentity::capture(task.request.destination()) {
+                Ok(identity) => {
+                    if let Err(error) = history.complete(ticket, identity) {
+                        tracing::error!(job_id = task.job_id.get(), %error, "copy committed but durable Undo history could not be completed");
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(job_id = task.job_id.get(), %error, "copy committed but destination identity could not be captured for Undo")
+                }
+            }
+        } else if let Err(error) =
+            history.retain_if_destination_exists(ticket, task.request.destination())
+        {
+            tracing::error!(job_id = task.job_id.get(), %error, "copy failure could not update durable Undo history");
         }
     }
     let command = match result {

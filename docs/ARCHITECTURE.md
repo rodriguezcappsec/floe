@@ -539,6 +539,17 @@ filesystem work. “Move to Trash” remains the recoverable action.
 escaped exact target labels; its GTK callback submits preserved `PathBuf`
 values and performs no filesystem work.
 
+Phase 6V adds `operation_reveal.rs` as the bounded presentation policy between
+typed operation completion and the browser. Successful local Copy, Move,
+Rename, Create, Duplicate, and Replace results carry an exact committed
+`PathBuf`. A reveal request is grouped by job or batch, capped at 4,096 paths,
+bound to the visible directory and listing generation, and consumed once after
+refresh. `BrowserController` resolves only exact paths in its current visible
+model, selects and scrolls them without moving focus, and applies a 1.8-second
+view-level emphasis. Stale, inactive, hidden, filtered, missing, or collapsed
+results do not select a substitute and never trigger unexpected navigation.
+No GTK callback performs the underlying filesystem mutation.
+
 Phase 6N adds an explicit Trash browser mode without replacing local
 `NavigationState` identity. A sidebar action requests supported home and
 mounted-volume Trash roots from `BrowserWorker`; exact backing paths remain the
@@ -566,6 +577,10 @@ Conflict, permission, cross-filesystem, unsupported-trash, and general failures
 produce recovery-oriented toasts. Terminal status remains
 visible for three seconds. The controller observes jobs but never executes
 filesystem operations.
+
+For successful Phase 6V operation kinds, the controller additionally forwards
+the typed exact result path to the browser reveal policy. Partial, failed, or
+cancelled outcomes never create a result reveal intent.
 
 Phase 5E maps destination conflicts to a distinct non-retryable terminal
 outcome, so the generic Retry control cannot blindly repeat the same
