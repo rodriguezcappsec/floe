@@ -1315,9 +1315,27 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-29`
 
-Current phase: **Phase 14C — Safe administrator operations (complete)**
+Current phase: **Phase 20B3 — Compact tabs (complete)**
 
 Completed this session:
+
+- Replaced the 128px/34px tab presentation with 72px-minimum adaptive tabs,
+  18-character centered single-line end ellipsis, 24px label-strip height,
+  flatter nested targets, hover/focus 20px separately labelled close controls,
+  and one underline-only active marker without an active fill.
+  Full path tooltips, stable-ID actions, keyboard, middle-click, context menu,
+  drag/drop, and horizontal overflow remain unchanged.
+- Replaced the blue active-pane frame with a quiet one-pixel neutral boundary.
+  Existing active-pane text and focus semantics remain. Device rows retain the
+  name as the primary line and concise free space as the secondary line; both
+  are single-line, end-ellipsized, and expose complete text in tooltips when the
+  sidebar is narrow.
+- Focused deterministic and real-GTK tests, full workspace format/check/strict
+  Clippy/tests, strict docs/render/package/E2E contracts, and isolated native
+  Wayland CSS/Ping/Quit pass. No multi-window or session architecture work was
+  included.
+
+Prior administrator-operations evidence:
 
 - Added a separately typed capacity-one GIO/GVfs administrator mutation
   service for New Folder, Rename, single-file Copy/Move, Trash, permanent

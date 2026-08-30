@@ -1537,3 +1537,41 @@ remain Phase 21D.
   and diff gates pass; Phase 21C is complete and exactly Phase 21D is next.
 
 ---
+# Plan: Floe Phase 20B3 — Compact Tabs
+
+## Contract
+
+Reduce tab-strip visual noise without changing tab ownership, navigation,
+drag/drop, context menus, middle-click closing, keyboard shortcuts, or exact
+path identity. Tabs use a compact adaptive width, one restrained active-state
+signal, an ellipsized basename label, a full-path tooltip, and a smaller but
+still accessible close action. The tab strip must remain horizontally
+scrollable and usable under every appearance preset and high-contrast mode.
+Device rows retain their name as the primary line and concise available space
+as the secondary line; neither label wraps when the sidebar narrows.
+
+## Applicable testing layers
+
+1. Deterministic presentation-policy tests for width, spacing, ellipsization,
+   active-state, and accessible close-label contracts.
+2. Focused real-GTK component test for compact allocation, active/inactive
+   semantics, keyboard focus, close action, and horizontal overflow.
+3. Full format, check, strict Clippy, workspace tests, docs, and native Wayland
+   lifecycle gates.
+
+## Scope exclusions
+
+- No multi-window lifecycle or application-service refactor.
+- No tab/session codec, drag/drop, navigation, or operation behavior change.
+- No new appearance preset or unrelated header/sidebar redesign.
+
+## Status log
+
+- 2026-08-29: Started on `phase-20b3-compact-tabs`; gates are recorded in
+  `gates/phase-20b3.md`.
+- 2026-08-29: Implementation complete. Focused deterministic and real-GTK tests,
+  full workspace format/check/strict Clippy/tests, strict docs/render/package
+  and E2E contracts, plus isolated native Wayland Ping/Quit pass. Phase 18Y2 is
+  restored as the sole roadmap `NEXT` phase.
+
+---

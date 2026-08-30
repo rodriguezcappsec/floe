@@ -289,7 +289,7 @@ impl Appearance {
 
 .floe-grid-sections,
 .floe-grid-section {{
-  background: transparent;
+  background-color: transparent;
 }}
 
 .floe-grid-section-header {{
@@ -426,34 +426,55 @@ impl Appearance {
 }}
 
 .floe-tab-strip {{
-  padding: 4px 10px 6px 10px;
+  padding: 0 8px 1px 8px;
 }}
 
 .floe-tab-bar {{
-  padding: 1px;
+  padding: 0;
 }}
 
 .floe-tab {{
-  min-width: 128px;
-  min-height: 34px;
-  padding: 0 4px 0 10px;
-  border-radius: 9px;
+  min-width: 72px;
+  min-height: 24px;
+  padding: 0 1px 0 4px;
+  border-radius: 0;
+}}
+
+.floe-tab-target,
+.floe-tab-target:checked {{
+  min-width: 44px;
+  min-height: 22px;
+  padding: 0 3px;
+  background: transparent;
+  box-shadow: none;
+  font-weight: 400;
 }}
 
 .floe-tab.active {{
-  background-color: alpha(@accent_bg_color, 0.16);
+  background-color: transparent;
   box-shadow: inset 0 -2px @accent_bg_color;
-  font-weight: 600;
 }}
 
 .floe-tab-close {{
-  min-width: 28px;
-  min-height: 28px;
-  padding: 2px;
+  min-width: 20px;
+  min-height: 20px;
+  padding: 0;
+  opacity: 0;
+}}
+
+.floe-tab:hover .floe-tab-close,
+.floe-tab-close:focus {{
+  opacity: 0.88;
+}}
+
+.floe-tab-new {{
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
 }}
 
 .floe-active-pane {{
-  border: 2px solid alpha(@accent_bg_color, 0.72);
+  border: 1px solid alpha(@window_fg_color, 0.18);
   border-radius: 10px;
 }}
 
@@ -672,7 +693,7 @@ fn accessibility_css(
         "\n.floe-window {{ font-family: {family}; font-size: {}%; }}\n\
          .floe-window.floe-reduced-motion * {{ transition-duration: {motion}; }}\n\
          .floe-window .floe-group-label {{ border: 1px solid alpha(@borders, 0.72); }}\n\
-         .floe-window .floe-active-pane {{ outline: 2px solid @accent_color; outline-offset: -2px; }}\n",
+         .floe-window .floe-active-pane {{ outline: 1px solid alpha(@window_fg_color, 0.32); outline-offset: -1px; }}\n",
         font_scale_percent.clamp(75, 200)
     )
 }
@@ -686,7 +707,20 @@ mod tests {
         let css = super::accessibility_css(Some("Inter"), 125, true);
         assert!(css.contains(".floe-group-label { border:"));
         assert!(css.contains(".floe-active-pane { outline:"));
+        assert!(!css.contains("outline: 2px solid @accent_color"));
         assert!(css.contains("transition-duration: 0s"));
+    }
+
+    #[test]
+    fn phase_20b3_tabs_are_compact_and_active_pane_frame_is_neutral() {
+        let css = Appearance::for_preset(AppearancePreset::Native).css();
+        assert!(css.contains("min-width: 72px"));
+        assert!(css.contains("min-height: 24px"));
+        assert!(css.contains("min-width: 20px"));
+        assert!(css.contains("font-weight: 400"));
+        assert!(css.contains("background-color: transparent"));
+        assert!(css.contains("border: 1px solid alpha(@window_fg_color, 0.18)"));
+        assert!(!css.contains("border: 2px solid alpha(@accent_bg_color, 0.72)"));
     }
 
     #[test]

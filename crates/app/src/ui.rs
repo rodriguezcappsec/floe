@@ -2824,7 +2824,7 @@ pub fn build(
         .build();
     let tab_bar = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(4)
+        .spacing(2)
         .hexpand(true)
         .build();
     tab_bar.add_css_class("floe-tab-bar");
@@ -2841,9 +2841,10 @@ pub fn build(
         "win.new-tab",
     );
     set_accessible_label(&new_tab_button, "New tab");
+    new_tab_button.add_css_class("floe-tab-new");
     let tab_strip = gtk::Box::builder()
         .orientation(gtk::Orientation::Horizontal)
-        .spacing(6)
+        .spacing(4)
         .build();
     tab_strip.add_css_class("floe-tab-strip");
     tab_strip.append(&tab_scroller);

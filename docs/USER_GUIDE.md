@@ -78,7 +78,8 @@ multi-monitor fractional-scale matrix remain release-hardening work.
 - The central browser can use List, Grid, or Miller/Columns presentation.
 - The Operations Island appears while work is running and reports progress,
   cancellation, conflicts, failures, retry actions, and completion.
-- Tabs appear above the browser. Split View adds a second independently
+- Compact tabs appear above the browser; long folder names remain one line and
+  show the complete path on hover. Split View adds a second independently
   navigable pane.
 
 Floe remembers the last normal window size after you resize and close it, then
@@ -149,9 +150,12 @@ and multiple targets produce explicit feedback.
 - Drag the sidebar divider to resize it. Floe remembers the width.
 - Use **Sidebar Density** in the header menu to choose Compact, Balanced, or
   Comfortable spacing.
-- Mounted local devices can be opened from **Devices**. Available mount,
-  unmount, and eject actions use GIO and native password prompts where the
-  desktop provides them.
+- Mounted local devices can be opened from **Devices**. Each mounted local row
+  shows the device name first and concise available space such as `128.4 GB
+  free` beneath it; narrow sidebars shorten either line visually without
+  wrapping, and hovering reveals the complete text. Available mount, unmount,
+  and eject actions use GIO and native password prompts where the desktop
+  provides them.
 - Use **Desktop Integration…** to see which standard services are available or
   limited in the current desktop session.
 

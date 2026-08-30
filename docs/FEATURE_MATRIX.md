@@ -189,6 +189,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | --- | --- | --- | --- |
 | Reusable tab/session state model | `COMPLETE` | 7A | Stable-ID bounded core model owns exact path, complete history locations, multi-selection, path/index scroll anchor, sort, grouping, folder placement, view mode, grid size, density, and columns. |
 | New/close/switch tab | `COMPLETE` | 7B | Native labelled strip, Ctrl+T/Ctrl+W/Ctrl+Tab, pointer activation, and last-tab window close use bounded stable IDs. |
+| Compact adaptive tab presentation | `COMPLETE` | 20B3 | 72px minimum/18-character centered basename titles, 24px label-strip height, end ellipsis/full-path tooltip and accessible description, underline-only active marker, and hover/focus 20px labelled close action preserve overflow scrolling and existing tab actions. |
 | Per-tab path and history | `COMPLETE` | 7A/7B | Complete exact location snapshots restore through one shared superseding browser worker. |
 | Per-tab view state | `COMPLETE` | 7A-7C | Sort/group/view/grid/density/columns, exact selection, and path/index scroll anchor restore per live tab and across clean restarts. |
 | Startup tab/session restore | `COMPLETE` | 7C | Clean shutdown writes versioned bounded live/closed workspace atomically; missing/corrupt/suppressed state falls back to one normal tab. |
@@ -201,7 +202,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Pinned tabs | `DEFERRED` | 7C | Requires clear session persistence and close semantics. |
 | Session restore | `PLANNED` | 7C | Must be versioned and suppressed in Private/Sensitive modes. |
 | Middle-click folder opens tab | `PLANNED` | 7B | Requires pointer parity with an explicit context/command action. |
-| Middle-click tab closes tab | `PLANNED` | 7B | Conventional behavior with accessible alternative. |
+| Middle-click tab closes tab | `COMPLETE` | 7B/20B3 | Pointer gesture closes by stable tab ID; separately labelled close action and Ctrl+W remain accessible alternatives. |
 | Drag tabs | `COMPLETE` | 7B | Stable tab IDs, not indices, own reorder identity. |
 | Optional tab detachment | `DEFERRED` | 7F | Needs safe cross-window state transfer and session ownership. |
 
@@ -443,7 +444,7 @@ advanced predicates and explicit Match Case control.
 | Mount/unmount/eject | `COMPLETE` | 6K | Async actions expose busy/unavailable/failure states. |
 | Password-protected/encrypted mounts | `COMPLETE` | 6K2 | Window-parented `GtkMountOperation`; desktop owns credentials and Floe is credential-opaque. |
 | Safe remove workflow | `COMPLETE` | 6K/18W | Explicit verified copy, exact-mount flush, and revalidated GIO eject/unmount preserves partial states and never claims safe removal before successful removal. |
-| Device label and free space | `COMPLETE` | 6K/6T | Device labels come from GIO; mounted local roots receive bounded generation-checked capacity/free/read-only details. |
+| Device label and free space | `COMPLETE` | 6K/6T/20B3 | Device rows preserve the GIO name as the primary line and show bounded generation-checked available capacity below it; both labels are single-line, end-ellipsized, and tooltip-backed, with read-only detail only when known. |
 | Sidebar width persistence/reset | `COMPLETE` | 6K2 | 128-480 px, 320 ms debounce, startup restore, appearance-default reset. |
 | Top-level window size persistence | `COMPLETE` | 20B2A | Restores one bounded normal width/height tuple through private version-17 preferences; GDK surface changes are debounced and maximized/fullscreen allocations are excluded. Wayland position, monitor, workspace, and compositor state are not stored. |
 | Sidebar collapsed mode | `PLANNED` | 20 | Must retain accessible destinations and restore width predictably. |

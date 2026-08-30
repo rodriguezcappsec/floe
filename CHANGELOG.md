@@ -7,6 +7,9 @@ does not promise API or format stability beyond documented migration behavior.
 
 ### Added
 
+- Compact adaptive tabs with calmer active treatment, device name plus concise
+  free-space rows that do not wrap, and a neutral split-pane boundary replacing
+  the blue content frame.
 - Safe, separately typed administrator New Folder, Rename, single-file
   Copy/Move, Trash, permanent delete, and Unix-mode operations through
   GIO/GVfs with explicit confirmation and without elevating Floe itself.

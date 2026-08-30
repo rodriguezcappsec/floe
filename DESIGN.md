@@ -93,7 +93,11 @@ navigation.
 Remote/network roots remain explicitly unavailable instead of being converted
 into a `PathBuf`; their browsing support is deferred.
 
-Mounted local rows add capacity, free-space, and read-only detail only after a
+Mounted local rows keep a simple two-line hierarchy: the GIO device name on the
+first line and concise available capacity such as `128.4 GB free` on the second.
+Both lines stay single-line and end-ellipsize as the sidebar narrows, with their
+complete text available in tooltips. A read-only marker is appended only when
+known. Storage facts appear only after a
 bounded asynchronous GIO query returns for the current device identity. Unknown
 facts are omitted rather than shown as zero or writable.
 
@@ -622,10 +626,18 @@ permanent-delete affordance appears in this review.
 ### Tabs
 
 Phase 7B adds a compact horizontally scrollable native tab strip between the
-header and browser workspace. Each tab has a path-derived display-only title,
-full-path tooltip, explicit active toggle state, and separately labelled close
-control. A bottom accent and weight change reinforce active state without color
-alone. Raw `PathBuf` identity remains solely in application/core state.
+header and browser workspace. Phase 20B3 bounds tabs to a short adaptive title,
+uses centered end ellipsis for long basenames, reduces the strip to label-line
+height, and removes nested button decoration. Each tab retains a full-path
+tooltip and accessible description, explicit active toggle state, separately
+labelled hover/focus close control, and thin bottom active marker without adding
+font-weight or filled-accent competition.
+Raw `PathBuf` identity remains solely in application/core state.
+
+Split-pane ownership keeps its existing textual and focus cues, but the former
+blue content frame is replaced by a quiet one-pixel neutral boundary. Sidebar
+device names and available-capacity status are separate one-line labels,
+end-ellipsized as the sidebar narrows, with complete text available in tooltips.
 
 Ctrl+T/Ctrl+W create and close, Ctrl+Tab/Ctrl+Shift+Tab switch, and
 Ctrl+Shift+PageUp/PageDown reorder. Pointer drag has those keyboard alternatives;

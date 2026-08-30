@@ -106,6 +106,19 @@ desktop-specific integration, MTP, remote browsing, or packaging work.
 
 ---
 
+# Gates: Floe Phase 20B3 — Compact Tabs
+
+- [x] T1: Compact adaptive tabs, two-line device identity/free-space rows whose
+  individual labels never wrap, and a neutral split-pane boundary replace the
+  wide/noisy chrome while preserving labelled actions, complete-text tooltips,
+  active-state shape, scrolling, and tab interaction.
+- [x] T2: Focused deterministic and real-GTK tests, full Rust/docs/package/E2E
+  gates, and isolated native Wayland Ping/Quit pass without CSS/GTK criticals.
+- [x] T3: Phase 20B3 is COMPLETE and exactly Phase 18Y2 complete Undo and
+  recovery is NEXT.
+
+---
+
 # Gates: Floe Phase 20B2A — Window Size Persistence
 
 Scope: normal top-level window size only; no position, compositor workspace,

@@ -37,6 +37,43 @@ fn tab_title(path: &Path) -> String {
         .into_owned()
 }
 
+const COMPACT_TAB_TITLE_MAX_CHARS: i32 = 18;
+
+fn compact_tab_title_label(title: &str) -> gtk::Label {
+    gtk::Label::builder()
+        .label(title)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .max_width_chars(COMPACT_TAB_TITLE_MAX_CHARS)
+        .single_line_mode(true)
+        .xalign(0.5)
+        .build()
+}
+
+fn sidebar_device_name_label(name: &str) -> gtk::Label {
+    let label = gtk::Label::builder()
+        .label(name)
+        .halign(gtk::Align::Start)
+        .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .single_line_mode(true)
+        .build();
+    label.set_tooltip_text(Some(name));
+    label
+}
+
+fn sidebar_device_status_label(status: &str) -> gtk::Label {
+    let label = gtk::Label::builder()
+        .label(status)
+        .halign(gtk::Align::Start)
+        .hexpand(true)
+        .ellipsize(gtk::pango::EllipsizeMode::End)
+        .single_line_mode(true)
+        .build();
+    label.add_css_class("floe-status");
+    label.set_tooltip_text(Some(status));
+    label
+}
+
 fn recent_session_locations(session: &BrowserSession) -> Vec<PathBuf> {
     let mut seen = HashSet::new();
     std::iter::once(session.current().path())
@@ -1635,7 +1672,7 @@ impl BrowserController {
         for (index, path) in bookmarks.into_iter().enumerate() {
             let row = gtk::Box::builder()
                 .orientation(gtk::Orientation::Horizontal)
-                .spacing(2)
+                .spacing(0)
                 .build();
             let display_name = sidebar_path_name(&path);
             let content = gtk::Box::builder()
@@ -1723,13 +1760,8 @@ impl BrowserController {
                 .spacing(0)
                 .hexpand(true)
                 .build();
-            labels.append(
-                &gtk::Label::builder()
-                    .label(&snapshot.name)
-                    .halign(gtk::Align::Start)
-                    .ellipsize(gtk::pango::EllipsizeMode::End)
-                    .build(),
-            );
+            let device_name = sidebar_device_name_label(&snapshot.name);
+            labels.append(&device_name);
             let status_text = self
                 .device_storage_facts
                 .borrow()
@@ -1737,7 +1769,7 @@ impl BrowserController {
                 .copied()
                 .map(|facts| device_status_text(&policy.status, facts))
                 .unwrap_or(policy.status);
-            let status = sidebar_status_label(&status_text);
+            let status = sidebar_device_status_label(&status_text);
             labels.append(&status);
             content.append(&labels);
 
@@ -1759,6 +1791,7 @@ impl BrowserController {
                 }
             };
             set_accessible_label(&activate, &accessible);
+            activate.update_property(&[gtk::accessible::Property::Description(&status_text)]);
             let activation = policy.activation.clone();
             if let ui::DeviceActivation::Navigate(path) = &activation {
                 let drop_path = path.clone();
@@ -5048,15 +5081,24 @@ impl BrowserController {
                 row.add_css_class("active");
             }
             let title = tab_title(&path);
+            let title_label = compact_tab_title_label(&title);
             let button = gtk::ToggleButton::builder()
-                .label(&title)
+                .child(&title_label)
                 .active(is_active)
                 .hexpand(true)
                 .build();
+            button.add_css_class("flat");
+            button.add_css_class("floe-tab-target");
             button.set_action_name(Some("win.activate-tab"));
             button.set_action_target_value(Some(&id.get().to_variant()));
             button.set_tooltip_text(Some(&path.to_string_lossy()));
-            button.update_property(&[gtk::accessible::Property::Label(&format!("Tab: {title}"))]);
+            button.update_property(&[
+                gtk::accessible::Property::Label(&format!("Tab: {title}")),
+                gtk::accessible::Property::Description(&format!(
+                    "Folder path: {}",
+                    path.to_string_lossy()
+                )),
+            ]);
             let middle_click = gtk::GestureClick::new();
             middle_click.set_button(2);
             let middle_target = id.get();
@@ -12126,11 +12168,21 @@ fn known_byte_total(entries: &[Arc<DirectoryEntry>]) -> Option<u64> {
 }
 
 fn device_status_text(base: &str, facts: StorageFacts) -> String {
-    let facts = format_storage_facts(facts);
-    if facts.is_empty() {
+    if base != "Mounted" {
+        return base.to_owned();
+    }
+
+    let mut details = Vec::with_capacity(2);
+    if let Some(free) = facts.free {
+        details.push(format!("{} free", format_bytes(free)));
+    }
+    if facts.read_only == Some(true) {
+        details.push("Read-only".to_owned());
+    }
+    if details.is_empty() {
         base.to_owned()
     } else {
-        format!("{base} · {facts}")
+        details.join(" · ")
     }
 }
 
@@ -12662,6 +12714,40 @@ mod tests {
         assert!(actions.contains(&"open-background-tab"));
     }
 
+    #[test]
+    fn phase_20b3_compact_tab_title_has_a_bounded_display_budget() {
+        assert_eq!(COMPACT_TAB_TITLE_MAX_CHARS, 18);
+        assert_eq!(tab_title(Path::new("/home/user/a")), "a");
+        assert_eq!(
+            tab_title(Path::new("/home/user/a very long folder name")),
+            "a very long folder name"
+        );
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_testing_gtk_phase_20b3_compact_tab_and_device_labels() {
+        gtk::init().expect("initialize GTK");
+
+        let tab = compact_tab_title_label("A deliberately long directory title");
+        assert_eq!(tab.max_width_chars(), COMPACT_TAB_TITLE_MAX_CHARS);
+        assert_eq!(tab.ellipsize(), gtk::pango::EllipsizeMode::End);
+        assert!(tab.property::<bool>("single-line-mode"));
+
+        let device = sidebar_device_name_label("External media with a long name");
+        assert_eq!(device.ellipsize(), gtk::pango::EllipsizeMode::End);
+        assert!(device.property::<bool>("single-line-mode"));
+        assert_eq!(
+            device.tooltip_text().as_deref(),
+            Some("External media with a long name")
+        );
+
+        let free_space = sidebar_device_status_label("128.4 GB free");
+        assert_eq!(free_space.ellipsize(), gtk::pango::EllipsizeMode::End);
+        assert!(free_space.property::<bool>("single-line-mode"));
+        assert_eq!(free_space.tooltip_text().as_deref(), Some("128.4 GB free"));
+    }
+
     #[cfg(unix)]
     #[test]
     fn phase_7b_folder_tabs_accept_only_one_navigable_non_trash_entry() {
@@ -12974,7 +13060,7 @@ mod tests {
                     read_only: Some(false),
                 }
             ),
-            "Mounted · 2.0 KB free of 8.0 KB"
+            "2.0 KB free"
         );
         assert_eq!(
             device_status_text(
@@ -12986,6 +13072,28 @@ mod tests {
                 }
             ),
             "Mounted"
+        );
+        assert_eq!(
+            device_status_text(
+                "Mounted",
+                StorageFacts {
+                    total: Some(8_000),
+                    free: Some(2_000),
+                    read_only: Some(true),
+                }
+            ),
+            "2.0 KB free · Read-only"
+        );
+        assert_eq!(
+            device_status_text(
+                "Unmounting",
+                StorageFacts {
+                    total: Some(8_000),
+                    free: Some(2_000),
+                    read_only: Some(false),
+                }
+            ),
+            "Unmounting"
         );
     }
 
