@@ -23,7 +23,7 @@ glib = "0.21"
 png = "0.18.1"
 regex = "=1.12.2"
 sevenz-rust = { version = "=0.6.1", default-features = false, features = ["compress"] }
-tar = "=0.4.44"
+tar = "=0.4.46"
 thiserror = "2.0"
 rustix = { version = "1.1", features = ["fs", "process"] }
 tracing = "0.1"
