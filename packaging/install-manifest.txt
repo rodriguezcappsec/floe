@@ -19,4 +19,5 @@ docs/RECOVERY.md|share/doc/floe/docs/RECOVERY.md|0644
 docs/DEBUGGING.md|share/doc/floe/docs/DEBUGGING.md|0644
 docs/LOCALIZATION.md|share/doc/floe/docs/LOCALIZATION.md|0644
 docs/PERFORMANCE.md|share/doc/floe/docs/PERFORMANCE.md|0644
+docs/RELEASE_MATRIX.md|share/doc/floe/docs/RELEASE_MATRIX.md|0644
 docs/PRIVACY_SECURITY.md|share/doc/floe/docs/PRIVACY_SECURITY.md|0644

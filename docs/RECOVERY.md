@@ -38,3 +38,8 @@ disposable lab device.
 
 Keep independent backups. Package removal retains user data. Follow
 [Migrations](./MIGRATIONS.md) before rollback or manual cleanup.
+
+Phase 21D re-runs the isolated recovery journal suite as a release blocker. A
+candidate cannot ship if corrupt, symlinked, insecure, stale, changed, or
+uncertain records are accepted as safe retry instructions. See the
+[release environment matrix](./RELEASE_MATRIX.md) for native host evidence.

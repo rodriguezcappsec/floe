@@ -23,14 +23,17 @@ does not promise API or format stability beyond documented migration behavior.
   operation recovery, accessibility, and security terminology.
 - Documented that logs and technical details may contain sensitive paths.
 - Documented Floe as English-only with partial RTL foundations.
+- Resolved three medium `tar` dependency advisories by updating to 0.4.46;
+  added deterministic dependency/license/advisory and reproducible-candidate
+  gates plus the release environment matrix.
 
 ### Known limitations
 
 - Flatpak, compositor-specific, remote/network, Android/MTP, cryptography,
   vault, Private Mode, Sensitive Folder, Open Safely, Secure Share, and provider
   sandbox functionality are unavailable.
-- Complete Orca, translated RTL, physical fractional-scale, physical media, and
-  Phase 21D release-candidate security evidence remain unclaimed.
+- Complete Orca, translated RTL, physical fractional-scale, and physical media
+  remain unclaimed.
 
 ## 0.1.0 - development baseline
 

@@ -730,6 +730,11 @@ failure/panic containment, current-result lifecycle, and bounded GTK draining.
 
 ## Wayland environments
 
+The current release-candidate evidence is summarized in
+[RELEASE_MATRIX.md](./RELEASE_MATRIX.md). It distinguishes the portable
+GTK/GIO contract from deferred compositor-specific integrations and never
+promotes an unavailable semantic-input dependency into a passing result.
+
 Phase 14 focused verification is:
 
 ```bash

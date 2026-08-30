@@ -77,7 +77,7 @@ mod tests {
             assert!(destinations.insert(fields[1]));
             entries += 1;
         }
-        assert_eq!(entries, 20);
+        assert_eq!(entries, 22);
         assert!(destinations.contains("bin/floe"));
         assert!(
             destinations.contains("share/applications/io.github.rodriguezcappsec.Floe.desktop")
@@ -86,5 +86,6 @@ mod tests {
         assert!(destinations.contains("share/doc/floe/SECURITY.md"));
         assert!(destinations.contains("share/doc/floe/docs/GETTING_STARTED.md"));
         assert!(destinations.contains("share/doc/floe/docs/DEBUGGING.md"));
+        assert!(destinations.contains("share/doc/floe/docs/RELEASE_MATRIX.md"));
     }
 }

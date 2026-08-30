@@ -68,6 +68,52 @@ merge.
 
 ---
 
+# Plan: Floe Phase 21D — Release Candidate
+
+## Contract
+
+Turn the verified Phase 21A–21C tree into a reproducible release candidate. The
+phase inventories every shipped Rust dependency and declared license, resolves
+or explicitly blocks on current advisories, exercises interrupted-operation
+recovery in disposable roots, and publishes a truthful generic/Niri/Plasma
+Wayland environment matrix from native evidence. Release artifacts must be
+reproducible from a clean source tree and accompanied by checksums and a
+machine-readable manifest. A security-critical or data-loss finding blocks
+completion.
+
+This phase does not add privileged mutations, broaden Undo, implement a sandbox,
+or change filesystem copy semantics. Those remain separate follow-on branches.
+
+## Depth tree
+
+1. Dependency and supply-chain release gate
+   1. Resolve current supported dependency advisories and freeze an auditable
+      dependency/license inventory.
+   2. Add deterministic policy checks that reject unknown/missing licenses,
+      forbidden sources, and unresolved recorded advisories.
+2. Recovery and environment evidence
+   1. Re-run corrupt/insecure/interrupted-operation recovery against isolated
+      roots and record the supported recovery contract.
+   2. Exercise generic Wayland and available compositor-native launch,
+      Ping/Quit, and clean-exit contracts without inventing unavailable claims.
+3. Reproducible candidate
+   1. Build the release archive twice and verify byte identity, contents,
+      release binary, manifest, and SHA-256 checksum.
+   2. Run deterministic, GTK/E2E where available, documentation, status, and
+      diff-hygiene gates.
+
+## Status log
+
+- 2026-08-29: Phase 21D started on `phase-21d-release-candidate`; gates are in
+  `gates/phase-21d.md`. Dependabot reports three medium `tar` advisories in the
+  pinned 0.4.44 release; resolving them is a release gate.
+- 2026-08-29 pass 1: updated `tar` to 0.4.46; the 204-package offline
+  source/license policy and all three recorded patched advisory floors pass.
+- 2026-08-29 pass 2: seven recovery tests, twice-built 245-file archive, package,
+  docs, E2E contract, and full Rust gates pass. Isolated KDE Wayland release
+  Ping/Quit exited 0; Niri and Dogtail/pyatspi remain explicitly unverified.
+  Phase 21D is complete and exactly Phase 14C is `NEXT`.
+
 ## Focused regression: fresh-session GVfs administrator mount
 
 Reproduced on KDE Wayland with the GVfs daemon and Plasma polkit agent active:

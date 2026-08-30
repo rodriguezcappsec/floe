@@ -78,6 +78,17 @@ desktop-specific integration, MTP, remote browsing, or packaging work.
 
 ---
 
+# Gates: Floe Phase 21D — Release Candidate
+
+- [x] RC1: Dependency/license/source and recorded advisory policies pass.
+  EVIDENCE: 204 resolved packages, ten allowed SPDX identifiers, tar 0.4.46 closes three current medium advisories.
+- [x] RC2: Recovery, reproducible artifact, package, docs, E2E contract, native lifecycle, and full Rust gates pass.
+  EVIDENCE: Seven recovery tests; byte-identical 245-file archives; isolated KDE Wayland Ping/Quit exit 0; 570 app, 21 integration, 162 core, six duplicate tests pass with 14 intentional graphical ignores.
+- [x] RC3: Persistent status is truthful and bounded.
+  EVIDENCE: Phase 21D COMPLETE; exactly Phase 14C safe administrator operations NEXT. Niri and Dogtail/pyatspi unverified limitations retained.
+
+---
+
 # Gates: Floe Phase 20B2A — Window Size Persistence
 
 Scope: normal top-level window size only; no position, compositor workspace,

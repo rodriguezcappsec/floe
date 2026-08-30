@@ -1315,6 +1315,42 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-29`
 
+Current phase: **Phase 21D — Release Candidate (complete)**
+
+Completed this session:
+
+- Updated `tar` from 0.4.44 to 0.4.46, resolving the three current medium
+  Dependabot advisories. Added a deterministic offline policy over 204 resolved
+  packages, ten allowed SPDX license identifiers, registry/path sources, and
+  the recorded patched advisory floors.
+- Added a reproducible candidate gate. Two 245-file source archives built with
+  the frozen epoch were byte-identical and received a verified SHA-256 manifest.
+- Re-ran seven fail-closed interrupted-operation recovery tests covering private
+  atomic storage, corrupt/symlink/insecure stores, stale prior-process records,
+  changed sources, uncertain output, retry, and explicit reset.
+- Added and installed `docs/RELEASE_MATRIX.md`. An isolated-session-bus release
+  binary with private HOME/XDG roots answered D-Bus `Peer.Ping`, exported Quit,
+  and exited 0 under KDE Plasma Wayland.
+- Release documentation, package layout/migrations/source, E2E harness, format,
+  workspace check, strict all-target/all-feature Clippy, frozen release build,
+  and workspace tests pass.
+
+Important decisions:
+
+- The release audit is not a future crypto/vault/sandbox hostile-input audit.
+- Niri and semantic Dogtail/pyatspi were unavailable on this Phase 21D host and
+  are not claimed. Generic GTK/GIO behavior remains compositor-independent.
+- Floe currently has one GApplication process and one window; proper multi-window
+  support requires shared application services rather than unsafe independent
+  processes racing settings and recovery stores.
+
+Recommended next task: create `phase-14c-privileged-operations` and implement
+only the bounded safe administrator mutation boundary described in the roadmap.
+
+## Prior active status (Phase 21C)
+
+Last updated: `2026-08-29`
+
 Current phase: **Phase 21C — Release Documentation (complete); focused Phase 14B administrator-mount regression fixed and user-facing feature rationale added**
 
 Completed this session:

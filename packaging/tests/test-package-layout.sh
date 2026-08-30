@@ -38,7 +38,7 @@ for document in \
   docs/GETTING_STARTED.md docs/USER_GUIDE.md docs/PHILOSOPHY.md docs/ADMINISTRATION.md \
   docs/ACCESSIBILITY.md docs/RECOVERY.md docs/DEBUGGING.md \
   docs/LOCALIZATION.md docs/INSTALLATION.md docs/MIGRATIONS.md \
-  docs/PERFORMANCE.md docs/PRIVACY_SECURITY.md; do
+  docs/PERFORMANCE.md docs/RELEASE_MATRIX.md docs/PRIVACY_SECURITY.md; do
   test -f "$temporary/root/usr/share/doc/floe/$document"
 done
 

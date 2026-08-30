@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "allowed_license_ids": [
+    "0BSD",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "LGPL-2.1-or-later",
+    "LicenseRef-proprietary",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib"
+  ],
+  "resolved_advisories": [
+    {
+      "id": "GHSA-3pv8-6f4r-ffg2",
+      "package": "tar",
+      "vulnerable_through": "0.4.45",
+      "patched": "0.4.46"
+    },
+    {
+      "id": "GHSA-j4xf-2g29-59ph",
+      "package": "tar",
+      "vulnerable_through": "0.4.44",
+      "patched": "0.4.45"
+    },
+    {
+      "id": "GHSA-gchp-q4r4-x4ff",
+      "package": "tar",
+      "vulnerable_through": "0.4.44",
+      "patched": "0.4.45"
+    }
+  ]
+}

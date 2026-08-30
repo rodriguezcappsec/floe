@@ -256,6 +256,8 @@ broaden Phase 15.
 | --- | --- | --- | --- | --- |
 | 14B — Privileged local browsing | COMPLETE | `phase-14b-privileged-local-browsing` | Open a local folder through a typed GIO/GVfs `admin://` provider with polkit-owned authentication and persistent visible authority state. | Verified experimental read-only opt-in, one bounded fresh-location mount/authorization and retry, private validated URI identity, exact non-UTF-8 paths, 128-entry pages/4,096-entry cap, no-follow metadata, generation rejection, 120-second authorization/30-second page cancellation, accessible badge/navigation/return controls, UID-stable native lifecycle. No elevation, password handling, arbitrary admin URI, local-job reuse, preview/terminal/archive/launcher/custom-action/plugin capability, silent fallback, or privileged mutation. |
 
+| 14C — Safe administrator operations | NEXT | `phase-14c-privileged-operations` | Explicit typed create, copy/move, rename, Trash/delete, and permission mutations inside an administrator location without elevating GTK. | Requires a separate GIO/GVfs mutation boundary, fresh polkit authorization, exact resource identity, no silent overwrite, no-follow policy, bounded cancellation/progress, journaled partial failure, and disposable root-owned native fixtures. Ordinary local `PathBuf` jobs must not receive stripped `admin://` paths. |
+
 ### Phase 15 — Niri integration
 
 Status: **DEFERRED**
@@ -371,7 +373,7 @@ appearance controls and audit work recorded in the feature matrix.
 | 21A — Performance | COMPLETE | `phase-21a-performance` | Release-only tempfile harness covers real 100k enumeration/sort/filter/search plus bounded thumbnails, content search, copy/checksum, duplicates, integrity and advanced metadata. | Reproducible host/budget/peak-memory evidence and measured 49.8% ASCII metadata text-fact optimization with semantic parity; native 100k Ping/Quit passed while critical-free logging is explicitly abandoned because host AT-SPI refused connections. |
 | 21B — Packaging/migrations | COMPLETE | `phase-21b-packaging` | Stable release identity, optimized `floe` binary, validated desktop/AppStream/icon metadata, manifest-driven source install/uninstall, Arch package, private preference migrations. | Arch package and staged native lifecycle verified; Flatpak, clean-chroot and publication remain deferred; no default MIME or user-XDG mutation. |
 | 21C — Release docs | COMPLETE | `phase-21c-release-documentation` | Reciprocal user, administrator, security, accessibility, recovery, debugging, localization, installation, migration, and changelog documentation with strict link/table/claim checks. | Installed public docs, deterministic source/Arch packaging, staged native Ping/Quit, fresh-user contracts, and full release gates pass; Dogtail/pyatspi semantic walkthrough remains truthfully unverified. |
-| 21D — Release candidate | NEXT | `phase-21d-release-candidate` | Dependency/license/security follow-up, crash recovery and environment matrix. | 21A–21C; no known data-loss/security-critical defect; require reproducible artifacts. |
+| 21D — Release candidate | COMPLETE | `phase-21d-release-candidate` | Dependency/license/security follow-up, crash recovery and environment matrix. | Three medium `tar` advisories resolved at 0.4.46; 204-package license/source policy, fail-closed recovery suite, reproducible 245-file archive, isolated KDE Wayland release Ping/Quit, docs/E2E/full Rust gates verified. Niri and semantic Dogtail/pyatspi were unavailable and remain unclaimed. |
 
 ## Deliberately deferred or not applicable
 

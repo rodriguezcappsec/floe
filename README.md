@@ -93,6 +93,7 @@ use different development-package names.
 - [Localization and RTL](./docs/LOCALIZATION.md)
 - [Security Policy](./SECURITY.md) and [Privacy/Security Architecture](./docs/PRIVACY_SECURITY.md)
 - [Performance](./docs/PERFORMANCE.md)
+- [Release environment matrix](./docs/RELEASE_MATRIX.md)
 - [Feature Matrix](./docs/FEATURE_MATRIX.md) and [Roadmap](./docs/ROADMAP.md)
 - [Changelog](./CHANGELOG.md)
 

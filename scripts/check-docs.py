@@ -17,7 +17,7 @@ RELEASE_DOCS = tuple(
         "docs/GETTING_STARTED.md", "docs/INSTALLATION.md", "docs/MIGRATIONS.md",
         "docs/USER_GUIDE.md", "docs/PHILOSOPHY.md", "docs/ADMINISTRATION.md", "docs/ACCESSIBILITY.md",
         "docs/RECOVERY.md", "docs/DEBUGGING.md", "docs/LOCALIZATION.md",
-        "docs/PERFORMANCE.md", "docs/ARCHITECTURE.md", "docs/DEVELOPMENT.md",
+        "docs/PERFORMANCE.md", "docs/RELEASE_MATRIX.md", "docs/ARCHITECTURE.md", "docs/DEVELOPMENT.md",
         "docs/PRIVACY_SECURITY.md", "docs/PRIVILEGED_ACCESS.md",
         "docs/FEATURE_MATRIX.md", "docs/ROADMAP.md",
     )

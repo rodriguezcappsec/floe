@@ -997,4 +997,10 @@ No privacy or security capability moves from **PLANNED** to **IMPLEMENTED** unti
 8. formatting, check, strict Clippy, workspace tests, and native Wayland smoke when UI or desktop integration changes;
 9. dependency audit and security review before stable claims, with fuzzing and external-review opportunities recorded for crypto, vault, parser, and sandbox boundaries.
 
+Phase 21D adds a deterministic release dependency/source/license policy and
+records resolution of `GHSA-3pv8-6f4r-ffg2`, `GHSA-j4xf-2g29-59ph`, and
+`GHSA-gchp-q4r4-x4ff` by requiring `tar` 0.4.46. This is a release-graph audit,
+not a substitute for the future Phase 18AA hostile-input review of cryptography,
+vaults, or sandbox boundaries that do not yet exist.
+
 Phase 18A may refine this architecture and select candidates, but selection alone does not make a feature implemented. The Phase 18 family is not stable until its final audit verifies cryptography, secrets, caches, metadata, sandbox assumptions, hostile inputs, vault lifecycle, recovery, and claims together.

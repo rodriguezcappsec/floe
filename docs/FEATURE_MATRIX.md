@@ -7,9 +7,10 @@ belongs. `docs/ROADMAP.md` owns sequencing and bounded phase definitions;
 
 The generic desktop integration baseline is Phase 14; Phase 18A's
 documentation-only security architecture, runtime Phases 18T–18Y, and Phase
-20A Settings Center are complete. Phase 21B packaging and migrations and Phase
-21C release documentation are complete. Phase 21D release-candidate hardening
-is the only `NEXT` phase. Every other future capability remains `PLANNED` or
+20A Settings Center are complete. Phase 21B packaging and migrations, Phase
+21C release documentation, and Phase 21D release-candidate hardening are
+complete. Phase 14C safe administrator operations is the only `NEXT` phase.
+Every other future capability remains `PLANNED` or
 `DEFERRED`.
 
 ## Status key
@@ -662,7 +663,7 @@ advanced predicates and explicit Match Case control.
 | Flatpak/Arch/AUR packaging | `PARTIAL` | 21B | Native Arch packaging and manifest-driven install/uninstall are verified. Flatpak and AUR publication are deferred. |
 | Configuration/cache migration | `COMPLETE` | 21B | Version-18 private preference migration, supported backups, future/symlink/oversize refusal, cache rebuild policy, rollback, and package isolation are verified. |
 | Vault-format compatibility policy | `DEFERRED` | 18F/21 | Floe has no Encrypted Vault or vault format to migrate; policy starts only with a reviewed implementation. |
-| Dependency/security audit | `PLANNED` | 18AA/21 | Hostile files, crypto, parsers, sandbox assumptions, secrets, caches, lifecycle, and recovery. |
+| Dependency/security audit | `PARTIAL` | 21D/18AA | Release graph policy covers 204 packages and three resolved `tar` advisories, license/source policy, recovery lifecycle, and reproducible artifacts. Future crypto/vault/sandbox implementations still require Phase 18AA hostile-boundary audit. |
 | Release documentation/accessibility/readiness | `COMPLETE` | 21C | Release manuals, strict local documentation checks, installed-artifact walkthrough contract, and truthful accessibility/localization limitations are verified. |
 
 ## Quality-of-life checklist
