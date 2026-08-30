@@ -68,6 +68,47 @@ merge.
 
 ---
 
+## Focused regression: fresh-session GVfs administrator mount
+
+Reproduced on KDE Wayland with the GVfs daemon and Plasma polkit agent active:
+`gio info admin:///boot` returns `G_IO_ERROR_NOT_MOUNTED`. Floe currently
+enumerates the administrator `GFile` directly and maps that result to an
+unavailable service, so authorization is never requested.
+
+The fix remains inside the application-owned privileged provider. On the first
+`NotMounted` result it starts one cancellable, time-bounded
+`g_file_mount_enclosing_volume` request with a window-parented
+`GtkMountOperation`; success or `AlreadyMounted` retries enumeration once.
+Denial, cancellation, timeout, missing-agent/backend errors, stale generations,
+and a second `NotMounted` fail explicitly. The ordinary process remains
+UID-stable and the administrator view remains read-only with no capability
+inheritance into jobs, previews, launchers, archives, terminals, or custom
+actions.
+
+Gates are recorded in `gates/fix-admin-gvfs-mount.md`. This regression fix does
+not begin Phase 21D or any future privileged mutation work.
+
+Status: implementation, focused Phase 14B tests, full workspace gates, strict
+documentation/release-source checks, and real-GTK accessibility contract pass.
+The native KDE/GVfs mount request reached desktop authorization, but successful
+administrator enumeration remains a truthful manual gate because this run did
+not request or receive the user's password.
+
+## Focused documentation: features and their reasons
+
+Floe now has an explicit user-facing philosophy rather than leaving product
+rationale only in architecture and security documents. `docs/PHILOSOPHY.md`
+defines the voice and decision principles, maps major behaviors to their reasons
+and tradeoffs, and requires surprising or safety/privacy-sensitive features to
+explain what they do, why, the tradeoff, and what they do not claim.
+
+The philosophy is linked from README, Getting Started, User Guide, and
+Administration. The administrator view itself explains why elevated access is
+isolated. The document is included in strict link/table/claim validation,
+rendering, installed manuals, package-layout checks, and deterministic release
+sources. Gates are in `gates/feature-rationale-docs.md`; this does not change the
+sole roadmap `NEXT`, Phase 21D.
+
 # Plan: Floe Phase 20B2A — Window Size Persistence
 
 ## Contract

@@ -343,7 +343,12 @@ impl GioPrivilegedProvider {
         }
     }
 
-    pub fn start(&self, generation: u64, location: PrivilegedResourceId) {
+    pub fn start(
+        &self,
+        generation: u64,
+        location: PrivilegedResourceId,
+        mount_operation: gio::MountOperation,
+    ) {
         self.cancel();
         if !admin_scheme_supported() {
             (self.callback)(PrivilegedProviderEvent::Failed {
@@ -359,39 +364,14 @@ impl GioPrivilegedProvider {
             generation,
             cancellable: cancellable.clone(),
         }));
-        let callback = Rc::clone(&self.callback);
-        let active = Rc::clone(&self.active);
-        let file = location.file();
-        let timed_out = Rc::new(Cell::new(false));
-        let timeout = install_timeout(&cancellable, Rc::clone(&timed_out), AUTHORIZATION_TIMEOUT);
-        let cancellable_for_callback = cancellable.clone();
-        file.enumerate_children_async(
-            ENUMERATION_ATTRIBUTES,
-            gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
-            glib::Priority::DEFAULT,
-            Some(&cancellable),
-            move |result| {
-                cancel_timeout(&timeout);
-                match result {
-                    Ok(enumerator) => request_page(
-                        generation,
-                        location,
-                        enumerator,
-                        cancellable_for_callback,
-                        callback,
-                        active,
-                        0,
-                    ),
-                    Err(error) => {
-                        clear_active(&active, generation);
-                        callback(PrivilegedProviderEvent::Failed {
-                            generation,
-                            location,
-                            kind: classify_gio_error(&error, timed_out.get()),
-                        });
-                    }
-                }
-            },
+        request_enumerator(
+            generation,
+            location,
+            mount_operation,
+            cancellable,
+            Rc::clone(&self.callback),
+            Rc::clone(&self.active),
+            false,
         );
     }
 
@@ -420,6 +400,170 @@ impl Drop for GioPrivilegedProvider {
             active.cancellable.cancel();
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EnumerationFailureAction {
+    Mount,
+    Fail(PrivilegedFailureKind),
+}
+
+fn enumeration_failure_action(
+    error: &glib::Error,
+    timed_out: bool,
+    mount_attempted: bool,
+) -> EnumerationFailureAction {
+    if !timed_out && !mount_attempted && error.matches(gio::IOErrorEnum::NotMounted) {
+        EnumerationFailureAction::Mount
+    } else if mount_attempted && error.matches(gio::IOErrorEnum::NotMounted) {
+        EnumerationFailureAction::Fail(PrivilegedFailureKind::Backend)
+    } else {
+        EnumerationFailureAction::Fail(classify_gio_error(error, timed_out))
+    }
+}
+
+fn mount_failure_kind(error: &glib::Error, timed_out: bool) -> Option<PrivilegedFailureKind> {
+    if !timed_out && error.matches(gio::IOErrorEnum::AlreadyMounted) {
+        None
+    } else {
+        Some(classify_gio_error(error, timed_out))
+    }
+}
+
+fn request_enumerator(
+    generation: u64,
+    location: PrivilegedResourceId,
+    mount_operation: gio::MountOperation,
+    cancellable: gio::Cancellable,
+    callback: Rc<dyn Fn(PrivilegedProviderEvent)>,
+    active: Rc<RefCell<Option<ActiveRequest>>>,
+    mount_attempted: bool,
+) {
+    let file = location.file();
+    let timed_out = Rc::new(Cell::new(false));
+    let timeout = install_timeout(&cancellable, Rc::clone(&timed_out), AUTHORIZATION_TIMEOUT);
+    let cancellable_for_callback = cancellable.clone();
+    file.enumerate_children_async(
+        ENUMERATION_ATTRIBUTES,
+        gio::FileQueryInfoFlags::NOFOLLOW_SYMLINKS,
+        glib::Priority::DEFAULT,
+        Some(&cancellable),
+        move |result| {
+            cancel_timeout(&timeout);
+            if request_was_superseded(&active, generation) {
+                return;
+            }
+            match result {
+                Ok(enumerator) => request_page(
+                    generation,
+                    location,
+                    enumerator,
+                    cancellable_for_callback,
+                    callback,
+                    active,
+                    0,
+                ),
+                Err(error) => {
+                    match enumeration_failure_action(&error, timed_out.get(), mount_attempted) {
+                        EnumerationFailureAction::Mount => request_mount(
+                            generation,
+                            location,
+                            mount_operation,
+                            cancellable_for_callback,
+                            callback,
+                            active,
+                        ),
+                        EnumerationFailureAction::Fail(kind) => {
+                            emit_failure(generation, location, kind, callback, active);
+                        }
+                    }
+                }
+            }
+        },
+    );
+}
+
+fn request_mount(
+    generation: u64,
+    location: PrivilegedResourceId,
+    mount_operation: gio::MountOperation,
+    cancellable: gio::Cancellable,
+    callback: Rc<dyn Fn(PrivilegedProviderEvent)>,
+    active: Rc<RefCell<Option<ActiveRequest>>>,
+) {
+    let file = location.file();
+    let timed_out = Rc::new(Cell::new(false));
+    let timeout = install_timeout(&cancellable, Rc::clone(&timed_out), AUTHORIZATION_TIMEOUT);
+    let mount_operation_for_callback = mount_operation.clone();
+    let cancellable_for_callback = cancellable.clone();
+    file.mount_enclosing_volume(
+        gio::MountMountFlags::NONE,
+        Some(&mount_operation),
+        Some(&cancellable),
+        move |result| {
+            cancel_timeout(&timeout);
+            if request_was_superseded(&active, generation) {
+                return;
+            }
+            if cancellable_for_callback.is_cancelled() {
+                let kind = if timed_out.get() {
+                    PrivilegedFailureKind::TimedOut
+                } else {
+                    PrivilegedFailureKind::Cancelled
+                };
+                emit_failure(generation, location, kind, callback, active);
+                return;
+            }
+            match result {
+                Ok(()) => request_enumerator(
+                    generation,
+                    location,
+                    mount_operation_for_callback,
+                    cancellable_for_callback,
+                    callback,
+                    active,
+                    true,
+                ),
+                Err(error) => {
+                    if let Some(kind) = mount_failure_kind(&error, timed_out.get()) {
+                        emit_failure(generation, location, kind, callback, active);
+                    } else {
+                        request_enumerator(
+                            generation,
+                            location,
+                            mount_operation_for_callback,
+                            cancellable_for_callback,
+                            callback,
+                            active,
+                            true,
+                        );
+                    }
+                }
+            }
+        },
+    );
+}
+
+fn request_was_superseded(active: &Rc<RefCell<Option<ActiveRequest>>>, generation: u64) -> bool {
+    active
+        .borrow()
+        .as_ref()
+        .is_some_and(|request| request.generation != generation)
+}
+
+fn emit_failure(
+    generation: u64,
+    location: PrivilegedResourceId,
+    kind: PrivilegedFailureKind,
+    callback: Rc<dyn Fn(PrivilegedProviderEvent)>,
+    active: Rc<RefCell<Option<ActiveRequest>>>,
+) {
+    clear_active(&active, generation);
+    callback(PrivilegedProviderEvent::Failed {
+        generation,
+        location,
+        kind,
+    });
 }
 
 fn install_timeout(
@@ -991,6 +1135,7 @@ fn icon_button(icon_name: &str, accessible_label: &str) -> gtk::Button {
 pub struct PrivilegedAccessController {
     pub widgets: PrivilegedViewWidgets,
     provider: GioPrivilegedProvider,
+    parent_window: glib::WeakRef<gtk::Window>,
     session: RefCell<PrivilegedSession>,
     accepted_entries: RefCell<Vec<PrivilegedEntry>>,
     rollback_entries: RefCell<Option<Vec<PrivilegedEntry>>>,
@@ -1008,6 +1153,7 @@ impl PrivilegedAccessController {
             Self {
                 widgets: build_view(),
                 provider: GioPrivilegedProvider::new(callback),
+                parent_window: glib::WeakRef::new(),
                 session: RefCell::new(PrivilegedSession::default()),
                 accepted_entries: RefCell::new(Vec::new()),
                 rollback_entries: RefCell::new(None),
@@ -1017,7 +1163,12 @@ impl PrivilegedAccessController {
         controller
     }
 
-    pub fn present(&self, parent: &impl IsA<gtk::Widget>, local_path: &Path) {
+    pub fn present<P>(&self, parent: &P, local_path: &Path)
+    where
+        P: IsA<gtk::Window> + IsA<gtk::Widget>,
+    {
+        self.parent_window
+            .set(Some(parent.upcast_ref::<gtk::Window>()));
         if matches!(
             self.session.borrow().phase,
             SessionPhase::Authorizing | SessionPhase::Privileged
@@ -1030,7 +1181,7 @@ impl PrivilegedAccessController {
             Ok((generation, location)) => {
                 self.prepare_request(&location);
                 self.widgets.dialog.present(Some(parent));
-                self.provider.start(generation, location);
+                self.start_provider(generation, location);
             }
             Err(_) => {
                 self.widgets
@@ -1128,7 +1279,7 @@ impl PrivilegedAccessController {
                 controller
                     .widgets
                     .status
-                    .set_label("This administrator view is read-only. Only folders can be opened.");
+                    .set_label("Only folders can be opened; elevated access stays isolated from file operations and tools.");
             }
         });
     }
@@ -1161,7 +1312,14 @@ impl PrivilegedAccessController {
 
     fn start_request(&self, generation: u64, location: PrivilegedResourceId) {
         self.prepare_request(&location);
-        self.provider.start(generation, location);
+        self.start_provider(generation, location);
+    }
+
+    fn start_provider(&self, generation: u64, location: PrivilegedResourceId) {
+        let parent = self.parent_window.upgrade();
+        let mount_operation = gtk::MountOperation::new(parent.as_ref());
+        self.provider
+            .start(generation, location, mount_operation.upcast());
     }
 
     fn prepare_request(&self, location: &PrivilegedResourceId) {
@@ -1233,7 +1391,7 @@ impl PrivilegedAccessController {
                 } else if self.accepted_entries.borrow().is_empty() {
                     "Administrator read-only view — Empty folder"
                 } else {
-                    "Administrator read-only view — file operations are disabled"
+                    "Administrator read-only view — elevated access stays isolated from file operations and tools"
                 });
             }
             PrivilegedProviderEvent::Failed {
@@ -1448,6 +1606,52 @@ mod tests {
     }
 
     #[test]
+    fn phase_14b_provider_mounts_once_for_a_fresh_not_mounted_location() {
+        let not_mounted = glib::Error::new(
+            gio::IOErrorEnum::NotMounted,
+            "administrator location is not mounted",
+        );
+
+        assert_eq!(
+            enumeration_failure_action(&not_mounted, false, false),
+            EnumerationFailureAction::Mount
+        );
+        assert_eq!(
+            enumeration_failure_action(&not_mounted, false, true),
+            EnumerationFailureAction::Fail(PrivilegedFailureKind::Backend)
+        );
+        assert_eq!(
+            enumeration_failure_action(&not_mounted, true, false),
+            EnumerationFailureAction::Fail(PrivilegedFailureKind::TimedOut)
+        );
+    }
+
+    #[test]
+    fn phase_14b_provider_accepts_already_mounted_but_preserves_mount_failures() {
+        assert_eq!(
+            mount_failure_kind(
+                &glib::Error::new(gio::IOErrorEnum::AlreadyMounted, "already mounted"),
+                false
+            ),
+            None
+        );
+        assert_eq!(
+            mount_failure_kind(
+                &glib::Error::new(gio::IOErrorEnum::PermissionDenied, "denied"),
+                false
+            ),
+            Some(PrivilegedFailureKind::Denied)
+        );
+        assert_eq!(
+            mount_failure_kind(
+                &glib::Error::new(gio::IOErrorEnum::Cancelled, "cancelled"),
+                true
+            ),
+            Some(PrivilegedFailureKind::TimedOut)
+        );
+    }
+
+    #[test]
     fn phase_14b_state_fake_provider_covers_terminal_outcomes_without_io() {
         let outcomes = [
             PrivilegedFailureKind::Denied,
@@ -1515,6 +1719,8 @@ mod tests {
             );
         }
         assert!(implementation.contains("NOFOLLOW_SYMLINKS"));
+        assert!(implementation.contains("mount_enclosing_volume"));
+        assert!(implementation.contains("gtk::MountOperation::new"));
         assert!(implementation.contains("Administrator — Read-only"));
     }
 

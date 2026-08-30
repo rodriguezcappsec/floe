@@ -15,7 +15,7 @@ RELEASE_DOCS = tuple(
     for name in (
         "README.md", "SECURITY.md", "CHANGELOG.md",
         "docs/GETTING_STARTED.md", "docs/INSTALLATION.md", "docs/MIGRATIONS.md",
-        "docs/USER_GUIDE.md", "docs/ADMINISTRATION.md", "docs/ACCESSIBILITY.md",
+        "docs/USER_GUIDE.md", "docs/PHILOSOPHY.md", "docs/ADMINISTRATION.md", "docs/ACCESSIBILITY.md",
         "docs/RECOVERY.md", "docs/DEBUGGING.md", "docs/LOCALIZATION.md",
         "docs/PERFORMANCE.md", "docs/ARCHITECTURE.md", "docs/DEVELOPMENT.md",
         "docs/PRIVACY_SECURITY.md", "docs/PRIVILEGED_ACCESS.md",
@@ -147,8 +147,9 @@ def main() -> int:
 
     if args.strict:
         for relative, names in {
-            Path("README.md"): ("GETTING_STARTED.md", "ADMINISTRATION.md", "ACCESSIBILITY.md", "RECOVERY.md", "DEBUGGING.md", "LOCALIZATION.md", "SECURITY.md", "CHANGELOG.md"),
-            Path("docs/USER_GUIDE.md"): ("GETTING_STARTED.md", "INSTALLATION.md", "ADMINISTRATION.md", "ACCESSIBILITY.md", "RECOVERY.md", "DEBUGGING.md", "LOCALIZATION.md", "SECURITY.md"),
+            Path("README.md"): ("GETTING_STARTED.md", "PHILOSOPHY.md", "ADMINISTRATION.md", "ACCESSIBILITY.md", "RECOVERY.md", "DEBUGGING.md", "LOCALIZATION.md", "SECURITY.md", "CHANGELOG.md"),
+            Path("docs/USER_GUIDE.md"): ("GETTING_STARTED.md", "PHILOSOPHY.md", "INSTALLATION.md", "ADMINISTRATION.md", "ACCESSIBILITY.md", "RECOVERY.md", "DEBUGGING.md", "LOCALIZATION.md", "SECURITY.md"),
+            Path("docs/PHILOSOPHY.md"): ("USER_GUIDE.md", "FEATURE_MATRIX.md", "PRIVACY_SECURITY.md", "PRIVILEGED_ACCESS.md", "SECURITY.md", "ROADMAP.md"),
         }.items():
             for name in names:
                 if name not in texts.get(relative, ""):

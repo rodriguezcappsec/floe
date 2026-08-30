@@ -35,7 +35,7 @@ done < "$repo_root/packaging/install-manifest.txt"
 
 for document in \
   README.md SECURITY.md CHANGELOG.md \
-  docs/GETTING_STARTED.md docs/USER_GUIDE.md docs/ADMINISTRATION.md \
+  docs/GETTING_STARTED.md docs/USER_GUIDE.md docs/PHILOSOPHY.md docs/ADMINISTRATION.md \
   docs/ACCESSIBILITY.md docs/RECOVERY.md docs/DEBUGGING.md \
   docs/LOCALIZATION.md docs/INSTALLATION.md docs/MIGRATIONS.md \
   docs/PERFORMANCE.md docs/PRIVACY_SECURITY.md; do

@@ -12,6 +12,7 @@ SECURITY.md|share/doc/floe/SECURITY.md|0644
 CHANGELOG.md|share/doc/floe/CHANGELOG.md|0644
 docs/GETTING_STARTED.md|share/doc/floe/docs/GETTING_STARTED.md|0644
 docs/USER_GUIDE.md|share/doc/floe/docs/USER_GUIDE.md|0644
+docs/PHILOSOPHY.md|share/doc/floe/docs/PHILOSOPHY.md|0644
 docs/ADMINISTRATION.md|share/doc/floe/docs/ADMINISTRATION.md|0644
 docs/ACCESSIBILITY.md|share/doc/floe/docs/ACCESSIBILITY.md|0644
 docs/RECOVERY.md|share/doc/floe/docs/RECOVERY.md|0644
