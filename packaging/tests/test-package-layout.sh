@@ -33,6 +33,15 @@ while IFS='|' read -r source destination mode; do
   test "$(stat -c '%a' "$installed")" = "${mode#0}"
 done < "$repo_root/packaging/install-manifest.txt"
 
+for document in \
+  README.md SECURITY.md CHANGELOG.md \
+  docs/GETTING_STARTED.md docs/USER_GUIDE.md docs/ADMINISTRATION.md \
+  docs/ACCESSIBILITY.md docs/RECOVERY.md docs/DEBUGGING.md \
+  docs/LOCALIZATION.md docs/INSTALLATION.md docs/MIGRATIONS.md \
+  docs/PERFORMANCE.md docs/PRIVACY_SECURITY.md; do
+  test -f "$temporary/root/usr/share/doc/floe/$document"
+done
+
 desktop-file-validate \
   "$temporary/root/usr/share/applications/io.github.rodriguezcappsec.Floe.desktop"
 appstreamcli validate --no-net \

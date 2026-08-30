@@ -770,7 +770,7 @@ forking the navigation widgets. Frosted
 is the default; `FLOE_APPEARANCE` selects Native, Glass, Frosted, Minimal, or
 Compact. Blur and settings persistence do not exist.
 
-## Keyboard input
+## Release persistence transition
 
 ## Release packaging and persistence boundary
 
@@ -812,8 +812,9 @@ Current application/window actions are:
 | Ctrl+Q | Quit |
 | Enter / double-click | Activate selected list or grid item |
 
-Open is also a visible header action. There is no configurable keymap or Vim
-mode yet.
+Open is also a visible header action. Keyboard shortcuts are centrally
+registered and mostly user-configurable. Optional Vim navigation is off by
+default and confined to file views.
 
 ## Error handling and tracing
 
@@ -826,9 +827,10 @@ path reporting. No file contents are logged.
 
 ### Desktop integration
 
-No desktop integration trait or Niri/Plasma backend exists. The app uses generic
-GTK/GIO/GLib behavior and displays a "Generic Wayland" label. Environment
-detection and compositor APIs must eventually stay under `crates/app`.
+Phase 14 implements an application-only generic desktop integration capability boundary
+over GTK, GIO, GLib, XDG, portals, and session services. Niri-specific and
+Plasma-specific backends remain deferred; the filesystem core has no compositor
+dependency.
 
 ### Filesystem jobs through Phase 5F
 

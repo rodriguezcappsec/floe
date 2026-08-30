@@ -1468,3 +1468,52 @@ connections; lifecycle evidence passed and no semantic E2E claim is made.
   EXPECT: /21C.*NEXT/
   EVIDENCE: README, installation, migrations, development, architecture,
   privacy/security, matrix, roadmap, AGENTS, PLAN, and leaf ledger agree.
+# Gates: Floe Phase 21C — Release Documentation
+
+- [x] C1: Getting Started, Installation, Administration, Accessibility,
+  Recovery, Debugging, Localization, Security, Changelog and existing User
+  Guide form a reciprocal, current, task-oriented release documentation set.
+  CHECK: python3 scripts/check-docs.py
+  EXPECT: /phase-21c-docs-ok/
+  EVIDENCE: Reciprocal task-oriented release set is present; ordinary checker passes 19 release-facing files.
+- [x] C2: The documentation checker validates UTF-8, local links/fragments,
+  unique headings, fixed-column GFM tables, exactly one roadmap NEXT, canonical
+  security terminology/limitations, stable identity and absence of stale
+  available/deferred claims.
+  CHECK: python3 scripts/check-docs.py --strict
+  EXPECT: /phase-21c-docs-ok/
+  EVIDENCE: Strict checker passes all 19 release documents for links, fragments, duplicate base heading slugs, fixed-column tables, identity, security vocabulary/limitations, current claims, and exactly one roadmap NEXT; two focused checker regressions pass.
+- [x] C3: Every release-facing Markdown file renders with GFM tables and no
+  syntax error; current roadmap/matrix/privacy/architecture contradictions and
+  malformed table rows identified in the Phase 21C audit are reconciled.
+  CHECK: sh scripts/render-docs.sh
+  EXPECT: /phase-21c-render-ok/
+  EVIDENCE: Dependency-free render sweep passes after stale roadmap, matrix, privacy, architecture, development, and malformed-table claims were reconciled.
+- [x] C4: The fresh-user walkthrough contract uses an installed artifact and
+  isolated HOME/XDG/Trash roots to cover launch, navigation/views, search,
+  preview, one reversible operation, Trash/restore, persistence, Ping and clean
+  quit; Dogtail/AT-SPI skips and manual evidence are reported truthfully.
+  CHECK: python3 -m unittest discover -s e2e -p 'test_release_walkthrough.py' -v
+  EXPECT: /OK/
+  EVIDENCE: Two deterministic walkthrough contracts pass. Staged semantic native class skips truthfully because Dogtail/pyatspi are unavailable; separate staged Ping/Quit lifecycle exits 0.
+- [x] C5: Public-doc additions are included in the install manifest; the
+  deterministic source archive/PKGBUILD checksum is regenerated, a real Arch
+  package rebuild and staged native lifecycle pass, and no user defaults/data
+  are modified.
+  CHECK: sh packaging/tests/test-package-layout.sh && sh packaging/tests/test-migrations.sh && sh packaging/tests/test-release-source.sh
+  EXPECT: /phase-21c-release-source-ok/
+  EVIDENCE: Layout/uninstall, migrations, and deterministic source gates pass. Real clean makepkg passes; staged Arch binary answers Ping, exports/accepts Quit, exits 0 without user-default mutation.
+- [x] C6: Formatting, workspace check, strict Clippy, workspace tests, frozen
+  release build, metadata/package/migration/docs/walkthrough validators, E2E
+  preflight, applicable native gates and diff hygiene pass.
+  CHECK: cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build --frozen --release -p floe-app --bin floe && git diff --check
+  EXPECT: /Finished/
+  EVIDENCE: Format, check, strict all-target/all-feature Clippy, 554 app tests with 14 graphical ignores, 21 app integration, 162 core, six duplicate workflows, frozen release build, and diff hygiene pass.
+- [x] C7: Persistent status records only verified results/limitations, marks
+  21C complete after C1-C6 and sets exactly Phase 21D `NEXT` without starting
+  dependency/security/release-candidate work.
+  CHECK: test "$(rg -c '\| NEXT \|' docs/ROADMAP.md)" -eq 1 && rg -n '21C.*COMPLETE|21D.*NEXT' docs/ROADMAP.md
+  EXPECT: /21D.*NEXT/
+  EVIDENCE: README, roadmap, matrix, privacy/security, AGENTS, PLAN, and both ledgers record Phase 21C COMPLETE, exactly Phase 21D NEXT, English-only partial RTL, log redaction, native semantic skip, and deferred features.
+
+---

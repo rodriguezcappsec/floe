@@ -2,12 +2,12 @@
 
 Status: authoritative product-wide security architecture. Phase 18A's threat,
 decision, dependency-admission, and test-plan baseline and runtime Phases
-18T–18X are **COMPLETE**. Cryptography, vaults, private modes, sandboxing,
-recovery journals, and most other security capabilities remain **PLANNED**.
+18T–18Y are **COMPLETE**. Cryptography, vaults, Private Mode, Sensitive Folder,
+provider sandboxing, and most other security capabilities remain **PLANNED**.
 This document does not select a cryptographic library, vault backend,
 credential backend, or sandbox mechanism.
 
-Last reviewed against the repository: `2026-08-29`, after Phase 21B.
+Last reviewed against the repository: `2026-08-29`, after Phase 21C.
 
 Phase 18A evidence is split into three focused records:
 

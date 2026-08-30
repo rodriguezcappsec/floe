@@ -93,7 +93,9 @@ The default tracing filter is `floe_app=info,floe_core=info`. Override it with
 RUST_LOG=floe_app=debug,floe_core=debug cargo run -p floe-app
 ```
 
-Avoid adding file contents or verbose user paths to normal-level logs.
+Do not log file contents or authentication secrets. Current worker errors and
+technical details can contain sensitive paths even at normal levels. Review and
+redact captured output before sharing it; see [Debugging](./DEBUGGING.md).
 
 ## Quality commands
 

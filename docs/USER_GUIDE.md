@@ -1,5 +1,11 @@
 # Floe User Guide
 
+Release documentation: [Getting Started](./GETTING_STARTED.md) ·
+[Installation](./INSTALLATION.md) · [Administration](./ADMINISTRATION.md) ·
+[Accessibility](./ACCESSIBILITY.md) · [Recovery](./RECOVERY.md) ·
+[Debugging](./DEBUGGING.md) · [Localization](./LOCALIZATION.md) ·
+[Security](../SECURITY.md)
+
 This guide explains features available in the current development version of
 Floe. Labels and menu placement may evolve. The
 [feature matrix](./FEATURE_MATRIX.md) remains the source of truth for what is
