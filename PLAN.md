@@ -1,3 +1,56 @@
+# Plan: Floe USB Device Discovery Bug Fix and Logical Edge Review
+
+## Contract
+
+Fix the confirmed removable-volume presentation failure first. A GIO volume
+whose reported name is empty or only whitespace must still produce a visible,
+meaningful, accessible Devices row without changing its authoritative
+`DeviceId`, mount object, exact local root, or action routing. Prefer a real
+nonempty volume name, then a nonempty filesystem-label identifier, then the
+associated drive name plus a bounded partition/device hint, and finally a calm
+generic storage label. Display-only fallbacks must not become path identity.
+
+After the fix is implemented and verified, perform a read-only adversarial
+logical review of Floe's highest-risk current subsystems. Confirm findings
+through callers, tests, runtime evidence, and a skeptic pass; report only
+defensible bugs. Do not implement additional findings in this task.
+
+## Depth tree
+
+1. Device presentation repair
+   - extract a deterministic bounded display-name policy;
+   - preserve exact opaque device identity and GIO action object;
+   - keep empty-name volumes visible and distinguish sibling partitions;
+   - retain drive/volume/mount deduplication and live signal refresh.
+2. Regression and native verification
+   - cover empty, whitespace, control-heavy, label, drive, device-hint, and
+     ultimate fallback cases;
+   - cover duplicate sibling names and non-UTF-8/path-display separation;
+   - run focused, workspace, strict Clippy, docs, diff, and native GIO smoke.
+3. Adversarial logical review
+   - inspect architecture, state/executor boundaries, cancellation/recovery,
+     device disappearance, virtualized selection, parsers/providers, and
+     persistence/migration invariants;
+   - attempt to disprove every candidate before reporting it;
+   - leave non-primary findings read-only with exact reproduction and tests.
+
+## Status log
+
+- 2026-08-30: Started on `fix-usb-device-discovery` from clean main commit
+  `497c3db`. Live evidence confirms `/dev/sdc` and its mountable/ejectable GIO
+  volume exist while GIO supplies an empty volume name; Floe hides the parent
+  drive and renders that empty name directly. Gates are in
+  `gates/fix-usb-device-discovery.md`.
+- 2026-08-30: Repair verified. Empty GIO volume names now resolve through
+  bounded display-only label/drive/partition/generic fallbacks, with opaque
+  identity and live action objects unchanged. Focused/live device tests, full
+  workspace gates, strict docs/release contracts, and isolated Wayland
+  Ping/Quit pass. The read-only edge hunt confirmed four unrelated findings
+  and retained one duplicate-UUID identity lead as needs-verification; none was
+  implemented. Phase 6W remains the sole roadmap `NEXT` phase.
+
+---
+
 # Plan: Floe Phase 6V — Selection and Operation Reveal Polish
 
 ## Contract

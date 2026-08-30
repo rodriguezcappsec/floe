@@ -155,7 +155,8 @@ and multiple targets produce explicit feedback.
   free` beneath it; narrow sidebars shorten either line visually without
   wrapping, and hovering reveals the complete text. Available mount, unmount,
   and eject actions use GIO and native password prompts where the desktop
-  provides them.
+  provides them. If the desktop supplies no usable volume name, Floe shows a
+  filesystem label or a drive/partition fallback instead of a blank row.
 - Use **Desktop Integration…** to see which standard services are available or
   limited in the current desktop session.
 

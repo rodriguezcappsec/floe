@@ -745,6 +745,11 @@ submit requests and consume structured worker events.
 mounts. It converts the live `gio::VolumeMonitor` topology into immutable,
 deduplicated `DeviceSnapshot` values and refreshes observers on drive, volume,
 and mount signals. Stable opaque IDs are separate from user-facing labels.
+Presentation labels are normalized and bounded independently of identity. Some
+real removable volumes expose an empty GIO name; Floe falls back in order to a
+filesystem label, associated drive plus Unix-device basename, or a calm generic
+storage label. These display-only fallbacks never replace the opaque device ID,
+GIO action object, or exact navigation root.
 
 The snapshot policy distinguishes mounted/unmounted, removable, local,
 non-local, multiple-root, unavailable, and busy states. GIO mount, unmount, and

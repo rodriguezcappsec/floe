@@ -58,7 +58,7 @@ phases add hostile-input, failure-path, cache-leak, and claim-accuracy tests.
 | 6H | COMPLETE | Editable absolute local location entry and rollback. |
 | 6I | COMPLETE | Open routes to chooser when no default exists. |
 | 6J | COMPLETE | Multi-selection, batch actions, item/background menus. |
-| 6K | COMPLETE | XDG Places, raw-path bookmarks, live GIO devices. |
+| 6K | COMPLETE | XDG Places, raw-path bookmarks, live GIO devices with nonempty bounded presentation fallbacks. |
 | 6K2 | COMPLETE | Persistent sidebar density/width and mount-operation polish. |
 | 6L | COMPLETE | Supervised freedesktop system-thumbnailer providers with bounded cache integration. |
 | 6M | COMPLETE | Confirmed multi-target permanent deletion with mount/symlink safety and truthful partial failure. |

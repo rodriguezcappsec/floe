@@ -1,3 +1,58 @@
+# Gates: Floe USB Device Discovery Bug Fix and Logical Edge Review
+
+- [x] D1: Every GIO drive, volume, and mount snapshot has a bounded nonempty
+  presentation name while opaque identity, action ownership, and exact path
+  data remain unchanged.
+  CHECK: `cargo test -p floe-app usb_device_display_name -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Focused resolver and live host GIO snapshot tests pass; every
+  returned name is nonempty, control-free, and at most 160 characters.
+
+- [x] D2: Empty/whitespace volume names, labels, drive names, device hints,
+  control characters, and sibling partitions have deterministic useful
+  fallbacks without hiding a real mountable USB volume.
+  CHECK: `cargo test -p floe-app usb_device_snapshot -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Empty siblings resolve distinctly through associated drive
+  plus `sdc1`/`sdc2`; label, device-hint, and generic fallbacks are covered.
+
+- [x] D3: Existing drive/volume/mount deduplication, topology signal refresh,
+  mount/unmount/eject action policy, and sidebar accessibility remain intact.
+  CHECK: `cargo test -p floe-app devices::tests -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. All 13 device tests pass, including live monitor,
+  hierarchy-collapse, opaque identity, raw paths, actions, and verified
+  removable-target resolution.
+
+- [x] D4: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, docs/diff hygiene, and applicable native GIO/Wayland smoke
+  pass or record exact environmental limitations.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Format/check/strict Clippy/workspace tests pass: 589 app plus
+  18 graphical ignores, 21 controller, 169 core, and six duplicate workflows.
+  Strict docs/render/dependencies/matrix, E2E contracts, and diff hygiene pass;
+  semantic E2E records two external-dependency skips. Isolated native Wayland
+  launch answered `Peer.Ping`, accepted Quit, and exited 0.
+
+- [x] D5: A read-only adversarial review covers current high-risk Floe
+  subsystems and every reported candidate survives invariant, caller, existing
+  safeguard, realistic-trigger, regression-test, and skeptic checks.
+  EVIDENCE: PASS. Caller/test/synchronization/skeptic review confirms four
+  unrelated read-only findings: Replace error-kind conflation, general partial
+  failure deletion wording, non-durable Undo-capacity review transitions, and
+  a bounded metadata-sort response shutdown deadlock. Duplicate-UUID device ID
+  ordering remains explicitly needs-verification; none was implemented.
+
+- [x] D6: Persistent status documents the verified fix and leaves exactly one
+  roadmap NEXT phase; additional review findings are not silently implemented.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS. AGENTS, architecture, roadmap, matrix, user guide, plan, and
+  gates document the repair. Strict docs pass and Phase 6W remains `NEXT`.
+
+---
+
 # Gates: Floe Phase 6V — Selection and Operation Reveal Polish
 
 - [x] V1: One bounded exact-path, directory/generation-bound reveal lifecycle

@@ -442,7 +442,7 @@ advanced predicates and explicit Match Case control.
 | Bookmark custom icon | `DEFERRED` | 20 | Only if worthwhile after core bookmark editing. |
 | Trash and Recent sidebar entries | `PARTIAL` | 6N/14 | Trash is a first-class sidebar location; Recent still needs standards integration and a privacy-safe history policy. |
 | Favorites | `PARTIAL` | 6K/19 | Bookmarks cover favorite locations; richer file favorites/tags are not designed. |
-| Drives, volumes, mounts, hotplug | `COMPLETE` | 6K | GIO `VolumeMonitor` produces deduplicated application-owned snapshots. |
+| Drives, volumes, mounts, hotplug | `COMPLETE` | 6K | GIO `VolumeMonitor` produces deduplicated application-owned snapshots; empty/whitespace provider names receive bounded label/drive/partition/generic presentation fallbacks without changing opaque identity or action routing. |
 | Mount/unmount/eject | `COMPLETE` | 6K | Async actions expose busy/unavailable/failure states. |
 | Password-protected/encrypted mounts | `COMPLETE` | 6K2 | Window-parented `GtkMountOperation`; desktop owns credentials and Floe is credential-opaque. |
 | Safe remove workflow | `COMPLETE` | 6K/18W | Explicit verified copy, exact-mount flush, and revalidated GIO eject/unmount preserves partial states and never claims safe removal before successful removal. |

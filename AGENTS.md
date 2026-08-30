@@ -1315,9 +1315,21 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-30`
 
-Current phase: **Phase 6V — Selection and operation reveal polish (complete)**
+Current phase: **USB device discovery maintenance fix (complete); Phase 6V remains complete**
 
 Completed this session:
+
+- Fixed removable volumes disappearing as blank-looking rows when GIO exposes
+  an empty or whitespace-only `GVolume::name()`. Snapshot presentation now uses
+  a bounded deterministic filesystem-label, associated-drive/partition, or
+  generic fallback while preserving the original opaque `DeviceId`, live GIO
+  object, exact local root, deduplication, and device-action routing.
+- Added regression coverage for real-name priority, empty/whitespace/control
+  input, sibling partition distinction, bounded output, and ultimate fallbacks.
+  Focused and full verification evidence is recorded in
+  `gates/fix-usb-device-discovery.md`. The accompanying logical edge review was
+  read-only; its unrelated findings were not implemented. Phase 6W — Undo Trash
+  remains the sole recommended next phase.
 
 - Added typed exact completion-result paths for successful local Copy, Move,
   Rename, Create, Duplicate, and Replace. Result reveal batches are capped at

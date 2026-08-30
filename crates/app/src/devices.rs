@@ -281,6 +281,100 @@ fn should_show_mount(has_associated_volume: bool) -> bool {
     !has_associated_volume
 }
 
+const DEVICE_DISPLAY_NAME_MAX_CHARS: usize = 160;
+
+fn normalized_device_name(value: &str) -> Option<String> {
+    let mut normalized = String::with_capacity(value.len().min(DEVICE_DISPLAY_NAME_MAX_CHARS));
+    let mut character_count = 0usize;
+    let mut pending_space = false;
+
+    for character in value.chars() {
+        if character.is_control() || character.is_whitespace() {
+            pending_space |= !normalized.is_empty();
+            continue;
+        }
+        if pending_space && character_count + 1 < DEVICE_DISPLAY_NAME_MAX_CHARS {
+            normalized.push(' ');
+            character_count += 1;
+        } else if pending_space {
+            break;
+        }
+        if character_count >= DEVICE_DISPLAY_NAME_MAX_CHARS {
+            break;
+        }
+        normalized.push(character);
+        character_count += 1;
+        pending_space = false;
+    }
+
+    (!normalized.is_empty()).then_some(normalized)
+}
+
+fn generic_device_name(kind: DeviceKind) -> &'static str {
+    match kind {
+        DeviceKind::Drive => "Storage Device",
+        DeviceKind::Volume => "Storage Volume",
+        DeviceKind::Mount => "Mounted Storage",
+    }
+}
+
+fn device_name_with_hint(name: &str, hint: &str) -> String {
+    let name_length = name.chars().count();
+    let hint_capacity = DEVICE_DISPLAY_NAME_MAX_CHARS.saturating_sub(name_length + 3);
+    if hint_capacity == 0 {
+        return name.to_owned();
+    }
+    let hint = hint.chars().take(hint_capacity).collect::<String>();
+    if hint.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{name} ({hint})")
+    }
+}
+
+fn resolved_device_display_name(
+    kind: DeviceKind,
+    reported_name: &str,
+    filesystem_label: Option<&str>,
+    drive_name: Option<&str>,
+    device_hint: Option<&str>,
+) -> String {
+    if let Some(name) = normalized_device_name(reported_name) {
+        return name;
+    }
+    if let Some(label) = filesystem_label.and_then(normalized_device_name) {
+        return label;
+    }
+
+    let drive = drive_name.and_then(normalized_device_name);
+    let hint = device_hint.and_then(normalized_device_name);
+    match (drive, hint) {
+        (Some(drive), Some(hint)) => device_name_with_hint(&drive, &hint),
+        (Some(drive), None) => drive,
+        (None, Some(hint)) => device_name_with_hint(generic_device_name(kind), &hint),
+        (None, None) => generic_device_name(kind).to_owned(),
+    }
+}
+
+fn volume_display_name(volume: &gio::Volume) -> String {
+    let reported_name = volume.name();
+    let filesystem_label = volume.identifier("label");
+    let drive_name = volume.drive().map(|drive| drive.name());
+    let device_identifier = volume.identifier("unix-device");
+    let device_hint = device_identifier
+        .as_deref()
+        .and_then(|identifier| Path::new(identifier).file_name())
+        .map(|name| name.to_string_lossy());
+
+    resolved_device_display_name(
+        DeviceKind::Volume,
+        reported_name.as_str(),
+        filesystem_label.as_deref(),
+        drive_name.as_deref(),
+        device_hint.as_deref(),
+    )
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeviceSnapshot {
     pub id: DeviceId,
@@ -692,7 +786,13 @@ fn collect_snapshots(
         snapshots.push(DeviceSnapshot {
             id: id.clone(),
             kind: DeviceKind::Drive,
-            name: drive.name().to_string(),
+            name: resolved_device_display_name(
+                DeviceKind::Drive,
+                drive.name().as_str(),
+                None,
+                None,
+                None,
+            ),
             mount_state,
             root_kind,
             removable: policy.removable,
@@ -724,7 +824,7 @@ fn collect_snapshots(
         snapshots.push(DeviceSnapshot {
             id: id.clone(),
             kind: DeviceKind::Volume,
-            name: volume.name().to_string(),
+            name: volume_display_name(&volume),
             mount_state,
             root_kind,
             removable,
@@ -755,7 +855,13 @@ fn collect_snapshots(
         snapshots.push(DeviceSnapshot {
             id: id.clone(),
             kind: DeviceKind::Mount,
-            name: mount.name().to_string(),
+            name: resolved_device_display_name(
+                DeviceKind::Mount,
+                mount.name().as_str(),
+                None,
+                None,
+                None,
+            ),
             mount_state,
             root_kind,
             removable,
@@ -941,6 +1047,73 @@ mod tests {
     }
 
     #[test]
+    fn usb_device_display_name_prefers_real_names_and_bounds_untrusted_text() {
+        assert_eq!(
+            resolved_device_display_name(
+                DeviceKind::Volume,
+                "  Ventoy  ",
+                Some("ignored-label"),
+                Some("ignored-drive"),
+                Some("sdc1"),
+            ),
+            "Ventoy"
+        );
+        assert_eq!(
+            resolved_device_display_name(
+                DeviceKind::Volume,
+                "\0\n\t",
+                Some("  MORE-STUFF  "),
+                Some("ignored-drive"),
+                Some("sda2"),
+            ),
+            "MORE-STUFF"
+        );
+        assert_eq!(
+            resolved_device_display_name(DeviceKind::Volume, "USB\0\n  Volume", None, None, None,),
+            "USB Volume"
+        );
+
+        let oversized = "x".repeat(DEVICE_DISPLAY_NAME_MAX_CHARS + 80);
+        let bounded = resolved_device_display_name(DeviceKind::Drive, &oversized, None, None, None);
+        assert_eq!(bounded.chars().count(), DEVICE_DISPLAY_NAME_MAX_CHARS);
+        assert!(!bounded.trim().is_empty());
+    }
+
+    #[test]
+    fn usb_device_snapshot_empty_volume_names_use_distinct_partition_fallbacks() {
+        let first = resolved_device_display_name(
+            DeviceKind::Volume,
+            "",
+            None,
+            Some("USB SanDisk 3.2Gen1"),
+            Some("sdc1"),
+        );
+        let second = resolved_device_display_name(
+            DeviceKind::Volume,
+            "   ",
+            None,
+            Some("USB SanDisk 3.2Gen1"),
+            Some("sdc2"),
+        );
+        assert_eq!(first, "USB SanDisk 3.2Gen1 (sdc1)");
+        assert_eq!(second, "USB SanDisk 3.2Gen1 (sdc2)");
+        assert_ne!(first, second);
+
+        assert_eq!(
+            resolved_device_display_name(DeviceKind::Volume, "", None, None, Some("sdd1")),
+            "Storage Volume (sdd1)"
+        );
+        assert_eq!(
+            resolved_device_display_name(DeviceKind::Drive, "", None, None, None),
+            "Storage Device"
+        );
+        assert_eq!(
+            resolved_device_display_name(DeviceKind::Mount, "\n", None, None, None),
+            "Mounted Storage"
+        );
+    }
+
+    #[test]
     fn phase_6k_device_policy_distinguishes_rows_mount_state_and_actions() {
         let volume = DevicePolicy {
             can_mount: true,
@@ -1069,6 +1242,9 @@ mod tests {
     fn phase_6k_device_monitor_snapshot_invariants_hold_for_live_read_only_state() {
         let monitor = DeviceMonitor::new();
         for snapshot in monitor.snapshots() {
+            assert!(!snapshot.name.trim().is_empty());
+            assert!(snapshot.name.chars().count() <= DEVICE_DISPLAY_NAME_MAX_CHARS);
+            assert!(!snapshot.name.chars().any(char::is_control));
             assert_eq!(
                 snapshot.local_root().is_some(),
                 snapshot.root_kind == DeviceRootKind::Local
