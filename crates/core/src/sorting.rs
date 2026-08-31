@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, ffi::OsStr};
+use std::{cmp::Ordering, ffi::OsStr, os::unix::ffi::OsStrExt};
 
 use crate::{DirectoryEntry, EntryKind};
 
@@ -7,6 +7,7 @@ use crate::{DirectoryEntry, EntryKind};
 pub enum SortColumn {
     #[default]
     Name,
+    NaturalName,
     Type,
     Size,
     Modified,
@@ -42,8 +43,9 @@ pub enum SortColumn {
 }
 
 impl SortColumn {
-    pub const ALL: [Self; 33] = [
+    pub const ALL: [Self; 34] = [
         Self::Name,
+        Self::NaturalName,
         Self::Type,
         Self::Size,
         Self::Modified,
@@ -81,6 +83,7 @@ impl SortColumn {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Name => "Name",
+            Self::NaturalName => "Natural Name",
             Self::Type => "Type",
             Self::Size => "Size",
             Self::Modified => "Modified",
@@ -114,6 +117,7 @@ impl SortColumn {
     pub const fn persisted(self) -> &'static str {
         match self {
             Self::Name => "name",
+            Self::NaturalName => "natural-name",
             Self::Type => "type",
             Self::Size => "size",
             Self::Modified => "modified",
@@ -163,6 +167,7 @@ impl SortColumn {
         !matches!(
             self,
             Self::Name
+                | Self::NaturalName
                 | Self::Type
                 | Self::Size
                 | Self::Modified
@@ -476,6 +481,10 @@ impl DirectorySort {
                 left.display_name().cmp(right.display_name()),
                 self.direction,
             ),
+            SortColumn::NaturalName => directed(
+                natural_os_cmp(left.display_name(), right.display_name()),
+                self.direction,
+            ),
             SortColumn::Type => directed(
                 kind_rank(left.kind()).cmp(&kind_rank(right.kind())),
                 self.direction,
@@ -709,6 +718,74 @@ fn optional_os_str(
     optional(left, right, direction)
 }
 
+/// Compare Linux filenames the way people usually expect numbered files to
+/// appear, without ever parsing a digit run into a fixed-width integer.
+///
+/// ASCII letters are folded for the natural comparison. The original bytes
+/// remain the final tie-break, so distinct names (including non-UTF-8 names)
+/// never collapse into one ordering identity.
+pub fn natural_os_cmp(left: &OsStr, right: &OsStr) -> Ordering {
+    let left = left.as_bytes();
+    let right = right.as_bytes();
+    let mut left_index = 0;
+    let mut right_index = 0;
+
+    while left_index < left.len() && right_index < right.len() {
+        let left_digit = left[left_index].is_ascii_digit();
+        let right_digit = right[right_index].is_ascii_digit();
+        if left_digit && right_digit {
+            let left_end = digit_run_end(left, left_index);
+            let right_end = digit_run_end(right, right_index);
+            let left_significant = skip_leading_zeroes(left, left_index, left_end);
+            let right_significant = skip_leading_zeroes(right, right_index, right_end);
+            let left_length = left_end - left_significant;
+            let right_length = right_end - right_significant;
+
+            let order = left_length.cmp(&right_length).then_with(|| {
+                left[left_significant..left_end].cmp(&right[right_significant..right_end])
+            });
+            if order != Ordering::Equal {
+                return order;
+            }
+
+            // Equal numeric values sort the shortest spelling first: 1, 01,
+            // 001. This makes the ordering total without integer conversion.
+            let order = (left_end - left_index).cmp(&(right_end - right_index));
+            if order != Ordering::Equal {
+                return order;
+            }
+            left_index = left_end;
+            right_index = right_end;
+            continue;
+        }
+
+        let order = left[left_index]
+            .to_ascii_lowercase()
+            .cmp(&right[right_index].to_ascii_lowercase());
+        if order != Ordering::Equal {
+            return order;
+        }
+        left_index += 1;
+        right_index += 1;
+    }
+
+    left.len().cmp(&right.len()).then_with(|| left.cmp(right))
+}
+
+fn digit_run_end(value: &[u8], mut index: usize) -> usize {
+    while index < value.len() && value[index].is_ascii_digit() {
+        index += 1;
+    }
+    index
+}
+
+fn skip_leading_zeroes(value: &[u8], mut index: usize, end: usize) -> usize {
+    while index + 1 < end && value[index] == b'0' {
+        index += 1;
+    }
+    index
+}
+
 fn kind_rank(kind: EntryKind) -> u8 {
     match kind {
         EntryKind::Directory => 0,
@@ -751,6 +828,39 @@ mod tests {
     use crate::ThumbnailState;
 
     use super::*;
+
+    #[test]
+    fn phase_23c_natural_sort_handles_numbers_case_and_raw_bytes() {
+        let mut names = vec![
+            OsStr::new("file10"),
+            OsStr::new("file2"),
+            OsStr::new("file001"),
+            OsStr::new("file01"),
+            OsStr::new("file1"),
+            OsStr::from_bytes(b"FILE3"),
+            OsStr::from_bytes(b"file\xff"),
+            OsStr::from_bytes(b"file\xfe"),
+        ];
+        names.sort_by(|left, right| natural_os_cmp(left, right));
+        assert_eq!(
+            names,
+            vec![
+                OsStr::new("file1"),
+                OsStr::new("file01"),
+                OsStr::new("file001"),
+                OsStr::new("file2"),
+                OsStr::from_bytes(b"FILE3"),
+                OsStr::new("file10"),
+                OsStr::from_bytes(b"file\xfe"),
+                OsStr::from_bytes(b"file\xff"),
+            ]
+        );
+
+        let huge_a = OsStr::new("item99999999999999999999999999999999999999");
+        let huge_b = OsStr::new("item100000000000000000000000000000000000000");
+        assert_eq!(natural_os_cmp(huge_a, huge_b), Ordering::Less);
+        assert_eq!(natural_os_cmp(huge_b, huge_a), Ordering::Greater);
+    }
 
     fn entry(
         name: OsString,
@@ -1137,7 +1247,7 @@ mod tests {
         DirectorySort::new(SortColumn::Path, SortDirection::Ascending)
             .sort_entries(&mut path_entries);
         assert_eq!(names(&path_entries), ["high", "low"]);
-        assert_eq!(SortColumn::ALL.len(), 33);
+        assert_eq!(SortColumn::ALL.len(), 34);
     }
 
     #[test]

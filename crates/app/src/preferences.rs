@@ -370,6 +370,8 @@ pub struct ViewPreferences {
     pub grid_size: GridSize,
     pub sidebar_density: SidebarDensity,
     pub sidebar_width: Option<u16>,
+    pub sidebar_collapsed: bool,
+    pub completion_notifications: bool,
     pub miller_column_width: MillerColumnWidth,
     pub inspector_width: MillerColumnWidth,
     pub file_density: FileViewDensity,
@@ -405,6 +407,8 @@ impl Default for ViewPreferences {
             grid_size: state.grid_size,
             sidebar_density: SidebarDensity::default(),
             sidebar_width: None,
+            sidebar_collapsed: false,
+            completion_notifications: true,
             miller_column_width: MillerColumnWidth::default(),
             inspector_width: MillerColumnWidth::default(),
             file_density: state.density,
@@ -519,6 +523,10 @@ impl ViewPreferences {
                     if let Ok(width) = value.parse::<u16>() {
                         preferences.sidebar_width = Some(clamp_sidebar_width(width));
                     }
+                }
+                "sidebar-collapsed" => preferences.sidebar_collapsed = value == "true",
+                "completion-notifications" => {
+                    preferences.completion_notifications = value != "false"
                 }
                 "miller-column-width" => {
                     if let Ok(width) = value.parse::<u16>() {
@@ -658,7 +666,7 @@ impl ViewPreferences {
 
     pub(crate) fn serialize(&self) -> String {
         let mut serialized = format!(
-            "version=18\nappearance={}\nicon-style={}\ncolor-scheme={}\nclick-policy={}\nfont-scale={}\nreduced-motion={}\nview={}\ngrid-size={}\nsidebar-density={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\nhidden-last={}\ncolumns={}\ncolumn-widths={}\ncolumn-order={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\nmetadata-sort-cache-enabled={}\nprivileged-access-enabled={}\n",
+            "version=18\nappearance={}\nicon-style={}\ncolor-scheme={}\nclick-policy={}\nfont-scale={}\nreduced-motion={}\nview={}\ngrid-size={}\nsidebar-density={}\nsidebar-collapsed={}\ncompletion-notifications={}\nmiller-column-width={}\ninspector-width={}\nfile-density={}\nsort-column={}\nsort-direction={}\ndirectories={}\ngrouping={}\nhidden-last={}\ncolumns={}\ncolumn-widths={}\ncolumn-order={}\nremember-per-folder={}\nvim-mode={}\ncontext-menu-groups={}\nsearch-index-enabled={}\nmetadata-sort-cache-enabled={}\nprivileged-access-enabled={}\n",
             self.appearance.persisted(),
             self.icon_style.persisted(),
             self.color_scheme.persisted(),
@@ -668,6 +676,8 @@ impl ViewPreferences {
             self.mode.persisted(),
             self.grid_size.edge(),
             self.sidebar_density.persisted(),
+            self.sidebar_collapsed,
+            self.completion_notifications,
             self.miller_column_width.get(),
             self.inspector_width.get(),
             self.file_density.persisted(),
@@ -1184,6 +1194,28 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn phase_23c_natural_sort_and_phase_23e_sidebar_policy_persist_with_notifications() {
+        let preferences = ViewPreferences {
+            sort: DirectorySort::new(SortColumn::NaturalName, SortDirection::Descending),
+            sidebar_width: Some(312),
+            sidebar_collapsed: true,
+            completion_notifications: false,
+            ..ViewPreferences::default()
+        };
+        let restored = ViewPreferences::parse(&preferences.serialize());
+        assert_eq!(restored.sort.column, SortColumn::NaturalName);
+        assert_eq!(restored.sort.direction, SortDirection::Descending);
+        assert_eq!(restored.sidebar_width, Some(312));
+        assert!(restored.sidebar_collapsed);
+        assert!(!restored.completion_notifications);
+
+        let legacy = ViewPreferences::parse("version=18\nsidebar-width=280\n");
+        assert_eq!(legacy.sidebar_width, Some(280));
+        assert!(!legacy.sidebar_collapsed);
+        assert!(legacy.completion_notifications);
+    }
     use crate::view::ListColumn;
 
     #[test]

@@ -276,13 +276,9 @@ impl Drop for InspectorWorker {
         self.shutdown.store(true, Ordering::Release);
         self.latest_generation.fetch_add(1, Ordering::AcqRel);
         self.sender.take();
-        if self
-            .worker
-            .take()
-            .is_some_and(|worker| worker.join().is_err())
-        {
-            tracing::error!("Inspector worker panicked during shutdown");
-        }
+        // Cancellation is cooperative, but an in-flight filesystem call is not.
+        // Dropping JoinHandle detaches safely and keeps GTK responsive.
+        self.worker.take();
     }
 }
 

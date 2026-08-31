@@ -1,6 +1,9 @@
 //! Small GTK-independent Phase 20B2 interaction and presentation policies.
 
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 pub const ERROR_SUMMARY_MAX_CHARS: usize = 240;
 pub const ERROR_DETAILS_MAX_CHARS: usize = 2_048;
@@ -171,6 +174,20 @@ pub const fn should_send_completion_notification(window_active: bool) -> bool {
     !window_active
 }
 
+pub const fn completion_notification_elapsed_is_eligible(elapsed: std::time::Duration) -> bool {
+    elapsed.as_secs() >= 2
+}
+
+static NEXT_COMPLETION_NOTIFICATION_NAMESPACE: AtomicU64 = AtomicU64::new(1);
+
+pub fn next_completion_notification_namespace() -> u64 {
+    NEXT_COMPLETION_NOTIFICATION_NAMESPACE.fetch_add(1, Ordering::Relaxed)
+}
+
+pub fn completion_notification_id(namespace: u64, job_id: u64) -> String {
+    format!("window-{namespace}-operation-{job_id}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,5 +284,44 @@ mod tests {
         assert!(GROUP_HEADER_DESCRIPTION.contains("unchanged"));
         assert_eq!(message(MessageId::Details), "Details");
         assert_eq!(message(MessageId::Dismiss), "Dismiss");
+    }
+
+    #[test]
+    fn phase_23b_notification_policy_and_phase_23b_notification_dispatch_are_stable_path_free() {
+        use std::time::Duration;
+
+        assert!(!completion_notification_elapsed_is_eligible(
+            Duration::from_millis(1_999)
+        ));
+        assert!(completion_notification_elapsed_is_eligible(
+            Duration::from_secs(2)
+        ));
+        assert!(should_send_completion_notification(false));
+        assert!(!should_send_completion_notification(true));
+        let first = next_completion_notification_namespace();
+        let second = next_completion_notification_namespace();
+        assert_ne!(first, second);
+        assert_eq!(
+            completion_notification_id(first, 42),
+            format!("window-{first}-operation-42")
+        );
+        assert_ne!(
+            completion_notification_id(first, 1),
+            completion_notification_id(second, 1)
+        );
+        assert!(!message(MessageId::OperationCompleted).contains('/'));
+        assert!(!message(MessageId::OperationCompletedBody).contains('/'));
+        assert!(!message(MessageId::OperationCompletedBody).contains("home"));
+    }
+
+    #[test]
+    fn phase_23_reliability_notification_identity_namespaces_equal_local_job_ids() {
+        let first = next_completion_notification_namespace();
+        let second = next_completion_notification_namespace();
+        let first_id = completion_notification_id(first, 1);
+        let second_id = completion_notification_id(second, 1);
+        assert_ne!(first_id, second_id);
+        assert!(!first_id.contains('/'));
+        assert!(!second_id.contains('/'));
     }
 }

@@ -376,9 +376,7 @@ impl CustomActionWorker {
 impl Drop for CustomActionWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+        self.worker.take();
     }
 }
 

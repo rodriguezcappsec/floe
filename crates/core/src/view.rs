@@ -82,10 +82,14 @@ pub enum ListColumn {
     Artist,
     Album,
     Track,
+    Owner,
+    Group,
+    Path,
+    LinkTarget,
 }
 
 impl ListColumn {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 18] = [
         Self::Name,
         Self::Type,
         Self::Size,
@@ -100,9 +104,13 @@ impl ListColumn {
         Self::Artist,
         Self::Album,
         Self::Track,
+        Self::Owner,
+        Self::Group,
+        Self::Path,
+        Self::LinkTarget,
     ];
 
-    pub const OPTIONAL: [Self; 13] = [
+    pub const OPTIONAL: [Self; 17] = [
         Self::Type,
         Self::Size,
         Self::Modified,
@@ -116,6 +124,10 @@ impl ListColumn {
         Self::Artist,
         Self::Album,
         Self::Track,
+        Self::Owner,
+        Self::Group,
+        Self::Path,
+        Self::LinkTarget,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -134,6 +146,10 @@ impl ListColumn {
             Self::Artist => "Artist",
             Self::Album => "Album",
             Self::Track => "Track",
+            Self::Owner => "Owner",
+            Self::Group => "Group",
+            Self::Path => "Path",
+            Self::LinkTarget => "Link Target",
         }
     }
 
@@ -153,6 +169,10 @@ impl ListColumn {
             Self::Artist => "artist",
             Self::Album => "album",
             Self::Track => "track",
+            Self::Owner => "owner",
+            Self::Group => "group",
+            Self::Path => "path",
+            Self::LinkTarget => "link-target",
         }
     }
 
@@ -179,6 +199,9 @@ impl ListColumn {
             Self::Duration => 104,
             Self::Artist | Self::Album => 176,
             Self::Track => 96,
+            Self::Owner | Self::Group => 128,
+            Self::Path => 280,
+            Self::LinkTarget => 240,
         }
     }
 
@@ -202,6 +225,9 @@ impl ListColumn {
                 | Self::Artist
                 | Self::Album
                 | Self::Track
+                | Self::Owner
+                | Self::Group
+                | Self::LinkTarget
         )
     }
 
@@ -212,6 +238,10 @@ impl ListColumn {
             Self::Size => Some(SortColumn::Size),
             Self::Modified => Some(SortColumn::Modified),
             Self::Extension => Some(SortColumn::Extension),
+            Self::Owner => Some(SortColumn::Owner),
+            Self::Group => Some(SortColumn::Group),
+            Self::Path => Some(SortColumn::Path),
+            Self::LinkTarget => Some(SortColumn::LinkDestination),
             Self::Mime
             | Self::Created
             | Self::Accessed
@@ -227,7 +257,7 @@ impl ListColumn {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ListColumnLayout {
-    visible: u16,
+    visible: u32,
     widths: [u16; ListColumn::ALL.len()],
     order: [ListColumn; ListColumn::ALL.len()],
 }
@@ -372,6 +402,31 @@ impl ListColumnLayout {
             }
             parsed.push(column);
         }
+        if parsed.len() == 14 {
+            let legacy = [
+                ListColumn::Name,
+                ListColumn::Type,
+                ListColumn::Size,
+                ListColumn::Modified,
+                ListColumn::Extension,
+                ListColumn::Mime,
+                ListColumn::Created,
+                ListColumn::Accessed,
+                ListColumn::Permissions,
+                ListColumn::Dimensions,
+                ListColumn::Duration,
+                ListColumn::Artist,
+                ListColumn::Album,
+                ListColumn::Track,
+            ];
+            if legacy.iter().all(|column| parsed.contains(column)) {
+                let missing = ListColumn::ALL
+                    .into_iter()
+                    .filter(|column| !parsed.contains(column))
+                    .collect::<Vec<_>>();
+                parsed.extend(missing);
+            }
+        }
         if parsed.len() == ListColumn::ALL.len() {
             self.order.copy_from_slice(&parsed);
         }
@@ -467,6 +522,53 @@ impl GridSize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phase_23g_details_columns_migrate_legacy_order_and_preserve_new_layout() {
+        let legacy = "name,type,size,modified,extension,mime,created,accessed,permissions,dimensions,duration,artist,album,track";
+        let mut layout = ListColumnLayout::default();
+        layout.apply_order_text(legacy);
+        assert_eq!(
+            &layout.order()[..14],
+            &[
+                ListColumn::Name,
+                ListColumn::Type,
+                ListColumn::Size,
+                ListColumn::Modified,
+                ListColumn::Extension,
+                ListColumn::Mime,
+                ListColumn::Created,
+                ListColumn::Accessed,
+                ListColumn::Permissions,
+                ListColumn::Dimensions,
+                ListColumn::Duration,
+                ListColumn::Artist,
+                ListColumn::Album,
+                ListColumn::Track,
+            ]
+        );
+        assert_eq!(
+            &layout.order()[14..],
+            &[
+                ListColumn::Owner,
+                ListColumn::Group,
+                ListColumn::Path,
+                ListColumn::LinkTarget,
+            ]
+        );
+        for column in [
+            ListColumn::Owner,
+            ListColumn::Group,
+            ListColumn::Path,
+            ListColumn::LinkTarget,
+        ] {
+            layout.set_visible(column, true);
+            assert!(layout.is_visible(column));
+            assert!(ListColumn::OPTIONAL.contains(&column));
+        }
+        let restored = ListColumnLayout::parse_visible(&layout.visible_names());
+        assert!(restored.is_visible(ListColumn::LinkTarget));
+    }
 
     #[test]
     fn phase_7a_view_preserves_strict_modes_and_bounded_grid_steps() {

@@ -592,13 +592,9 @@ impl MetadataIndexWorker {
 impl Drop for MetadataIndexWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if self
-            .worker
-            .take()
-            .is_some_and(|worker| worker.join().is_err())
-        {
-            tracing::error!("metadata index worker panicked during shutdown");
-        }
+        // Metadata providers can block on unavailable filesystems. Closing the
+        // request channel is cooperative; detaching avoids a GTK-thread join.
+        self.worker.take();
     }
 }
 

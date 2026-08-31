@@ -108,13 +108,9 @@ impl StorageWorker {
 impl Drop for StorageWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if self
-            .worker
-            .take()
-            .is_some_and(|worker| worker.join().is_err())
-        {
-            tracing::error!("storage facts worker panicked during shutdown");
-        }
+        // Mount queries can remain blocked after a device disappears. Never
+        // synchronously join this read-only worker from GTK window teardown.
+        self.worker.take();
     }
 }
 

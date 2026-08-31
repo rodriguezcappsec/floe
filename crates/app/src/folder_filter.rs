@@ -172,11 +172,7 @@ fn load_advanced_metadata(
 impl Drop for FolderFilterWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if let Some(worker) = self.worker.take()
-            && worker.join().is_err()
-        {
-            tracing::warn!("folder filter worker panicked during shutdown");
-        }
+        self.worker.take();
     }
 }
 

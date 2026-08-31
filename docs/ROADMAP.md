@@ -393,7 +393,34 @@ appearance controls and audit work recorded in the feature matrix.
 | --- | --- | --- | --- | --- |
 | 22A — Floe Selection Mode | COMPLETE | `phase-selection-mode` | Native Open File(s), Select Folder, and Save File modes with explicit titles, accept labels, validation, cancellation, and exact local path results. | Verified strict raw-argument contract, process-scoped concurrent chooser IDs, existing bounded browser reuse, capacity-four off-GTK validation, 128-result cap, exact percent-encoded local URI output, no-output cancellation, save conflict confirmation, suppressed session persistence, and native Wayland accept/cancel lifecycle. No portal service or sandbox grant is claimed. |
 | 22B — Optional XDG FileChooser portal backend | COMPLETE | `phase-xdg-filechooser-portal` | Optionally serve the freedesktop FileChooser backend contract through the verified Selection Mode UI. | Verified explicit-only service mode, capacity-16 request ownership, asynchronous no-shell chooser processes, per-request Close, bounded output, exact local URI results, response 0/1/2 mapping, opt-in packaging, and native Save/Close lifecycle. Wayland parent attachment is implemented but not natively verified with an exported foreign handle; nonempty filters/choices, multiple folders, and X11 parents fail closed. Floe issues no Document Portal grant. |
-| 22C — Portal option completeness | NEXT | `phase-xdg-filechooser-options` | Add FileChooser filters/current-filter and choice controls/results, then assess remaining compatibility extensions. | 22B; preserve exact local identity, bounded asynchronous request ownership, explicit unsupported responses, and the distinction between URI selection and broker-owned sandbox grants. Add native interoperability coverage before broadening the advertised contract. |
+| 22C — Portal option completeness | COMPLETE | `phase-next-eight-maturity` | FileChooser filters/current-filter and boolean/combo choice controls/results. | Strict bounded portal models and no-shell transport, worker-owned visual glob/MIME filtering that preserves directory navigation, exact selected-filter/choice results, and response-2 rejection for malformed or unsupported values. URI selection remains distinct from broker-owned sandbox grants. |
+
+## Phase 23 — Daily-driver maturity
+
+Phase 23 reliability repair verified that FileChooser filters remain advisory
+for explicit valid selections, failed secondary-window construction cannot
+redirect an existing window, and Properties checksum dispatch retains the exact
+presented path. Active jobs reject window close with wait/cancel guidance; idle
+window teardown never joins stalled read workers on GTK's main thread. Completion
+notification replacement identity is namespaced per window. These corrections
+do not begin or complete Phase 23H's shared coordinator/session scope.
+
+The reopened native close regression is now verified: Floe detaches every
+manually parented browser popover before its GTK owner finalizes. A guarded KDE
+Wayland smoke closed one exact same-process window, sustained main-loop and
+survivor actions, created another real window afterward, quit cleanly, and
+reported no `GtkEntry` child-finalization warning.
+
+| Phase | Status | Recommended branch | Scope | Dependencies; exclusions; acceptance |
+| --- | --- | --- | --- | --- |
+| 23A — Multi-window browsing | PARTIAL | `phase-next-eight-maturity` | Create independent windows with `Ctrl+N`; open an exact selected folder in a new window. | Same-process windows have independent tabs, panes, navigation and focus; newest-live routing survives closing the newest window. Secondary windows deliberately use isolated transient operation state until Phase 23H supplies a safe shared coordinator. |
+| 23B — Completion notifications | COMPLETE | `phase-next-eight-maturity` | Optional desktop notification for long completed operations while Floe is unfocused. | Typed completion only after two seconds; stable path-free IDs/text, focused-window suppression, persisted opt-out, and in-app terminal evidence remain authoritative. |
+| 23C — Natural filename sorting | COMPLETE | `phase-next-eight-maturity` | Persistent Natural Name sort criterion. | GTK-independent raw-byte-safe ordering handles arbitrarily long digit runs, leading zeros, ASCII case folding and deterministic non-UTF-8 ties; ordinary direction/folder/group policies remain composable. |
+| 23D — Bookmark organization | COMPLETE | `phase-next-eight-maturity` | Rename/reset labels and reorder/remove bookmarks from one compact options menu. | Version-2 private codec migrates version 1, preserves exact raw paths and missing destinations, bounds aliases, and never derives identity from display text. |
+| 23E — Collapsible sidebar | COMPLETE | `phase-next-eight-maturity` | Toggle compact icon rail and restore the prior expanded width. | Collapsed state and expanded width persist independently; accessible labels/tooltips remain while visual labels collapse and device names do not wrap. |
+| 23F — Inspector and Properties checksums | COMPLETE | `phase-next-eight-maturity` | Explicit Calculate SHA-256 action in both surfaces. | Reuses the reviewed bounded checksum executor/result dialog; never hashes eagerly and states that a hash is not proof of authenticity or safety. |
+| 23G — Complete details columns | COMPLETE | `phase-next-eight-maturity` | Add Owner, Group, full Path and Link Target/broken-state columns alongside existing media details. | Versioned 32-bit column layout migration, bounded lazy metadata, numeric UID/GID, exact path identity, no-follow link inspection, persistent order/width/visibility. |
+| 23H — Multi-window runtime and session hardening | NEXT | `phase-23h-multi-window-runtime` | Replace per-secondary transient operation services with one application-owned event/coordinator boundary and restore a bounded set of windows. | Must prevent duplicate conflict dialogs/event consumption, preserve one writer for preferences/bookmarks/recovery, migrate legacy one-window sessions, honor Private/Sensitive suppression, and keep close-one/survivor behavior native-tested. |
 
 ## Deliberately deferred or not applicable
 

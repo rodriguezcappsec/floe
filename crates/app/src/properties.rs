@@ -180,13 +180,9 @@ impl Drop for PropertiesWorker {
         self.shutdown.store(true, Ordering::Release);
         self.latest_generation.fetch_add(1, Ordering::AcqRel);
         self.sender.take();
-        if self
-            .worker
-            .take()
-            .is_some_and(|worker| worker.join().is_err())
-        {
-            tracing::error!("Properties worker panicked during shutdown");
-        }
+        // Recursive and mount metadata calls can stall indefinitely. Detach the
+        // cancelled read-only worker instead of blocking GTK's main thread.
+        self.worker.take();
     }
 }
 
@@ -376,6 +372,7 @@ pub struct PropertiesPresentation {
     pub filesystem: Vec<PropertyRow>,
     pub selection_count: usize,
     pub open_with_available: bool,
+    pub checksum_available: bool,
     pub permissions: PermissionDefaults,
 }
 
@@ -389,6 +386,13 @@ pub struct PermissionDefaults {
     pub has_files: bool,
     pub has_directories: bool,
     pub editable: bool,
+}
+
+pub fn checksum_targets_for_presentation(
+    presentation: &PropertiesPresentation,
+) -> Option<Arc<[PathBuf]>> {
+    (presentation.checksum_available && presentation.permissions.targets.len() == 1)
+        .then(|| Arc::clone(&presentation.permissions.targets))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -764,8 +768,13 @@ pub fn present(snapshot: &PropertiesSnapshot) -> PropertiesPresentation {
         filesystem,
         selection_count: count,
         open_with_available: count == 1 && facts.regular_files == 1,
+        checksum_available: checksum_surface_available(count, facts.regular_files),
         permissions,
     }
+}
+
+fn checksum_surface_available(selection_count: usize, regular_files: usize) -> bool {
+    selection_count == 1 && regular_files == 1
 }
 
 fn common_numeric(values: &[u32]) -> Option<u32> {
@@ -825,6 +834,43 @@ fn common_value<T: Eq + Clone>(values: impl Iterator<Item = Option<T>>) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phase_23f_checksum_surface_is_explicit_and_single_regular_file_only() {
+        assert!(checksum_surface_available(1, 1));
+        assert!(!checksum_surface_available(0, 0));
+        assert!(!checksum_surface_available(1, 0));
+        assert!(!checksum_surface_available(2, 2));
+    }
+
+    #[test]
+    fn phase_23_reliability_properties_checksum_keeps_presented_path_identity() {
+        let presented = PathBuf::from("/tmp/presented-a.txt");
+        let later_selection = PathBuf::from("/tmp/later-selected-b.txt");
+        let presentation = PropertiesPresentation {
+            title: "Properties".to_owned(),
+            general: Vec::new(),
+            filesystem: Vec::new(),
+            selection_count: 1,
+            open_with_available: true,
+            checksum_available: true,
+            permissions: PermissionDefaults {
+                targets: Arc::from([presented.clone()]),
+                common_file_mode: None,
+                common_directory_mode: None,
+                common_uid: None,
+                common_gid: None,
+                has_files: true,
+                has_directories: false,
+                editable: true,
+            },
+        };
+
+        let checksum_targets =
+            checksum_targets_for_presentation(&presentation).expect("checksum target");
+        assert_eq!(checksum_targets.as_ref(), [presented]);
+        assert_ne!(checksum_targets[0], later_selection);
+    }
     use floe_core::enumerate_directory;
     use std::{fs, sync::Arc, thread};
     use tempfile::tempdir;

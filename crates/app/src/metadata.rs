@@ -58,8 +58,24 @@ pub struct MetadataDetails {
     pub created: Option<SystemTime>,
     pub accessed: Option<SystemTime>,
     pub unix_mode: Option<u32>,
+    pub owner: Option<u32>,
+    pub group: Option<u32>,
+    pub link_target: Option<LinkTargetDetails>,
     pub image_dimensions: ImageDimensionFacts,
     pub advanced: AdvancedMetadataState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LinkTargetStatus {
+    Present,
+    Missing,
+    Inaccessible,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LinkTargetDetails {
+    pub target: PathBuf,
+    pub status: LinkTargetStatus,
 }
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
@@ -141,13 +157,9 @@ impl MetadataWorker {
 impl Drop for MetadataWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if self
-            .worker
-            .take()
-            .is_some_and(|worker| worker.join().is_err())
-        {
-            tracing::error!("metadata worker panicked during shutdown");
-        }
+        // Metadata I/O may be stuck in a kernel/FUSE call. Window teardown runs
+        // on GTK's main thread, so detach after closing the request channel.
+        self.worker.take();
     }
 }
 
@@ -185,15 +197,43 @@ fn load_metadata(key: &MetadataKey) -> Result<MetadataDetails, MetadataError> {
         AdvancedMetadataState::Unsupported
     };
     #[cfg(unix)]
-    let unix_mode = Some(metadata.mode());
+    let (unix_mode, owner, group) = (
+        Some(metadata.mode()),
+        Some(metadata.uid()),
+        Some(metadata.gid()),
+    );
     #[cfg(not(unix))]
-    let unix_mode = None;
+    let (unix_mode, owner, group) = (None, None, None);
+    let link_target = if metadata.file_type().is_symlink() {
+        let target = fs::read_link(&key.path).map_err(|error| {
+            MetadataError::Unavailable(format!("could not read symbolic-link target: {error}"))
+        })?;
+        let resolved = if target.is_absolute() {
+            target.clone()
+        } else {
+            key.path
+                .parent()
+                .unwrap_or_else(|| Path::new("/"))
+                .join(&target)
+        };
+        let status = match fs::symlink_metadata(resolved) {
+            Ok(_) => LinkTargetStatus::Present,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => LinkTargetStatus::Missing,
+            Err(_) => LinkTargetStatus::Inaccessible,
+        };
+        Some(LinkTargetDetails { target, status })
+    } else {
+        None
+    };
 
     Ok(MetadataDetails {
         mime_type,
         created: metadata.created().ok(),
         accessed: metadata.accessed().ok(),
         unix_mode,
+        owner,
+        group,
+        link_target,
         image_dimensions,
         advanced,
     })
@@ -251,11 +291,47 @@ impl MetadataCache {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, sync::mpsc};
+    use std::{fs, sync::mpsc, thread, time::Duration};
 
     use tempfile::tempdir;
 
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn phase_23g_details_model_reports_numeric_owner_group_and_broken_links() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = tempdir().expect("temporary metadata root");
+        let target = fixture.path().join("target");
+        fs::write(&target, b"data").expect("target");
+        let link = fixture.path().join("link");
+        symlink("target", &link).expect("link");
+        let metadata = fs::symlink_metadata(&link).expect("link metadata");
+        let key = MetadataKey {
+            path: link.clone(),
+            size: None,
+            modified: metadata.modified().ok(),
+            include_advanced: false,
+        };
+        let details = load_metadata(&key).expect("link details");
+        assert!(details.owner.is_some());
+        assert!(details.group.is_some());
+        assert_eq!(
+            details.link_target.as_ref().map(|link| link.status),
+            Some(LinkTargetStatus::Present)
+        );
+        fs::remove_file(target).expect("remove target");
+        let broken = load_metadata(&key).expect("broken link details");
+        assert_eq!(
+            broken.link_target.as_ref().map(|link| link.status),
+            Some(LinkTargetStatus::Missing)
+        );
+        assert_eq!(
+            broken.link_target.expect("target record").target,
+            PathBuf::from("target")
+        );
+    }
 
     fn key_for(path: &Path) -> MetadataKey {
         let metadata = fs::symlink_metadata(path).expect("fixture metadata");
@@ -325,6 +401,24 @@ mod tests {
     }
 
     #[test]
+    fn phase_23_reliability_worker_drop_is_nonblocking_while_io_worker_is_stalled() {
+        let (gate_sender, gate_receiver) = mpsc::channel();
+        let worker = MetadataWorker::spawn_internal(Some(gate_receiver)).expect("metadata worker");
+        let (dropped_sender, dropped_receiver) = mpsc::sync_channel(1);
+
+        let drop_thread = thread::spawn(move || {
+            drop(worker);
+            dropped_sender.send(()).expect("report completed drop");
+        });
+
+        dropped_receiver
+            .recv_timeout(Duration::from_millis(250))
+            .expect("dropping a stalled metadata worker blocked window teardown");
+        drop(gate_sender);
+        drop_thread.join().expect("drop observer");
+    }
+
+    #[test]
     fn phase_6t_metadata_cache_deduplicates_and_evicts_to_bound() {
         let mut cache = MetadataCache::default();
         let details = MetadataDetails {
@@ -332,6 +426,9 @@ mod tests {
             created: None,
             accessed: None,
             unix_mode: None,
+            owner: None,
+            group: None,
+            link_target: None,
             image_dimensions: ImageDimensionFacts::NotImage,
             advanced: AdvancedMetadataState::Unsupported,
         };

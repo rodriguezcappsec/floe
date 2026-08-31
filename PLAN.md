@@ -2008,3 +2008,131 @@ Selection Mode remain independent when the portal service is absent.
   remains explicitly unverified. Phase 22C is the sole recommended next phase.
 
 ---
+
+# Plan: Floe next-eight daily-driver maturity program
+
+## User-authorized scope
+
+Implement the eight capabilities requested on 2026-08-31 in dependency order:
+22C portal filters/choices; true multi-window support; completion notifications;
+natural filename sorting; bookmark reorder/rename; a collapsible sidebar;
+on-demand checksums in Inspector/Properties; and complete Owner, Group, Path,
+symlink-target, image, and media details columns.
+
+This request explicitly authorizes the broader program, but it does not authorize
+Niri/KDE-specific integrations, remote/MTP browsing, tab detachment, encryption,
+vaults, arbitrary plugins, unrelated visual redesign, or filesystem work in GTK.
+
+## Shared contracts
+
+- Exact `PathBuf`/`OsString` identity remains authoritative. Display labels,
+  localized natural-sort keys, bookmark aliases, and rendered column text never
+  reconstruct a path.
+- Filesystem, metadata, hashing, notification capability probes, and persistence
+  remain behind existing bounded application/core workers. GTK only dispatches
+  typed requests and presents results.
+- One GApplication may own several windows, but preference/session/job/recovery
+  services remain application-scoped. Window-local tabs, panes, selection,
+  navigation, dialogs, and focus never leak between windows.
+- New preferences use the existing versioned, private, asynchronous codec with
+  migration, bounds, and corruption fallback. No new dependency is assumed.
+- Portal filters and choices are validated portal-domain values. Unsupported
+  patterns/options return response 2; a URI result is not a Document Portal grant.
+- Notifications are optional, path-free for sensitive contexts, suppressed for
+  the focused window, and never replace in-app terminal evidence.
+- Checksums are explicit and on-demand. A digest is not authenticity or malware
+  proof. Advanced columns reuse existing bounded metadata providers and unknown
+  values remain unknown rather than fabricated.
+
+## Depth tree and gate ownership
+
+1. Portal interoperability — `gates/phase-22c-portal-options.md`.
+2. Multi-window application/window ownership — `gates/phase-23a-multi-window.md`.
+3. Operation completion notifications — `gates/phase-23b-notifications.md`.
+4. Natural filename sorting — `gates/phase-23c-natural-sort.md`.
+5. Bookmark reorder/rename — `gates/phase-23d-bookmark-management.md`.
+6. Collapsible sidebar — `gates/phase-23e-collapsible-sidebar.md`.
+7. Inspector/Properties checksums — `gates/phase-23f-inspector-checksums.md`.
+8. Complete details columns — `gates/phase-23g-details-columns.md`.
+9. Cross-feature integration and release gates —
+   `gates/phase-next-eight-integration.md`.
+
+The work is sequenced where modules overlap. Read-only architecture audits may
+run concurrently; edits to shared browser/preferences/application surfaces do not.
+
+## Status log
+
+- 2026-08-31: Started on `phase-next-eight-maturity` from clean verified commit
+  `f79c267`. Contracts and per-feature gates were written before implementation.
+- 2026-08-31: Implemented Phase 22C and Phase 23B–23G. Phase 23A now provides
+  practical independent windows, exact folder-to-new-window routing and
+  newest-live controller fallback, but remains deliberately PARTIAL: sharing the
+  current destructive event drain would create duplicate or stolen terminal and
+  conflict handling, and secondary persistence/session writers would race.
+  Phase 23H is the sole next phase for one application-owned coordinator and
+  versioned bounded multi-window session restoration.
+
+---
+
+# Plan: Multi-window reliability and edge-case repair
+
+## User-authorized scope
+
+Fix the six concrete defects found by the Phase 23 adversarial audit plus the
+reported freeze when one of two Floe windows closes. This is a reliability
+repair of the uncommitted Phase 22C / Phase 23A–23G implementation, not the
+future Phase 23H application-wide job/session coordinator.
+
+## Contracts
+
+1. Closing a browser window must never synchronously wait for read-only worker
+   I/O on GTK's main thread. Window-owned mutating operations remain visible:
+   a close with active work is rejected with accessible wait/cancel guidance;
+   an idle close releases its state without a strong application-shutdown
+   retention cycle.
+2. A failed secondary-window construction cannot redirect an existing window,
+   leave a broken blank window, or terminate healthy windows. A launch target is
+   queued only to the controller returned by that exact successful build.
+3. XDG FileChooser filters are advisory as required by the portal contract. A
+   valid local URI that does not match the selected filter succeeds while the
+   selected-filter result metadata is preserved.
+4. A Properties checksum always targets the exact authoritative `PathBuf` whose
+   Properties presentation was opened, even if the live selection later changes.
+5. Completion notification replacement IDs are namespaced per browser window so
+   equal local job IDs from different windows cannot collide; notification text
+   remains path-free.
+6. Every reproduced defect receives a deterministic regression at the lowest
+   practical layer. Full Rust, documentation, packaging, and applicable native
+   multi-window gates must pass before the repair is called complete.
+
+## Depth tree
+
+1. Lifecycle safety: operation-aware close policy, weak shutdown ownership, and
+   nonblocking cooperative teardown for browser-owned read workers.
+2. Routing and identity correctness: exact build-result routing, advisory portal
+   filters, exact Properties checksum target, notification namespace.
+3. Integration: adversarial regression sweep, full repository gates, native
+   Wayland two-window close/liveness smoke where the host permits it, persistent
+   status/documentation reconciliation.
+
+## Status log
+
+- 2026-08-31: Reopened close regression is complete. Floe now pops down and
+  unparents every manually parented browser popover before GTK parent
+  finalization. The focused GTK gate and guarded KDE Wayland
+  close/survivor/third-window smoke pass with no `GtkEntry` child warning.
+  Phase 23H remains the sole NEXT phase.
+
+- 2026-08-31: Repair started after the user reproduced the two-window close
+  freeze. Acceptance gates are in `gates/phase-23-multi-window-reliability.md`.
+- 2026-08-31: Implemented all six audit repairs and the close-freeze lifecycle
+  fix. Seven focused regressions pass. Full Rust, strict Clippy, docs/render,
+  package/migration/release-source/release-candidate/E2E contracts and diff
+  hygiene pass. Isolated native Wayland created two windows, pinged the survivor
+  and quit cleanly; exact close-button automation is unavailable because this
+  host lacks Dogtail and pyatspi/AT-SPI. Phase 23H remains the sole NEXT phase.
+- 2026-08-31: Reopened after a user-native close reproduced the freeze and
+  `Gtk-WARNING: Finalizing GtkEntry ... but it still has children left` for the
+  location-completion popover. The repair is not complete until manually
+  parented transient widgets are detached before destruction and an actual
+  close-one-window native run proves the surviving window remains responsive.

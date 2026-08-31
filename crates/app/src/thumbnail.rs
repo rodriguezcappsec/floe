@@ -364,13 +364,9 @@ impl Drop for ThumbnailWorker {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Release);
         self.requests.take();
-        if self
-            .worker
-            .take()
-            .is_some_and(|worker| worker.join().is_err())
-        {
-            tracing::error!("thumbnail worker panicked during shutdown");
-        }
+        // Native and system thumbnailers may be stalled on external storage.
+        // Never join them synchronously while GTK destroys a window.
+        self.worker.take();
     }
 }
 

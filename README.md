@@ -76,6 +76,7 @@ use different development-package names.
 
 - Virtualized List and Grid plus bounded spatial Miller columns.
 - Tabs, session restore, split panes, breadcrumbs, and local CLI routing.
+- Multiple independent windows with `Ctrl+N` and exact **Open Folder in New Window** routing. Closing an idle window never waits on stalled read-only filesystem workers; a window with active file jobs asks you to wait or cancel first. Cross-window job/session coordination remains the next hardening phase.
 - Copy, move, rename, duplicate, links, templates, drag and drop, Trash,
   restore, permanent deletion, identity-checked Replace/Replace All, conflicts,
   cancellation, and private 30-day Undo/Redo for reversible local work,
@@ -90,6 +91,7 @@ use different development-package names.
   Undo/Redo recovery review.
 - Searchable Settings, five appearance presets, text scale, reduced motion,
   customizable shortcuts, optional Vim navigation, and direct-argv actions.
+- Natural filename sorting, renameable/reorderable bookmarks, a persistent collapsible sidebar, optional path-free completion notifications, on-demand SHA-256 from Inspector/Properties, and Owner/Group/Path/Link Target list columns.
 
 ## Keyboard entry points
 
@@ -100,6 +102,7 @@ use different development-package names.
 | `Ctrl+?` | Keyboard Shortcuts |
 | `Ctrl+L` | Edit location |
 | `Ctrl+F` | Unified Search |
+| `Ctrl+N` | New window |
 | `Ctrl+T` / `Ctrl+W` | New / close tab |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste |
 | `F2` | Rename |
@@ -166,7 +169,8 @@ and [AGENTS.md](./AGENTS.md) before changing the project.
 
 ## Project status
 
-Phase 21C release documentation is complete after verified Phase 21A
-performance and Phase 21B packaging/migrations. Phase 21D release-candidate
-hardening is the only next phase. [Roadmap](./docs/ROADMAP.md) is the phase-
-sequencing authority; code and tests determine completion.
+Phase 22C portal option support and the Phase 23B–23G daily-driver features are
+implemented. Phase 23A provides usable multi-window browsing but remains partial
+until one application-owned job/event coordinator and bounded multi-window
+session restoration are verified in Phase 23H. [Roadmap](./docs/ROADMAP.md) is
+the phase-sequencing authority; code and tests determine completion.

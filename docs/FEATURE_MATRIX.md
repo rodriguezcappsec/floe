@@ -153,7 +153,33 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Native Select Folder mode | `COMPLETE` | 22A | Accept exactly one selected local directory or the current directory with clear title/action/status, Escape/close/Ctrl+Q cancellation, and exact URI result. |
 | Native Save File mode | `COMPLETE` | 22A | Accept one validated UTF-8 filename component in the current local directory. Occupied regular files require explicit Replace confirmation; Floe returns the destination and does not write it. |
 | XDG FileChooser portal backend | `COMPLETE` | 22B | Explicitly enabled local backend supports Open File(s), one Select Folder, Save File, Save Files, per-request Close, responses 0/1/2, current folder/name, modal Wayland parent handles, and exact URI results through bounded no-shell chooser children. Installed descriptors are opt-in. Floe does not create Document Portal grants. Live foreign-parent attachment remains unverified. |
-| FileChooser filters and choices | `NEXT` | 22C | Add filter/current-filter and choice control/result interoperability. Phase 22B returns response 2 for nonempty values, multiple folders, and X11 parents rather than silently ignoring them. |
+| FileChooser filters and choices | `COMPLETE` | 22C | Bounded glob/MIME filters, exact current-filter, boolean/combo controls and result tuples are implemented. Visual filtering runs off GTK while preserving folder navigation; malformed values, multiple folders and X11 parents fail closed. Floe still creates no Document Portal grant. |
+
+## Phase 23 daily-driver maturity
+
+Native close reliability addendum: window teardown pops down and unparents the
+location-completion and file context popovers before their GTK owners finalize.
+Focused real-GTK coverage and a guarded KDE Wayland close/survivor/new-window
+smoke reproduce the exact native close path without the prior `GtkEntry` child
+warning or survivor freeze.
+
+Reliability addendum: filters are advisory after an explicit valid chooser
+selection; failed window builds cannot reroute an existing browser; active jobs
+keep their owning window visible; idle teardown detaches stalled read workers;
+Properties checksums retain the presented exact path; completion-notification
+IDs combine a per-window namespace with the local job ID. Shared cross-window
+job/session ownership remains Phase 23H.
+
+| Capability | Status | Phase | Notes |
+| --- | --- | --- | --- |
+| Multi-window browsing | `PARTIAL` | 23A | `Ctrl+N`, repeated activation, newest-live open routing, close-one/survivor behavior and exact **Open Folder in New Window** are implemented. Shared persistent job/event services and multi-window session restoration remain 23H. |
+| Completion notifications | `COMPLETE` | 23B | Persisted opt-out; typed completed jobs lasting at least two seconds notify only while the originating window is unfocused, with fixed path-free text and stable deduplicating ID. |
+| Natural Name sorting | `COMPLETE` | 23C | Worker-owned raw-byte comparator handles long numeric runs, leading zeros, case folding and deterministic non-UTF-8 ties; ordinary sort/group/directory policies and persistence remain active. |
+| Bookmark rename and reorder | `COMPLETE` | 23D | Version-2 private records preserve raw paths and optional bounded aliases, migrate v1, preserve missing destinations, and expose Rename/Reset/Move Up/Move Down/Remove through one compact accessible menu. |
+| Collapsible sidebar | `COMPLETE` | 23E | Persistent icon-rail state remembers expanded width independently; labels remain accessible through names/tooltips and device names stay single-line. |
+| Inspector/Properties SHA-256 | `COMPLETE` | 23F | Explicit one-regular-file action reuses reviewed checksum job/result UI; no eager hashing and no authenticity/safety claim. |
+| Owner, Group, Path, Link Target columns | `COMPLETE` | 23G | Selectable/reorderable/resizable persistent columns use lazy UID/GID and no-follow link-target metadata with explicit broken/inaccessible state and exact path identity. |
+| Multi-window shared runtime and restore | `NEXT` | 23H | Introduce one application-owned service/event coordinator and bounded versioned window-session model without duplicate recovery writers, conflict dialogs or event consumption. |
 
 ## Drag and drop, creation, and productivity operations
 
@@ -426,7 +452,7 @@ advanced predicates and explicit Match Case control.
 | MD5 checksum | `COMPLETE` | 10E | Available only as explicitly legacy-labelled compatibility output; it is never presented as modern security or authenticity evidence. |
 | Verify expected checksum | `COMPLETE` | 10E | One selected file accepts a strict algorithm-sized hexadecimal digest and reports match or mismatch without authenticity, authorship, freshness, or safety claims. |
 | Copy checksum | `COMPLETE` | 10E | The result dialog exposes digest-only clipboard text; filenames and paths are deliberately excluded from that payload. |
-| Checksum in Inspector/Properties | `PLANNED` | 20 | Phase 10E provides explicit calculation and results; any Inspector/Properties shortcut must remain on-demand and never hash every file eagerly. |
+| Checksum in Inspector/Properties | `COMPLETE` | 23F | Inspector and Properties provide explicit on-demand calculation through the reviewed Phase 10E job/result UI; Properties captures its presented exact path and neither surface hashes eagerly. |
 | Rating/tag/comment editing | `DEFERRED` | 19 | Floe can sort existing KDE-compatible local xattrs, but creating or editing metadata still requires an interoperable ownership and UI model. |
 | Inspector width persistence | `COMPLETE` | 10A | Independent 180–520 pixel width uses accessible controls and asynchronous version-4 preferences with version-3 migration. |
 

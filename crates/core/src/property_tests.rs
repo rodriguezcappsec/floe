@@ -75,7 +75,7 @@ mod unix {
         }
 
         #[test]
-        fn property_sort_is_deterministic_and_preserves_the_entry_multiset(
+    fn property_sort_is_deterministic_and_preserves_the_entry_multiset(
             raw_names in prop::collection::vec(filename_bytes(), 0..96),
             column_index in 0usize..SortColumn::ALL.len(),
             descending in any::<bool>(),
@@ -118,8 +118,35 @@ mod unix {
             policy.sort_entries(&mut second);
 
             prop_assert_eq!(ordered_identities(&first), ordered_identities(&second));
-            prop_assert_eq!(sorted_identities(&first), before);
-        }
+        prop_assert_eq!(sorted_identities(&first), before);
+    }
+
+    #[test]
+    fn property_natural_sort_is_deterministic_total_and_preserves_multiset(
+        raw_names in prop::collection::vec(filename_bytes(), 0..96),
+        descending in any::<bool>(),
+    ) {
+        let mut first: Vec<_> = raw_names
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(index, name)| entry(name, index))
+            .collect();
+        let mut second = first.clone();
+        let before = sorted_identities(&first);
+        let policy = DirectorySort::new(
+            SortColumn::NaturalName,
+            if descending {
+                SortDirection::Descending
+            } else {
+                SortDirection::Ascending
+            },
+        );
+        policy.sort_entries(&mut first);
+        policy.sort_entries(&mut second);
+        prop_assert_eq!(sorted_identities(&first), sorted_identities(&second));
+        prop_assert_eq!(sorted_identities(&first), before);
+    }
 
         #[test]
         fn property_text_filter_handles_arbitrary_non_utf8_names_without_panicking(

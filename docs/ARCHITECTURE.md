@@ -55,6 +55,43 @@ operations. `BrowserController` owns navigation, selection, loading
 generations, and GTK-model delivery state; `OperationController` observes job
 events and owns operation feedback without executing copy work.
 
+### Multi-window boundary
+
+GTK transients created with `WidgetExt::set_parent` are an explicit ownership
+boundary. Before an allowed window close, `BrowserWidgets` pops down and
+unparents the location-completion popover plus list/grid/search context popovers.
+They must not remain children while their `GtkEntry` or view parent finalizes.
+The KDE Wayland close-survivor smoke in `scripts/native-close-survivor-kde.sh`
+guards the compositor target to an exact two-window same-process Floe group.
+
+The normal unique `AdwApplication` may own several `BrowserController` windows.
+Each window owns its tabs, split panes, selection, navigation, dialogs, focus and
+browser presentation workers. A weak ordered registry routes an external open to
+the newest live controller and drops dead entries, so closing the latest window
+does not strand an older one. `Ctrl+N` creates a fresh window; **Open Folder in
+New Window** transfers an exact raw-path byte variant to the application action
+without reconstructing it from a label.
+
+Phase 23A intentionally does not share the current destructive job-event drain
+between several `OperationController` instances. Secondary windows therefore
+use isolated transient application state and do not own preference, bookmark or
+session writers. This prevents duplicate event consumption, recovery writers
+and conflict dialogs, but means secondary-window operations and state are not
+restored application-wide. Phase 23H must introduce one application-owned
+coordinator with explicit per-window observation/ownership before those
+services can be shared safely.
+
+Window close is lifecycle-safe at this interim boundary. A close request is
+rejected while that window's job registry contains queued, running, paused, or
+conflict-blocked work, so progress and cancellation never become invisible.
+Idle teardown closes request channels and cooperatively cancels browser-owned
+read workers, but deliberately detaches their thread handles instead of joining
+from GTK's main loop: a blocked FUSE, removable, network-backed, metadata,
+preview, thumbnail, search, or mount query cannot freeze a surviving window.
+Detached workers have no UI owner, persistence writer, or response receiver and
+exit once the in-flight call returns. Application shutdown handlers retain
+window state only weakly.
+
 ## `floe-core`
 
 ### `directory.rs`
@@ -211,6 +248,15 @@ Version one fails closed for nonempty filter/choice sets, multiple directories,
 and X11 parents. Portal descriptors are installed but not selected by default.
 Floe never invokes the Documents portal and therefore never claims it granted
 sandbox access; the broker owns that separate policy step.
+
+Phase 22C supersedes that version-one option limitation: it accepts bounded
+glob/MIME filter sets, exact current-filter tuples and bounded boolean/combo
+choices. A dedicated capacity-one worker applies the selected filter to the
+current entry set off GTK while preserving directories and directory symlinks
+for navigation. Generation checks and one replaceable pending request prevent
+stale results. The chooser returns a framed exact option snapshot before URI
+lines, and the portal revalidates the selected filter before success. Multiple
+directories and X11 parents still fail closed.
 
 ### Live tab ownership
 
@@ -805,6 +851,13 @@ it never reconstructs a path from display text. Persistence
 creates a same-directory 0600 temporary file, synchronizes it, atomically renames
 it into place, and synchronizes the 0700 parent directory. GTK callbacks only
 submit requests and consume structured worker events.
+
+Phase 23D upgrades the bookmark payload to version 2 records containing one
+exact path and one optional bounded UTF-8 display alias. Version 1 path-only
+files migrate on decode. Reorder and alias helpers operate on records without
+changing path identity; temporarily missing destinations remain stored rather
+than being silently discarded. The GTK row exposes one options popover so
+Rename, Reset Name, Move Up/Down and Remove do not widen the sidebar.
 
 ### `devices.rs`
 

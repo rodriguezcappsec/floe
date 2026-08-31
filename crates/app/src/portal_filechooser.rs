@@ -20,7 +20,10 @@ use gtk::{
 };
 use thiserror::Error;
 
-use crate::selection_mode::SELECTION_PATH_CAPACITY;
+use crate::selection_mode::{
+    SELECTION_PATH_CAPACITY, SelectionChoice, SelectionChooserOptions, SelectionFilter,
+    SelectionFilterRule, SelectionOptionResult, decode_option_result, encode_chooser_options,
+};
 
 pub const PORTAL_BACKEND_FLAG: &str = "--portal-filechooser-backend";
 pub const PORTAL_BUS_NAME: &str = "org.freedesktop.impl.portal.desktop.floe";
@@ -85,6 +88,7 @@ struct PortalRequest {
     current_folder: Option<PathBuf>,
     current_name: Option<String>,
     kind: PortalRequestKind,
+    chooser_options: SelectionChooserOptions,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -151,7 +155,29 @@ impl PortalRequest {
             return Err(PortalRequestError::Parameters);
         }
         let options = glib::VariantDict::new(Some(&options));
-        reject_complex_options(&options)?;
+        let mut filters = lookup_filters(&options)?;
+        let current_filter_value = lookup_current_filter(&options)?;
+        let current_filter = if let Some(current) = current_filter_value {
+            if filters.is_empty() {
+                filters.push(current);
+                Some(0)
+            } else {
+                Some(
+                    filters
+                        .iter()
+                        .position(|filter| filter == &current)
+                        .ok_or(PortalRequestError::Unsupported("current_filter"))?,
+                )
+            }
+        } else {
+            (!filters.is_empty()).then_some(0)
+        };
+        let choices = lookup_choices(&options)?;
+        let chooser_options = SelectionChooserOptions {
+            filters,
+            current_filter,
+            choices,
+        };
         let accept_label = lookup::<String>(&options, "accept_label")?
             .map(|value| sanitize_text(&value.replace('_', ""), "accept label"))
             .transpose()?;
@@ -201,6 +227,7 @@ impl PortalRequest {
                     current_folder,
                     current_name,
                     kind: PortalRequestKind::SaveFile,
+                    chooser_options,
                 });
             }
             "SaveFiles" => {
@@ -223,6 +250,7 @@ impl PortalRequest {
             current_folder,
             current_name,
             kind,
+            chooser_options,
         })
     }
 
@@ -261,31 +289,52 @@ impl PortalRequest {
         if self.modal {
             arguments.push("--chooser-modal".into());
         }
+        if !self.chooser_options.filters.is_empty() || !self.chooser_options.choices.is_empty() {
+            if let Some(encoded) = encode_chooser_options(&self.chooser_options) {
+                arguments.push("--chooser-options-v1".into());
+                arguments.push(encoded.into());
+            }
+        }
         arguments
     }
 
-    fn results_from_stdout(&self, stdout: &str) -> Result<Vec<String>, PortalRequestError> {
+    fn results_from_stdout(&self, stdout: &str) -> Result<PortalResults, PortalRequestError> {
         if stdout.len() > CHILD_STDOUT_CAPACITY {
             return Err(PortalRequestError::Capacity);
         }
-        let uris = stdout
+        let mut lines = stdout
             .lines()
             .map(str::trim)
-            .filter(|line| !line.is_empty())
+            .filter(|line| !line.is_empty());
+        let options = match lines
+            .clone()
+            .next()
+            .and_then(|line| line.strip_prefix("floe-chooser-options-v1:"))
+        {
+            Some(encoded) => {
+                Some(decode_option_result(encoded).ok_or(PortalRequestError::Parameters)?)
+            }
+            None => None,
+        };
+        if options.is_some() {
+            let _ = lines.next();
+        }
+        let uris = lines
+            .map(str::trim)
             .map(normalize_local_uri)
             .collect::<Result<Vec<_>, _>>()?;
-        match &self.kind {
+        let uris = match &self.kind {
             PortalRequestKind::OpenFile { multiple: false }
             | PortalRequestKind::SelectFolder
             | PortalRequestKind::SaveFile
                 if uris.len() != 1 =>
             {
-                Err(PortalRequestError::Capacity)
+                return Err(PortalRequestError::Capacity);
             }
             PortalRequestKind::OpenFile { multiple: true }
                 if uris.is_empty() || uris.len() > SELECTION_PATH_CAPACITY =>
             {
-                Err(PortalRequestError::Capacity)
+                return Err(PortalRequestError::Capacity);
             }
             PortalRequestKind::SaveFiles { names } if uris.len() == 1 => {
                 let folder = gio::File::for_uri(&uris[0])
@@ -295,12 +344,41 @@ impl PortalRequest {
                     .iter()
                     .map(|name| gio::File::for_path(folder.join(name)).uri().to_string())
                     .collect::<Vec<_>>()
-                    .pipe(Ok)
             }
-            PortalRequestKind::SaveFiles { .. } => Err(PortalRequestError::Capacity),
-            _ => Ok(uris),
+            PortalRequestKind::SaveFiles { .. } => return Err(PortalRequestError::Capacity),
+            _ => uris,
+        };
+        let options = options.unwrap_or_default();
+        if options
+            .current_filter
+            .is_some_and(|index| index >= self.chooser_options.filters.len())
+            || options.choices.len() != self.chooser_options.choices.len()
+            || options
+                .choices
+                .iter()
+                .zip(&self.chooser_options.choices)
+                .any(|((id, value), expected)| {
+                    id != &expected.id
+                        || if expected.options.is_empty() {
+                            !matches!(value.as_str(), "true" | "false")
+                        } else {
+                            !expected
+                                .options
+                                .iter()
+                                .any(|(candidate, _)| candidate == value)
+                        }
+                })
+        {
+            return Err(PortalRequestError::Parameters);
         }
+        Ok(PortalResults { uris, options })
     }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct PortalResults {
+    uris: Vec<String>,
+    options: SelectionOptionResult,
 }
 
 impl ParentWindow {
@@ -326,13 +404,6 @@ impl ParentWindow {
         Err(PortalRequestError::Parent)
     }
 }
-
-trait Pipe: Sized {
-    fn pipe<T>(self, callback: impl FnOnce(Self) -> T) -> T {
-        callback(self)
-    }
-}
-impl<T> Pipe for T {}
 
 fn child_text(parameters: &glib::Variant, index: usize) -> Option<String> {
     parameters.child_value(index).str().map(ToOwned::to_owned)
@@ -450,18 +521,114 @@ fn is_request_handle(value: &str) -> bool {
         })
 }
 
-fn reject_complex_options(options: &glib::VariantDict) -> Result<(), PortalRequestError> {
-    for key in ["filters", "current_filter", "choices"] {
-        if options.contains(key) {
-            let value = options
-                .lookup_value(key, None)
-                .ok_or(PortalRequestError::OptionType(key))?;
-            if value.n_children() != 0 {
-                return Err(PortalRequestError::Unsupported(key));
-            }
-        }
+fn lookup_filters(options: &glib::VariantDict) -> Result<Vec<SelectionFilter>, PortalRequestError> {
+    let Some(value) = options.lookup_value("filters", None) else {
+        return Ok(Vec::new());
+    };
+    if value.type_().as_str() != "a(sa(us))" {
+        return Err(PortalRequestError::OptionType("filters"));
     }
-    Ok(())
+    let raw = value
+        .get::<Vec<(String, Vec<(u32, String)>)>>()
+        .ok_or(PortalRequestError::OptionType("filters"))?;
+    parse_filters(raw, "filters")
+}
+
+fn lookup_current_filter(
+    options: &glib::VariantDict,
+) -> Result<Option<SelectionFilter>, PortalRequestError> {
+    let Some(value) = options.lookup_value("current_filter", None) else {
+        return Ok(None);
+    };
+    if value.type_().as_str() != "(sa(us))" {
+        return Err(PortalRequestError::OptionType("current_filter"));
+    }
+    let raw = value
+        .get::<(String, Vec<(u32, String)>)>()
+        .ok_or(PortalRequestError::OptionType("current_filter"))?;
+    Ok(parse_filters(vec![raw], "current_filter")?.pop())
+}
+
+fn parse_filters(
+    raw: Vec<(String, Vec<(u32, String)>)>,
+    field: &'static str,
+) -> Result<Vec<SelectionFilter>, PortalRequestError> {
+    if raw.len() > 32 {
+        return Err(PortalRequestError::Capacity);
+    }
+    raw.into_iter()
+        .map(|(label, rules)| {
+            let label = sanitize_text(&label, field)?;
+            if rules.is_empty() || rules.len() > 32 {
+                return Err(PortalRequestError::Capacity);
+            }
+            let rules = rules
+                .into_iter()
+                .map(|(kind, value)| {
+                    if value.is_empty() || value.len() > 256 || value.chars().any(char::is_control)
+                    {
+                        return Err(PortalRequestError::Text(field));
+                    }
+                    match kind {
+                        0 => Ok(SelectionFilterRule::Glob(value)),
+                        1 => Ok(SelectionFilterRule::Mime(value)),
+                        _ => Err(PortalRequestError::Unsupported(field)),
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(SelectionFilter { label, rules })
+        })
+        .collect()
+}
+
+fn lookup_choices(options: &glib::VariantDict) -> Result<Vec<SelectionChoice>, PortalRequestError> {
+    let Some(value) = options.lookup_value("choices", None) else {
+        return Ok(Vec::new());
+    };
+    if value.type_().as_str() != "a(ssa(ss)s)" {
+        return Err(PortalRequestError::OptionType("choices"));
+    }
+    let raw = value
+        .get::<Vec<(String, String, Vec<(String, String)>, String)>>()
+        .ok_or(PortalRequestError::OptionType("choices"))?;
+    if raw.len() > 32 {
+        return Err(PortalRequestError::Capacity);
+    }
+    let mut ids = std::collections::HashSet::new();
+    raw.into_iter()
+        .map(|(id, label, choices, initial)| {
+            let id = sanitize_text(&id, "choices")?;
+            if !ids.insert(id.clone()) || choices.len() > 64 {
+                return Err(PortalRequestError::Unsupported("choices"));
+            }
+            let label = sanitize_text(&label, "choices")?;
+            let mut option_ids = std::collections::HashSet::new();
+            let choices = choices
+                .into_iter()
+                .map(|(id, label)| {
+                    let id = sanitize_text(&id, "choices")?;
+                    if !option_ids.insert(id.clone()) {
+                        return Err(PortalRequestError::Unsupported("choices"));
+                    }
+                    Ok((id, sanitize_text(&label, "choices")?))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let valid_initial = if choices.is_empty() {
+                matches!(initial.as_str(), "" | "true" | "false")
+            } else {
+                initial.is_empty() || choices.iter().any(|(id, _)| id == &initial)
+            };
+            if !valid_initial {
+                return Err(PortalRequestError::Unsupported("choices"));
+            }
+            Ok(SelectionChoice {
+                id,
+                label,
+                options: choices,
+                initial,
+            })
+        })
+        .collect()
 }
 
 fn normalize_local_uri(value: &str) -> Result<String, PortalRequestError> {
@@ -645,7 +812,7 @@ impl PortalService {
             .and_then(|(stdout, _)| stdout)
             .and_then(|stdout| pending.request.results_from_stdout(&stdout).ok());
         match response {
-            Some(uris) => return_response(pending.invocation, 0, &uris),
+            Some(results) => return_success(pending.invocation, &pending.request, results),
             None if pending.process.has_exited() && pending.process.exit_status() == 1 => {
                 return_response(pending.invocation, 1, &[])
             }
@@ -668,6 +835,36 @@ fn return_response(invocation: gio::DBusMethodInvocation, response: u32, uris: &
         results.insert_value("uris", &uris.to_variant());
     }
     let response = glib::Variant::tuple_from_iter([response.to_variant(), results.end()]);
+    invocation.return_value(Some(&response));
+}
+
+fn return_success(
+    invocation: gio::DBusMethodInvocation,
+    request: &PortalRequest,
+    result: PortalResults,
+) {
+    let results = glib::VariantDict::new(None);
+    results.insert_value("uris", &result.uris.to_variant());
+    if !request.chooser_options.choices.is_empty() {
+        results.insert_value("choices", &result.options.choices.to_variant());
+    }
+    if let Some(index) = result.options.current_filter
+        && let Some(filter) = request.chooser_options.filters.get(index)
+    {
+        let rules = filter
+            .rules
+            .iter()
+            .map(|rule| match rule {
+                SelectionFilterRule::Glob(value) => (0u32, value.clone()),
+                SelectionFilterRule::Mime(value) => (1u32, value.clone()),
+            })
+            .collect::<Vec<_>>();
+        results.insert_value(
+            "current_filter",
+            &(filter.label.clone(), rules).to_variant(),
+        );
+    }
+    let response = glib::Variant::tuple_from_iter([0u32.to_variant(), results.end()]);
     invocation.return_value(Some(&response));
 }
 
@@ -785,7 +982,7 @@ mod tests {
         options.insert_value("choices", &vec!["unsupported"].to_variant());
         assert!(matches!(
             PortalRequest::parse("OpenFile", &call("OpenFile", options.end())),
-            Err(PortalRequestError::Unsupported("choices"))
+            Err(PortalRequestError::OptionType("choices"))
         ));
 
         let options = glib::VariantDict::new(None);
@@ -808,7 +1005,8 @@ mod tests {
         assert_eq!(
             save_files
                 .results_from_stdout("file:///tmp\n")
-                .expect("SaveFiles results"),
+                .expect("SaveFiles results")
+                .uris,
             vec!["file:///tmp/first.txt", "file:///tmp/raw-%FF.bin"]
         );
     }
@@ -825,6 +1023,7 @@ mod tests {
             current_folder: Some(PathBuf::from(OsString::from_vec(b"/tmp/raw-\xff".to_vec()))),
             current_name: None,
             kind: PortalRequestKind::OpenFile { multiple: true },
+            chooser_options: SelectionChooserOptions::default(),
         };
         let argv = request.chooser_argv(OsStr::new("/usr/bin/floe"));
         assert_eq!(argv[0], "/usr/bin/floe");
@@ -835,7 +1034,8 @@ mod tests {
         assert_eq!(
             request
                 .results_from_stdout("file:///tmp/a%0Ab\nfile:///tmp/b\n")
-                .expect("results"),
+                .expect("results")
+                .uris,
             vec!["file:///tmp/a%0Ab", "file:///tmp/b"]
         );
         assert!(
@@ -843,6 +1043,94 @@ mod tests {
                 .results_from_stdout("https://example.invalid")
                 .is_err()
         );
+    }
+
+    #[test]
+    fn phase_22c_portal_model_round_trips_filters_current_filter_and_choices() {
+        let filters = vec![(
+            "PDF documents".to_owned(),
+            vec![
+                (0u32, "*.pdf".to_owned()),
+                (1u32, "application/pdf".to_owned()),
+            ],
+        )];
+        let choices = vec![
+            (
+                "preview".to_owned(),
+                "Show preview".to_owned(),
+                Vec::<(String, String)>::new(),
+                "true".to_owned(),
+            ),
+            (
+                "encoding".to_owned(),
+                "Encoding".to_owned(),
+                vec![
+                    ("utf8".to_owned(), "UTF-8".to_owned()),
+                    ("latin1".to_owned(), "Latin-1".to_owned()),
+                ],
+                "utf8".to_owned(),
+            ),
+        ];
+        let options = glib::VariantDict::new(None);
+        options.insert_value("filters", &filters.to_variant());
+        options.insert_value("current_filter", &filters[0].to_variant());
+        options.insert_value("choices", &choices.to_variant());
+        let request = PortalRequest::parse("OpenFile", &call("OpenFile", options.end()))
+            .expect("valid portal options");
+        assert_eq!(request.chooser_options.current_filter, Some(0));
+        assert_eq!(request.chooser_options.choices.len(), 2);
+        let argv = request.chooser_argv(OsStr::new("/usr/bin/floe"));
+        let encoded = argv
+            .windows(2)
+            .find(|pair| pair[0] == OsStr::new("--chooser-options-v1"))
+            .and_then(|pair| pair[1].to_str())
+            .expect("typed chooser payload");
+        assert_eq!(
+            crate::selection_mode::decode_chooser_options(encoded),
+            Some(request.chooser_options.clone())
+        );
+
+        let option_result = SelectionOptionResult {
+            current_filter: Some(0),
+            choices: vec![
+                ("preview".to_owned(), "true".to_owned()),
+                ("encoding".to_owned(), "latin1".to_owned()),
+            ],
+        };
+        let result = request
+            .results_from_stdout(&format!(
+                "floe-chooser-options-v1:{}\nfile:///tmp/report.pdf\n",
+                crate::selection_mode::encode_option_result(&option_result)
+                    .expect("result encoding")
+            ))
+            .expect("valid filtered result");
+        assert_eq!(result.options, option_result);
+        assert_eq!(result.uris, ["file:///tmp/report.pdf"]);
+    }
+
+    #[test]
+    fn phase_23_reliability_portal_filter_is_advisory_for_explicit_selection() {
+        let filters = vec![("PDF documents".to_owned(), vec![(0u32, "*.pdf".to_owned())])];
+        let options = glib::VariantDict::new(None);
+        options.insert_value("filters", &filters.to_variant());
+        options.insert_value("current_filter", &filters[0].to_variant());
+        let request = PortalRequest::parse("SaveFile", &call("SaveFile", options.end()))
+            .expect("valid filtered SaveFile request");
+        let option_result = SelectionOptionResult {
+            current_filter: Some(0),
+            choices: Vec::new(),
+        };
+
+        let result = request
+            .results_from_stdout(&format!(
+                "floe-chooser-options-v1:{}\nfile:///tmp/notes.txt\n",
+                crate::selection_mode::encode_option_result(&option_result)
+                    .expect("result encoding")
+            ))
+            .expect("portal filters are selection aids, not content enforcement");
+
+        assert_eq!(result.uris, ["file:///tmp/notes.txt"]);
+        assert_eq!(result.options.current_filter, Some(0));
     }
 
     #[test]

@@ -817,6 +817,14 @@ impl MillerView {
             content.append(&clear_cache);
         }
         if state.surface() == Some(MillerDetailSurface::Inspector) {
+            let checksum = gtk::Button::with_label("Calculate SHA-256…");
+            checksum.set_halign(gtk::Align::Center);
+            checksum.set_margin_top(8);
+            checksum.set_action_name(Some("win.checksum"));
+            checksum.update_property(&[gtk::accessible::Property::Description(
+                "Calculate a checksum on demand. A checksum is not proof of authenticity or safety.",
+            )]);
+            content.append(&checksum);
             let width_controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
             width_controls.set_halign(gtk::Align::Center);
             width_controls.set_margin_top(8);

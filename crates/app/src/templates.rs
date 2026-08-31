@@ -253,11 +253,7 @@ impl TemplateWorker {
 impl Drop for TemplateWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if let Some(worker) = self.worker.take()
-            && worker.join().is_err()
-        {
-            tracing::warn!("template discovery worker panicked during shutdown");
-        }
+        self.worker.take();
     }
 }
 

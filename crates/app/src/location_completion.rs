@@ -79,9 +79,7 @@ impl Drop for LocationCompletionWorker {
             .unwrap_or_else(|poison| poison.into_inner())
             .shutdown = true;
         wake.notify_one();
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
+        self.join.take();
     }
 }
 

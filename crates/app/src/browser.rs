@@ -22,7 +22,7 @@ use floe_core::{
     DirectorySort, EntryKind, EntryTypeFilter, FilenameSearchRequest, FilenameSearchScope,
     FilenameSearchSummary, FolderFilterMode, HiddenFilter, IntegrityBaseline,
     IntegrityMonitorSession, IntegrityMonitorStaleReason, IntegrityRescanDecision,
-    IntegrityWatchEvent, IntegrityWatchSetPolicy, MillerChildKind, MillerColumnModel,
+    IntegrityWatchEvent, IntegrityWatchSetPolicy, JobId, MillerChildKind, MillerColumnModel,
     MillerSelectionTransition, MoveRequest, OwnerFilter, PermanentDeleteRequest, RecentSearches,
     RenameRequest, RestoreRequest, SAVED_SEARCH_NAME_CAPACITY, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN,
     SavedSearch, SearchHistoryPolicy, SearchKind, SearchQuery, SearchResultOrder,
@@ -353,7 +353,9 @@ use crate::{
         with_archive_extension,
     },
     batch_rename::{BatchRenameSource, build_batch_rename_dialog, refresh_batch_rename_dialog},
-    bookmarks::{BookmarkWorker, BookmarkWorkerEvent},
+    bookmarks::{
+        BookmarkRecord, BookmarkWorker, BookmarkWorkerEvent, records_with_alias, reordered_records,
+    },
     checksum_ui::{ChecksumDialogInput, build_checksum_request},
     cli_routing::{CliRoute, CliRouteError, CliRouteWorker},
     clipboard::{self, ClipboardTransfer},
@@ -406,10 +408,11 @@ use crate::{
     properties::{
         ExecutableEdit, PROPERTIES_RESULT_CAPACITY, PermissionEditorInput, PropertiesRequest,
         PropertiesSubmitError, PropertiesWorker, build_permission_request,
-        present as present_properties,
+        checksum_targets_for_presentation, present as present_properties,
     },
     selection_mode::{
-        SELECTION_PATH_CAPACITY, SelectionCompletion, SelectionConfig, SelectionMode,
+        SELECTION_PATH_CAPACITY, SelectionCompletion, SelectionConfig, SelectionFilterRequest,
+        SelectionFilterSubmitError, SelectionFilterWorker, SelectionMode, SelectionOptionResult,
         SelectionValidationOutcome, SelectionValidationRequest, SelectionValidationWorker,
     },
     session_store::SessionStoreWorker,
@@ -543,6 +546,64 @@ fn remember_window_size_if_normal(
     }
     preferences.window_size = Some(size);
     true
+}
+
+const ACTIVE_OPERATION_CLOSE_MESSAGE: &str = "File operations are still running. Wait for them to finish or cancel them before closing this window.";
+
+const fn window_close_allowed(has_active_jobs: bool) -> bool {
+    !has_active_jobs
+}
+
+fn present_checksum_dialog_for_targets(
+    parent: &adw::ApplicationWindow,
+    toast_overlay: &adw::ToastOverlay,
+    state: Rc<ApplicationState>,
+    targets: Arc<[PathBuf]>,
+) {
+    let widgets = ui::build_checksum_dialog(targets.len());
+    let dialog = widgets.dialog.downgrade();
+    widgets.cancel_button.connect_clicked(move |_| {
+        if let Some(dialog) = dialog.upgrade() {
+            dialog.close();
+        }
+    });
+    let dialog = widgets.dialog.downgrade();
+    let algorithm_dropdown = widgets.algorithm_dropdown.clone();
+    let expected_entry = widgets.expected_entry.clone();
+    let error_label = widgets.error_label.clone();
+    let toast_overlay = toast_overlay.clone();
+    widgets.calculate_button.connect_clicked(move |_| {
+        let algorithm = match algorithm_dropdown.selected() {
+            1 => ChecksumAlgorithm::Sha512,
+            2 => ChecksumAlgorithm::Md5Legacy,
+            _ => ChecksumAlgorithm::Sha256,
+        };
+        let input = ChecksumDialogInput {
+            algorithm,
+            expected: expected_entry.text().to_string(),
+        };
+        match build_checksum_request(Arc::clone(&targets), &input) {
+            Ok(request) => match state.submit_checksum(request) {
+                Ok(_) => {
+                    if let Some(dialog) = dialog.upgrade() {
+                        dialog.close();
+                    }
+                    toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title("Checksum calculation queued")
+                            .timeout(4)
+                            .build(),
+                    );
+                }
+                Err(error) => {
+                    error_label.set_label(&format!("Could not queue checksum calculation: {error}"))
+                }
+            },
+            Err(error) => error_label.set_label(&error.to_string()),
+        }
+    });
+    widgets.dialog.present(Some(parent));
+    widgets.algorithm_dropdown.grab_focus();
 }
 
 pub struct BrowserServices {
@@ -708,8 +769,9 @@ pub struct BrowserController {
     custom_action_worker: RefCell<Option<crate::custom_actions::CustomActionWorker>>,
     privileged_access: Rc<crate::privileged_access::PrivilegedAccessController>,
     application_state: Rc<ApplicationState>,
+    completion_notification_namespace: u64,
     bookmark_worker: RefCell<Option<BookmarkWorker>>,
-    bookmarks: RefCell<Vec<PathBuf>>,
+    bookmarks: RefCell<Vec<BookmarkRecord>>,
     bookmarks_loaded: Cell<bool>,
     bookmark_revision: Cell<u64>,
     bookmark_save_in_flight: Cell<bool>,
@@ -757,7 +819,52 @@ struct SelectionModeRuntime {
     finished: Cell<bool>,
     filename_user_edited: Cell<bool>,
     updating_filename: Cell<bool>,
+    filter: Option<gtk::DropDown>,
+    filter_worker: Option<SelectionFilterWorker>,
+    filter_generation: Cell<u64>,
+    filter_pending: RefCell<Option<SelectionFilterRequest>>,
+    choices: Vec<(String, SelectionChoiceWidget)>,
     poll_source: RefCell<Option<glib::SourceId>>,
+}
+
+enum SelectionChoiceWidget {
+    Boolean(gtk::CheckButton),
+    Combo(gtk::DropDown, Vec<String>),
+}
+
+impl SelectionModeRuntime {
+    fn accepted(&self, paths: Vec<PathBuf>) -> SelectionCompletion {
+        if self.filter.is_none() && self.choices.is_empty() {
+            return SelectionCompletion::Accepted(paths);
+        }
+        let current_filter = self.filter.as_ref().and_then(|filter| {
+            let selected = filter.selected();
+            (selected != gtk::INVALID_LIST_POSITION)
+                .then(|| usize::try_from(selected).ok())
+                .flatten()
+        });
+        let choices = self
+            .choices
+            .iter()
+            .map(|(id, widget)| {
+                let value = match widget {
+                    SelectionChoiceWidget::Boolean(check) => check.is_active().to_string(),
+                    SelectionChoiceWidget::Combo(dropdown, ids) => ids
+                        .get(usize::try_from(dropdown.selected()).unwrap_or(usize::MAX))
+                        .cloned()
+                        .unwrap_or_default(),
+                };
+                (id.clone(), value)
+            })
+            .collect();
+        SelectionCompletion::AcceptedWithOptions(
+            paths,
+            SelectionOptionResult {
+                current_filter,
+                choices,
+            },
+        )
+    }
 }
 
 impl Drop for BrowserController {
@@ -1030,6 +1137,8 @@ impl BrowserController {
             custom_action_worker: RefCell::new(custom_action_worker),
             privileged_access,
             application_state,
+            completion_notification_namespace:
+                crate::completeness::next_completion_notification_namespace(),
             bookmark_worker: RefCell::new(bookmarks),
             bookmarks: RefCell::new(Vec::new()),
             bookmarks_loaded: Cell::new(false),
@@ -1101,6 +1210,66 @@ impl BrowserController {
             .xalign(0.0)
             .build();
         title.add_css_class("heading");
+        let option_controls = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        let filter = if config.chooser_options.filters.is_empty() {
+            None
+        } else {
+            let labels = config
+                .chooser_options
+                .filters
+                .iter()
+                .map(|filter| filter.label.as_str())
+                .collect::<Vec<_>>();
+            let dropdown = gtk::DropDown::from_strings(&labels);
+            dropdown.set_selected(
+                config
+                    .chooser_options
+                    .current_filter
+                    .and_then(|index| u32::try_from(index).ok())
+                    .unwrap_or(0),
+            );
+            dropdown.set_tooltip_text(Some("Choose which file types are shown and returned"));
+            dropdown.update_property(&[gtk::accessible::Property::Label("File type filter")]);
+            option_controls.append(&dropdown);
+            Some(dropdown)
+        };
+        let mut choice_widgets = Vec::new();
+        for choice in &config.chooser_options.choices {
+            if choice.options.is_empty() {
+                let check = gtk::CheckButton::with_label(&choice.label);
+                check.set_active(choice.initial == "true");
+                option_controls.append(&check);
+                choice_widgets.push((choice.id.clone(), SelectionChoiceWidget::Boolean(check)));
+            } else {
+                let row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+                row.append(&gtk::Label::new(Some(&choice.label)));
+                let labels = choice
+                    .options
+                    .iter()
+                    .map(|(_, label)| label.as_str())
+                    .collect::<Vec<_>>();
+                let ids = choice
+                    .options
+                    .iter()
+                    .map(|(id, _)| id.clone())
+                    .collect::<Vec<_>>();
+                let dropdown = gtk::DropDown::from_strings(&labels);
+                let selected = ids
+                    .iter()
+                    .position(|id| id == &choice.initial)
+                    .and_then(|index| u32::try_from(index).ok())
+                    .unwrap_or(0);
+                dropdown.set_selected(selected);
+                dropdown
+                    .update_property(&[gtk::accessible::Property::Label(choice.label.as_str())]);
+                row.append(&dropdown);
+                option_controls.append(&row);
+                choice_widgets.push((
+                    choice.id.clone(),
+                    SelectionChoiceWidget::Combo(dropdown, ids),
+                ));
+            }
+        }
         let filename = gtk::Entry::builder()
             .placeholder_text("Filename")
             .hexpand(true)
@@ -1155,11 +1324,27 @@ impl BrowserController {
             gtk::accessible::Property::Description(selection_description),
         ]);
         footer.append(&title);
+        if filter.is_some() || !choice_widgets.is_empty() {
+            footer.append(&option_controls);
+        }
         footer.append(&filename);
         footer.append(&status);
         footer.append(&cancel);
         footer.append(&accept);
         self.widgets.active_pane_shell.append(&footer);
+
+        let filter_control = filter.clone();
+        let filter_worker = if filter.is_some() {
+            match SelectionFilterWorker::spawn() {
+                Ok(worker) => Some(worker),
+                Err(error) => {
+                    tracing::warn!(%error, "could not start Selection Mode filter worker");
+                    None
+                }
+            }
+        } else {
+            None
+        };
 
         *self.selection_mode.borrow_mut() = Some(SelectionModeRuntime {
             config,
@@ -1174,8 +1359,23 @@ impl BrowserController {
             finished: Cell::new(false),
             filename_user_edited: Cell::new(has_suggested_name),
             updating_filename: Cell::new(false),
+            filter,
+            filter_worker,
+            filter_generation: Cell::new(0),
+            filter_pending: RefCell::new(None),
+            choices: choice_widgets,
             poll_source: RefCell::new(None),
         });
+
+        if let Some(filter) = filter_control {
+            let controller = Rc::downgrade(self);
+            filter.connect_selected_notify(move |_| {
+                if let Some(controller) = controller.upgrade() {
+                    let selected_paths = controller.selected_paths();
+                    controller.apply_folder_filter(selected_paths, false);
+                }
+            });
+        }
 
         let controller = Rc::downgrade(self);
         accept.connect_clicked(move |_| {
@@ -1367,7 +1567,13 @@ impl BrowserController {
         }
         match result.outcome {
             SelectionValidationOutcome::Ready(paths) => {
-                self.finish_selection_mode(SelectionCompletion::Accepted(paths));
+                let completion = self
+                    .selection_mode
+                    .borrow()
+                    .as_ref()
+                    .map(|runtime| runtime.accepted(paths))
+                    .unwrap_or(SelectionCompletion::Failed);
+                self.finish_selection_mode(completion);
             }
             SelectionValidationOutcome::ReplaceConfirmation(path) => {
                 self.present_selection_replace_confirmation(path);
@@ -1400,8 +1606,13 @@ impl BrowserController {
         dialog.connect_response(None, move |dialog, response| {
             if let Some(controller) = controller.upgrade() {
                 if response == "replace" {
-                    controller
-                        .finish_selection_mode(SelectionCompletion::Accepted(vec![path.clone()]));
+                    let completion = controller
+                        .selection_mode
+                        .borrow()
+                        .as_ref()
+                        .map(|runtime| runtime.accepted(vec![path.clone()]))
+                        .unwrap_or(SelectionCompletion::Failed);
+                    controller.finish_selection_mode(completion);
                 } else {
                     controller.refresh_selection_mode();
                 }
@@ -1428,6 +1639,20 @@ impl BrowserController {
 
     pub fn wire(self: &Rc<Self>, application: &adw::Application, locations: &[Location]) {
         let controller = Rc::downgrade(self);
+        self.widgets.window.connect_close_request(move |_| {
+            let Some(controller) = controller.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            if window_close_allowed(controller.application_state.has_active_jobs()) {
+                controller.widgets.prepare_for_window_close();
+                glib::Propagation::Proceed
+            } else {
+                controller.show_toast(ACTIVE_OPERATION_CLOSE_MESSAGE, 7);
+                glib::Propagation::Stop
+            }
+        });
+
+        let controller = Rc::downgrade(self);
         self.application_state
             .observe_verified_usb_completions(move |job_id, result| {
                 if let Some(controller) = controller.upgrade() {
@@ -1453,6 +1678,20 @@ impl BrowserController {
         self.arm_split_ratio_tracking();
         self.widgets
             .apply_sidebar_density(self.current_preferences.borrow().sidebar_density);
+        self.ignore_sidebar_position_signal.set(true);
+        self.widgets
+            .apply_sidebar_collapsed(self.current_preferences.borrow().sidebar_collapsed);
+        if !self.current_preferences.borrow().sidebar_collapsed {
+            let width = self
+                .current_preferences
+                .borrow()
+                .sidebar_width
+                .map(clamp_sidebar_width)
+                .map(i32::from)
+                .unwrap_or(self.widgets.sidebar_default_width);
+            self.widgets.workspace.set_position(width);
+        }
+        self.ignore_sidebar_position_signal.set(false);
         let initial_view = self
             .current_preferences
             .borrow()
@@ -1975,24 +2214,90 @@ impl BrowserController {
             return;
         }
         let current = self.tabs.borrow().active().current().path().to_path_buf();
-        if self.bookmarks.borrow().contains(&current) {
+        if self
+            .bookmarks
+            .borrow()
+            .iter()
+            .any(|record| record.path == current)
+        {
             self.show_toast("This folder is already bookmarked", 4);
             return;
         }
         let mut revised = self.bookmarks.borrow().clone();
-        revised.push(current);
+        revised.push(BookmarkRecord::from(current));
         self.submit_bookmarks(revised);
     }
 
     fn remove_bookmark(self: &Rc<Self>, index: usize) {
-        let Some(revised) = ui::bookmark_paths_after_remove(&self.bookmarks.borrow(), index) else {
+        let mut revised = self.bookmarks.borrow().clone();
+        if index >= revised.len() {
             self.show_toast("That bookmark is no longer available", 4);
+            return;
+        }
+        revised.remove(index);
+        self.submit_bookmarks(revised);
+    }
+
+    fn move_bookmark(self: &Rc<Self>, index: usize, delta: isize) {
+        let Some(revised) = reordered_records(&self.bookmarks.borrow(), index, delta) else {
             return;
         };
         self.submit_bookmarks(revised);
     }
 
-    fn submit_bookmarks(self: &Rc<Self>, paths: Vec<PathBuf>) {
+    fn rename_bookmark(self: &Rc<Self>, index: usize) {
+        let Some(record) = self.bookmarks.borrow().get(index).cloned() else {
+            return;
+        };
+        let dialog = adw::AlertDialog::builder()
+            .heading("Rename Bookmark")
+            .body("Set a sidebar label. The bookmarked folder path will not change.")
+            .build();
+        let entry = gtk::Entry::builder()
+            .text(record.alias.as_deref().unwrap_or_default())
+            .placeholder_text(
+                record
+                    .path
+                    .file_name()
+                    .and_then(std::ffi::OsStr::to_str)
+                    .unwrap_or("Folder"),
+            )
+            .activates_default(true)
+            .build();
+        dialog.set_extra_child(Some(&entry));
+        dialog.add_response("cancel", "Cancel");
+        dialog.add_response("rename", "Rename");
+        dialog.set_default_response(Some("rename"));
+        dialog.set_close_response("cancel");
+        let controller = Rc::downgrade(self);
+        dialog.connect_response(None, move |_, response| {
+            if response != "rename" {
+                return;
+            }
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let alias = entry.text().trim().to_owned();
+            match records_with_alias(
+                &controller.bookmarks.borrow(),
+                index,
+                (!alias.is_empty()).then_some(alias),
+            ) {
+                Ok(Some(revised)) => controller.submit_bookmarks(revised),
+                Ok(None) => controller.show_toast("That bookmark is no longer available", 4),
+                Err(error) => controller.show_toast(&error.to_string(), 5),
+            }
+        });
+        dialog.present(Some(&self.widgets.window));
+    }
+
+    fn reset_bookmark_name(self: &Rc<Self>, index: usize) {
+        if let Ok(Some(revised)) = records_with_alias(&self.bookmarks.borrow(), index, None) {
+            self.submit_bookmarks(revised);
+        }
+    }
+
+    fn submit_bookmarks(self: &Rc<Self>, records: Vec<BookmarkRecord>) {
         if self.selection_mode.borrow().is_some() {
             self.show_toast("Bookmarks cannot be changed in Selection Mode", 4);
             return;
@@ -2006,7 +2311,7 @@ impl BrowserController {
             .bookmark_worker
             .borrow()
             .as_ref()
-            .map(|worker| worker.try_save(revision, paths));
+            .map(|worker| worker.try_save(revision, records));
         match result {
             Some(Ok(())) => {
                 self.bookmark_revision.set(revision);
@@ -2032,7 +2337,7 @@ impl BrowserController {
             };
             match event {
                 Ok(BookmarkWorkerEvent::Loaded(Ok(bookmarks))) => {
-                    self.bookmarks.replace(bookmarks.paths().to_vec());
+                    self.bookmarks.replace(bookmarks.records().to_vec());
                     self.bookmarks_loaded.set(true);
                     self.widgets.add_bookmark_button.set_sensitive(
                         self.selection_mode.borrow().is_none()
@@ -2058,7 +2363,7 @@ impl BrowserController {
                         .set_tooltip_text(Some("Add current folder to Bookmarks"));
                     match result {
                         Ok(bookmarks) => {
-                            self.bookmarks.replace(bookmarks.paths().to_vec());
+                            self.bookmarks.replace(bookmarks.records().to_vec());
                             self.render_bookmarks();
                             self.show_toast("Bookmarks updated", 3);
                         }
@@ -2096,12 +2401,15 @@ impl BrowserController {
                 self.bookmarks_loaded.get(),
                 self.bookmark_save_in_flight.get(),
             );
-        for (index, path) in bookmarks.into_iter().enumerate() {
+        let bookmark_count = bookmarks.len();
+        for (index, record) in bookmarks.into_iter().enumerate() {
+            let path = record.path;
             let row = gtk::Box::builder()
                 .orientation(gtk::Orientation::Horizontal)
                 .spacing(0)
                 .build();
-            let display_name = sidebar_path_name(&path);
+            let has_alias = record.alias.is_some();
+            let display_name = record.alias.unwrap_or_else(|| sidebar_path_name(&path));
             let content = gtk::Box::builder()
                 .orientation(gtk::Orientation::Horizontal)
                 .spacing(8)
@@ -2137,21 +2445,80 @@ impl BrowserController {
             });
             row.append(&open);
 
-            let remove = gtk::Button::builder()
-                .icon_name("floe-phosphor-trash-symbolic")
-                .has_frame(false)
-                .sensitive(actions_enabled)
-                .tooltip_text(format!("Remove {display_name} from Bookmarks"))
-                .build();
-            remove.add_css_class("sidebar-icon-button");
-            set_accessible_label(&remove, &format!("Remove bookmark {display_name}"));
+            let bookmark_actions = gio::SimpleActionGroup::new();
+
+            let rename = gio::SimpleAction::new("rename", None);
+            rename.set_enabled(actions_enabled);
             let controller = Rc::downgrade(self);
-            remove.connect_clicked(move |_| {
+            rename.connect_activate(move |_, _| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.rename_bookmark(index);
+                }
+            });
+            bookmark_actions.add_action(&rename);
+
+            let reset = gio::SimpleAction::new("reset-name", None);
+            reset.set_enabled(actions_enabled && has_alias);
+            let controller = Rc::downgrade(self);
+            reset.connect_activate(move |_, _| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.reset_bookmark_name(index);
+                }
+            });
+            bookmark_actions.add_action(&reset);
+
+            let move_up = gio::SimpleAction::new("move-up", None);
+            move_up.set_enabled(actions_enabled && index > 0);
+            let controller = Rc::downgrade(self);
+            move_up.connect_activate(move |_, _| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.move_bookmark(index, -1);
+                }
+            });
+            bookmark_actions.add_action(&move_up);
+
+            let move_down = gio::SimpleAction::new("move-down", None);
+            move_down.set_enabled(actions_enabled && index + 1 < bookmark_count);
+            let controller = Rc::downgrade(self);
+            move_down.connect_activate(move |_, _| {
+                if let Some(controller) = controller.upgrade() {
+                    controller.move_bookmark(index, 1);
+                }
+            });
+            bookmark_actions.add_action(&move_down);
+
+            let remove = gio::SimpleAction::new("remove", None);
+            remove.set_enabled(actions_enabled);
+            let controller = Rc::downgrade(self);
+            remove.connect_activate(move |_, _| {
                 if let Some(controller) = controller.upgrade() {
                     controller.remove_bookmark(index);
                 }
             });
-            row.append(&remove);
+            bookmark_actions.add_action(&remove);
+            row.insert_action_group("bookmark", Some(&bookmark_actions));
+
+            let menu = gio::Menu::new();
+            menu.append(Some("Rename…"), Some("bookmark.rename"));
+            menu.append(Some("Use Folder Name"), Some("bookmark.reset-name"));
+            let reorder = gio::Menu::new();
+            reorder.append(Some("Move Up"), Some("bookmark.move-up"));
+            reorder.append(Some("Move Down"), Some("bookmark.move-down"));
+            menu.append_section(None, &reorder);
+            let destructive = gio::Menu::new();
+            destructive.append(Some("Remove from Bookmarks"), Some("bookmark.remove"));
+            menu.append_section(None, &destructive);
+
+            let options = gtk::MenuButton::builder()
+                .icon_name("floe-phosphor-dots-three-symbolic")
+                .has_frame(false)
+                .menu_model(&menu)
+                .sensitive(actions_enabled)
+                .tooltip_text(format!("Options for bookmark {display_name}"))
+                .build();
+            options.add_css_class("sidebar-icon-button");
+            set_accessible_label(&options, &format!("Bookmark options for {display_name}"));
+            row.append(&options);
             self.widgets.bookmarks_box.append(&row);
         }
     }
@@ -2428,6 +2795,7 @@ impl BrowserController {
             controller.drain_worker();
             controller.drain_metadata_index_worker();
             controller.drain_folder_filter_worker();
+            controller.drain_selection_filter_worker();
             controller.drain_filename_search_worker();
             controller.drain_search_index_worker();
             controller.drain_duplicate_worker();
@@ -3212,7 +3580,7 @@ impl BrowserController {
             self.listed_entries.borrow().clone()
         };
         if state.query.is_empty() && !state.advanced.is_active() {
-            self.install_entries(entries.to_vec(), &selected_paths, focus_list);
+            self.install_or_filter_selection_entries(entries.to_vec(), selected_paths, focus_list);
             self.set_filter_feedback(None, self.listed_entries.borrow().len());
             return;
         }
@@ -3225,6 +3593,130 @@ impl BrowserController {
             entries,
         }));
         self.try_submit_pending_filter();
+    }
+
+    fn install_or_filter_selection_entries(
+        &self,
+        entries: Vec<Arc<DirectoryEntry>>,
+        selected_paths: Vec<PathBuf>,
+        focus_list: bool,
+    ) {
+        let submit = {
+            let runtime = self.selection_mode.borrow();
+            let Some(runtime) = runtime.as_ref() else {
+                self.install_entries(entries, &selected_paths, focus_list);
+                return;
+            };
+            let Some(dropdown) = runtime.filter.as_ref() else {
+                self.install_entries(entries, &selected_paths, focus_list);
+                return;
+            };
+            if runtime.filter_worker.is_none() {
+                self.install_entries(entries, &selected_paths, focus_list);
+                return;
+            }
+            let selected = usize::try_from(dropdown.selected()).unwrap_or(usize::MAX);
+            let Some(filter) = runtime
+                .config
+                .chooser_options
+                .filters
+                .get(selected)
+                .cloned()
+            else {
+                self.install_entries(entries, &selected_paths, focus_list);
+                return;
+            };
+            let generation = runtime.filter_generation.get().wrapping_add(1);
+            runtime.filter_generation.set(generation);
+            runtime.filter_pending.borrow_mut().take();
+            let request = SelectionFilterRequest {
+                generation,
+                filter,
+                entries: Arc::from(entries),
+                selected_paths,
+                focus_list,
+            };
+            runtime
+                .filter_worker
+                .as_ref()
+                .map(|worker| worker.try_submit(request))
+        };
+
+        match submit {
+            Some(Ok(())) => {
+                if let Some(runtime) = self.selection_mode.borrow().as_ref() {
+                    runtime.status.set_label("Filtering files…");
+                    runtime.accept.set_sensitive(false);
+                }
+            }
+            Some(Err(SelectionFilterSubmitError::Busy(request))) => {
+                if let Some(runtime) = self.selection_mode.borrow().as_ref() {
+                    runtime.filter_pending.replace(Some(request));
+                    runtime.status.set_label("Filtering files…");
+                    runtime.accept.set_sensitive(false);
+                }
+            }
+            Some(Err(SelectionFilterSubmitError::Stopped(request))) => {
+                self.install_entries(
+                    request.entries.to_vec(),
+                    &request.selected_paths,
+                    request.focus_list,
+                );
+            }
+            None => {}
+        }
+    }
+
+    fn drain_selection_filter_worker(&self) {
+        let result = self.selection_mode.borrow().as_ref().and_then(|runtime| {
+            runtime
+                .filter_worker
+                .as_ref()
+                .and_then(SelectionFilterWorker::try_result)
+        });
+        if let Some(result) = result {
+            let current = self
+                .selection_mode
+                .borrow()
+                .as_ref()
+                .is_some_and(|runtime| runtime.filter_generation.get() == result.generation);
+            if current {
+                self.install_entries(result.entries, &result.selected_paths, result.focus_list);
+                self.refresh_selection_mode();
+            }
+        }
+
+        let pending = self
+            .selection_mode
+            .borrow()
+            .as_ref()
+            .and_then(|runtime| runtime.filter_pending.borrow_mut().take());
+        let Some(request) = pending else {
+            return;
+        };
+        let submit = {
+            let runtime = self.selection_mode.borrow();
+            match runtime
+                .as_ref()
+                .and_then(|runtime| runtime.filter_worker.as_ref())
+            {
+                Some(worker) => worker.try_submit(request),
+                None => Err(SelectionFilterSubmitError::Stopped(request)),
+            }
+        };
+        match submit {
+            Err(SelectionFilterSubmitError::Busy(request)) => {
+                if let Some(runtime) = self.selection_mode.borrow().as_ref() {
+                    runtime.filter_pending.replace(Some(request));
+                }
+            }
+            Err(SelectionFilterSubmitError::Stopped(request)) => self.install_entries(
+                request.entries.to_vec(),
+                &request.selected_paths,
+                request.focus_list,
+            ),
+            Ok(()) => {}
+        }
     }
 
     fn try_submit_pending_filter(&self) {
@@ -3279,7 +3771,7 @@ impl BrowserController {
                 Ok(entries) => {
                     let count = entries.len();
                     let selected_paths = self.filter_selection_paths.borrow().clone();
-                    self.install_entries(entries, &selected_paths, false);
+                    self.install_or_filter_selection_entries(entries, selected_paths, false);
                     self.set_filter_feedback(None, count);
                 }
                 Err(error) => self.set_filter_feedback(Some(&error.to_string()), 0),
@@ -4372,6 +4864,10 @@ impl BrowserController {
             controller.open_selected_folder_in_tab(TabActivation::Foreground);
         });
         open_tab.set_enabled(false);
+        let open_window = self.add_action("open-new-window", |controller| {
+            controller.open_selected_folder_in_new_window();
+        });
+        open_window.set_enabled(false);
         let open_background = self.add_action("open-background-tab", |controller| {
             controller.open_selected_folder_in_tab(TabActivation::Background);
         });
@@ -4600,6 +5096,29 @@ impl BrowserController {
         });
         self.widgets.window.add_action(&hidden_last_action);
 
+        let notifications_enabled = self.current_preferences.borrow().completion_notifications;
+        let notification_action = gio::SimpleAction::new_stateful(
+            "completion-notifications",
+            None,
+            &notifications_enabled.to_variant(),
+        );
+        let controller = Rc::downgrade(self);
+        notification_action.connect_activate(move |action, _| {
+            let enabled = !action
+                .state()
+                .and_then(|state| state.get::<bool>())
+                .unwrap_or(true);
+            if let Some(controller) = controller.upgrade() {
+                controller
+                    .current_preferences
+                    .borrow_mut()
+                    .completion_notifications = enabled;
+                controller.queue_preferences();
+            }
+            action.set_state(&enabled.to_variant());
+        });
+        self.widgets.window.add_action(&notification_action);
+
         let metadata_unavailable = gio::SimpleAction::new("metadata-sort-unavailable", None);
         metadata_unavailable.set_enabled(false);
         self.widgets.window.add_action(&metadata_unavailable);
@@ -4793,6 +5312,9 @@ impl BrowserController {
 
         self.add_action("reset-sidebar-width", |controller| {
             controller.reset_sidebar_width();
+        });
+        self.add_action("toggle-sidebar", |controller| {
+            controller.toggle_sidebar_collapsed();
         });
         let open_action = self.add_action("open", |controller| controller.activate_selected());
         open_action.set_enabled(false);
@@ -5331,6 +5853,22 @@ impl BrowserController {
             return;
         }
         self.open_path_in_tab(entry.path().to_path_buf(), activation);
+    }
+
+    fn open_selected_folder_in_new_window(&self) {
+        let Some(entry) = self.selected_entry() else {
+            return;
+        };
+        if self.trash_active.get() || !entry.is_navigable_directory() {
+            return;
+        }
+        let Some(application) = self.widgets.window.application() else {
+            return;
+        };
+        application.activate_action(
+            "open-new-window",
+            Some(&entry.path().as_os_str().as_bytes().to_vec().to_variant()),
+        );
     }
 
     fn open_path_in_tab(&self, path: PathBuf, activation: TabActivation) {
@@ -7386,7 +7924,9 @@ impl BrowserController {
     }
 
     fn sidebar_position_changed(self: &Rc<Self>, position: i32) {
-        if self.ignore_sidebar_position_signal.get() {
+        if self.ignore_sidebar_position_signal.get()
+            || self.current_preferences.borrow().sidebar_collapsed
+        {
             return;
         }
         self.current_preferences.borrow_mut().sidebar_width =
@@ -7416,6 +7956,25 @@ impl BrowserController {
         self.ignore_sidebar_position_signal.set(false);
         let reset = preferences_after_sidebar_reset(self.current_preferences.borrow().clone());
         *self.current_preferences.borrow_mut() = reset;
+        self.queue_preferences();
+    }
+
+    fn toggle_sidebar_collapsed(&self) {
+        let collapsed = !self.current_preferences.borrow().sidebar_collapsed;
+        self.current_preferences.borrow_mut().sidebar_collapsed = collapsed;
+        self.ignore_sidebar_position_signal.set(true);
+        self.widgets.apply_sidebar_collapsed(collapsed);
+        if !collapsed {
+            let width = self
+                .current_preferences
+                .borrow()
+                .sidebar_width
+                .map(clamp_sidebar_width)
+                .map(i32::from)
+                .unwrap_or(self.widgets.sidebar_default_width);
+            self.widgets.workspace.set_position(width);
+        }
+        self.ignore_sidebar_position_signal.set(false);
         self.queue_preferences();
     }
 
@@ -7707,6 +8266,9 @@ impl BrowserController {
                 ListColumn::Duration => 10,
                 ListColumn::Artist | ListColumn::Album => 28,
                 ListColumn::Track => 8,
+                ListColumn::Owner | ListColumn::Group => 16,
+                ListColumn::Path => entry.path().as_os_str().to_string_lossy().chars().count(),
+                ListColumn::LinkTarget => 30,
             })
             .max()
             .unwrap_or_else(|| column.label().chars().count())
@@ -8997,7 +9559,7 @@ impl BrowserController {
         self.set_archive_actions_enabled();
         self.set_batch_rename_enabled();
         self.set_selection_actions_enabled(state.transfer, state.rename, state.trash);
-        for name in ["open-new-tab", "open-background-tab"] {
+        for name in ["open-new-window", "open-new-tab", "open-background-tab"] {
             if let Some(action) = self
                 .widgets
                 .window
@@ -9599,50 +10161,12 @@ impl BrowserController {
         }
         drop(selected);
         let targets: Arc<[PathBuf]> = targets.into();
-        let widgets = ui::build_checksum_dialog(targets.len());
-        let dialog = widgets.dialog.downgrade();
-        widgets.cancel_button.connect_clicked(move |_| {
-            if let Some(dialog) = dialog.upgrade() {
-                dialog.close();
-            }
-        });
-        let dialog = widgets.dialog.downgrade();
-        let algorithm_dropdown = widgets.algorithm_dropdown.clone();
-        let expected_entry = widgets.expected_entry.clone();
-        let error_label = widgets.error_label.clone();
-        let state = Rc::clone(&self.application_state);
-        let toast_overlay = self.widgets.toast_overlay.clone();
-        widgets.calculate_button.connect_clicked(move |_| {
-            let algorithm = match algorithm_dropdown.selected() {
-                1 => ChecksumAlgorithm::Sha512,
-                2 => ChecksumAlgorithm::Md5Legacy,
-                _ => ChecksumAlgorithm::Sha256,
-            };
-            let input = ChecksumDialogInput {
-                algorithm,
-                expected: expected_entry.text().to_string(),
-            };
-            match build_checksum_request(Arc::clone(&targets), &input) {
-                Ok(request) => match state.submit_checksum(request) {
-                    Ok(_) => {
-                        if let Some(dialog) = dialog.upgrade() {
-                            dialog.close();
-                        }
-                        toast_overlay.add_toast(
-                            adw::Toast::builder()
-                                .title("Checksum calculation queued")
-                                .timeout(4)
-                                .build(),
-                        );
-                    }
-                    Err(error) => error_label
-                        .set_label(&format!("Could not queue checksum calculation: {error}")),
-                },
-                Err(error) => error_label.set_label(&error.to_string()),
-            }
-        });
-        widgets.dialog.present(Some(&self.widgets.window));
-        widgets.algorithm_dropdown.grab_focus();
+        present_checksum_dialog_for_targets(
+            &self.widgets.window,
+            &self.widgets.toast_overlay,
+            Rc::clone(&self.application_state),
+            targets,
+        );
     }
 
     fn selected_single_regular_path(&self) -> Option<PathBuf> {
@@ -10102,6 +10626,24 @@ impl BrowserController {
             }
             if let Some(window) = window.upgrade() {
                 gio::prelude::ActionGroupExt::activate_action(&window, "open-with", None);
+            }
+        });
+        let checksum_parent = self.widgets.window.clone();
+        let checksum_toasts = self.widgets.toast_overlay.clone();
+        let checksum_state = Rc::clone(&self.application_state);
+        let checksum_targets = checksum_targets_for_presentation(presentation);
+        let dialog = widgets.dialog.downgrade();
+        widgets.checksum_button.connect_clicked(move |_| {
+            if let Some(dialog) = dialog.upgrade() {
+                dialog.close();
+            }
+            if let Some(targets) = checksum_targets.as_ref() {
+                present_checksum_dialog_for_targets(
+                    &checksum_parent,
+                    &checksum_toasts,
+                    Rc::clone(&checksum_state),
+                    Arc::clone(targets),
+                );
             }
         });
         let parent_dialog = widgets.dialog.downgrade();
@@ -12329,22 +12871,32 @@ impl BrowserController {
                 .action_target(&details.to_variant());
         }
         self.widgets.toast_overlay.add_toast(builder.build());
+    }
 
-        if !failure
-            && title.to_ascii_lowercase().contains("completed")
-            && crate::completeness::should_send_completion_notification(
+    pub fn notify_operation_completed(&self, job_id: JobId) {
+        if !self.current_preferences.borrow().completion_notifications
+            || !crate::completeness::should_send_completion_notification(
                 self.widgets.window.is_active(),
             )
-            && let Some(application) = self.widgets.window.application()
         {
-            let notification = gio::Notification::new(crate::completeness::message(
-                crate::completeness::MessageId::OperationCompleted,
-            ));
-            notification.set_body(Some(crate::completeness::message(
-                crate::completeness::MessageId::OperationCompletedBody,
-            )));
-            application.send_notification(None, &notification);
+            return;
         }
+        let Some(application) = self.widgets.window.application() else {
+            return;
+        };
+        let notification = gio::Notification::new(crate::completeness::message(
+            crate::completeness::MessageId::OperationCompleted,
+        ));
+        notification.set_body(Some(crate::completeness::message(
+            crate::completeness::MessageId::OperationCompletedBody,
+        )));
+        application.send_notification(
+            Some(&crate::completeness::completion_notification_id(
+                self.completion_notification_namespace,
+                job_id.get(),
+            )),
+            &notification,
+        );
     }
 
     fn show_feedback_details(&self, details: &str) {
@@ -13173,6 +13725,15 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn phase_23_reliability_close_policy_blocks_only_active_jobs_with_guidance() {
+        assert!(window_close_allowed(false));
+        assert!(!window_close_allowed(true));
+        assert!(ACTIVE_OPERATION_CLOSE_MESSAGE.contains("finish"));
+        assert!(ACTIVE_OPERATION_CLOSE_MESSAGE.contains("cancel"));
+        assert!(ACTIVE_OPERATION_CLOSE_MESSAGE.contains("closing this window"));
+    }
 
     #[test]
     fn phase_7g_recent_locations_reuse_restorable_session_history() {

@@ -58,6 +58,7 @@ pub struct OperationCallbacks {
     on_operation_completed: Box<dyn Fn(&Path)>,
     on_operation_result: Box<dyn Fn(OperationRevealRequest)>,
     reveal_path: Box<dyn Fn(PathBuf)>,
+    on_background_completed: Box<dyn Fn(JobId)>,
 }
 
 impl OperationCallbacks {
@@ -65,11 +66,13 @@ impl OperationCallbacks {
         on_operation_completed: impl Fn(&Path) + 'static,
         on_operation_result: impl Fn(OperationRevealRequest) + 'static,
         reveal_path: impl Fn(PathBuf) + 'static,
+        on_background_completed: impl Fn(JobId) + 'static,
     ) -> Self {
         Self {
             on_operation_completed: Box::new(on_operation_completed),
             on_operation_result: Box::new(on_operation_result),
             reveal_path: Box::new(reveal_path),
+            on_background_completed: Box::new(on_background_completed),
         }
     }
 }
@@ -141,6 +144,7 @@ pub struct OperationController {
     on_operation_completed: Box<dyn Fn(&Path)>,
     on_operation_result: Box<dyn Fn(OperationRevealRequest)>,
     reveal_path: Box<dyn Fn(PathBuf)>,
+    on_background_completed: Box<dyn Fn(JobId)>,
 }
 
 impl OperationController {
@@ -156,6 +160,7 @@ impl OperationController {
             on_operation_completed,
             on_operation_result,
             reveal_path,
+            on_background_completed,
         } = callbacks;
         Rc::new(Self {
             window,
@@ -174,6 +179,7 @@ impl OperationController {
             on_operation_completed,
             on_operation_result,
             reveal_path,
+            on_background_completed,
         })
     }
 
@@ -793,6 +799,15 @@ impl OperationController {
         self.active_jobs
             .borrow_mut()
             .retain(|active| *active != job_id);
+        let notify_background = self
+            .telemetry
+            .borrow()
+            .get(&job_id)
+            .is_some_and(|telemetry| {
+                crate::completeness::completion_notification_elapsed_is_eligible(
+                    telemetry.started_at.elapsed(),
+                )
+            });
         self.telemetry.borrow_mut().remove(&job_id);
         let outcome = terminal_outcome(&result);
         self.retryable_job.set(updated_retryable_job(
@@ -932,6 +947,9 @@ impl OperationController {
                     completed_toast(request.as_ref())
                 };
                 self.show_toast(&toast, 4);
+                if notify_background {
+                    (self.on_background_completed)(job_id);
+                }
                 if let Some(outcome) = checksum_outcome {
                     self.present_checksum_results(outcome);
                 }

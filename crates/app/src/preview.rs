@@ -1380,11 +1380,9 @@ impl Drop for PreviewWorker {
     fn drop(&mut self) {
         self.cancel();
         self.sender.take();
-        if let Some(worker) = self.worker.take()
-            && worker.join().is_err()
-        {
-            tracing::warn!("preview worker panicked during shutdown");
-        }
+        // Providers can be blocked in file or child-process I/O. Cooperative
+        // cancellation plus detachment keeps window destruction nonblocking.
+        self.worker.take();
     }
 }
 

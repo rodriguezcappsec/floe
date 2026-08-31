@@ -151,11 +151,7 @@ impl Drop for FilenameSearchWorker {
     fn drop(&mut self) {
         self.latest_generation.store(u64::MAX, Ordering::Release);
         self.sender.take();
-        if let Some(worker) = self.worker.take()
-            && worker.join().is_err()
-        {
-            tracing::warn!("filename search worker panicked during shutdown");
-        }
+        self.worker.take();
     }
 }
 

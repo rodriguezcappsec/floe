@@ -23,38 +23,75 @@ use thiserror::Error;
 
 const BOOKMARK_FILE_NAME: &str = "bookmarks.bin";
 const BOOKMARK_MAGIC: &[u8; 8] = b"FLOEBMKS";
-const BOOKMARK_FORMAT_VERSION: u16 = 1;
+const BOOKMARK_FORMAT_VERSION: u16 = 2;
+const BOOKMARK_LEGACY_VERSION: u16 = 1;
 const BOOKMARK_QUEUE_CAPACITY: usize = 8;
 const MAX_BOOKMARKS: usize = 512;
 const MAX_PATH_BYTES: usize = 1024 * 1024;
+const MAX_ALIAS_BYTES: usize = 512;
 const MAX_BOOKMARK_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const DROP_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 static TEMPORARY_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BookmarkRecord {
+    pub path: PathBuf,
+    pub alias: Option<String>,
+}
+
+impl From<PathBuf> for BookmarkRecord {
+    fn from(path: PathBuf) -> Self {
+        Self { path, alias: None }
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Bookmarks {
-    paths: Vec<PathBuf>,
+    records: Vec<BookmarkRecord>,
 }
 
 impl Bookmarks {
+    #[cfg(test)]
     pub fn validate(paths: Vec<PathBuf>) -> Result<Self, BookmarkValidationError> {
         Self::validate_with(paths, |path| path.is_dir())
     }
 
-    pub fn paths(&self) -> &[PathBuf] {
-        &self.paths
+    pub fn validate_records(records: Vec<BookmarkRecord>) -> Result<Self, BookmarkValidationError> {
+        Self::validate_records_with(records, |_| true)
     }
 
+    pub fn records(&self) -> &[BookmarkRecord] {
+        &self.records
+    }
+
+    #[cfg(test)]
+    pub fn paths(&self) -> Vec<PathBuf> {
+        self.records
+            .iter()
+            .map(|record| record.path.clone())
+            .collect()
+    }
+
+    #[cfg(test)]
     fn validate_with(
         paths: Vec<PathBuf>,
         mut is_directory: impl FnMut(&Path) -> bool,
     ) -> Result<Self, BookmarkValidationError> {
-        let mut seen = HashSet::new();
-        let mut validated = Vec::with_capacity(paths.len().min(MAX_BOOKMARKS));
+        Self::validate_records_with(paths.into_iter().map(Into::into).collect(), |path| {
+            is_directory(path)
+        })
+    }
 
-        for path in paths {
+    fn validate_records_with(
+        records: Vec<BookmarkRecord>,
+        mut is_directory: impl FnMut(&Path) -> bool,
+    ) -> Result<Self, BookmarkValidationError> {
+        let mut seen = HashSet::new();
+        let mut validated = Vec::with_capacity(records.len().min(MAX_BOOKMARKS));
+        for record in records {
+            let path = &record.path;
             if !path.is_absolute() {
-                return Err(BookmarkValidationError::NotAbsolute(path));
+                return Err(BookmarkValidationError::NotAbsolute(path.clone()));
             }
             if !seen.insert(path.clone()) {
                 continue;
@@ -64,14 +101,56 @@ impl Bookmarks {
                     maximum: MAX_BOOKMARKS,
                 });
             }
-            if !is_directory(&path) {
-                return Err(BookmarkValidationError::NotDirectory(path));
+            if !is_directory(path) {
+                return Err(BookmarkValidationError::NotDirectory(path.clone()));
             }
-            validated.push(path);
+            if let Some(alias) = record.alias.as_deref() {
+                validate_alias(alias)?;
+            }
+            validated.push(record);
         }
-
-        Ok(Self { paths: validated })
+        Ok(Self { records: validated })
     }
+}
+
+fn validate_alias(alias: &str) -> Result<(), BookmarkValidationError> {
+    if alias.trim().is_empty()
+        || alias.len() > MAX_ALIAS_BYTES
+        || alias.chars().any(char::is_control)
+    {
+        Err(BookmarkValidationError::InvalidAlias)
+    } else {
+        Ok(())
+    }
+}
+
+pub fn reordered_records(
+    records: &[BookmarkRecord],
+    index: usize,
+    delta: isize,
+) -> Option<Vec<BookmarkRecord>> {
+    let target = index
+        .checked_add_signed(delta)
+        .filter(|target| *target < records.len())?;
+    let mut revised = records.to_vec();
+    revised.swap(index, target);
+    Some(revised)
+}
+
+pub fn records_with_alias(
+    records: &[BookmarkRecord],
+    index: usize,
+    alias: Option<String>,
+) -> Result<Option<Vec<BookmarkRecord>>, BookmarkValidationError> {
+    if let Some(alias) = alias.as_deref() {
+        validate_alias(alias)?;
+    }
+    let Some(_) = records.get(index) else {
+        return Ok(None);
+    };
+    let mut revised = records.to_vec();
+    revised[index].alias = alias;
+    Ok(Some(revised))
 }
 
 #[derive(Debug, Error)]
@@ -82,6 +161,10 @@ pub enum BookmarkValidationError {
     NotDirectory(PathBuf),
     #[error("bookmark list exceeds the limit of {maximum} distinct paths")]
     TooMany { maximum: usize },
+    #[error(
+        "bookmark alias must be nonempty, contain no control characters, and fit the configured limit"
+    )]
+    InvalidAlias,
 }
 
 #[derive(Debug, Error)]
@@ -96,6 +179,10 @@ pub enum BookmarkFormatError {
     TooManyRecords { found: u32, maximum: usize },
     #[error("bookmark path has {found} bytes, above the limit of {maximum}")]
     PathTooLong { found: usize, maximum: usize },
+    #[error("bookmark alias has {found} bytes, above the limit of {maximum}")]
+    AliasTooLong { found: usize, maximum: usize },
+    #[error("bookmark alias is invalid")]
+    InvalidAlias,
     #[error("bookmark file has {found} bytes, above the limit of {maximum}")]
     FileTooLarge { found: u64, maximum: u64 },
     #[error("bookmark file contains a relative path")]
@@ -135,9 +222,15 @@ pub enum BookmarkWorkerEvent {
 #[derive(Debug, Error)]
 pub enum BookmarkSubmitError {
     #[error("bookmark worker queue is full")]
-    Full { revision: u64, paths: Vec<PathBuf> },
+    Full {
+        revision: u64,
+        records: Vec<BookmarkRecord>,
+    },
     #[error("bookmark worker is disconnected")]
-    Disconnected { revision: u64, paths: Vec<PathBuf> },
+    Disconnected {
+        revision: u64,
+        records: Vec<BookmarkRecord>,
+    },
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -151,7 +244,7 @@ pub enum BookmarkShutdownError {
 #[derive(Debug)]
 struct BookmarkSaveRequest {
     revision: u64,
-    paths: Vec<PathBuf>,
+    records: Vec<BookmarkRecord>,
 }
 
 pub struct BookmarkWorker {
@@ -195,7 +288,7 @@ impl BookmarkWorker {
                 }
 
                 while let Ok(request) = receiver.recv() {
-                    let result = Bookmarks::validate(request.paths)
+                    let result = Bookmarks::validate_records(request.records)
                         .map_err(BookmarkPersistenceError::from)
                         .and_then(|bookmarks| {
                             persist_bookmarks(&path, &bookmarks)?;
@@ -223,12 +316,16 @@ impl BookmarkWorker {
         })
     }
 
-    pub fn try_save(&self, revision: u64, paths: Vec<PathBuf>) -> Result<(), BookmarkSubmitError> {
-        let request = BookmarkSaveRequest { revision, paths };
+    pub fn try_save<T>(&self, revision: u64, records: Vec<T>) -> Result<(), BookmarkSubmitError>
+    where
+        T: Into<BookmarkRecord>,
+    {
+        let records = records.into_iter().map(Into::into).collect();
+        let request = BookmarkSaveRequest { revision, records };
         let Some(sender) = self.sender.as_ref() else {
             return Err(BookmarkSubmitError::Disconnected {
                 revision: request.revision,
-                paths: request.paths,
+                records: request.records,
             });
         };
 
@@ -236,11 +333,11 @@ impl BookmarkWorker {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(request)) => Err(BookmarkSubmitError::Full {
                 revision: request.revision,
-                paths: request.paths,
+                records: request.records,
             }),
             Err(TrySendError::Disconnected(request)) => Err(BookmarkSubmitError::Disconnected {
                 revision: request.revision,
-                paths: request.paths,
+                records: request.records,
             }),
         }
     }
@@ -433,24 +530,25 @@ fn set_private_file_permissions(_file: &File) -> Result<(), BookmarkPersistenceE
 
 #[cfg(unix)]
 fn encode_bookmarks(bookmarks: &Bookmarks) -> Result<Vec<u8>, BookmarkFormatError> {
-    if bookmarks.paths.len() > MAX_BOOKMARKS {
+    if bookmarks.records.len() > MAX_BOOKMARKS {
         return Err(BookmarkFormatError::TooManyRecords {
-            found: u32::try_from(bookmarks.paths.len()).unwrap_or(u32::MAX),
+            found: u32::try_from(bookmarks.records.len()).unwrap_or(u32::MAX),
             maximum: MAX_BOOKMARKS,
         });
     }
-    let count =
-        u32::try_from(bookmarks.paths.len()).map_err(|_| BookmarkFormatError::TooManyRecords {
+    let count = u32::try_from(bookmarks.records.len()).map_err(|_| {
+        BookmarkFormatError::TooManyRecords {
             found: u32::MAX,
             maximum: MAX_BOOKMARKS,
-        })?;
+        }
+    })?;
     let mut encoded = Vec::new();
     encoded.extend_from_slice(BOOKMARK_MAGIC);
     encoded.extend_from_slice(&BOOKMARK_FORMAT_VERSION.to_le_bytes());
     encoded.extend_from_slice(&count.to_le_bytes());
 
-    for path in &bookmarks.paths {
-        let bytes = path.as_os_str().as_bytes();
+    for record in &bookmarks.records {
+        let bytes = record.path.as_os_str().as_bytes();
         if bytes.len() > MAX_PATH_BYTES {
             return Err(BookmarkFormatError::PathTooLong {
                 found: bytes.len(),
@@ -463,6 +561,23 @@ fn encode_bookmarks(bookmarks: &Bookmarks) -> Result<Vec<u8>, BookmarkFormatErro
         })?;
         encoded.extend_from_slice(&length.to_le_bytes());
         encoded.extend_from_slice(bytes);
+        let alias = record.alias.as_deref().unwrap_or_default();
+        if !alias.is_empty() {
+            validate_alias(alias).map_err(|_| BookmarkFormatError::InvalidAlias)?;
+        }
+        if alias.len() > MAX_ALIAS_BYTES {
+            return Err(BookmarkFormatError::AliasTooLong {
+                found: alias.len(),
+                maximum: MAX_ALIAS_BYTES,
+            });
+        }
+        let alias_length =
+            u16::try_from(alias.len()).map_err(|_| BookmarkFormatError::AliasTooLong {
+                found: alias.len(),
+                maximum: MAX_ALIAS_BYTES,
+            })?;
+        encoded.extend_from_slice(&alias_length.to_le_bytes());
+        encoded.extend_from_slice(alias.as_bytes());
     }
 
     Ok(encoded)
@@ -480,7 +595,7 @@ fn decode_bookmarks(bytes: &[u8]) -> Result<Bookmarks, BookmarkFormatError> {
         return Err(BookmarkFormatError::InvalidMagic);
     }
     let version = cursor.read_u16()?;
-    if version != BOOKMARK_FORMAT_VERSION {
+    if !matches!(version, BOOKMARK_LEGACY_VERSION | BOOKMARK_FORMAT_VERSION) {
         return Err(BookmarkFormatError::UnsupportedVersion { found: version });
     }
     let count = cursor.read_u32()?;
@@ -492,7 +607,7 @@ fn decode_bookmarks(bytes: &[u8]) -> Result<Bookmarks, BookmarkFormatError> {
     }
 
     let mut seen = HashSet::new();
-    let mut paths = Vec::with_capacity(count as usize);
+    let mut records = Vec::with_capacity(count as usize);
     for _ in 0..count {
         let length = cursor.read_u32()? as usize;
         if length > MAX_PATH_BYTES {
@@ -508,13 +623,33 @@ fn decode_bookmarks(bytes: &[u8]) -> Result<Bookmarks, BookmarkFormatError> {
         if !seen.insert(path.clone()) {
             return Err(BookmarkFormatError::DuplicatePath);
         }
-        paths.push(path);
+        let alias = if version == BOOKMARK_FORMAT_VERSION {
+            let length = usize::from(cursor.read_u16()?);
+            if length > MAX_ALIAS_BYTES {
+                return Err(BookmarkFormatError::AliasTooLong {
+                    found: length,
+                    maximum: MAX_ALIAS_BYTES,
+                });
+            }
+            if length == 0 {
+                None
+            } else {
+                let value = std::str::from_utf8(cursor.take(length)?)
+                    .map_err(|_| BookmarkFormatError::InvalidAlias)?
+                    .to_owned();
+                validate_alias(&value).map_err(|_| BookmarkFormatError::InvalidAlias)?;
+                Some(value)
+            }
+        } else {
+            None
+        };
+        records.push(BookmarkRecord { path, alias });
     }
     if !cursor.remaining().is_empty() {
         return Err(BookmarkFormatError::TrailingData);
     }
 
-    Ok(Bookmarks { paths })
+    Ok(Bookmarks { records })
 }
 
 #[cfg(not(unix))]
@@ -613,9 +748,37 @@ mod tests {
     }
 
     #[test]
+    fn phase_23d_bookmark_model_and_phase_23d_bookmark_actions_preserve_exact_paths() {
+        let records = vec![
+            BookmarkRecord {
+                path: PathBuf::from("/alpha"),
+                alias: Some("Work".to_owned()),
+            },
+            BookmarkRecord {
+                path: PathBuf::from("/beta"),
+                alias: None,
+            },
+        ];
+        let bookmarks = Bookmarks::validate_records(records.clone()).expect("valid records");
+        let decoded =
+            decode_bookmarks(&encode_bookmarks(&bookmarks).expect("encode")).expect("decode");
+        assert_eq!(decoded.records(), records);
+
+        let reordered = reordered_records(&records, 1, -1).expect("move up");
+        assert_eq!(reordered[0].path, Path::new("/beta"));
+        assert_eq!(reordered[1].alias.as_deref(), Some("Work"));
+        let renamed = records_with_alias(&reordered, 0, Some("Personal".to_owned()))
+            .expect("valid alias")
+            .expect("valid index");
+        assert_eq!(renamed[0].alias.as_deref(), Some("Personal"));
+        assert!(records_with_alias(&renamed, 0, Some("bad\nname".to_owned())).is_err());
+        assert!(reordered_records(&records, 0, -1).is_none());
+    }
+
+    #[test]
     fn phase_6k_bookmark_format_rejects_wrong_version_truncation_and_trailing_data() {
         let bookmarks = Bookmarks {
-            paths: vec![PathBuf::from("/valid")],
+            records: vec![BookmarkRecord::from(PathBuf::from("/valid"))],
         };
         let encoded = encode_bookmarks(&bookmarks).expect("bookmarks should encode");
 
@@ -707,7 +870,7 @@ mod tests {
     }
 
     #[test]
-    fn bookmark_worker_reports_validation_failures_as_structured_events() {
+    fn phase_23d_bookmark_worker_preserves_temporarily_missing_destinations() {
         let directory = tempdir().expect("temporary directory should be created");
         let path = directory.path().join("private").join(BOOKMARK_FILE_NAME);
         let missing = directory.path().join("missing");
@@ -731,12 +894,8 @@ mod tests {
         {
             BookmarkWorkerEvent::Saved { revision, result } => {
                 assert_eq!(revision, 11);
-                assert!(matches!(
-                    result,
-                    Err(BookmarkPersistenceError::Validation(
-                        BookmarkValidationError::NotDirectory(path)
-                    )) if path == missing
-                ));
+                let saved = result.expect("structurally valid stale bookmark stays persisted");
+                assert_eq!(saved.records()[0].path, missing);
             }
             BookmarkWorkerEvent::Loaded(_) => panic!("expected save event"),
         }

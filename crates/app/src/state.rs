@@ -933,6 +933,10 @@ impl Drop for SelectionTransientState {
 }
 
 impl ApplicationState {
+    pub fn has_active_jobs(&self) -> bool {
+        lock(&self.jobs).has_active_jobs()
+    }
+
     pub fn new() -> Result<Self, ApplicationStateSpawnError> {
         Self::new_with_persistence(true)
     }

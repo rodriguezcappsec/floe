@@ -25,7 +25,7 @@ use crate::{
     iconography::{EntryIcon, EntryIconStyle, LIST_ICON_EDGE, grid_icon_edge, icon_for_entry},
     launcher::OpenWithOptions,
     locations::Location,
-    metadata::{MetadataCache, MetadataDetails, MetadataError, MetadataKey},
+    metadata::{LinkTargetStatus, MetadataCache, MetadataDetails, MetadataError, MetadataKey},
     miller_view::MillerView,
     preferences::{
         ClickPolicy, ColorSchemePreference, SIDEBAR_WIDTH_MIN, SidebarDensity, ViewPreferences,
@@ -37,6 +37,7 @@ use crate::{
 };
 
 pub const SIDEBAR_COMPACT_MIN_WIDTH: i32 = 128;
+pub const SIDEBAR_COLLAPSED_WIDTH: i32 = 56;
 pub const OPERATION_ISLAND_WIDTH: i32 = 340;
 pub const OPERATION_ISLAND_INSET: i32 = 12;
 const OPERATION_ISLAND_CANCEL_MIN_WIDTH: i32 = 40;
@@ -281,6 +282,7 @@ fn device_row_policy_for(
     }
 }
 
+#[cfg(test)]
 pub fn bookmark_paths_after_remove(paths: &[PathBuf], index: usize) -> Option<Vec<PathBuf>> {
     if index >= paths.len() {
         return None;
@@ -576,10 +578,13 @@ struct MetadataLabels {
     artist: glib::WeakRef<gtk::Label>,
     album: glib::WeakRef<gtk::Label>,
     track: glib::WeakRef<gtk::Label>,
+    owner: glib::WeakRef<gtk::Label>,
+    group: glib::WeakRef<gtk::Label>,
+    link_target: glib::WeakRef<gtk::Label>,
 }
 
 impl MetadataLabels {
-    fn new(labels: [&gtk::Label; 9]) -> Self {
+    fn new(labels: [&gtk::Label; 12]) -> Self {
         let [
             mime,
             created,
@@ -590,6 +595,9 @@ impl MetadataLabels {
             artist,
             album,
             track,
+            owner,
+            group,
+            link_target,
         ] = labels;
         Self {
             mime: mime.downgrade(),
@@ -601,6 +609,9 @@ impl MetadataLabels {
             artist: artist.downgrade(),
             album: album.downgrade(),
             track: track.downgrade(),
+            owner: owner.downgrade(),
+            group: group.downgrade(),
+            link_target: link_target.downgrade(),
         }
     }
 
@@ -614,6 +625,9 @@ impl MetadataLabels {
             && self.artist.upgrade().is_some()
             && self.album.upgrade().is_some()
             && self.track.upgrade().is_some()
+            && self.owner.upgrade().is_some()
+            && self.group.upgrade().is_some()
+            && self.link_target.upgrade().is_some()
     }
 
     fn same_row(&self, other: &Self) -> bool {
@@ -634,6 +648,9 @@ impl MetadataLabels {
             self.artist.upgrade(),
             self.album.upgrade(),
             self.track.upgrade(),
+            self.owner.upgrade(),
+            self.group.upgrade(),
+            self.link_target.upgrade(),
         ]
         .into_iter()
         .flatten()
@@ -743,6 +760,37 @@ fn apply_metadata_details(labels: &MetadataLabels, details: &MetadataDetails) {
             .unix_mode
             .map(format_permissions)
             .unwrap_or_default();
+        label.set_label(&text);
+        label.set_tooltip_text((!text.is_empty()).then_some(text.as_str()));
+    }
+    if let Some(label) = labels.owner.upgrade() {
+        let text = details
+            .owner
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        label.set_label(&text);
+        label.set_tooltip_text((!text.is_empty()).then_some(text.as_str()));
+    }
+    if let Some(label) = labels.group.upgrade() {
+        let text = details
+            .group
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        label.set_label(&text);
+        label.set_tooltip_text((!text.is_empty()).then_some(text.as_str()));
+    }
+    if let Some(label) = labels.link_target.upgrade() {
+        let text = details
+            .link_target
+            .as_ref()
+            .map_or_else(String::new, |link| {
+                let suffix = match link.status {
+                    LinkTargetStatus::Present => "",
+                    LinkTargetStatus::Missing => " (broken)",
+                    LinkTargetStatus::Inaccessible => " (inaccessible)",
+                };
+                format!("{}{suffix}", link.target.to_string_lossy())
+            });
         label.set_label(&text);
         label.set_tooltip_text((!text.is_empty()).then_some(text.as_str()));
     }
@@ -869,6 +917,7 @@ pub struct OpenWithDialogWidgets {
 pub struct PropertiesDialogWidgets {
     pub dialog: adw::Dialog,
     pub open_with_button: gtk::Button,
+    pub checksum_button: gtk::Button,
     pub edit_permissions_button: gtk::Button,
     pub close_button: gtk::Button,
 }
@@ -1083,6 +1132,7 @@ pub struct BrowserWidgets {
     pub inactive_pane_status: gtk::Label,
     pub inactive_pane_items: gtk::StringList,
     pub sidebar: gtk::Box,
+    pub sidebar_content: gtk::ScrolledWindow,
     pub sidebar_default_width: i32,
     pub operations: OperationWidgets,
     list_layout: Rc<Cell<ListColumnLayout>>,
@@ -1525,6 +1575,36 @@ fn split_pane_update(
 }
 
 impl BrowserWidgets {
+    /// Detach transient widgets which were parented manually with
+    /// `WidgetExt::set_parent` before GTK begins finalizing their owners.
+    ///
+    /// Unlike layout children, GTK does not automatically remove these
+    /// popovers from their parents during Rust field destruction. In
+    /// particular, retaining the location-completion popover until after its
+    /// `GtkEntry` starts finalizing triggers a GTK lifecycle warning and can
+    /// leave the remaining application windows unresponsive.
+    pub fn prepare_for_window_close(&self) {
+        self.location_suggestions.popdown();
+        self.list_context_menu.popdown();
+        self.grid_context_menu.popdown();
+        self.search_context_menu.popdown();
+        self.list_background_menu.popdown();
+        self.grid_background_menu.popdown();
+
+        for popover in [
+            self.location_suggestions.upcast_ref::<gtk::Widget>(),
+            self.list_context_menu.upcast_ref(),
+            self.grid_context_menu.upcast_ref(),
+            self.search_context_menu.upcast_ref(),
+            self.list_background_menu.upcast_ref(),
+            self.grid_background_menu.upcast_ref(),
+        ] {
+            if popover.parent().is_some() {
+                popover.unparent();
+            }
+        }
+    }
+
     pub fn appearance_preset(&self) -> AppearancePreset {
         self.appearance_manager.preset()
     }
@@ -1678,6 +1758,22 @@ impl BrowserWidgets {
         self.sidebar.set_margin_bottom(metrics.outer_margin);
         self.sidebar.set_margin_start(metrics.outer_margin);
         self.sidebar.set_margin_end(metrics.outer_margin);
+    }
+
+    pub fn apply_sidebar_collapsed(&self, collapsed: bool) {
+        if collapsed {
+            self.sidebar.add_css_class("sidebar-collapsed");
+            self.sidebar_content
+                .set_min_content_width(SIDEBAR_COLLAPSED_WIDTH);
+            self.sidebar_content
+                .set_width_request(SIDEBAR_COLLAPSED_WIDTH);
+            self.workspace.set_position(SIDEBAR_COLLAPSED_WIDTH);
+        } else {
+            self.sidebar.remove_css_class("sidebar-collapsed");
+            self.sidebar_content
+                .set_min_content_width(i32::from(SIDEBAR_WIDTH_MIN));
+            self.sidebar_content.set_width_request(-1);
+        }
     }
 
     pub fn apply_file_view_policy(
@@ -2022,6 +2118,7 @@ pub(crate) fn build_sort_by_menu_model() -> gio::Menu {
     let criteria = gio::Menu::new();
     for column in [
         SortColumn::Name,
+        SortColumn::NaturalName,
         SortColumn::Size,
         SortColumn::Modified,
         SortColumn::Created,
@@ -2418,12 +2515,20 @@ pub fn build(
         sidebar_density_model.append(Some(label), Some(action));
     }
     let sidebar_model = gio::Menu::new();
+    sidebar_model.append(
+        Some("Collapse or Expand Sidebar"),
+        Some("win.toggle-sidebar"),
+    );
     sidebar_model.append_submenu(Some("Sidebar Density"), &sidebar_density_model);
     sidebar_model.append(
         Some(RESET_SIDEBAR_WIDTH_MENU_ITEM.0),
         Some(RESET_SIDEBAR_WIDTH_MENU_ITEM.1),
     );
     view_layout_model.append_submenu(Some("Sidebar"), &sidebar_model);
+    view_layout_model.append(
+        Some("Operation Completion Notifications"),
+        Some("win.completion-notifications"),
+    );
     let appearance_model = gio::Menu::new();
     for preset in AppearancePreset::ALL {
         appearance_model.append(
@@ -2544,6 +2649,7 @@ pub fn build(
     view_layout_model.append_submenu(Some("Split View"), &split_view_model);
 
     utility_model.append(Some(SETTINGS_MENU_ITEM.0), Some(SETTINGS_MENU_ITEM.1));
+    utility_model.append(Some("New Window"), Some("app.new-window"));
     utility_model.append(
         Some(OPERATION_HISTORY_MENU_ITEM.0),
         Some(OPERATION_HISTORY_MENU_ITEM.1),
@@ -3014,6 +3120,7 @@ pub fn build(
         inactive_pane_label,
         inactive_pane_status,
         inactive_pane_items,
+        sidebar_content: sidebar.content.clone(),
         sidebar: sidebar.sidebar,
         sidebar_default_width: appearance.sidebar_width(),
         operations,
@@ -3646,6 +3753,14 @@ pub fn build_properties_dialog(
     open_with_button.set_sensitive(presentation.open_with_available);
     open_with_button.set_halign(gtk::Align::Start);
     content.append(&open_with_button);
+
+    let checksum_button = gtk::Button::with_label("Calculate SHA-256…");
+    checksum_button.set_halign(gtk::Align::Start);
+    checksum_button.set_sensitive(presentation.checksum_available);
+    checksum_button.set_tooltip_text(Some(
+        "Calculate on demand. A checksum is not proof of authenticity or safety.",
+    ));
+    content.append(&checksum_button);
     let permissions_heading = gtk::Label::builder()
         .label("Permissions")
         .halign(gtk::Align::Start)
@@ -3693,6 +3808,7 @@ pub fn build_properties_dialog(
     PropertiesDialogWidgets {
         dialog,
         open_with_button,
+        checksum_button,
         edit_permissions_button,
         close_button,
     }
@@ -4582,6 +4698,10 @@ fn build_directory_panel(
         let artist = list_column_label(ListColumn::Artist);
         let album = list_column_label(ListColumn::Album);
         let track = list_column_label(ListColumn::Track);
+        let owner = list_column_label(ListColumn::Owner);
+        let group_id = list_column_label(ListColumn::Group);
+        let path = list_column_label(ListColumn::Path);
+        let link_target = list_column_label(ListColumn::LinkTarget);
         row.append(&group);
         row.append(&icon);
         row.append(&name);
@@ -4598,6 +4718,10 @@ fn build_directory_panel(
         row.append(&artist);
         row.append(&album);
         row.append(&track);
+        row.append(&owner);
+        row.append(&group_id);
+        row.append(&path);
+        row.append(&link_target);
 
         let secondary_click = gtk::GestureClick::new();
         secondary_click.set_button(gtk::gdk::BUTTON_SECONDARY);
@@ -4729,6 +4853,18 @@ fn build_directory_panel(
         let Some(track) = album.next_sibling().and_downcast::<gtk::Label>() else {
             return;
         };
+        let Some(owner) = track.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(group_id) = owner.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(path) = group_id.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
+        let Some(link_target) = path.next_sibling().and_downcast::<gtk::Label>() else {
+            return;
+        };
         let Some(object) = list_item.item().and_downcast::<glib::BoxedAnyObject>() else {
             return;
         };
@@ -4809,9 +4945,12 @@ fn build_directory_panel(
             .unwrap_or_default();
         extension.set_label(&extension_text);
         extension.set_tooltip_text((!extension_text.is_empty()).then_some(extension_text.as_str()));
+        let path_text = entry.path().as_os_str().to_string_lossy().into_owned();
+        path.set_label(&path_text);
+        path.set_tooltip_text(Some(&path_text));
 
         let layout = layout_for_bind.get();
-        let column_widgets: [(ListColumn, &gtk::Widget); 14] = [
+        let column_widgets: [(ListColumn, &gtk::Widget); 18] = [
             (ListColumn::Name, name.upcast_ref()),
             (ListColumn::Type, entry_type.upcast_ref()),
             (ListColumn::Size, size.upcast_ref()),
@@ -4826,6 +4965,10 @@ fn build_directory_panel(
             (ListColumn::Artist, artist.upcast_ref()),
             (ListColumn::Album, album.upcast_ref()),
             (ListColumn::Track, track.upcast_ref()),
+            (ListColumn::Owner, owner.upcast_ref()),
+            (ListColumn::Group, group_id.upcast_ref()),
+            (ListColumn::Path, path.upcast_ref()),
+            (ListColumn::LinkTarget, link_target.upcast_ref()),
         ];
         let mut previous = icon.clone().upcast::<gtk::Widget>();
         for column in layout.order() {
@@ -4852,6 +4995,10 @@ fn build_directory_panel(
             (ListColumn::Artist, &artist),
             (ListColumn::Album, &album),
             (ListColumn::Track, &track),
+            (ListColumn::Owner, &owner),
+            (ListColumn::Group, &group_id),
+            (ListColumn::Path, &path),
+            (ListColumn::LinkTarget, &link_target),
         ] {
             label.set_visible(!collapsed && layout.is_visible(column));
             label.set_width_request(i32::from(layout.width(column)));
@@ -4869,6 +5016,9 @@ fn build_directory_panel(
                     &artist,
                     &album,
                     &track,
+                    &owner,
+                    &group_id,
+                    &link_target,
                 ]),
                 layout.needs_advanced_metadata(),
             );
@@ -4883,6 +5033,9 @@ fn build_directory_panel(
                 &artist,
                 &album,
                 &track,
+                &owner,
+                &group_id,
+                &link_target,
             ])
             .clear();
         }
@@ -5932,6 +6085,10 @@ fn populate_file_context_menu_model(
     }
     primary.append(Some("Open in New Tab"), Some("win.open-new-tab"));
     primary.append(
+        Some("Open Folder in New Window"),
+        Some("win.open-new-window"),
+    );
+    primary.append(
         Some("Open in New Background Tab"),
         Some("win.open-background-tab"),
     );
@@ -6183,6 +6340,10 @@ fn build_file_context_menu_model() -> gio::Menu {
         Some(FILE_CONTEXT_ACTIONS[18].1),
     );
     primary.append(Some("Open in New Tab"), Some("win.open-new-tab"));
+    primary.append(
+        Some("Open Folder in New Window"),
+        Some("win.open-new-window"),
+    );
     primary.append(
         Some("Open in New Background Tab"),
         Some("win.open-background-tab"),
@@ -6511,6 +6672,10 @@ fn build_list_header(
         ListColumn::Artist,
         ListColumn::Album,
         ListColumn::Track,
+        ListColumn::Owner,
+        ListColumn::Group,
+        ListColumn::Path,
+        ListColumn::LinkTarget,
     ] {
         let label = gtk::Label::builder()
             .label(column.label())
@@ -7486,6 +7651,50 @@ mod tests {
 
     #[test]
     #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_23_reliability_window_transient_teardown() {
+        gtk::init().expect("GTK component gate requires an available display");
+        adw::init().expect("libadwaita must initialize in the GTK component gate");
+        let application = adw::Application::builder()
+            .application_id("io.github.rodriguezcappsec.Floe.WindowTeardownTest")
+            .build();
+        application
+            .register(None::<&gio::Cancellable>)
+            .expect("component-test application must register before creating a window");
+        let widgets = build(
+            &application,
+            &[],
+            Appearance::for_preset(AppearancePreset::Native),
+            ViewPreferences::default(),
+        );
+
+        for popover in [
+            widgets.location_suggestions.upcast_ref::<gtk::Widget>(),
+            widgets.list_context_menu.upcast_ref(),
+            widgets.grid_context_menu.upcast_ref(),
+            widgets.search_context_menu.upcast_ref(),
+            widgets.list_background_menu.upcast_ref(),
+            widgets.grid_background_menu.upcast_ref(),
+        ] {
+            assert!(popover.parent().is_some());
+        }
+
+        widgets.prepare_for_window_close();
+
+        for popover in [
+            widgets.location_suggestions.upcast_ref::<gtk::Widget>(),
+            widgets.list_context_menu.upcast_ref(),
+            widgets.grid_context_menu.upcast_ref(),
+            widgets.search_context_menu.upcast_ref(),
+            widgets.list_background_menu.upcast_ref(),
+            widgets.grid_background_menu.upcast_ref(),
+        ] {
+            assert!(popover.parent().is_none());
+        }
+        widgets.window.close();
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
     fn phase_testing_gtk_phase_20b2a_window_size_restore_contract() {
         gtk::init().expect("GTK component gate requires an available display");
         adw::init().expect("libadwaita must initialize in GTK component gate");
@@ -7604,6 +7813,7 @@ mod tests {
         let labels = all_menu_labels(model);
         for required in [
             "Name",
+            "Natural Name",
             "Size",
             "Modified",
             "Created",
@@ -7634,7 +7844,7 @@ mod tests {
                 .iter()
                 .filter(|action| action.as_str() == "win.sort-column")
                 .count(),
-            33
+            34
         );
         assert_eq!(
             actions
@@ -8388,6 +8598,9 @@ mod tests {
             created: None,
             accessed: None,
             unix_mode: Some(0o100644),
+            owner: Some(1000),
+            group: Some(1000),
+            link_target: None,
             image_dimensions: crate::inspector::ImageDimensionFacts::NotImage,
             advanced: crate::advanced_metadata::AdvancedMetadataState::Present(
                 crate::advanced_metadata::AdvancedMetadata {
@@ -8423,6 +8636,9 @@ mod tests {
             created: None,
             accessed: None,
             unix_mode: None,
+            owner: None,
+            group: None,
+            link_target: None,
             image_dimensions: crate::inspector::ImageDimensionFacts::NotImage,
             advanced: crate::advanced_metadata::AdvancedMetadataState::Malformed(
                 "invalid frame".to_owned(),
@@ -8538,6 +8754,7 @@ mod tests {
             }],
             selection_count: 2,
             open_with_available: false,
+            checksum_available: false,
             permissions: crate::properties::PermissionDefaults {
                 targets: std::sync::Arc::from([
                     std::path::PathBuf::from("/tmp/a"),

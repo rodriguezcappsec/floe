@@ -1,4 +1,8 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::RefCell,
+    os::unix::ffi::OsStringExt,
+    rc::{Rc, Weak},
+};
 
 use adw::prelude::*;
 use gtk::{gio, glib};
@@ -18,8 +22,8 @@ use crate::{
     preview::{PreviewProviderRegistry, PreviewWorker},
     properties::PropertiesWorker,
     selection_mode::{
-        SelectionCompletion, SelectionConfig, SelectionProcessOutput, parse_selection_invocation,
-        process_output, selection_application_id,
+        SelectionCompletion, SelectionConfig, SelectionProcessOutput, encode_option_result,
+        parse_selection_invocation, process_output, selection_application_id,
     },
     session_store::{SessionStoreWorker, SessionTracePolicy},
     state::ApplicationState,
@@ -40,12 +44,39 @@ struct SelectionLaunch {
 const MULTIPLE_OPEN_TARGETS_MESSAGE: &str = "Open one command-line file or folder at a time";
 const NON_LOCAL_OPEN_TARGET_MESSAGE: &str =
     "Only local command-line file and folder targets are supported";
+const NEW_WINDOW_ACTION: &str = "new-window";
+const OPEN_NEW_WINDOW_ACTION: &str = "open-new-window";
+const NEW_WINDOW_ACCELERATOR: &str = "<Control>n";
+
+type BrowserRegistry = Rc<RefCell<Vec<Weak<BrowserController>>>>;
+
+fn most_recent_weak<T>(registry: &Rc<RefCell<Vec<Weak<T>>>>) -> Option<Rc<T>> {
+    let mut registry = registry.borrow_mut();
+    registry.retain(|browser| browser.strong_count() > 0);
+    registry.iter().rev().find_map(Weak::upgrade)
+}
+
+fn most_recent_browser(registry: &BrowserRegistry) -> Option<Rc<BrowserController>> {
+    most_recent_weak(registry)
+}
 
 fn local_open_target(files: &[gio::File]) -> Result<std::path::PathBuf, &'static str> {
     if files.len() != 1 {
         return Err(MULTIPLE_OPEN_TARGETS_MESSAGE);
     }
     files[0].path().ok_or(NON_LOCAL_OPEN_TARGET_MESSAGE)
+}
+
+fn route_new_window_target<T>(
+    controller: Option<Rc<T>>,
+    target: std::path::PathBuf,
+    route: impl FnOnce(&T, std::path::PathBuf),
+) -> bool {
+    let Some(controller) = controller else {
+        return false;
+    };
+    route(&controller, target);
+    true
 }
 
 pub fn run() -> glib::ExitCode {
@@ -87,7 +118,7 @@ fn run_normal() -> glib::ExitCode {
     };
     let restored_tabs = Rc::new(RefCell::new(restored_tabs));
     let session_worker = Rc::new(RefCell::new(session_worker));
-    let browser_controller = Rc::new(RefCell::new(None::<std::rc::Weak<BrowserController>>));
+    let browser_controller = Rc::new(RefCell::new(Vec::<Weak<BrowserController>>::new()));
 
     let application = adw::Application::builder()
         .application_id(APPLICATION_ID)
@@ -100,7 +131,7 @@ fn run_normal() -> glib::ExitCode {
     let browser_for_activate = Rc::clone(&browser_controller);
     let preferences_for_activate = view_preferences.clone();
     application.connect_activate(move |application| {
-        build_window(
+        let _controller = build_window(
             application,
             preferences_for_activate.clone(),
             &preference_worker_for_activate,
@@ -117,7 +148,7 @@ fn run_normal() -> glib::ExitCode {
     let browser_for_open = Rc::clone(&browser_controller);
     let preferences_for_open = view_preferences.clone();
     application.connect_open(move |application, files, _hint| {
-        build_window(
+        let controller = build_window(
             application,
             preferences_for_open.clone(),
             &preference_worker_for_open,
@@ -126,18 +157,76 @@ fn run_normal() -> glib::ExitCode {
             &browser_for_open,
             None,
         );
-        let Some(controller) = browser_for_open
-            .borrow()
-            .as_ref()
-            .and_then(std::rc::Weak::upgrade)
-        else {
-            return;
-        };
         match local_open_target(files) {
-            Ok(path) => controller.queue_cli_target(path),
-            Err(message) => controller.show_external_message(message, 5),
+            Ok(path) => {
+                route_new_window_target(controller, path, |controller, path| {
+                    controller.queue_cli_target(path);
+                });
+            }
+            Err(message) => {
+                if let Some(controller) = controller {
+                    controller.show_external_message(message, 5);
+                }
+            }
         }
     });
+
+    let new_window = gio::SimpleAction::new(NEW_WINDOW_ACTION, None);
+    let application_weak = application.downgrade();
+    let preference_worker_for_new = Rc::clone(&preference_worker);
+    let restored_tabs_for_new = Rc::clone(&restored_tabs);
+    let session_worker_for_new = Rc::clone(&session_worker);
+    let browser_for_new = Rc::clone(&browser_controller);
+    let preferences_for_new = view_preferences.clone();
+    new_window.connect_activate(move |_, _| {
+        if let Some(application) = application_weak.upgrade() {
+            let _controller = build_window(
+                &application,
+                preferences_for_new.clone(),
+                &preference_worker_for_new,
+                &restored_tabs_for_new,
+                &session_worker_for_new,
+                &browser_for_new,
+                None,
+            );
+        }
+    });
+    application.add_action(&new_window);
+    application.set_accels_for_action("app.new-window", &[NEW_WINDOW_ACCELERATOR]);
+
+    let open_new_window =
+        gio::SimpleAction::new(OPEN_NEW_WINDOW_ACTION, Some(glib::VariantTy::BYTE_STRING));
+    let application_weak = application.downgrade();
+    let preference_worker_for_target = Rc::clone(&preference_worker);
+    let restored_tabs_for_target = Rc::clone(&restored_tabs);
+    let session_worker_for_target = Rc::clone(&session_worker);
+    let browser_for_target = Rc::clone(&browser_controller);
+    let preferences_for_target = view_preferences.clone();
+    open_new_window.connect_activate(move |_, parameter| {
+        let Some(bytes) = parameter.and_then(glib::Variant::get::<Vec<u8>>) else {
+            return;
+        };
+        if bytes.is_empty() || bytes.contains(&0) {
+            return;
+        }
+        let path = std::path::PathBuf::from(std::ffi::OsString::from_vec(bytes));
+        let Some(application) = application_weak.upgrade() else {
+            return;
+        };
+        let controller = build_window(
+            &application,
+            preferences_for_target.clone(),
+            &preference_worker_for_target,
+            &restored_tabs_for_target,
+            &session_worker_for_target,
+            &browser_for_target,
+            None,
+        );
+        route_new_window_target(controller, path, |controller, path| {
+            controller.queue_cli_target(path);
+        });
+    });
+    application.add_action(&open_new_window);
 
     let quit = gio::SimpleAction::new("quit", None);
     let application_weak = application.downgrade();
@@ -165,7 +254,7 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
     let preference_worker = Rc::new(RefCell::new(None));
     let restored_tabs = Rc::new(RefCell::new(None));
     let session_worker = Rc::new(RefCell::new(None));
-    let browser_controller = Rc::new(RefCell::new(None::<std::rc::Weak<BrowserController>>));
+    let browser_controller = Rc::new(RefCell::new(Vec::<Weak<BrowserController>>::new()));
     let completion = Rc::new(RefCell::new(None));
     let launch = SelectionLaunch {
         config,
@@ -181,7 +270,7 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
     let session_worker_for_activate = Rc::clone(&session_worker);
     let browser_for_activate = Rc::clone(&browser_controller);
     application.connect_activate(move |application| {
-        build_window(
+        let _controller = build_window(
             application,
             preferences_for_activate.clone(),
             &preference_worker_for_activate,
@@ -194,11 +283,7 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
     let accept = gio::SimpleAction::new("accept-selection", None);
     let browser_for_accept = Rc::clone(&browser_controller);
     accept.connect_activate(move |_, _| {
-        if let Some(controller) = browser_for_accept
-            .borrow()
-            .as_ref()
-            .and_then(std::rc::Weak::upgrade)
-        {
+        if let Some(controller) = most_recent_browser(&browser_for_accept) {
             controller.accept_selection_mode();
         }
     });
@@ -226,6 +311,16 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
             }
             glib::ExitCode::SUCCESS
         }
+        SelectionProcessOutput::AcceptedWithOptions(uris, options) => {
+            let Some(encoded) = encode_option_result(&options) else {
+                return glib::ExitCode::FAILURE;
+            };
+            println!("floe-chooser-options-v1:{encoded}");
+            for uri in uris {
+                println!("{uri}");
+            }
+            glib::ExitCode::SUCCESS
+        }
         SelectionProcessOutput::Cancelled => glib::ExitCode::FAILURE,
         SelectionProcessOutput::Failed => process_exit,
     }
@@ -237,14 +332,14 @@ fn build_window(
     preference_worker: &Rc<RefCell<Option<PreferenceWorker>>>,
     restored_tabs: &Rc<RefCell<Option<floe_core::BrowserTabs>>>,
     session_worker: &Rc<RefCell<Option<SessionStoreWorker>>>,
-    browser_controller: &Rc<RefCell<Option<std::rc::Weak<BrowserController>>>>,
+    browser_controller: &BrowserRegistry,
     selection_launch: Option<SelectionLaunch>,
-) {
-    if let Some(window) = application.active_window() {
-        window.present();
-        return;
-    }
-
+) -> Option<Rc<BrowserController>> {
+    let existing_controller = selection_launch
+        .is_none()
+        .then(|| most_recent_browser(browser_controller))
+        .flatten();
+    let secondary_normal_window = existing_controller.is_some();
     let appearance = Appearance::from_environment_or(view_preferences.appearance);
     if let Some(display) = gtk::gdk::Display::default() {
         iconography::register(&display);
@@ -279,10 +374,15 @@ fn build_window(
             );
             if fail_selection_launch(&selection_launch) {
                 application.quit();
-                return;
+                return None;
             }
-            widgets.window.present();
-            return;
+            if let Some(existing) = existing_controller.as_ref() {
+                existing
+                    .show_external_message(&format!("Could not open another window: {error}"), 7);
+            } else {
+                widgets.window.present();
+            }
+            return None;
         }
     };
     let thumbnail_worker = match ThumbnailWorker::spawn() {
@@ -334,21 +434,25 @@ fn build_window(
             None
         }
     };
-    let bookmark_worker = match BookmarkWorker::spawn() {
-        Ok(worker) => Some(worker),
-        Err(error) => {
-            tracing::warn!(%error, "could not start bookmark worker");
-            widgets.toast_overlay.add_toast(
-                adw::Toast::builder()
-                    .title("Bookmarks are unavailable for this session")
-                    .timeout(6)
-                    .build(),
-            );
-            None
+    let bookmark_worker = if secondary_normal_window {
+        None
+    } else {
+        match BookmarkWorker::spawn() {
+            Ok(worker) => Some(worker),
+            Err(error) => {
+                tracing::warn!(%error, "could not start bookmark worker");
+                widgets.toast_overlay.add_toast(
+                    adw::Toast::builder()
+                        .title("Bookmarks are unavailable for this session")
+                        .timeout(6)
+                        .build(),
+                );
+                None
+            }
         }
     };
     let device_monitor = DeviceMonitor::new();
-    let application_state = match if selection_launch.is_some() {
+    let application_state = match if selection_launch.is_some() || secondary_normal_window {
         ApplicationState::new_selection_mode()
     } else {
         ApplicationState::new()
@@ -368,10 +472,15 @@ fn build_window(
             );
             if fail_selection_launch(&selection_launch) {
                 application.quit();
-                return;
+                return None;
             }
-            widgets.window.present();
-            return;
+            if let Some(existing) = existing_controller.as_ref() {
+                existing
+                    .show_external_message(&format!("Could not open another window: {error}"), 7);
+            } else {
+                widgets.window.present();
+            }
+            return None;
         }
     };
     let operation_widgets = widgets.operations.clone();
@@ -409,16 +518,20 @@ fn build_window(
             }
         });
     }
-    *browser_controller.borrow_mut() = Some(Rc::downgrade(&controller));
+    browser_controller
+        .borrow_mut()
+        .push(Rc::downgrade(&controller));
     let browser = Rc::downgrade(&controller);
     let browser_for_guardrails = browser.clone();
     let browser_for_shutdown = Rc::downgrade(&controller);
-    let application_state_for_shutdown = Rc::clone(&application_state);
+    let application_state_for_shutdown = Rc::downgrade(&application_state);
     application.connect_shutdown(move |_| {
         if let Some(browser) = browser_for_shutdown.upgrade() {
             browser.persist_for_shutdown();
         }
-        application_state_for_shutdown.cleanup_selection_transient_state();
+        if let Some(application_state) = application_state_for_shutdown.upgrade() {
+            application_state.cleanup_selection_transient_state();
+        }
     });
     let operation_controller = OperationController::new(
         operation_window,
@@ -459,6 +572,14 @@ fn build_window(
                     }
                 }
             },
+            {
+                let browser = Rc::downgrade(&controller);
+                move |job_id| {
+                    if let Some(browser) = browser.upgrade() {
+                        browser.notify_operation_completed(job_id);
+                    }
+                }
+            },
         ),
     );
     operation_controller.wire();
@@ -486,6 +607,7 @@ fn build_window(
     }
     controller.present_and_start();
     tracing::info!("Floe application started");
+    Some(controller)
 }
 
 fn fail_selection_launch(selection_launch: &Option<SelectionLaunch>) -> bool {
@@ -530,6 +652,71 @@ mod tests {
             local_open_target(&[first, second]),
             Err(MULTIPLE_OPEN_TARGETS_MESSAGE)
         );
+    }
+
+    #[test]
+    fn phase_23a_multi_window_actions_use_one_application_and_standard_shortcut() {
+        assert_eq!(NEW_WINDOW_ACTION, "new-window");
+        assert_eq!(NEW_WINDOW_ACCELERATOR, "<Control>n");
+        let application = adw::Application::builder()
+            .application_id("io.github.rodriguezcappsec.Floe.MultiWindowContract")
+            .flags(gio::ApplicationFlags::HANDLES_OPEN)
+            .build();
+        assert!(
+            application
+                .flags()
+                .contains(gio::ApplicationFlags::HANDLES_OPEN)
+        );
+        assert!(
+            !application
+                .flags()
+                .contains(gio::ApplicationFlags::NON_UNIQUE)
+        );
+    }
+
+    #[test]
+    fn phase_23a_multi_window_model_routes_to_latest_live_window() {
+        let registry = Rc::new(RefCell::new(Vec::<Weak<String>>::new()));
+        let first = Rc::new("first".to_owned());
+        registry.borrow_mut().push(Rc::downgrade(&first));
+        let second = Rc::new("second".to_owned());
+        registry.borrow_mut().push(Rc::downgrade(&second));
+        assert_eq!(
+            most_recent_weak(&registry).as_deref(),
+            Some(&"second".to_owned())
+        );
+
+        drop(second);
+        assert_eq!(
+            most_recent_weak(&registry).as_deref(),
+            Some(&"first".to_owned())
+        );
+        assert_eq!(registry.borrow().len(), 1);
+    }
+
+    #[test]
+    fn phase_23_reliability_window_routing_never_falls_back_after_build_failure() {
+        let old_window_routes = Rc::new(RefCell::new(Vec::<std::path::PathBuf>::new()));
+        let old_window = Rc::clone(&old_window_routes);
+        let target = std::path::PathBuf::from("/requested/new-window-target");
+
+        assert!(
+            !route_new_window_target::<RefCell<Vec<std::path::PathBuf>>>(
+                None,
+                target.clone(),
+                |routes, path| routes.borrow_mut().push(path),
+            )
+        );
+        assert!(old_window.borrow().is_empty());
+
+        let new_window_routes = Rc::new(RefCell::new(Vec::new()));
+        assert!(route_new_window_target(
+            Some(Rc::clone(&new_window_routes)),
+            target.clone(),
+            |routes, path| routes.borrow_mut().push(path),
+        ));
+        assert_eq!(new_window_routes.borrow().as_slice(), [target]);
+        assert!(old_window.borrow().is_empty());
     }
 
     #[test]

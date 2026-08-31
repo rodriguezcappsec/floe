@@ -71,6 +71,12 @@ impl ApplicationJobManager {
         self.jobs.get(&job_id)
     }
 
+    pub fn has_active_jobs(&self) -> bool {
+        self.jobs
+            .values()
+            .any(|record| !record.state().is_terminal())
+    }
+
     pub fn forget_terminal(&mut self, job_id: JobId) -> bool {
         if self
             .jobs
@@ -188,6 +194,22 @@ mod tests {
                 .transition(queued.job_id(), JobCommand::Start)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn phase_23_reliability_close_policy_observes_only_nonterminal_jobs() {
+        let mut manager = ApplicationJobManager::new();
+        assert!(!manager.has_active_jobs());
+        let queued = manager.queue_operation().expect("queue job");
+        assert!(manager.has_active_jobs());
+        manager
+            .transition(queued.job_id(), JobCommand::Start)
+            .expect("start job");
+        assert!(manager.has_active_jobs());
+        manager
+            .transition(queued.job_id(), JobCommand::Complete)
+            .expect("complete job");
+        assert!(!manager.has_active_jobs());
     }
 
     #[test]

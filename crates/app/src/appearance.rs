@@ -208,6 +208,22 @@ impl Appearance {
                 min-height: 44px;
             }}
 
+            .floe-sidebar.sidebar-collapsed label,
+            .floe-sidebar.sidebar-collapsed .heading,
+            .floe-sidebar.sidebar-collapsed .floe-status {{
+                font-size: 0;
+                min-width: 0;
+                padding: 0;
+                margin: 0;
+                opacity: 0;
+            }}
+
+            .floe-sidebar.sidebar-collapsed button {{
+                min-width: 40px;
+                padding-left: 8px;
+                padding-right: 8px;
+            }}
+
             .floe-directory-list row {{
                 padding: {row_padding}px 12px;
                 border-radius: 8px;

@@ -989,6 +989,48 @@ without falling back to local access.
 
 Encrypted-volume mount authentication is separate. The desktop-owned `GtkMountOperation` flow is **IMPLEMENTED**, but a successful mount grants only the permissions supplied by that filesystem and desktop service.
 
+## Phase 22C and 23 trace boundaries
+
+Portal filters and choice values are bounded request-local presentation state.
+They cross only the exact no-shell chooser child protocol and owning D-Bus
+request; Floe does not persist them, upload them, or claim that returning a URI
+creates a Document Portal grant. MIME guessing and glob matching run in a
+bounded worker and do not read file contents.
+
+Natural sorting, details columns and bookmark aliases preserve original raw path
+identity separately from display text. Bookmark aliases are private
+configuration metadata and may reveal user-chosen names. Owner/group and link
+target values are requested lazily and are not logged or uploaded. SHA-256 from
+Inspector/Properties is explicit and reuses the existing local executor; no
+digest is calculated on selection or inspection alone, and a digest is not an
+authenticity or safety claim.
+
+Completion notifications use only fixed path-free title/body text and a stable
+per-window namespace plus job-number replacement ID. Equal local job numbers in
+two windows therefore cannot replace each other's notification. They are
+optional, suppressed while the originating window is focused, and do not replace
+in-app terminal evidence.
+Desktop notification services and lock screens remain external authorities that
+may retain or display the generic message according to their own policy.
+
+Closing an idle window cancels and detaches its read-only presentation workers
+instead of synchronously joining potentially blocked filesystem calls on GTK's
+main thread. A detached worker may finish its already-started local read after
+the window closes, but its request channel, response receiver, and UI owner are
+gone; it cannot publish results, upload content, or start another request.
+Cancellation-aware cache/index work rejects stale results;
+an underlying filesystem call already in the kernel may still return before its
+thread exits. Active mutating, integrity, and checksum jobs keep their
+owning window open until completion or explicit cancellation so their evidence
+never becomes invisible.
+
+Secondary normal windows currently receive isolated transient operation state
+and no preference, bookmark or session writer. This avoids multiple recovery
+writers and destructive event-consumer races, but it is not Private Mode and
+does not provide application-wide multi-window recovery. Phase 23H must retain
+the existing Private/Sensitive session suppression when adding bounded
+multi-window restoration.
+
 ## Prohibited security and privacy claims
 
 Floe must not claim:

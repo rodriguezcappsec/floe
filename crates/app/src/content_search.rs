@@ -150,13 +150,7 @@ impl Drop for ContentSearchWorker {
     fn drop(&mut self) {
         self.latest_generation.store(u64::MAX, Ordering::Release);
         self.sender.take();
-        if self
-            .worker
-            .take()
-            .is_some_and(|worker| worker.join().is_err())
-        {
-            tracing::error!("content-search worker panicked during shutdown");
-        }
+        self.worker.take();
     }
 }
 

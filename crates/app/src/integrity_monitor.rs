@@ -250,11 +250,7 @@ impl Drop for IntegrityMonitorWorker {
     fn drop(&mut self) {
         self.cancel_active();
         self.sender.take();
-        if let Some(join) = self.join.take() {
-            if join.join().is_err() {
-                tracing::error!("integrity monitor worker panicked during shutdown");
-            }
-        }
+        self.join.take();
     }
 }
 

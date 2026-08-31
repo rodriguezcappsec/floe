@@ -11,11 +11,13 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use floe_core::{DirectoryEntry, EntryKind, FolderFilterMode, FolderFilterPattern};
 use gtk::gio::prelude::FileExt;
 use thiserror::Error;
 
 pub const SELECTION_PATH_CAPACITY: usize = 128;
 const VALIDATION_QUEUE_CAPACITY: usize = 4;
+const VISUAL_FILTER_QUEUE_CAPACITY: usize = 1;
 
 pub fn selection_application_id(process_id: u32) -> String {
     format!("io.github.rodriguezcappsec.Floe.Selection.p{process_id}")
@@ -80,6 +82,40 @@ pub struct SelectionConfig {
     pub accept_label: Option<String>,
     pub parent_window: Option<String>,
     pub modal: bool,
+    pub chooser_options: SelectionChooserOptions,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SelectionChooserOptions {
+    pub filters: Vec<SelectionFilter>,
+    pub current_filter: Option<usize>,
+    pub choices: Vec<SelectionChoice>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectionFilter {
+    pub label: String,
+    pub rules: Vec<SelectionFilterRule>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SelectionFilterRule {
+    Glob(String),
+    Mime(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectionChoice {
+    pub id: String,
+    pub label: String,
+    pub options: Vec<(String, String)>,
+    pub initial: String,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SelectionOptionResult {
+    pub current_filter: Option<usize>,
+    pub choices: Vec<(String, String)>,
 }
 
 impl SelectionConfig {
@@ -127,6 +163,8 @@ pub enum SelectionArgumentError {
     InvalidPresentation(&'static str),
     #[error("unknown Selection Mode option: {0}")]
     UnknownOption(String),
+    #[error("invalid bounded chooser option payload")]
+    InvalidChooserOptions,
 }
 
 pub fn parse_selection_invocation(
@@ -153,6 +191,7 @@ pub fn parse_selection_invocation(
     let mut accept_label = None;
     let mut parent_window = None;
     let mut modal = false;
+    let mut chooser_options = SelectionChooserOptions::default();
     let mut index = 0;
     while index < arguments.len() {
         let argument = &arguments[index];
@@ -208,6 +247,15 @@ pub fn parse_selection_invocation(
                     )?)?);
             }
             Some("--chooser-modal") => modal = true,
+            Some("--chooser-options-v1") => {
+                index += 1;
+                let value = arguments
+                    .get(index)
+                    .and_then(|value| value.to_str())
+                    .ok_or(SelectionArgumentError::MissingValue("--chooser-options-v1"))?;
+                chooser_options = decode_chooser_options(value)
+                    .ok_or(SelectionArgumentError::InvalidChooserOptions)?;
+            }
             Some(value) => return Err(SelectionArgumentError::UnknownOption(value.to_owned())),
             None => {
                 return Err(SelectionArgumentError::UnknownOption(
@@ -236,6 +284,7 @@ pub fn parse_selection_invocation(
         accept_label,
         parent_window,
         modal,
+        chooser_options,
     }))
 }
 
@@ -276,6 +325,254 @@ fn parse_parent_argument(value: &OsString) -> Result<String, SelectionArgumentEr
     Ok(handle.to_owned())
 }
 
+pub fn encode_chooser_options(options: &SelectionChooserOptions) -> Option<String> {
+    if options.filters.len() > 32 || options.choices.len() > 32 {
+        return None;
+    }
+    let mut bytes = b"FLOEOPT1".to_vec();
+    write_u16(&mut bytes, options.filters.len())?;
+    for filter in &options.filters {
+        write_text(&mut bytes, &filter.label, 200)?;
+        if filter.rules.is_empty() || filter.rules.len() > 32 {
+            return None;
+        }
+        write_u16(&mut bytes, filter.rules.len())?;
+        for rule in &filter.rules {
+            match rule {
+                SelectionFilterRule::Glob(value) => {
+                    bytes.push(0);
+                    write_text(&mut bytes, value, 256)?;
+                }
+                SelectionFilterRule::Mime(value) => {
+                    bytes.push(1);
+                    write_text(&mut bytes, value, 256)?;
+                }
+            }
+        }
+    }
+    let current = options
+        .current_filter
+        .and_then(|value| u16::try_from(value).ok())
+        .unwrap_or(u16::MAX);
+    if current != u16::MAX && usize::from(current) >= options.filters.len() {
+        return None;
+    }
+    bytes.extend_from_slice(&current.to_le_bytes());
+    write_u16(&mut bytes, options.choices.len())?;
+    for choice in &options.choices {
+        write_text(&mut bytes, &choice.id, 200)?;
+        write_text(&mut bytes, &choice.label, 200)?;
+        if choice.options.len() > 64 {
+            return None;
+        }
+        write_u16(&mut bytes, choice.options.len())?;
+        for (id, label) in &choice.options {
+            write_text(&mut bytes, id, 200)?;
+            write_text(&mut bytes, label, 200)?;
+        }
+        write_text_allow_empty(&mut bytes, &choice.initial, 200)?;
+    }
+    Some(hex_encode(&bytes))
+}
+
+pub fn decode_chooser_options(value: &str) -> Option<SelectionChooserOptions> {
+    let bytes = hex_decode(value)?;
+    let mut input = bytes.as_slice();
+    if take(&mut input, 8)? != b"FLOEOPT1" {
+        return None;
+    }
+    let filter_count = usize::from(read_u16(&mut input)?);
+    if filter_count > 32 {
+        return None;
+    }
+    let mut filters = Vec::with_capacity(filter_count);
+    for _ in 0..filter_count {
+        let label = read_text(&mut input, 200, false)?;
+        let rule_count = usize::from(read_u16(&mut input)?);
+        if rule_count == 0 || rule_count > 32 {
+            return None;
+        }
+        let mut rules = Vec::with_capacity(rule_count);
+        for _ in 0..rule_count {
+            let kind = *take(&mut input, 1)?.first()?;
+            let value = read_text(&mut input, 256, false)?;
+            rules.push(match kind {
+                0 => SelectionFilterRule::Glob(value),
+                1 => SelectionFilterRule::Mime(value),
+                _ => return None,
+            });
+        }
+        filters.push(SelectionFilter { label, rules });
+    }
+    let current = read_u16(&mut input)?;
+    let current_filter = (current != u16::MAX).then_some(usize::from(current));
+    if current_filter.is_some_and(|index| index >= filters.len()) {
+        return None;
+    }
+    let choice_count = usize::from(read_u16(&mut input)?);
+    if choice_count > 32 {
+        return None;
+    }
+    let mut choices = Vec::with_capacity(choice_count);
+    let mut choice_ids = std::collections::HashSet::new();
+    for _ in 0..choice_count {
+        let id = read_text(&mut input, 200, false)?;
+        if !choice_ids.insert(id.clone()) {
+            return None;
+        }
+        let label = read_text(&mut input, 200, false)?;
+        let option_count = usize::from(read_u16(&mut input)?);
+        if option_count > 64 {
+            return None;
+        }
+        let mut options = Vec::with_capacity(option_count);
+        let mut option_ids = std::collections::HashSet::new();
+        for _ in 0..option_count {
+            let id = read_text(&mut input, 200, false)?;
+            if !option_ids.insert(id.clone()) {
+                return None;
+            }
+            options.push((id, read_text(&mut input, 200, false)?));
+        }
+        let initial = read_text(&mut input, 200, true)?;
+        let valid_initial = if options.is_empty() {
+            matches!(initial.as_str(), "" | "true" | "false")
+        } else {
+            initial.is_empty() || options.iter().any(|(id, _)| *id == initial)
+        };
+        if !valid_initial {
+            return None;
+        }
+        choices.push(SelectionChoice {
+            id,
+            label,
+            options,
+            initial,
+        });
+    }
+    input.is_empty().then_some(SelectionChooserOptions {
+        filters,
+        current_filter,
+        choices,
+    })
+}
+
+pub fn encode_option_result(result: &SelectionOptionResult) -> Option<String> {
+    if result.choices.len() > 32 {
+        return None;
+    }
+    let mut bytes = b"FLOERES1".to_vec();
+    let current = result
+        .current_filter
+        .and_then(|value| u16::try_from(value).ok())
+        .unwrap_or(u16::MAX);
+    bytes.extend_from_slice(&current.to_le_bytes());
+    write_u16(&mut bytes, result.choices.len())?;
+    for (id, value) in &result.choices {
+        write_text(&mut bytes, id, 200)?;
+        write_text_allow_empty(&mut bytes, value, 200)?;
+    }
+    Some(hex_encode(&bytes))
+}
+
+pub fn decode_option_result(value: &str) -> Option<SelectionOptionResult> {
+    let bytes = hex_decode(value)?;
+    let mut input = bytes.as_slice();
+    if take(&mut input, 8)? != b"FLOERES1" {
+        return None;
+    }
+    let current = read_u16(&mut input)?;
+    let count = usize::from(read_u16(&mut input)?);
+    if count > 32 {
+        return None;
+    }
+    let mut choices = Vec::with_capacity(count);
+    let mut seen = std::collections::HashSet::new();
+    for _ in 0..count {
+        let id = read_text(&mut input, 200, false)?;
+        if !seen.insert(id.clone()) {
+            return None;
+        }
+        choices.push((id, read_text(&mut input, 200, true)?));
+    }
+    input.is_empty().then_some(SelectionOptionResult {
+        current_filter: (current != u16::MAX).then_some(usize::from(current)),
+        choices,
+    })
+}
+
+fn write_u16(output: &mut Vec<u8>, value: usize) -> Option<()> {
+    output.extend_from_slice(&u16::try_from(value).ok()?.to_le_bytes());
+    Some(())
+}
+
+fn write_text(output: &mut Vec<u8>, value: &str, maximum: usize) -> Option<()> {
+    if value.is_empty() || value.chars().any(char::is_control) {
+        return None;
+    }
+    write_text_allow_empty(output, value, maximum)
+}
+
+fn write_text_allow_empty(output: &mut Vec<u8>, value: &str, maximum: usize) -> Option<()> {
+    if value.len() > maximum || value.chars().any(char::is_control) {
+        return None;
+    }
+    write_u16(output, value.len())?;
+    output.extend_from_slice(value.as_bytes());
+    Some(())
+}
+
+fn read_u16(input: &mut &[u8]) -> Option<u16> {
+    let bytes = take(input, 2)?;
+    Some(u16::from_le_bytes([bytes[0], bytes[1]]))
+}
+
+fn read_text(input: &mut &[u8], maximum: usize, allow_empty: bool) -> Option<String> {
+    let length = usize::from(read_u16(input)?);
+    if length > maximum || (!allow_empty && length == 0) {
+        return None;
+    }
+    let value = std::str::from_utf8(take(input, length)?).ok()?.to_owned();
+    if value.chars().any(char::is_control) {
+        return None;
+    }
+    Some(value)
+}
+
+fn take<'a>(input: &mut &'a [u8], length: usize) -> Option<&'a [u8]> {
+    if input.len() < length {
+        return None;
+    }
+    let (taken, remaining) = input.split_at(length);
+    *input = remaining;
+    Some(taken)
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output
+}
+
+fn hex_decode(value: &str) -> Option<Vec<u8>> {
+    if value.len() % 2 != 0 || value.len() > 256 * 1024 {
+        return None;
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = char::from(pair[0]).to_digit(16)?;
+            let low = char::from(pair[1]).to_digit(16)?;
+            u8::try_from((high << 4) | low).ok()
+        })
+        .collect()
+}
+
 fn set_mode(
     mode: &mut Option<SelectionMode>,
     value: SelectionMode,
@@ -284,6 +581,169 @@ fn set_mode(
         return Err(SelectionArgumentError::ConflictingModes);
     }
     Ok(())
+}
+
+#[derive(Clone, Debug)]
+pub struct SelectionFilterRequest {
+    pub generation: u64,
+    pub filter: SelectionFilter,
+    pub entries: Arc<[Arc<DirectoryEntry>]>,
+    pub selected_paths: Vec<PathBuf>,
+    pub focus_list: bool,
+}
+
+#[derive(Debug)]
+pub struct SelectionFilterResult {
+    pub generation: u64,
+    pub entries: Vec<Arc<DirectoryEntry>>,
+    pub selected_paths: Vec<PathBuf>,
+    pub focus_list: bool,
+}
+
+#[derive(Debug)]
+pub enum SelectionFilterSubmitError {
+    Busy(SelectionFilterRequest),
+    Stopped(SelectionFilterRequest),
+}
+
+pub struct SelectionFilterWorker {
+    sender: Option<SyncSender<SelectionFilterRequest>>,
+    latest_result: Arc<Mutex<Option<SelectionFilterResult>>>,
+    join: Option<JoinHandle<()>>,
+}
+
+impl SelectionFilterWorker {
+    pub fn spawn() -> io::Result<Self> {
+        let (sender, requests) =
+            mpsc::sync_channel::<SelectionFilterRequest>(VISUAL_FILTER_QUEUE_CAPACITY);
+        let latest_result = Arc::new(Mutex::new(None::<SelectionFilterResult>));
+        let worker_result = Arc::clone(&latest_result);
+        let join = thread::Builder::new()
+            .name("floe-selection-filter".to_owned())
+            .spawn(move || {
+                while let Ok(request) = requests.recv() {
+                    let rules = prepare_selection_filter(&request.filter);
+                    let entries = request
+                        .entries
+                        .iter()
+                        .filter(|entry| {
+                            matches!(
+                                entry.kind(),
+                                EntryKind::Directory
+                                    | EntryKind::SymbolicLink {
+                                        target_is_directory: true
+                                    }
+                            ) || prepared_selection_filter_matches(
+                                &rules,
+                                entry.path(),
+                                entry.display_name(),
+                            )
+                        })
+                        .cloned()
+                        .collect();
+                    let result = SelectionFilterResult {
+                        generation: request.generation,
+                        entries,
+                        selected_paths: request.selected_paths,
+                        focus_list: request.focus_list,
+                    };
+                    let Ok(mut latest) = worker_result.lock() else {
+                        break;
+                    };
+                    if latest
+                        .as_ref()
+                        .is_none_or(|previous| result.generation >= previous.generation)
+                    {
+                        *latest = Some(result);
+                    }
+                }
+            })?;
+        Ok(Self {
+            sender: Some(sender),
+            latest_result,
+            join: Some(join),
+        })
+    }
+
+    pub fn try_submit(
+        &self,
+        request: SelectionFilterRequest,
+    ) -> Result<(), SelectionFilterSubmitError> {
+        let Some(sender) = self.sender.as_ref() else {
+            return Err(SelectionFilterSubmitError::Stopped(request));
+        };
+        match sender.try_send(request) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(request)) => Err(SelectionFilterSubmitError::Busy(request)),
+            Err(TrySendError::Disconnected(request)) => {
+                Err(SelectionFilterSubmitError::Stopped(request))
+            }
+        }
+    }
+
+    pub fn try_result(&self) -> Option<SelectionFilterResult> {
+        self.latest_result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+    }
+}
+
+impl Drop for SelectionFilterWorker {
+    fn drop(&mut self) {
+        self.sender.take();
+        self.join.take();
+    }
+}
+
+enum PreparedSelectionFilterRule {
+    Glob(FolderFilterPattern),
+    MimeExact(String),
+    MimePrefix(String),
+}
+
+fn prepare_selection_filter(filter: &SelectionFilter) -> Vec<PreparedSelectionFilterRule> {
+    filter
+        .rules
+        .iter()
+        .filter_map(|rule| match rule {
+            SelectionFilterRule::Glob(pattern) => {
+                FolderFilterPattern::compile_with_case(FolderFilterMode::Glob, pattern, true)
+                    .ok()
+                    .map(PreparedSelectionFilterRule::Glob)
+            }
+            SelectionFilterRule::Mime(pattern) => pattern
+                .strip_suffix("/*")
+                .map(|prefix| PreparedSelectionFilterRule::MimePrefix(format!("{prefix}/")))
+                .or_else(|| Some(PreparedSelectionFilterRule::MimeExact(pattern.clone()))),
+        })
+        .collect()
+}
+
+fn prepared_selection_filter_matches(
+    rules: &[PreparedSelectionFilterRule],
+    path: &Path,
+    name: &std::ffi::OsStr,
+) -> bool {
+    let content_type = rules
+        .iter()
+        .any(|rule| {
+            matches!(
+                rule,
+                PreparedSelectionFilterRule::MimeExact(_)
+                    | PreparedSelectionFilterRule::MimePrefix(_)
+            )
+        })
+        .then(|| gtk::gio::content_type_guess(Some(path), None::<&[u8]>).0);
+    rules.iter().any(|rule| match rule {
+        PreparedSelectionFilterRule::Glob(pattern) => pattern.matches(name),
+        PreparedSelectionFilterRule::MimeExact(pattern) => content_type
+            .as_ref()
+            .is_some_and(|actual| actual.as_str() == pattern),
+        PreparedSelectionFilterRule::MimePrefix(prefix) => content_type
+            .as_ref()
+            .is_some_and(|actual| actual.as_str().starts_with(prefix)),
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -393,9 +853,7 @@ impl SelectionValidationWorker {
 impl Drop for SelectionValidationWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if let Some(join) = self.join.take() {
-            let _ = join.join();
-        }
+        self.join.take();
     }
 }
 
@@ -532,6 +990,7 @@ pub fn result_uris(paths: &[PathBuf]) -> Vec<String> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SelectionCompletion {
     Accepted(Vec<PathBuf>),
+    AcceptedWithOptions(Vec<PathBuf>, SelectionOptionResult),
     Cancelled,
     Failed,
 }
@@ -539,6 +998,7 @@ pub enum SelectionCompletion {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SelectionProcessOutput {
     Accepted(Vec<String>),
+    AcceptedWithOptions(Vec<String>, SelectionOptionResult),
     Cancelled,
     Failed,
 }
@@ -550,6 +1010,9 @@ pub fn process_output(
     match completion {
         Some(SelectionCompletion::Accepted(paths)) => {
             SelectionProcessOutput::Accepted(result_uris(paths))
+        }
+        Some(SelectionCompletion::AcceptedWithOptions(paths, options)) => {
+            SelectionProcessOutput::AcceptedWithOptions(result_uris(paths), options.clone())
         }
         Some(SelectionCompletion::Cancelled) => SelectionProcessOutput::Cancelled,
         Some(SelectionCompletion::Failed) => SelectionProcessOutput::Failed,
@@ -582,6 +1045,7 @@ mod tests {
                 accept_label: None,
                 parent_window: None,
                 modal: false,
+                chooser_options: SelectionChooserOptions::default(),
             }))
         );
         assert_eq!(
@@ -601,6 +1065,7 @@ mod tests {
                 accept_label: None,
                 parent_window: None,
                 modal: false,
+                chooser_options: SelectionChooserOptions::default(),
             }))
         );
         assert_eq!(
@@ -804,5 +1269,57 @@ mod tests {
             validate_selection(&spaced),
             SelectionValidationOutcome::Ready(vec![fixture.path().join(" report .txt ")])
         );
+    }
+
+    #[test]
+    fn phase_22c_selection_options_visual_filter_keeps_navigation_and_filters_files() {
+        let fixture = tempdir().expect("fixture");
+        fs::create_dir(fixture.path().join("folder")).expect("folder");
+        std::os::unix::fs::symlink("folder", fixture.path().join("folder-link"))
+            .expect("directory symlink");
+        fs::write(fixture.path().join("notes.txt"), b"notes").expect("text file");
+        fs::write(fixture.path().join("photo.png"), b"not actually png").expect("png file");
+        let entries = floe_core::enumerate_directory(fixture.path())
+            .expect("listing")
+            .into_entries()
+            .into_iter()
+            .map(Arc::new)
+            .collect::<Vec<_>>();
+        let worker = SelectionFilterWorker::spawn().expect("selection filter worker");
+        worker
+            .try_submit(SelectionFilterRequest {
+                generation: 11,
+                filter: SelectionFilter {
+                    label: "Text".to_owned(),
+                    rules: vec![SelectionFilterRule::Glob("*.txt".to_owned())],
+                },
+                entries: Arc::from(entries),
+                selected_paths: vec![fixture.path().join("notes.txt")],
+                focus_list: true,
+            })
+            .expect("submit filter");
+
+        for _ in 0..200 {
+            if let Some(result) = worker.try_result() {
+                assert_eq!(result.generation, 11);
+                assert_eq!(result.selected_paths, [fixture.path().join("notes.txt")]);
+                assert!(result.focus_list);
+                let names = result
+                    .entries
+                    .iter()
+                    .map(|entry| entry.display_name().to_string_lossy().into_owned())
+                    .collect::<std::collections::BTreeSet<_>>();
+                assert_eq!(
+                    names,
+                    ["folder", "folder-link", "notes.txt"]
+                        .into_iter()
+                        .map(str::to_owned)
+                        .collect()
+                );
+                return;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        panic!("Selection visual filter timed out");
     }
 }

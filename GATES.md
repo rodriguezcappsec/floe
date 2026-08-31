@@ -1,3 +1,11 @@
+# Active Gates: Floe Phase 23 multi-window reliability repair
+
+The active repair ledger is `gates/phase-23-multi-window-reliability.md`.
+Historical ledgers below remain append-only evidence and do not define
+completion of this repair.
+
+---
+
 # Gates: Floe Phase 22A — Selection Mode
 
 - [x] S1: Strict invocation/domain policy supports Open File(s), Select Folder,
@@ -1924,3 +1932,28 @@ connections; lifecycle evidence passed and no semantic E2E claim is made.
   EXPECT: `/phase-21c-docs-ok/`
   EVIDENCE: PASS. Persistent documents agree Phase 22B is complete with explicit
   limits and Phase 22C Portal option completeness is the sole NEXT phase.
+# Gates: Phase 22C / Phase 23A–23G daily-driver program
+
+- [x] M1: Portal option, notification, natural sort, bookmark, sidebar,
+  checksum and details-column deterministic ledgers are complete.
+  EVIDENCE: All seven completed feature ledgers report ALL MET.
+- [x] M2: Multi-window browsing is implemented only to its safe current
+  boundary and is marked PARTIAL, with shared runtime/session gates abandoned
+  explicitly to Phase 23H rather than silently claimed.
+  EVIDENCE: Phase 23A ledger reports two met and two abandoned; native repeated
+  New Window/Ping/Quit passed.
+- [x] M3: Full Rust, strict Clippy, E2E contracts, docs/render/package/migration,
+  environment matrix and diff hygiene gates pass.
+  EVIDENCE: 620 app tests plus 18 graphical ignores, 21 controller, 174 core,
+  and six duplicate workflows pass; host graphical limitations are recorded.
+- [x] M4: Persistent status names exactly one next phase.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: Phase 23H is the sole NEXT row.
+
+# Gates: Phase 23 multi-window reliability and edge-case repair
+
+- [x] R1: All eleven gates in `gates/phase-23-multi-window-reliability.md` are met with reproducible evidence; no audited defect or two-window freeze is silently deferred.
+  CHECK: node <unlazy-skill-dir>/scripts/gate-check.mjs --status gates/phase-23-multi-window-reliability.md
+  EXPECT: /ALL MET/
+  EVIDENCE: PASS. Leaf status reports `ALL MET (11 met)`; all six audited defects plus the reopened native close/finalization regression have deterministic GTK and KDE Wayland coverage, and Phase 23H remains bounded NEXT.

@@ -636,6 +636,32 @@ from other applications. It reduces mistakes made through Floe.
 Checksums and hashes prove only that compared bytes match a recorded digest.
 They do not prove authenticity, safety, ownership, or absence of malware.
 
+## Daily-driver organization and details
+
+- Press `Ctrl+N` or choose **Main menu → New Window** for another independent
+  browser window. Right-click one folder and choose **Open Folder in New Window**
+  to open that exact destination. Closing one window leaves the others running.
+  If that window still owns an active copy, move, Trash, checksum, integrity, or
+  other file job, Floe keeps it open and tells you to wait or cancel first. This
+  prevents work from continuing without visible progress or cancellation. An
+  idle window closes without waiting for a stalled preview, thumbnail, metadata,
+  search, or external-drive query. Multi-window session restoration and one
+  shared cross-window Operations Island are not implemented yet.
+- Choose **Natural Name** under **Sort By** when names such as `file2` and `file10` should sort in human numeric order. Ordinary direction, folder placement, grouping and per-folder settings still apply.
+- Each bookmark has one **Bookmark options** button. Use it to rename the sidebar label, restore the folder-derived name, move the bookmark up or down, or remove it. Renaming never renames or reconstructs the folder path.
+- Choose **Main menu → View & Layout → Sidebar → Collapse or Expand Sidebar** for an icon rail. Floe stores the collapsed state separately from the expanded width, so expanding restores the prior size.
+- List column customization now includes **Owner**, **Group**, **Path**, and **Link Target** in addition to the existing image/audio metadata columns. Unknown or unavailable metadata remains blank rather than guessed.
+- **Properties** and the Miller **Inspector** expose **Calculate SHA-256…** for one regular file. Calculation begins only after activation and uses the ordinary checksum progress/result UI. A matching hash compares bytes; it does not prove authenticity, safety, ownership or absence of malware.
+- **Completion notifications** are enabled by default under **View & Layout**. Floe sends path-free desktop text only for a completed operation that ran at least two seconds and only while its window is not focused. In-app operation results remain authoritative.
+
+Portal Selection Mode displays requester-provided file-type filters and boolean
+or list choices. Changing a filter updates visible files in a bounded worker
+while folders remain visible for navigation. Floe returns the exact selected
+filter and choices. Portal filters are advisory selection aids: if you explicitly
+choose or name a valid local file that does not match the active filter, Floe
+returns it as required by the XDG portal contract. Floe still does not create
+sandbox Document Portal grants.
+
 ## Appearance and customization
 
 Open **Main menu → View & Layout** to configure:

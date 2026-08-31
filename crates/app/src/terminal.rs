@@ -227,13 +227,7 @@ impl TerminalWorker {
 impl Drop for TerminalWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if self
-            .worker
-            .take()
-            .is_some_and(|worker| worker.join().is_err())
-        {
-            tracing::error!("terminal worker panicked during shutdown");
-        }
+        self.worker.take();
     }
 }
 

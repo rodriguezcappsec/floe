@@ -277,9 +277,7 @@ pub fn queue_default_for_type(
 impl Drop for AssociationWorker {
     fn drop(&mut self) {
         self.sender.take();
-        if let Some(worker) = self.worker.take() {
-            let _ = worker.join();
-        }
+        self.worker.take();
     }
 }
 

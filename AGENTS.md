@@ -1313,11 +1313,62 @@ is active, and **Integrity verified** only after verification completes.
 
 ## Active status
 
-Last updated: `2026-08-30`
+Last updated: `2026-08-31`
 
-Current phase: **Phase 22B — Optional XDG FileChooser portal backend (complete)**
+Current phase: **Phase 22C and Phase 23B–23G complete; Phase 23A multi-window browsing partial**
 
-Completed this session:
+Latest session:
+
+- Reopened and fixed the user-reproduced native close regression. Before an
+  allowed window close, Floe now pops down and unparents its location-completion
+  plus list/grid/search context popovers so no `GtkPopover` remains under a
+  finalizing `GtkEntry` or view. Focused real-GTK and guarded KDE Wayland
+  close/survivor/third-window gates pass without the reported warning or freeze.
+- Repaired the two-window close freeze: active jobs reject close with accessible
+  wait/cancel guidance, idle browser teardown cancels and detaches stalled
+  read-only filesystem/presentation workers rather than joining on GTK's main
+  thread, and application shutdown retains per-window state only weakly.
+- Failed new-window construction now routes a target only to the exact returned
+  controller and cannot redirect an older window. XDG chooser filters are
+  advisory for explicit valid selections. Properties checksum actions capture
+  the presented exact path. Completion notification IDs are namespaced per
+  window so equal local job IDs cannot replace one another.
+- Completed bounded portal filters/current-filter/boolean and combo choices,
+  including worker-owned visual glob/MIME filtering that keeps directories
+  navigable and exact option/result framing through the owning portal request.
+- Added usable multi-window browsing with `Ctrl+N`, repeated activation, exact
+  **Open Folder in New Window**, newest-live routing after a window closes, and
+  independent window navigation. Secondary windows intentionally retain
+  isolated transient operation state and no duplicate persistence writers.
+- Added optional path-free completion notifications for typed completed jobs of
+  at least two seconds while the originating window is unfocused.
+- Added raw-byte-safe Natural Name sorting; version-2 bookmark aliases and
+  reorder/reset/remove options in one compact menu; persisted collapsible
+  sidebar state with expanded-width restoration; explicit SHA-256 from
+  Inspector/Properties; and Owner, Group, Path and Link Target list columns.
+- Nine focused reliability regressions, 646 application tests (627 passed and 19
+  intentional graphical ignores), 21 controller tests, 174 core tests, and six
+  duplicate workflows pass with formatting, workspace check, strict Clippy,
+  docs/render/package/migration/release/E2E contracts and diff hygiene. Isolated
+  native KDE Wayland created two windows, closed one exact same-process window,
+  sustained survivor/main-loop actions, created a third window, and quit cleanly
+  without the reported GTK warning.
+  The combined graphical GTK command remains unusable on this host because
+  separate Rust test threads try to initialize GTK from different threads.
+
+Known limitation:
+
+- Multi-window application-wide jobs/recovery, one preference/bookmark/session
+  writer, and bounded window-set restoration are not implemented. Sharing the
+  current destructive event drain among several `OperationController`s would
+  duplicate or steal events/conflict dialogs. Phase 23H must introduce an
+  explicit application-owned coordinator rather than weakening this boundary.
+
+Recommended next task:
+
+- **Phase 23H — Multi-window runtime and session hardening.**
+
+Historical completed-session notes:
 
 - Added an explicitly activated `org.freedesktop.impl.portal.FileChooser` backend
   for Open File(s), one Select Folder, Save File, and Save Files. It owns at most
