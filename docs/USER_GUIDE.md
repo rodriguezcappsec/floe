@@ -105,6 +105,37 @@ Settings Center and selection-aware context menus.
 
 ## Navigate folders
 
+### Use Floe as a file selector
+
+Applications and scripts can open a dedicated Floe Selection Mode window without
+changing or reusing the ordinary Floe window:
+
+```bash
+floe --choose-open
+floe --choose-open --multiple --initial-directory /path/to/folder
+floe --choose-folder --initial-directory /path/to/folder
+floe --choose-save --initial-directory /path/to/folder --suggested-name report.txt
+```
+
+The footer states **Open File**, **Open Files**, **Select Folder**, or **Save
+File** and uses the matching **Open**, **Select**, or **Save** action. Open modes
+accept only regular files; Select Folder accepts one selected folder or the
+current folder. Save accepts one UTF-8 filename component. If that file exists,
+Floe requires an explicit **Replace** decision but does not write the file—the
+calling application owns the save operation.
+
+On acceptance Floe writes one exact percent-encoded local `file://` URI per line
+to standard output and exits successfully. Cancel, Escape, window close, or
+`Ctrl+Q` writes no path and exits nonzero. At most 128 files can be returned from
+one Open Files request. Each invocation has an independent window and process;
+normal Floe session restoration is not used. This native mode does not mean Floe
+is registered as an XDG FileChooser portal backend.
+
+Selection Mode is deliberately selection-focused. Navigation, views, search,
+preview, and selection remain available, while filesystem mutations, external
+tools, administrator access, association/settings editors, and cache/index
+writes are disabled. Use the normal Floe window for file-management work.
+
 | Task | How |
 | --- | --- |
 | Open a folder | Click or double-click according to **Settings → Browsing → Opening behavior**, select it and press `Enter`, or use **Open** |

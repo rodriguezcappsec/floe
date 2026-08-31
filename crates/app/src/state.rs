@@ -2,10 +2,14 @@ use std::{
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet, VecDeque},
     ffi::{OsStr, OsString},
-    fs,
-    os::unix::ffi::OsStrExt,
+    fs, io,
+    os::unix::{ffi::OsStrExt, fs::DirBuilderExt},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use floe_core::{
@@ -791,6 +795,8 @@ pub enum ApplicationStateSpawnError {
     Guardrail(#[from] GuardrailControllerError),
     #[error("could not start Protected Folder policy worker")]
     GuardrailPolicy(#[source] std::io::Error),
+    #[error("could not create isolated Selection Mode state")]
+    SelectionTransientState(#[source] std::io::Error),
     #[error(transparent)]
     Archive(#[from] ArchiveExecutorSpawnError),
     #[error(transparent)]
@@ -863,19 +869,91 @@ pub struct ApplicationState {
     batches: RefCell<VecDeque<BatchRecord>>,
     job_batches: RefCell<HashMap<JobId, BatchId>>,
     next_batch_id: Cell<u64>,
+    _selection_transient_state: Option<SelectionTransientState>,
+}
+
+static SELECTION_TRANSIENT_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Debug)]
+struct SelectionTransientState {
+    directory: PathBuf,
+    store_path: PathBuf,
+}
+
+impl SelectionTransientState {
+    fn create() -> io::Result<Self> {
+        let base = std::env::temp_dir();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        for _ in 0..128 {
+            let sequence = SELECTION_TRANSIENT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let directory = base.join(format!(
+                "floe-selection-{}-{timestamp}-{sequence}",
+                std::process::id()
+            ));
+            let mut builder = fs::DirBuilder::new();
+            builder.mode(0o700);
+            match builder.create(&directory) {
+                Ok(()) => {
+                    return Ok(Self {
+                        store_path: directory.join("guardrails.bin"),
+                        directory,
+                    });
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error),
+            }
+        }
+        Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not reserve a unique Selection Mode state directory",
+        ))
+    }
+
+    fn cleanup(&self) {
+        match fs::remove_file(&self.store_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => tracing::warn!(%error, "could not remove Selection Mode state file"),
+        }
+        match fs::remove_dir(&self.directory) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => tracing::warn!(%error, "could not remove Selection Mode state directory"),
+        }
+    }
+}
+
+impl Drop for SelectionTransientState {
+    fn drop(&mut self) {
+        self.cleanup();
+    }
 }
 
 impl ApplicationState {
     pub fn new() -> Result<Self, ApplicationStateSpawnError> {
+        Self::new_with_persistence(true)
+    }
+
+    pub fn new_selection_mode() -> Result<Self, ApplicationStateSpawnError> {
+        Self::new_with_persistence(false)
+    }
+
+    fn new_with_persistence(persistent: bool) -> Result<Self, ApplicationStateSpawnError> {
         let jobs = Arc::new(Mutex::new(ApplicationJobManager::new()));
         #[cfg(not(test))]
-        let recovery = Some(RecoveryCoordinator::load_at(default_recovery_journal_path()));
+        let recovery =
+            persistent.then(|| RecoveryCoordinator::load_at(default_recovery_journal_path()));
         #[cfg(test)]
         let recovery: Option<RecoveryCoordinator> = None;
         #[cfg(not(test))]
-        let undo_history = Some(UndoHistoryCoordinator::load_at(default_undo_history_path()));
+        let undo_history =
+            persistent.then(|| UndoHistoryCoordinator::load_at(default_undo_history_path()));
         #[cfg(test)]
-        let undo_history = Some(UndoHistoryCoordinator::load_at(test_undo_history_path()));
+        let undo_history =
+            persistent.then(|| UndoHistoryCoordinator::load_at(test_undo_history_path()));
         let archive_executor = ArchiveExecutor::spawn(Arc::clone(&jobs))?;
         let batch_rename_executor = BatchRenameExecutor::spawn(Arc::clone(&jobs))?;
         let copy_executor = match (recovery.clone(), undo_history.clone()) {
@@ -923,7 +1001,15 @@ impl ApplicationState {
         let integrity_executor = IntegrityExecutor::spawn(Arc::clone(&jobs))?;
         let verified_copy_executor = VerifiedCopyExecutor::spawn(Arc::clone(&jobs))?;
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
-        let guardrail_store_path = default_guardrail_store_path();
+        let selection_transient_state = (!persistent)
+            .then(SelectionTransientState::create)
+            .transpose()
+            .map_err(ApplicationStateSpawnError::SelectionTransientState)?;
+        let guardrail_store_path = selection_transient_state
+            .as_ref()
+            .map_or_else(default_guardrail_store_path, |state| {
+                state.store_path.clone()
+            });
         let guardrails = GuardrailController::load_at(guardrail_store_path.clone())?;
         let guardrail_policy_worker = GuardrailPolicyWorker::spawn(guardrail_store_path)
             .map_err(ApplicationStateSpawnError::GuardrailPolicy)?;
@@ -967,11 +1053,18 @@ impl ApplicationState {
             batches: RefCell::new(VecDeque::new()),
             job_batches: RefCell::new(HashMap::new()),
             next_batch_id: Cell::new(1),
+            _selection_transient_state: selection_transient_state,
         })
     }
 
     pub fn guardrail_store_health(&self) -> GuardrailStoreHealth {
         self.guardrails.borrow().store_health()
+    }
+
+    pub fn cleanup_selection_transient_state(&self) {
+        if let Some(state) = self._selection_transient_state.as_ref() {
+            state.cleanup();
+        }
     }
 
     pub fn recovery_store_health(&self) -> RecoveryStoreHealth {
@@ -3743,6 +3836,7 @@ impl ApplicationState {
             batches: RefCell::new(VecDeque::new()),
             job_batches: RefCell::new(HashMap::new()),
             next_batch_id: Cell::new(1),
+            _selection_transient_state: None,
         })
     }
 
@@ -4072,6 +4166,29 @@ mod tests {
         guardrail_controller::GuardrailBlock, guardrail_preflight::GuardrailPreflightError,
         guardrail_store::GuardrailStore,
     };
+
+    #[test]
+    fn phase_22a_selection_transient_state_is_private_unique_and_cleaned() {
+        let first = SelectionTransientState::create().expect("first transient state");
+        let second = SelectionTransientState::create().expect("second transient state");
+        assert_ne!(first.directory, second.directory);
+        assert!(first.directory.is_dir());
+        assert!(second.directory.is_dir());
+        assert_eq!(
+            fs::metadata(&first.directory)
+                .expect("first metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        let first_directory = first.directory.clone();
+        let second_directory = second.directory.clone();
+        drop(first);
+        drop(second);
+        assert!(!first_directory.exists());
+        assert!(!second_directory.exists());
+    }
 
     fn authorize_scope(
         state: &ApplicationState,

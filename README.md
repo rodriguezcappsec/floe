@@ -41,6 +41,20 @@ floe /path/to/file.pdf
 The stable application ID is `io.github.rodriguezcappsec.Floe`. Each invocation
 accepts at most one local target; remote URIs are rejected.
 
+Floe can also act as a native local file selector for applications and scripts:
+
+```bash
+floe --choose-open [--multiple] [--initial-directory /path]
+floe --choose-folder [--initial-directory /path]
+floe --choose-save [--initial-directory /path] [--suggested-name report.txt]
+```
+
+Accepted paths are printed as one exact percent-encoded local `file://` URI per
+line. Cancel emits no path and returns nonzero. Each selector is an independent
+process, so simultaneous callers do not collide. This is Floe Selection Mode,
+not an XDG FileChooser portal backend; portal service integration is a separate
+later phase.
+
 To build from a checkout:
 
 ```bash

@@ -408,6 +408,10 @@ use crate::{
         PropertiesSubmitError, PropertiesWorker, build_permission_request,
         present as present_properties,
     },
+    selection_mode::{
+        SELECTION_PATH_CAPACITY, SelectionCompletion, SelectionConfig, SelectionMode,
+        SelectionValidationOutcome, SelectionValidationRequest, SelectionValidationWorker,
+    },
     session_store::SessionStoreWorker,
     sort_metadata_index::{MetadataIndexEventKind, MetadataIndexSubmitError, MetadataIndexWorker},
     state::{
@@ -731,12 +735,29 @@ pub struct BrowserController {
     template_worker: RefCell<Option<crate::templates::TemplateWorker>>,
     template_request_id: Cell<u64>,
     pending_create_rename: RefCell<Option<PathBuf>>,
+    selection_mode: RefCell<Option<SelectionModeRuntime>>,
 }
 
 #[derive(Debug)]
 struct VerifiedUsbLive {
     workflow: VerifiedUsbWorkflow,
     request: VerifiedCopyRequest,
+}
+
+struct SelectionModeRuntime {
+    config: SelectionConfig,
+    worker: SelectionValidationWorker,
+    footer: gtk::Box,
+    filename: gtk::Entry,
+    status: gtk::Label,
+    accept: gtk::Button,
+    completion: Rc<dyn Fn(SelectionCompletion)>,
+    request_id: Cell<u64>,
+    pending: Cell<bool>,
+    finished: Cell<bool>,
+    filename_user_edited: Cell<bool>,
+    updating_filename: Cell<bool>,
+    poll_source: RefCell<Option<glib::SourceId>>,
 }
 
 impl Drop for BrowserController {
@@ -761,6 +782,11 @@ impl Drop for BrowserController {
             source.remove();
         }
         if let Some(source) = self.operation_emphasis_source.borrow_mut().take() {
+            source.remove();
+        }
+        if let Some(runtime) = self.selection_mode.get_mut().as_mut()
+            && let Some(source) = runtime.poll_source.get_mut().take()
+        {
             source.remove();
         }
         self.integrity_watch_set.get_mut().take();
@@ -1031,7 +1057,357 @@ impl BrowserController {
             template_worker: RefCell::new(template_worker),
             template_request_id: Cell::new(0),
             pending_create_rename: RefCell::new(None),
+            selection_mode: RefCell::new(None),
         })
+    }
+
+    pub fn configure_selection_mode(
+        self: &Rc<Self>,
+        config: SelectionConfig,
+        completion: impl Fn(SelectionCompletion) + 'static,
+    ) {
+        let worker = match SelectionValidationWorker::spawn() {
+            Ok(worker) => worker,
+            Err(error) => {
+                self.show_toast(&format!("Selection validation is unavailable: {error}"), 0);
+                tracing::error!(%error, "could not start selection validation worker");
+                completion(SelectionCompletion::Failed);
+                return;
+            }
+        };
+        let presentation = config.mode.presentation();
+        self.widgets
+            .window
+            .set_title(Some(&format!("{} — Floe", presentation.title)));
+
+        let title = gtk::Label::builder()
+            .label(presentation.title)
+            .xalign(0.0)
+            .build();
+        title.add_css_class("heading");
+        let filename = gtk::Entry::builder()
+            .placeholder_text("Filename")
+            .hexpand(true)
+            .visible(presentation.filename_visible)
+            .build();
+        set_accessible_label(&filename, "Save filename");
+        let has_suggested_name = config.suggested_name.is_some();
+        if let Some(suggested_name) = config.suggested_name.as_deref() {
+            filename.set_text(suggested_name);
+            filename.select_region(0, -1);
+        }
+        let status = gtk::Label::builder()
+            .label("Choose an item")
+            .xalign(0.0)
+            .hexpand(true)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .build();
+        status.add_css_class("caption");
+        status.add_css_class("dim-label");
+        status.set_accessible_role(gtk::AccessibleRole::Status);
+        let cancel = gtk::Button::with_label("Cancel");
+        set_accessible_label(&cancel, "Cancel file selection");
+        let accept = gtk::Button::with_label(presentation.accept_label);
+        accept.add_css_class("suggested-action");
+        accept.set_sensitive(false);
+        set_accessible_label(
+            &accept,
+            match config.mode {
+                SelectionMode::OpenFile => "Open selected file",
+                SelectionMode::OpenFiles => "Open selected files",
+                SelectionMode::SelectFolder => "Select folder",
+                SelectionMode::SaveFile => "Choose save destination",
+            },
+        );
+        let footer = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(10)
+            .margin_start(12)
+            .margin_end(12)
+            .margin_top(8)
+            .margin_bottom(8)
+            .build();
+        footer.add_css_class("floe-selection-footer");
+        footer.set_accessible_role(gtk::AccessibleRole::Group);
+        let selection_description = if presentation.multiple {
+            "Choose one or more local files with Floe, then accept or cancel"
+        } else {
+            "Choose one local destination with Floe, then accept or cancel"
+        };
+        footer.update_property(&[
+            gtk::accessible::Property::Label("File selection controls"),
+            gtk::accessible::Property::Description(selection_description),
+        ]);
+        footer.append(&title);
+        footer.append(&filename);
+        footer.append(&status);
+        footer.append(&cancel);
+        footer.append(&accept);
+        self.widgets.active_pane_shell.append(&footer);
+
+        *self.selection_mode.borrow_mut() = Some(SelectionModeRuntime {
+            config,
+            worker,
+            footer,
+            filename: filename.clone(),
+            status,
+            accept: accept.clone(),
+            completion: Rc::new(completion),
+            request_id: Cell::new(0),
+            pending: Cell::new(false),
+            finished: Cell::new(false),
+            filename_user_edited: Cell::new(has_suggested_name),
+            updating_filename: Cell::new(false),
+            poll_source: RefCell::new(None),
+        });
+
+        let controller = Rc::downgrade(self);
+        accept.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.submit_selection_mode();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        filename.connect_activate(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.submit_selection_mode();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        filename.connect_changed(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                if let Some(runtime) = controller.selection_mode.borrow().as_ref()
+                    && !runtime.updating_filename.get()
+                {
+                    runtime.filename_user_edited.set(true);
+                }
+                controller.refresh_selection_mode();
+            }
+        });
+        let controller = Rc::downgrade(self);
+        cancel.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.finish_selection_mode(SelectionCompletion::Cancelled);
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.window.connect_close_request(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.finish_selection_mode(SelectionCompletion::Cancelled);
+            }
+            glib::Propagation::Proceed
+        });
+        let keys = gtk::EventControllerKey::new();
+        keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let controller = Rc::downgrade(self);
+        keys.connect_key_pressed(move |_, key, _, modifiers| {
+            if key == gtk::gdk::Key::Escape && modifiers.is_empty() {
+                if let Some(controller) = controller.upgrade() {
+                    controller.finish_selection_mode(SelectionCompletion::Cancelled);
+                }
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        self.widgets.window.add_controller(keys);
+
+        let controller = Rc::downgrade(self);
+        let source = glib::timeout_add_local(Duration::from_millis(40), move || {
+            let Some(controller) = controller.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            controller.poll_selection_mode();
+            glib::ControlFlow::Continue
+        });
+        if let Some(runtime) = self.selection_mode.borrow().as_ref() {
+            *runtime.poll_source.borrow_mut() = Some(source);
+        }
+        self.refresh_selection_mode();
+    }
+
+    fn refresh_selection_mode(&self) {
+        let runtime = self.selection_mode.borrow();
+        let Some(runtime) = runtime.as_ref() else {
+            return;
+        };
+        if runtime.pending.get() {
+            runtime.accept.set_sensitive(false);
+            runtime.status.set_label("Checking selection…");
+            return;
+        }
+        let selected = self.selected_entries.borrow();
+        if runtime.config.mode == SelectionMode::SaveFile
+            && !runtime.filename_user_edited.get()
+            && let [entry] = selected.as_slice()
+            && selection_mode_file_entry(entry)
+            && let Some(name) = entry.path().file_name().and_then(std::ffi::OsStr::to_str)
+            && runtime.filename.text().as_str() != name
+        {
+            runtime.updating_filename.set(true);
+            runtime.filename.set_text(name);
+            runtime.filename.select_region(0, -1);
+            runtime.updating_filename.set(false);
+        }
+        let (enabled, message) = match runtime.config.mode {
+            SelectionMode::OpenFile => match selected.as_slice() {
+                [entry] if selection_mode_file_entry(entry) => (true, "One file selected"),
+                [] => (false, "Select one file"),
+                _ => (false, "Select exactly one file"),
+            },
+            SelectionMode::OpenFiles => {
+                if selected.is_empty() {
+                    (false, "Select one or more files")
+                } else if selected.len() > SELECTION_PATH_CAPACITY {
+                    (false, "Too many files selected")
+                } else if selected
+                    .iter()
+                    .all(|entry| selection_mode_file_entry(entry))
+                {
+                    (true, "Selected files are ready")
+                } else {
+                    (false, "Folders cannot be accepted in Open Files mode")
+                }
+            }
+            SelectionMode::SelectFolder => match selected.as_slice() {
+                [] => (true, "Use the current folder"),
+                [entry] if entry.is_navigable_directory() => (true, "One folder selected"),
+                _ => (false, "Select one folder or clear selection"),
+            },
+            SelectionMode::SaveFile => {
+                let valid = !runtime.filename.text().is_empty();
+                (
+                    valid,
+                    if valid {
+                        "Save location is ready"
+                    } else {
+                        "Enter a filename"
+                    },
+                )
+            }
+        };
+        runtime.accept.set_sensitive(enabled);
+        runtime.status.set_label(message);
+    }
+
+    fn submit_selection_mode(&self) {
+        let runtime = self.selection_mode.borrow();
+        let Some(runtime) = runtime.as_ref() else {
+            return;
+        };
+        if runtime.pending.replace(true) || runtime.finished.get() {
+            return;
+        }
+        let id = runtime.request_id.get().wrapping_add(1).max(1);
+        runtime.request_id.set(id);
+        let selected_paths = if runtime.config.mode == SelectionMode::SaveFile {
+            Vec::new()
+        } else {
+            self.selected_paths()
+        };
+        let request = SelectionValidationRequest {
+            id,
+            mode: runtime.config.mode,
+            current_directory: self.tabs.borrow().active().current().path().to_path_buf(),
+            selected_paths,
+            filename: runtime
+                .config
+                .mode
+                .needs_filename()
+                .then(|| runtime.filename.text().to_string()),
+        };
+        if let Err(error) = runtime.worker.submit(request) {
+            runtime.pending.set(false);
+            runtime.status.set_label(&error.to_string());
+        } else {
+            runtime.accept.set_sensitive(false);
+            runtime.status.set_label("Checking selection…");
+        }
+    }
+
+    pub fn accept_selection_mode(&self) {
+        self.submit_selection_mode();
+    }
+
+    fn poll_selection_mode(self: &Rc<Self>) {
+        let result = {
+            let runtime = self.selection_mode.borrow();
+            runtime
+                .as_ref()
+                .and_then(|runtime| runtime.worker.try_result())
+        };
+        let Some(result) = result else {
+            return;
+        };
+        let current_id = self
+            .selection_mode
+            .borrow()
+            .as_ref()
+            .map_or(0, |runtime| runtime.request_id.get());
+        if result.id != current_id {
+            return;
+        }
+        if let Some(runtime) = self.selection_mode.borrow().as_ref() {
+            runtime.pending.set(false);
+        }
+        match result.outcome {
+            SelectionValidationOutcome::Ready(paths) => {
+                self.finish_selection_mode(SelectionCompletion::Accepted(paths));
+            }
+            SelectionValidationOutcome::ReplaceConfirmation(path) => {
+                self.present_selection_replace_confirmation(path);
+            }
+            SelectionValidationOutcome::Invalid(message) => {
+                if let Some(runtime) = self.selection_mode.borrow().as_ref() {
+                    runtime.status.set_label(&message);
+                }
+                self.refresh_selection_mode();
+            }
+        }
+    }
+
+    fn present_selection_replace_confirmation(self: &Rc<Self>, path: PathBuf) {
+        let label = path
+            .file_name()
+            .unwrap_or(path.as_os_str())
+            .to_string_lossy();
+        let dialog = adw::AlertDialog::builder()
+            .heading("Replace existing file?")
+            .body(format!(
+                "{label} already exists. Floe will return this destination only if you explicitly choose Replace; the calling application decides how to save."
+            ))
+            .default_response("cancel")
+            .close_response("cancel")
+            .build();
+        dialog.add_responses(&[("cancel", "Cancel"), ("replace", "Replace")]);
+        dialog.set_response_appearance("replace", adw::ResponseAppearance::Destructive);
+        let controller = Rc::downgrade(self);
+        dialog.connect_response(None, move |dialog, response| {
+            if let Some(controller) = controller.upgrade() {
+                if response == "replace" {
+                    controller
+                        .finish_selection_mode(SelectionCompletion::Accepted(vec![path.clone()]));
+                } else {
+                    controller.refresh_selection_mode();
+                }
+            }
+            dialog.close();
+        });
+        dialog.present(Some(&self.widgets.window));
+    }
+
+    fn finish_selection_mode(&self, outcome: SelectionCompletion) {
+        let completion = {
+            let runtime = self.selection_mode.borrow();
+            let Some(runtime) = runtime.as_ref() else {
+                return;
+            };
+            if runtime.finished.replace(true) {
+                return;
+            }
+            runtime.footer.set_sensitive(false);
+            Rc::clone(&runtime.completion)
+        };
+        completion(outcome);
     }
 
     pub fn wire(self: &Rc<Self>, application: &adw::Application, locations: &[Location]) {
@@ -1285,6 +1661,13 @@ impl BrowserController {
     }
 
     fn handle_drop_event(self: &Rc<Self>, event: DropEvent) {
+        if self.selection_mode.borrow().is_some() {
+            self.show_toast(
+                "Drag-and-drop file operations are unavailable in Selection Mode",
+                4,
+            );
+            return;
+        }
         match event {
             DropEvent::Commit(request) => self.submit_drop(request),
             DropEvent::Feedback(Some(message)) => {
@@ -1594,6 +1977,10 @@ impl BrowserController {
     }
 
     fn submit_bookmarks(self: &Rc<Self>, paths: Vec<PathBuf>) {
+        if self.selection_mode.borrow().is_some() {
+            self.show_toast("Bookmarks cannot be changed in Selection Mode", 4);
+            return;
+        }
         if self.bookmark_save_in_flight.get() {
             self.show_toast("Please wait for the current bookmark change", 4);
             return;
@@ -1631,12 +2018,10 @@ impl BrowserController {
                 Ok(BookmarkWorkerEvent::Loaded(Ok(bookmarks))) => {
                     self.bookmarks.replace(bookmarks.paths().to_vec());
                     self.bookmarks_loaded.set(true);
-                    self.widgets
-                        .add_bookmark_button
-                        .set_sensitive(ui::bookmark_actions_enabled(
-                            self.bookmarks_loaded.get(),
-                            false,
-                        ));
+                    self.widgets.add_bookmark_button.set_sensitive(
+                        self.selection_mode.borrow().is_none()
+                            && ui::bookmark_actions_enabled(self.bookmarks_loaded.get(), false),
+                    );
                     self.render_bookmarks();
                 }
                 Ok(BookmarkWorkerEvent::Loaded(Err(error))) => {
@@ -1648,12 +2033,10 @@ impl BrowserController {
                         continue;
                     }
                     self.bookmark_save_in_flight.set(false);
-                    self.widgets
-                        .add_bookmark_button
-                        .set_sensitive(ui::bookmark_actions_enabled(
-                            self.bookmarks_loaded.get(),
-                            false,
-                        ));
+                    self.widgets.add_bookmark_button.set_sensitive(
+                        self.selection_mode.borrow().is_none()
+                            && ui::bookmark_actions_enabled(self.bookmarks_loaded.get(), false),
+                    );
                     self.widgets
                         .add_bookmark_button
                         .set_tooltip_text(Some("Add current folder to Bookmarks"));
@@ -1692,10 +2075,11 @@ impl BrowserController {
             self.widgets.bookmarks_box.append(&empty);
             return;
         }
-        let actions_enabled = ui::bookmark_actions_enabled(
-            self.bookmarks_loaded.get(),
-            self.bookmark_save_in_flight.get(),
-        );
+        let actions_enabled = self.selection_mode.borrow().is_none()
+            && ui::bookmark_actions_enabled(
+                self.bookmarks_loaded.get(),
+                self.bookmark_save_in_flight.get(),
+            );
         for (index, path) in bookmarks.into_iter().enumerate() {
             let row = gtk::Box::builder()
                 .orientation(gtk::Orientation::Horizontal)
@@ -4546,6 +4930,24 @@ impl BrowserController {
             application,
             &self.current_preferences.borrow().keybindings,
         );
+        self.enforce_selection_mode_actions();
+    }
+
+    fn enforce_selection_mode_actions(&self) {
+        if self.selection_mode.borrow().is_none() {
+            return;
+        }
+        for name in self.widgets.window.list_actions() {
+            if selection_mode_blocks_action(name.as_str())
+                && let Some(action) = self
+                    .widgets
+                    .window
+                    .lookup_action(name.as_str())
+                    .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(false);
+            }
+        }
     }
 
     fn add_action<F>(self: &Rc<Self>, name: &str, callback: F) -> gio::SimpleAction
@@ -4553,9 +4955,17 @@ impl BrowserController {
         F: Fn(&Rc<Self>) + 'static,
     {
         let action = gio::SimpleAction::new(name, None);
+        let blocked_in_selection_mode = selection_mode_blocks_action(name);
+        if blocked_in_selection_mode && self.selection_mode.borrow().is_some() {
+            action.set_enabled(false);
+        }
         let controller = Rc::downgrade(self);
         action.connect_activate(move |_, _| {
             if let Some(controller) = controller.upgrade() {
+                if blocked_in_selection_mode && controller.selection_mode.borrow().is_some() {
+                    controller.show_toast("This action is unavailable in Selection Mode", 4);
+                    return;
+                }
                 callback(&controller);
             }
         });
@@ -8455,7 +8865,11 @@ impl BrowserController {
                     target_is_directory: false
                 }
         ) {
-            self.launch_file(entry);
+            if self.selection_mode.borrow().is_some() {
+                self.submit_selection_mode();
+            } else {
+                self.launch_file(entry);
+            }
         } else {
             self.show_toast("This type of filesystem entry cannot be opened yet", 5);
         }
@@ -8581,6 +8995,8 @@ impl BrowserController {
         self.update_terminal_action_enabled();
         self.update_guardrail_action_states();
         self.refresh_status();
+        self.refresh_selection_mode();
+        self.enforce_selection_mode_actions();
     }
 
     fn refresh_custom_action_context_menu(&self) {
@@ -11958,6 +12374,119 @@ impl BrowserController {
     }
 }
 
+fn selection_mode_blocks_action(name: &str) -> bool {
+    !matches!(
+        name,
+        "show-error-details"
+            | "breadcrumb"
+            | "recent-locations"
+            | "back"
+            | "forward"
+            | "parent"
+            | "location"
+            | "folder-filter"
+            | "clear-folder-filter"
+            | "close-search-surface"
+            | "filename-search"
+            | "start-filename-search"
+            | "stop-filename-search"
+            | "clear-filename-search"
+            | "reveal-in-folder"
+            | "cancel-location"
+            | "hidden"
+            | "refresh"
+            | "open-trash"
+            | "select-all"
+            | "invert-selection"
+            | "clear-selection"
+            | "new-tab"
+            | "close-tab-active"
+            | "duplicate-tab-active"
+            | "reopen-closed-tab"
+            | "toggle-split"
+            | "switch-split-side"
+            | "swap-split-sides"
+            | "close-split"
+            | "narrow-primary-pane"
+            | "widen-primary-pane"
+            | "open-opposite-pane"
+            | "next-tab"
+            | "previous-tab"
+            | "move-tab-left"
+            | "move-tab-right"
+            | "activate-tab"
+            | "close-tab"
+            | "duplicate-tab"
+            | "close-tabs-left"
+            | "close-tabs-right"
+            | "close-other-tabs"
+            | "move-tab-before"
+            | "open-new-tab"
+            | "open-background-tab"
+            | "view-list"
+            | "view-grid"
+            | "view-miller"
+            | "zoom-in"
+            | "zoom-out"
+            | "miller-parent"
+            | "miller-child"
+            | "miller-preview-hook"
+            | "miller-inspector-hook"
+            | "quick-preview"
+            | "preview-zoom-in"
+            | "preview-zoom-out"
+            | "preview-zoom-reset"
+            | "preview-fullscreen"
+            | "narrow-miller-columns"
+            | "widen-miller-columns"
+            | "narrow-inspector"
+            | "widen-inspector"
+            | "appearance-preset"
+            | "icon-style"
+            | "sidebar-density"
+            | "file-density"
+            | "sort-column"
+            | "sort-direction"
+            | "folders-first"
+            | "hidden-last"
+            | "grouping"
+            | "toggle-group"
+            | "directory-placement"
+            | "remember-folder-view"
+            | "narrow-name"
+            | "widen-name"
+            | "autosize-name"
+            | "move-column-left-name"
+            | "move-column-right-name"
+            | "reset-sidebar-width"
+            | "open"
+            | "copy-name"
+            | "copy-path"
+            | "copy-relative-path"
+            | "copy-uri"
+            | "sort-name"
+            | "sort-type"
+            | "sort-size"
+            | "sort-modified"
+            | "sort-extension"
+    ) && !name.starts_with("toggle-column-")
+        && !name.starts_with("narrow-")
+        && !name.starts_with("widen-")
+        && !name.starts_with("autosize-")
+        && !name.starts_with("move-column-left-")
+        && !name.starts_with("move-column-right-")
+}
+
+fn selection_mode_file_entry(entry: &DirectoryEntry) -> bool {
+    matches!(
+        entry.kind(),
+        EntryKind::RegularFile
+            | EntryKind::SymbolicLink {
+                target_is_directory: false
+            }
+    )
+}
+
 fn escaped_toast_title(title: &str) -> glib::GString {
     glib::markup_escape_text(title)
 }
@@ -13618,5 +14147,44 @@ mod tests {
         assert_ne!(COPY_OPPOSITE_ACCELERATOR, MOVE_OPPOSITE_ACCELERATOR);
         assert_ne!(MOVE_OPPOSITE_ACCELERATOR, LINK_OPPOSITE_ACCELERATOR);
         assert_eq!(LINK_OPPOSITE_ACCELERATOR, "<Control><Alt>l");
+    }
+
+    #[test]
+    fn phase_22a_ui_selection_mode_blocks_mutating_and_external_actions() {
+        for action in [
+            "open-with",
+            "open-terminal",
+            "open-as-administrator",
+            "copy-to-opposite-pane",
+            "compress",
+            "rename",
+            "trash",
+            "permanent-delete",
+            "paste",
+            "new-folder",
+            "create-symbolic-link",
+            "properties",
+            "save-search",
+            "delete-saved-search",
+            "clear-recent-searches",
+            "clear-metadata-sort-cache",
+            "run-custom-action",
+            "future-mutating-action",
+        ] {
+            assert!(selection_mode_blocks_action(action), "{action}");
+        }
+        for action in [
+            "back",
+            "forward",
+            "parent",
+            "location",
+            "folder-filter",
+            "select-all",
+            "clear-selection",
+            "view-list",
+            "view-grid",
+        ] {
+            assert!(!selection_mode_blocks_action(action), "{action}");
+        }
     }
 }

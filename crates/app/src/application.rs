@@ -17,6 +17,10 @@ use crate::{
     preferences::{PreferenceWorker, ViewPreferences},
     preview::{PreviewProviderRegistry, PreviewWorker},
     properties::PropertiesWorker,
+    selection_mode::{
+        SelectionCompletion, SelectionConfig, SelectionProcessOutput, parse_selection_invocation,
+        process_output, selection_application_id,
+    },
     session_store::{SessionStoreWorker, SessionTracePolicy},
     state::ApplicationState,
     storage::StorageWorker,
@@ -26,6 +30,12 @@ use crate::{
 };
 
 pub(crate) const APPLICATION_ID: &str = "io.github.rodriguezcappsec.Floe";
+
+#[derive(Clone)]
+struct SelectionLaunch {
+    config: SelectionConfig,
+    completion: Rc<RefCell<Option<SelectionCompletion>>>,
+}
 
 const MULTIPLE_OPEN_TARGETS_MESSAGE: &str = "Open one command-line file or folder at a time";
 const NON_LOCAL_OPEN_TARGET_MESSAGE: &str =
@@ -41,6 +51,19 @@ fn local_open_target(files: &[gio::File]) -> Result<std::path::PathBuf, &'static
 pub fn run() -> glib::ExitCode {
     init_logging();
 
+    match parse_selection_invocation(std::env::args_os()) {
+        Ok(Some(config)) => return run_selection(config),
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("Floe Selection Mode: {error}");
+            return glib::ExitCode::FAILURE;
+        }
+    }
+
+    run_normal()
+}
+
+fn run_normal() -> glib::ExitCode {
     let (view_preferences, preference_worker) = match PreferenceWorker::spawn() {
         Ok(preferences) => (preferences.0, Some(preferences.1)),
         Err(error) => {
@@ -79,6 +102,7 @@ pub fn run() -> glib::ExitCode {
             &restored_tabs_for_activate,
             &session_worker_for_activate,
             &browser_for_activate,
+            None,
         );
     });
 
@@ -95,6 +119,7 @@ pub fn run() -> glib::ExitCode {
             &restored_tabs_for_open,
             &session_worker_for_open,
             &browser_for_open,
+            None,
         );
         let Some(controller) = browser_for_open
             .borrow()
@@ -122,6 +147,85 @@ pub fn run() -> glib::ExitCode {
     application.run()
 }
 
+fn run_selection(config: SelectionConfig) -> glib::ExitCode {
+    let view_preferences = match PreferenceWorker::load_read_only() {
+        Ok(preferences) => preferences,
+        Err(error) => {
+            tracing::warn!(%error, "could not read view preferences; using defaults");
+            ViewPreferences::default()
+        }
+    };
+    // Selection Mode may consume ordinary preferences for a familiar view, but
+    // every chooser-local adjustment is transient and must not overwrite them.
+    let preference_worker = Rc::new(RefCell::new(None));
+    let restored_tabs = Rc::new(RefCell::new(None));
+    let session_worker = Rc::new(RefCell::new(None));
+    let browser_controller = Rc::new(RefCell::new(None::<std::rc::Weak<BrowserController>>));
+    let completion = Rc::new(RefCell::new(None));
+    let launch = SelectionLaunch {
+        config,
+        completion: Rc::clone(&completion),
+    };
+    let application_id = selection_application_id(std::process::id());
+    let application = adw::Application::builder()
+        .application_id(&application_id)
+        .build();
+    let preferences_for_activate = view_preferences.clone();
+    let preference_worker_for_activate = Rc::clone(&preference_worker);
+    let restored_tabs_for_activate = Rc::clone(&restored_tabs);
+    let session_worker_for_activate = Rc::clone(&session_worker);
+    let browser_for_activate = Rc::clone(&browser_controller);
+    application.connect_activate(move |application| {
+        build_window(
+            application,
+            preferences_for_activate.clone(),
+            &preference_worker_for_activate,
+            &restored_tabs_for_activate,
+            &session_worker_for_activate,
+            &browser_for_activate,
+            Some(launch.clone()),
+        );
+    });
+    let accept = gio::SimpleAction::new("accept-selection", None);
+    let browser_for_accept = Rc::clone(&browser_controller);
+    accept.connect_activate(move |_, _| {
+        if let Some(controller) = browser_for_accept
+            .borrow()
+            .as_ref()
+            .and_then(std::rc::Weak::upgrade)
+        {
+            controller.accept_selection_mode();
+        }
+    });
+    application.add_action(&accept);
+    let cancel = gio::SimpleAction::new("cancel-selection", None);
+    let application_weak = application.downgrade();
+    let completion_for_cancel = Rc::clone(&completion);
+    cancel.connect_activate(move |_, _| {
+        if completion_for_cancel.borrow().is_none() {
+            *completion_for_cancel.borrow_mut() = Some(SelectionCompletion::Cancelled);
+        }
+        if let Some(application) = application_weak.upgrade() {
+            application.quit();
+        }
+    });
+    application.add_action(&cancel);
+    application.set_accels_for_action("app.cancel-selection", &["<Control>q"]);
+
+    let process_exit = application.run_with_args(&["floe-selection"]);
+    let completion = completion.borrow();
+    match process_output(completion.as_ref(), process_exit == glib::ExitCode::SUCCESS) {
+        SelectionProcessOutput::Accepted(uris) => {
+            for uri in uris {
+                println!("{uri}");
+            }
+            glib::ExitCode::SUCCESS
+        }
+        SelectionProcessOutput::Cancelled => glib::ExitCode::FAILURE,
+        SelectionProcessOutput::Failed => process_exit,
+    }
+}
+
 fn build_window(
     application: &adw::Application,
     view_preferences: ViewPreferences,
@@ -129,6 +233,7 @@ fn build_window(
     restored_tabs: &Rc<RefCell<Option<floe_core::BrowserTabs>>>,
     session_worker: &Rc<RefCell<Option<SessionStoreWorker>>>,
     browser_controller: &Rc<RefCell<Option<std::rc::Weak<BrowserController>>>>,
+    selection_launch: Option<SelectionLaunch>,
 ) {
     if let Some(window) = application.active_window() {
         window.present();
@@ -142,9 +247,14 @@ fn build_window(
 
     let places = locations::standard_locations();
     let restored_tabs = restored_tabs.borrow_mut().take();
-    let initial_path = restored_tabs
+    let initial_path = selection_launch
         .as_ref()
-        .map(|tabs| tabs.active().current().path().to_path_buf())
+        .map(|launch| launch.config.initial_directory_or_else(glib::home_dir))
+        .or_else(|| {
+            restored_tabs
+                .as_ref()
+                .map(|tabs| tabs.active().current().path().to_path_buf())
+        })
         .or_else(|| places.first().map(|place| place.path.clone()))
         .unwrap_or_else(glib::home_dir);
     let widgets = ui::build(application, &places, appearance, view_preferences.clone());
@@ -162,6 +272,10 @@ fn build_window(
                     .timeout(0)
                     .build(),
             );
+            if fail_selection_launch(&selection_launch) {
+                application.quit();
+                return;
+            }
             widgets.window.present();
             return;
         }
@@ -229,7 +343,11 @@ fn build_window(
         }
     };
     let device_monitor = DeviceMonitor::new();
-    let application_state = match ApplicationState::new() {
+    let application_state = match if selection_launch.is_some() {
+        ApplicationState::new_selection_mode()
+    } else {
+        ApplicationState::new()
+    } {
         Ok(state) => Rc::new(state),
         Err(error) => {
             tracing::error!(%error, "could not start copy executor");
@@ -243,6 +361,10 @@ fn build_window(
                     .timeout(0)
                     .build(),
             );
+            if fail_selection_launch(&selection_launch) {
+                application.quit();
+                return;
+            }
             widgets.window.present();
             return;
         }
@@ -272,14 +394,26 @@ fn build_window(
         view_preferences,
         Rc::clone(&application_state),
     );
+    if let Some(launch) = selection_launch {
+        let application = application.downgrade();
+        let completion = Rc::clone(&launch.completion);
+        controller.configure_selection_mode(launch.config, move |result| {
+            *completion.borrow_mut() = Some(result);
+            if let Some(application) = application.upgrade() {
+                application.quit();
+            }
+        });
+    }
     *browser_controller.borrow_mut() = Some(Rc::downgrade(&controller));
     let browser = Rc::downgrade(&controller);
     let browser_for_guardrails = browser.clone();
     let browser_for_shutdown = Rc::downgrade(&controller);
+    let application_state_for_shutdown = Rc::clone(&application_state);
     application.connect_shutdown(move |_| {
         if let Some(browser) = browser_for_shutdown.upgrade() {
             browser.persist_for_shutdown();
         }
+        application_state_for_shutdown.cleanup_selection_transient_state();
     });
     let operation_controller = OperationController::new(
         operation_window,
@@ -347,6 +481,14 @@ fn build_window(
     }
     controller.present_and_start();
     tracing::info!("Floe application started");
+}
+
+fn fail_selection_launch(selection_launch: &Option<SelectionLaunch>) -> bool {
+    let Some(launch) = selection_launch else {
+        return false;
+    };
+    *launch.completion.borrow_mut() = Some(SelectionCompletion::Failed);
+    true
 }
 
 fn init_logging() {

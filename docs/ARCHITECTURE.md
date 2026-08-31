@@ -161,6 +161,35 @@ context.
 
 ## `floe-app`
 
+### Selection Mode
+
+`selection_mode.rs` owns the GTK-independent invocation, mode, validation,
+completion, and exact local URI result policy for Open File(s), Select Folder,
+and Save File. A strict parser activates the mode only for explicit chooser
+flags. Each chooser uses a process-scoped GApplication ID, so concurrent callers
+remain independent of Floe's ordinary unique application and of each other.
+
+The existing `BrowserController` and one authoritative `GtkMultiSelection` own
+navigation and selected `DirectoryEntry` paths. A compact accessible footer
+presents mode title, save-name field, status, Cancel, and accept action. A
+capacity-four application worker revalidates local types and save conflicts off
+GTK; its latest-result slot is bounded and non-blocking. Accept returns at most
+128 exact `PathBuf` values encoded as local file URIs only after validation.
+Cancel returns no path. Save never writes and requires explicit replace review
+for an occupied regular-file destination.
+
+Selection Mode deliberately receives no `SessionStoreWorker` or writable
+`PreferenceWorker`, so chooser tabs, history, locations, and chooser-local view
+adjustments are not written into ordinary browser state. It reads existing view
+preferences without creating or migrating configuration, uses a fresh private
+transient state directory with explicit shutdown cleanup, and blocks mutation,
+external tool, administrator, association/settings editor, cache, and index
+actions by default at the GAction callback boundary. Bookmark writes and
+drag-and-drop operation dispatch are separately denied. Navigation, views,
+search, preview, and selection remain available. XDG portal request objects,
+handles, response codes, document grants, and parent identifiers do not belong
+to this module and remain Phase 22B.
+
 ### Live tab ownership
 
 Phase 7B layers bounded `BrowserTabs` state over the Phase 7A `BrowserSession`

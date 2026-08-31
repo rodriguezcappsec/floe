@@ -39,6 +39,22 @@ Security state must use text and accessible semantics, never color alone. A fail
 
 ## Current security and privacy baseline
 
+- Phase 22A Selection Mode is local-only and emits accepted paths only as exact
+  percent-encoded `file://` URIs on the invoking process standard output. Cancel
+  emits no path. The caller, its parent process, terminal capture, and shell
+  redirection can retain these URIs; Floe does not call that channel private.
+  Initial-directory and suggested-name command-line values may be visible to
+  same-user process inspection and must not carry passwords, keys, or secrets.
+  Chooser windows suppress ordinary browser-session and preference persistence,
+  read existing view preferences without creating or migrating configuration,
+  use bounded worker-side type/conflict revalidation, and never write the
+  selected save destination. Chooser application state lives in a fresh private
+  transient directory removed explicitly on shutdown. Mutation, bookmark,
+  drag-and-drop operation, external tool, administrator, association/settings
+  editor, cache, and index paths are denied at dispatch. This is not a portal,
+  sandbox, permission grant, or document token; the caller retains its existing
+  authority.
+
 - Phase 14 retains one path/content-free desktop-capability snapshot in memory.
   Its capacity-one worker checks only reviewed session-bus service ownership for
   portals, freedesktop notifications, and Secret Service, with a bounded call

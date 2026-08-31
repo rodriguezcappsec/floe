@@ -1315,9 +1315,31 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-30`
 
-Current phase: **Phase 6W — Undo Trash (complete)**
+Current phase: **Phase 22A — Floe Selection Mode (complete)**
 
 Completed this session:
+
+- Added dedicated native Open File, Open Files, Select Folder, and Save File
+  invocations. Each chooser uses a process-scoped GApplication ID, reuses Floe's
+  exact-path browser and authoritative selection, and remains independent of the
+  ordinary unique Floe window and other simultaneous choosers.
+- Added a capacity-four non-blocking validation worker with a bounded latest
+  result, 128-path cap, local file/folder revalidation, exact percent-encoded
+  `file://` URI output, no-output cancellation, and save filename/conflict
+  policy. Save returns a destination but never writes it; existing regular files
+  require explicit Replace confirmation.
+- Added a compact accessible chooser footer with mode-specific title and accept
+  label, status, save-name entry, Cancel, Escape, close, Ctrl+Q, file activation,
+  and application action parity. Choosers receive no session-store or writable
+  preference worker, read view preferences without creating/migrating config,
+  use a fresh private transient state directory with explicit shutdown cleanup,
+  and deny mutation/bookmark/drag-drop/external/admin/settings/cache/index paths,
+  so ordinary session history and persistent operation stores are not touched.
+- Focused contracts cover strict raw/non-UTF-8 arguments, raw URI identity,
+  newline escaping, mode/cardinality presentation, missing-item races, path
+  escape, save whitespace/conflicts, bounded worker shutdown, and lifecycle.
+  Native Wayland Cancel exits 1 with zero output; Select Folder accepts `/tmp`,
+  exits 0, and emits exactly `file:///tmp`. Host AT-SPI remains unavailable.
 
 - Added durable Undo/Redo only for Floe-owned local GIO Trash operations where
   one exact new standards-correct payload/`.trashinfo` pair can be proven.
@@ -1469,11 +1491,12 @@ Important decisions:
   support requires shared application services rather than unsafe independent
   processes racing settings and recovery stores.
 
-Recommended next task: create `phase-selection-mode` and implement only Phase
-22A — Floe Selection Mode: Open File(s), Select Folder, and Save File with clear
-mode-specific validation, cancellation, accessibility, and exact local path
-results. It must work independently of any portal. The optional XDG FileChooser
-portal backend remains the later planned Phase 22B.
+Recommended next task: create `phase-xdg-filechooser-portal` and implement only
+Phase 22B — an optional XDG FileChooser portal backend over verified Selection
+Mode. Isolate request handles, parent-window identifiers, response codes,
+cancellation, URI/document grants, and service availability from chooser UI.
+Floe must remain independently usable without the service and must not imply a
+sandbox permission or document grant it did not obtain.
 
 ## Prior active status (Phase 21C)
 

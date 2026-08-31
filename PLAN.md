@@ -1,3 +1,48 @@
+# Plan: Floe Phase 22A — Selection Mode
+
+## Contract
+
+Implement a native Floe-owned local chooser mode independently of any portal:
+Open File (single), Open Files (multiple), Select Folder (single), and Save File.
+Dedicated chooser invocations use a non-unique application process, reuse the
+existing bounded browser and exact `PathBuf` selection, present a compact
+mode-specific action surface, and emit percent-encoded local file URIs only
+after worker-side revalidation. Cancellation emits no path. Save validates one
+UTF-8 filename component, never silently accepts an occupied destination, and
+requires an explicit replace confirmation. Normal Floe startup, browsing,
+sessions, operations, and GApplication routing remain unchanged. XDG portal
+service names, request handles, grants, and responses are Phase 22B and excluded.
+
+## Depth tree
+
+1. Stable chooser domain and invocation contract
+   - strict mutually-exclusive raw-argument parser and local initial directory;
+   - mode titles, accept labels, cardinality/type/name policy;
+   - exact URI output and deterministic cancel/config-error exit behavior.
+2. Responsive validation and native presentation
+   - fixed-capacity worker revalidates exact local paths off GTK;
+   - compact visible chooser footer, accessible status/name/accept/cancel controls;
+   - single/multiple selection policy, folder-current-location fallback, save
+     conflict confirmation, Enter/Escape behavior.
+3. Application isolation and regressions
+   - dedicated `NON_UNIQUE` chooser application leaves ordinary app unchanged;
+   - exact result handoff quits only chooser process and never persists chooser
+     session/history traces;
+   - parser, raw-path, race, symlink, conflict, cancellation, UI contract tests.
+4. Verification and handoff
+   - focused and full Rust, strict docs/render/release, E2E, native Wayland gates;
+   - mark 22A complete only with evidence and set exactly Phase 22B NEXT.
+
+## Status log
+
+- 2026-08-30: Started on `phase-selection-mode` from verified Phase 6W commit
+  `7f5663b`. Gates are in `gates/phase-selection-mode.md`.
+- 2026-08-30: COMPLETE. All six gates pass, including final isolated native
+  Wayland accept/cancel, no-config/no-state cleanup, normal Floe Ping/Quit, full
+  workspace tests, strict Clippy, docs/render/release, and E2E contracts.
+
+---
+
 # Plan: Floe Phase 6W — Undo Trash
 
 ## Contract

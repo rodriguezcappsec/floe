@@ -870,6 +870,16 @@ pub struct PreferenceWorker {
 }
 
 impl PreferenceWorker {
+    /// Loads the user's familiar presentation without running migrations or
+    /// creating configuration files. Selection Mode uses this read-only path
+    /// so chooser-local adjustments remain process-local.
+    pub fn load_read_only() -> io::Result<ViewPreferences> {
+        let path = gtk::glib::user_config_dir()
+            .join("floe")
+            .join(PREFERENCE_FILE_NAME);
+        load_preferences(&path).map(|loaded| loaded.preferences)
+    }
+
     pub fn spawn() -> io::Result<(ViewPreferences, Self)> {
         let path = gtk::glib::user_config_dir()
             .join("floe")
@@ -1175,6 +1185,28 @@ mod tests {
 
     use super::*;
     use crate::view::ListColumn;
+
+    #[test]
+    fn phase_22a_read_only_preferences_do_not_create_or_migrate_files() {
+        let fixture = tempdir().expect("preference fixture");
+        let missing = fixture.path().join("missing/floe/view-preferences.conf");
+        assert_eq!(
+            load_preferences(&missing)
+                .expect("missing preferences")
+                .preferences,
+            ViewPreferences::default()
+        );
+        assert!(!missing.parent().expect("missing parent").exists());
+
+        let legacy = fixture.path().join("legacy/floe/view-preferences.conf");
+        fs::create_dir_all(legacy.parent().expect("legacy parent")).expect("legacy directory");
+        let bytes = b"version=16\nview=grid\ngrid-size=160\n";
+        fs::write(&legacy, bytes).expect("legacy preferences");
+        let loaded = load_preferences(&legacy).expect("read legacy preferences");
+        assert_eq!(loaded.preferences.mode, ViewMode::Grid);
+        assert_eq!(fs::read(&legacy).expect("legacy remains"), bytes);
+        assert!(!legacy.with_extension("conf.pre-v18-legacy").exists());
+    }
 
     #[test]
     fn phase_6d_preferences_parse_valid_fields_and_reject_invalid_values() {

@@ -71,6 +71,7 @@ mod release_metadata;
 mod replace_executor;
 pub mod restore_executor;
 mod search_index;
+mod selection_mode;
 mod selection_slice;
 mod session_store;
 mod settings_center;
