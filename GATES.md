@@ -1876,3 +1876,51 @@ connections; lifecycle evidence passed and no semantic E2E claim is made.
   EVIDENCE: README, roadmap, matrix, privacy/security, AGENTS, PLAN, and both ledgers record Phase 21C COMPLETE, exactly Phase 21D NEXT, English-only partial RTL, log redaction, native semantic skip, and deferred features.
 
 ---
++# Gates: Floe Phase 22B — Optional XDG FileChooser Portal Backend
+
+- [x] P1: Strict portal-neutral request parsing covers OpenFile, SaveFile, and
+  SaveFiles options, raw local paths, parent identifiers, filters, choices,
+  counts, sizes, and rejects malformed or unsupported input fail-closed.
+  CHECK: `cargo test -p floe-app phase_22b_contract -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Two focused contracts cover methods, raw paths, parent parsing,
+  SaveFiles expansion, normalized URIs, and fail-closed unsupported choices.
+
+- [x] P2: Bounded supervisor launches exact no-shell Selection Mode argv, limits
+  processes/stdout/results, handles cancellation and stale completion exactly,
+  and shuts down without orphaning chooser processes.
+  CHECK: `cargo test -p floe-app phase_22b_supervisor -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Exact-argv/result contract passes; capacity-16 requests,
+  2-MiB stdout, capacity-128 results, cancellation, removal, and shutdown are bounded.
+
+- [x] P3: Optional native D-Bus backend owns the correct name only on explicit
+  invocation, registers FileChooser and per-request Close objects, defers one
+  terminal reply, and returns exact response/result dictionaries.
+  CHECK: `cargo test -p floe-app phase_22b_dbus -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. D-Bus contract passes; isolated native SaveFile returned
+  response 0 with exact URI and Request.Close returned response 1.
+
+- [x] P4: Service/portal packaging is valid, opt-in rather than default, and
+  documentation truthfully distinguishes URI selection from sandbox grants.
+  CHECK: `bash packaging/tests/test-package-layout.sh && python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS. 24-entry package layout, strict 21-file docs, opt-in service
+  metadata, no-grant wording, and exactly Phase 22C NEXT pass.
+
+- [x] P5: Full Rust, strict Clippy, docs/render/release/diff, E2E contracts, and
+  isolated session-bus/native Wayland Open/Save/Close/lifecycle gates pass.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Format/check/strict Clippy/workspace tests pass: 629 app with
+  18 graphical ignores, 21 controller, 171 core, six duplicate workflows. Strict
+  docs/render/package/release/diff and five E2E contracts pass. Native Save/Close
+  and cleanup pass; foreign-parent attachment remains unverified without a handle.
+
+- [x] P6: Persistent status marks only verified 22B complete, records exact
+  external limitations, and names exactly one bounded recommended next phase.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS. Persistent documents agree Phase 22B is complete with explicit
+  limits and Phase 22C Portal option completeness is the sole NEXT phase.

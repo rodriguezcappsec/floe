@@ -152,7 +152,8 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Native Open File(s) selection mode | `COMPLETE` | 22A | Dedicated concurrent Floe chooser process supports one or up to 128 local regular files, off-GTK revalidation, exact percent-encoded file-URI output, and no-output cancellation. |
 | Native Select Folder mode | `COMPLETE` | 22A | Accept exactly one selected local directory or the current directory with clear title/action/status, Escape/close/Ctrl+Q cancellation, and exact URI result. |
 | Native Save File mode | `COMPLETE` | 22A | Accept one validated UTF-8 filename component in the current local directory. Occupied regular files require explicit Replace confirmation; Floe returns the destination and does not write it. |
-| XDG FileChooser portal backend | `NEXT` | 22B | Optional backend after Selection Mode; portal lifecycle, handles, parent identifiers, response codes, URIs, grants, and cancellation remain isolated from chooser widgets. |
+| XDG FileChooser portal backend | `COMPLETE` | 22B | Explicitly enabled local backend supports Open File(s), one Select Folder, Save File, Save Files, per-request Close, responses 0/1/2, current folder/name, modal Wayland parent handles, and exact URI results through bounded no-shell chooser children. Installed descriptors are opt-in. Floe does not create Document Portal grants. Live foreign-parent attachment remains unverified. |
+| FileChooser filters and choices | `NEXT` | 22C | Add filter/current-filter and choice control/result interoperability. Phase 22B returns response 2 for nonempty values, multiple folders, and X11 parents rather than silently ignoring them. |
 
 ## Drag and drop, creation, and productivity operations
 

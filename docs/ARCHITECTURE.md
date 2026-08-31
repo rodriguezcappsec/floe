@@ -190,6 +190,28 @@ search, preview, and selection remain available. XDG portal request objects,
 handles, response codes, document grants, and parent identifiers do not belong
 to this module and remain Phase 22B.
 
+### Optional FileChooser portal backend
+
+`portal_filechooser.rs` owns the explicitly activated
+`org.freedesktop.impl.portal.FileChooser` boundary. It validates request object
+paths, app IDs, titles, option types, NUL-terminated raw local paths, filenames,
+cardinality, parent identifiers, and supported methods before any UI launch. A
+capacity-16 request table exports one `org.freedesktop.impl.portal.Request.Close`
+object per live interaction. Each request launches the current Floe executable
+with an exact argument vector and `gio::Subprocess`; asynchronous communication
+keeps the GLib loop responsive, output is bounded by Selection Mode and checked
+again at 2 MiB, cancellation force-exits only its child, and stale completions
+cannot answer another handle.
+
+Wayland parent handles cross the process boundary through an internal validated
+argument and use GTK's `gdk_wayland_toplevel_set_transient_for_exported` binding.
+The backend returns response 0 with normalized local URIs, 1 for user/Close
+cancellation, and 2 for malformed, unsupported, launch, or validation failure.
+Version one fails closed for nonempty filter/choice sets, multiple directories,
+and X11 parents. Portal descriptors are installed but not selected by default.
+Floe never invokes the Documents portal and therefore never claims it granted
+sandbox access; the broker owns that separate policy step.
+
 ### Live tab ownership
 
 Phase 7B layers bounded `BrowserTabs` state over the Phase 7A `BrowserSession`

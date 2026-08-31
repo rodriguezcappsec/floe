@@ -55,6 +55,15 @@ Security state must use text and accessible semantics, never color alone. A fail
   sandbox, permission grant, or document token; the caller retains its existing
   authority.
 
+- Phase 22B's optional backend owns its freedesktop backend bus name only under
+  the explicit service flag. It bounds live handles to 16, validates exact raw
+  local paths and supported option types, launches no shell, captures no child
+  stderr, caps accepted stdout at 2 MiB, unregisters each request object, and
+  closes only the child associated with the exact handle. Nonempty filters or
+  choices and unsupported parent/multiple-folder modes fail with response 2
+  rather than being silently weakened. Returned `file://` URIs are selections,
+  not Floe-created Document Portal grants or proof of sandbox authority.
+
 - Phase 14 retains one path/content-free desktop-capability snapshot in memory.
   Its capacity-one worker checks only reviewed session-bus service ownership for
   portals, freedesktop notifications, and Secret Service, with a bounded call

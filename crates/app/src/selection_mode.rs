@@ -51,6 +51,7 @@ impl SelectionMode {
         matches!(self, Self::SaveFile)
     }
 
+    #[cfg(test)]
     pub const fn presentation(self) -> SelectionPresentation {
         SelectionPresentation {
             title: self.title(),
@@ -61,6 +62,7 @@ impl SelectionMode {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SelectionPresentation {
     pub title: &'static str,
@@ -74,12 +76,39 @@ pub struct SelectionConfig {
     pub mode: SelectionMode,
     pub initial_directory: Option<PathBuf>,
     pub suggested_name: Option<String>,
+    pub title: Option<String>,
+    pub accept_label: Option<String>,
+    pub parent_window: Option<String>,
+    pub modal: bool,
 }
 
 impl SelectionConfig {
     pub fn initial_directory_or_else(&self, fallback: impl FnOnce() -> PathBuf) -> PathBuf {
         self.initial_directory.clone().unwrap_or_else(fallback)
     }
+
+    pub fn presentation(&self) -> SelectionPresentationOwned {
+        SelectionPresentationOwned {
+            title: self
+                .title
+                .clone()
+                .unwrap_or_else(|| self.mode.title().to_owned()),
+            accept_label: self
+                .accept_label
+                .clone()
+                .unwrap_or_else(|| self.mode.accept_label().to_owned()),
+            filename_visible: self.mode.needs_filename(),
+            multiple: self.mode == SelectionMode::OpenFiles,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SelectionPresentationOwned {
+    pub title: String,
+    pub accept_label: String,
+    pub filename_visible: bool,
+    pub multiple: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Error)]
@@ -94,6 +123,8 @@ pub enum SelectionArgumentError {
     InvalidSuggestedName,
     #[error("the suggested filename must be valid UTF-8")]
     NonUtf8SuggestedName,
+    #[error("{0} must be nonempty, contain no control characters, and be at most 200 characters")]
+    InvalidPresentation(&'static str),
     #[error("unknown Selection Mode option: {0}")]
     UnknownOption(String),
 }
@@ -118,6 +149,10 @@ pub fn parse_selection_invocation(
     let mut multiple = false;
     let mut initial_directory = None;
     let mut suggested_name = None;
+    let mut title = None;
+    let mut accept_label = None;
+    let mut parent_window = None;
+    let mut modal = false;
     let mut index = 0;
     while index < arguments.len() {
         let argument = &arguments[index];
@@ -145,6 +180,34 @@ pub fn parse_selection_invocation(
                         .to_owned(),
                 );
             }
+            Some("--chooser-title") => {
+                index += 1;
+                title = Some(parse_presentation_argument(
+                    arguments
+                        .get(index)
+                        .ok_or(SelectionArgumentError::MissingValue("--chooser-title"))?,
+                    "--chooser-title",
+                )?);
+            }
+            Some("--chooser-accept-label") => {
+                index += 1;
+                accept_label = Some(parse_presentation_argument(
+                    arguments
+                        .get(index)
+                        .ok_or(SelectionArgumentError::MissingValue(
+                            "--chooser-accept-label",
+                        ))?,
+                    "--chooser-accept-label",
+                )?);
+            }
+            Some("--chooser-parent") => {
+                index += 1;
+                parent_window =
+                    Some(parse_parent_argument(arguments.get(index).ok_or(
+                        SelectionArgumentError::MissingValue("--chooser-parent"),
+                    )?)?);
+            }
+            Some("--chooser-modal") => modal = true,
             Some(value) => return Err(SelectionArgumentError::UnknownOption(value.to_owned())),
             None => {
                 return Err(SelectionArgumentError::UnknownOption(
@@ -169,7 +232,48 @@ pub fn parse_selection_invocation(
         mode,
         initial_directory,
         suggested_name,
+        title,
+        accept_label,
+        parent_window,
+        modal,
     }))
+}
+
+fn parse_presentation_argument(
+    value: &OsString,
+    option: &'static str,
+) -> Result<String, SelectionArgumentError> {
+    let value = value
+        .to_str()
+        .ok_or(SelectionArgumentError::InvalidPresentation(option))?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 200 || trimmed.chars().any(char::is_control)
+    {
+        return Err(SelectionArgumentError::InvalidPresentation(option));
+    }
+    Ok(trimmed.replace('_', ""))
+}
+
+fn parse_parent_argument(value: &OsString) -> Result<String, SelectionArgumentError> {
+    let value = value
+        .to_str()
+        .ok_or(SelectionArgumentError::InvalidPresentation(
+            "--chooser-parent",
+        ))?;
+    let Some(handle) = value.strip_prefix("wayland:") else {
+        return Err(SelectionArgumentError::InvalidPresentation(
+            "--chooser-parent",
+        ));
+    };
+    if handle.is_empty()
+        || handle.len() > 512
+        || !handle.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        return Err(SelectionArgumentError::InvalidPresentation(
+            "--chooser-parent",
+        ));
+    }
+    Ok(handle.to_owned())
 }
 
 fn set_mode(
@@ -474,6 +578,10 @@ mod tests {
                 mode: SelectionMode::OpenFiles,
                 initial_directory: None,
                 suggested_name: None,
+                title: None,
+                accept_label: None,
+                parent_window: None,
+                modal: false,
             }))
         );
         assert_eq!(
@@ -489,6 +597,10 @@ mod tests {
                 mode: SelectionMode::SaveFile,
                 initial_directory: Some(PathBuf::from("/tmp")),
                 suggested_name: Some("report.txt".to_owned()),
+                title: None,
+                accept_label: None,
+                parent_window: None,
+                modal: false,
             }))
         );
         assert_eq!(

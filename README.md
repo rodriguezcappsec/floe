@@ -51,9 +51,16 @@ floe --choose-save [--initial-directory /path] [--suggested-name report.txt]
 
 Accepted paths are printed as one exact percent-encoded local `file://` URI per
 line. Cancel emits no path and returns nonzero. Each selector is an independent
-process, so simultaneous callers do not collide. This is Floe Selection Mode,
-not an XDG FileChooser portal backend; portal service integration is a separate
-later phase.
+process, so simultaneous callers do not collide.
+
+Floe also ships an optional XDG FileChooser backend. Installation never selects
+it automatically: administrators or users explicitly choose the `floe` backend
+in `portals.conf`. The first version supports local Open File, single Select
+Folder, Save File, and Save Files requests, multiple file opening, modal Wayland
+parent handles, current folders/names, cancellation, and exact URI results.
+Nonempty portal filters/choices, multiple folders, and X11 parents fail
+explicitly until those extensions are implemented. See
+[Administration](docs/ADMINISTRATION.md) before enabling it.
 
 To build from a checkout:
 

@@ -1075,13 +1075,29 @@ impl BrowserController {
                 return;
             }
         };
-        let presentation = config.mode.presentation();
+        let presentation = config.presentation();
         self.widgets
             .window
             .set_title(Some(&format!("{} — Floe", presentation.title)));
+        self.widgets.window.set_modal(config.modal);
+        if let Some(parent_handle) = config.parent_window.clone() {
+            self.widgets.window.connect_map(move |window| {
+                let Some(surface) = window.surface() else {
+                    return;
+                };
+                match surface.downcast::<gdk4_wayland::WaylandToplevel>() {
+                    Ok(toplevel) => {
+                        if !toplevel.set_transient_for_exported(&parent_handle) {
+                            tracing::warn!("Wayland compositor rejected portal parent handle");
+                        }
+                    }
+                    Err(_) => tracing::warn!("portal parent handle requires a Wayland toplevel"),
+                }
+            });
+        }
 
         let title = gtk::Label::builder()
-            .label(presentation.title)
+            .label(&presentation.title)
             .xalign(0.0)
             .build();
         title.add_css_class("heading");
@@ -1107,7 +1123,7 @@ impl BrowserController {
         status.set_accessible_role(gtk::AccessibleRole::Status);
         let cancel = gtk::Button::with_label("Cancel");
         set_accessible_label(&cancel, "Cancel file selection");
-        let accept = gtk::Button::with_label(presentation.accept_label);
+        let accept = gtk::Button::with_label(&presentation.accept_label);
         accept.add_css_class("suggested-action");
         accept.set_sensitive(false);
         set_accessible_label(

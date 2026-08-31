@@ -1315,9 +1315,26 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-30`
 
-Current phase: **Phase 22A — Floe Selection Mode (complete)**
+Current phase: **Phase 22B — Optional XDG FileChooser portal backend (complete)**
 
 Completed this session:
+
+- Added an explicitly activated `org.freedesktop.impl.portal.FileChooser` backend
+  for Open File(s), one Select Folder, Save File, and Save Files. It owns at most
+  16 requests, launches exact no-shell Selection Mode argument vectors
+  asynchronously, caps stdout at 2 MiB, normalizes local URIs, and returns portal
+  response 0 for success, 1 for cancellation/Close, and 2 for malformed,
+  unsupported, or failed requests.
+- Added per-request `org.freedesktop.impl.portal.Request.Close`, modal Wayland
+  foreign-parent plumbing, exact current-folder/name handling, and opt-in D-Bus
+  service/portal descriptors. Nonempty filters/current-filter/choices, multiple
+  directories, and X11 parents fail closed; Floe does not claim or create Document
+  Portal grants.
+- Focused contracts and full Rust/docs/render/package/release/E2E gates pass.
+  Isolated native Wayland SaveFile returned the exact `/tmp` URI without creating
+  the destination; Request.Close returned response 1; private config/state and
+  transient chooser cleanup passed. The host supplied no reusable exported foreign
+  Wayland parent handle, so live parent attachment remains unverified.
 
 - Added dedicated native Open File, Open Files, Select Folder, and Save File
   invocations. Each chooser uses a process-scoped GApplication ID, reuses Floe's
@@ -1491,12 +1508,10 @@ Important decisions:
   support requires shared application services rather than unsafe independent
   processes racing settings and recovery stores.
 
-Recommended next task: create `phase-xdg-filechooser-portal` and implement only
-Phase 22B — an optional XDG FileChooser portal backend over verified Selection
-Mode. Isolate request handles, parent-window identifiers, response codes,
-cancellation, URI/document grants, and service availability from chooser UI.
-Floe must remain independently usable without the service and must not imply a
-sandbox permission or document grant it did not obtain.
+Recommended next task: create `phase-xdg-filechooser-options` and implement only
+Phase 22C — Portal option completeness. Add bounded FileChooser filters/current
+filter and choice controls/results with native interoperability coverage, while
+preserving exact local identity, request isolation, and broker-owned grant wording.
 
 ## Prior active status (Phase 21C)
 

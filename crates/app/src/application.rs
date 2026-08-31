@@ -51,7 +51,12 @@ fn local_open_target(files: &[gio::File]) -> Result<std::path::PathBuf, &'static
 pub fn run() -> glib::ExitCode {
     init_logging();
 
-    match parse_selection_invocation(std::env::args_os()) {
+    let arguments = std::env::args_os().collect::<Vec<_>>();
+    if crate::portal_filechooser::requested(arguments.clone()) {
+        return crate::portal_filechooser::run();
+    }
+
+    match parse_selection_invocation(arguments) {
         Ok(Some(config)) => return run_selection(config),
         Ok(None) => {}
         Err(error) => {

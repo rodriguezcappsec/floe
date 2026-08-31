@@ -45,6 +45,33 @@ typed boundary keeps elevated authority out ordinary jobs and the rest of the
 application. See
 [Floe Philosophy](./PHILOSOPHY.md) for the user-facing rationale.
 
+## Optional XDG FileChooser backend
+
+The package installs `floe.portal` and the D-Bus activation service
+`org.freedesktop.impl.portal.desktop.floe`, but does not make Floe the default
+chooser. To opt in for one user, add this explicit preference:
+
+```ini
+# ~/.config/xdg-desktop-portal/portals.conf
+[preferred]
+org.freedesktop.impl.portal.FileChooser=floe
+```
+
+Then end applications using the portal and restart the user
+`xdg-desktop-portal` service, or sign out and back in. Desktop-specific portal
+configuration may override the generic file. Remove the line to return to the
+desktop's previous backend.
+
+The backend is local-file only. It supports Open File, one Select Folder, Save
+File, Save Files, multiple-file opening, current folder/name, modal Wayland
+parent handles, request Close/cancellation, and exact normalized `file://`
+results. It returns portal response 2 for nonempty filters/choices, multiple
+folder selection, X11 parent identifiers, malformed options, or capacity
+pressure. It does not issue Document Portal grants: `xdg-desktop-portal` remains
+responsible for any access it subsequently grants to the sandboxed caller.
+Directly running `floe --portal-filechooser-backend` is intended for D-Bus
+activation, diagnostics, and tests, not ordinary file management.
+
 ## External tools and diagnostics
 
 Custom actions and terminals are ordinary user processes. Direct argument

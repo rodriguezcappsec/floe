@@ -46,6 +46,14 @@ desktop-file-validate \
   "$temporary/root/usr/share/applications/io.github.rodriguezcappsec.Floe.desktop"
 appstreamcli validate --no-net \
   "$temporary/root/usr/share/metainfo/io.github.rodriguezcappsec.Floe.metainfo.xml"
+grep -Fxq 'Name=org.freedesktop.impl.portal.desktop.floe' \
+  "$temporary/root/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.floe.service"
+grep -Fxq 'Exec=/usr/bin/floe --portal-filechooser-backend' \
+  "$temporary/root/usr/share/dbus-1/services/org.freedesktop.impl.portal.desktop.floe.service"
+grep -Fxq 'Interfaces=org.freedesktop.impl.portal.FileChooser;' \
+  "$temporary/root/usr/share/xdg-desktop-portal/portals/floe.portal"
+grep -Fxq 'UseIn=floe' \
+  "$temporary/root/usr/share/xdg-desktop-portal/portals/floe.portal"
 test "$(rg -c '^MimeType=' "$temporary/root/usr/share/applications/io.github.rodriguezcappsec.Floe.desktop")" -eq 1
 rg -q '^MimeType=inode/directory;$' \
   "$temporary/root/usr/share/applications/io.github.rodriguezcappsec.Floe.desktop"

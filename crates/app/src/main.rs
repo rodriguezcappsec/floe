@@ -61,6 +61,7 @@ mod operations;
 mod performance;
 mod permanent_delete_executor;
 mod permission_executor;
+mod portal_filechooser;
 mod preferences;
 pub mod preview;
 mod privileged_access;

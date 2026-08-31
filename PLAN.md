@@ -1952,3 +1952,59 @@ as the secondary line; neither label wraps when the sidebar narrows.
   restored as the sole roadmap `NEXT` phase.
 
 ---
++# Plan: Floe Phase 22B — Optional XDG FileChooser Portal Backend
+
+## Contract
+
+Implement an explicitly opt-in `org.freedesktop.impl.portal.FileChooser` backend
+that launches the verified Floe Selection Mode for `OpenFile`, `SaveFile`, and
+`SaveFiles`. The backend owns the conventional freedesktop backend bus name only
+when invoked with its dedicated service flag. It validates every request handle,
+application ID, parent identifier, title, option type, local NUL-terminated byte
+path, filter, choice, filename, count, and size before launching UI. Request
+objects expose `org.freedesktop.impl.portal.Request.Close`; close/cancel is
+idempotent and cannot answer a stale or different request.
+
+The D-Bus method itself remains asynchronous to GTK/GLib: one bounded
+application-owned supervisor launches exact argv without a shell, captures only
+bounded selector stdout, and delivers one terminal response. Success returns
+normalized local `file://` URIs; cancel
+returns response 1 and backend/validation failure returns response 2. Floe does
+not issue Document Portal grants and never describes a returned URI as new
+sandbox authority. The installed portal descriptor is not selected by default;
+users/desktops must opt in through `portals.conf`. Ordinary Floe and direct
+Selection Mode remain independent when the portal service is absent.
+
+## Depth tree
+
+1. Portal-neutral request model and codec
+   - strict method/options/path/filter/choice limits and exact raw path parsing;
+   - parent-window identifier parser and sanitized chooser presentation;
+   - response codes/results, URI normalization, SaveFiles collision policy.
+2. Bounded chooser supervisor
+   - exact executable/argv construction with no shell or lossy path conversion;
+   - fixed request/process capacity, bounded output, close/cancel, stale-result rejection;
+   - deterministic process outcomes and cleanup on shutdown.
+3. Optional D-Bus backend and packaging
+   - own conventional backend name only in explicit service mode;
+   - register FileChooser methods and per-handle Request.Close objects;
+   - defer method replies, preserve one terminal reply, release handles;
+   - install D-Bus service and portal descriptor without default selection.
+4. Verification and handoff
+   - isolated session-bus method/options/Close/concurrency native contracts;
+   - full Rust, strict docs/render/release/package/E2E and native Wayland gates;
+   - mark 22B complete only with evidence and set exactly one bounded NEXT phase.
+
+## Status log
+
+- 2026-08-30: Started on `phase-xdg-filechooser-portal` from verified Phase 22A
+  commit `0df44d9`. Gates are in `gates/phase-xdg-filechooser-portal.md`.
+- 2026-08-30: COMPLETE. Focused request/supervisor/D-Bus contracts, full workspace
+  format/check/strict Clippy/tests, docs/render/package/release/E2E contracts,
+  and isolated session-bus native Wayland SaveFile/Request.Close lifecycle pass.
+  SaveFile returned its exact URI without creating the destination; Close returned
+  response 1; private config/state/transient chooser cleanup passed. A reusable
+  exported foreign Wayland parent handle was unavailable, so live parent attachment
+  remains explicitly unverified. Phase 22C is the sole recommended next phase.
+
+---

@@ -128,8 +128,10 @@ On acceptance Floe writes one exact percent-encoded local `file://` URI per line
 to standard output and exits successfully. Cancel, Escape, window close, or
 `Ctrl+Q` writes no path and exits nonzero. At most 128 files can be returned from
 one Open Files request. Each invocation has an independent window and process;
-normal Floe session restoration is not used. This native mode does not mean Floe
-is registered as an XDG FileChooser portal backend.
+normal Floe session restoration is not used. Direct Selection Mode remains
+useful independently of the optional XDG FileChooser portal backend. Package
+installation does not select that backend; administrators opt in as documented
+in [Administration](./ADMINISTRATION.md).
 
 Selection Mode is deliberately selection-focused. Navigation, views, search,
 preview, and selection remain available, while filesystem mutations, external
