@@ -163,8 +163,10 @@ pub use tabs::{
     WORKSPACE_MAX_SERIALIZED_BYTES, WorkspaceCodecError,
 };
 pub use trash_lifecycle::{
-    RestoreError, RestoreOutcome, RestoreRequest, RestoreRequestError, TrashEnumerateError,
-    TrashRoot, enumerate_trash_with_cancel, execute_restore,
+    LocalTrashReceipt, RestoreError, RestoreOutcome, RestoreRequest, RestoreRequestError,
+    TRASH_RECEIPT_ENTRY_CAPACITY, TRASH_RECEIPT_ROOT_CAPACITY, TrashEnumerateError, TrashRoot,
+    TrashRootSnapshot, discover_local_trash_receipt, enumerate_trash_with_cancel, execute_restore,
+    snapshot_trash_roots,
 };
 pub use user_sort_metadata::{
     USER_SORT_METADATA_ENTRY_CAPACITY, USER_SORT_METADATA_VALUE_CAPACITY, UserSortMetadataError,

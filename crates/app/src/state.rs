@@ -211,6 +211,7 @@ pub enum TrackedOperation {
         action: UndoHistoryAction,
         source: Option<PathBuf>,
         destination: PathBuf,
+        completed_result: Option<PathBuf>,
     },
 }
 
@@ -559,8 +560,10 @@ impl TrackedOperation {
             Self::Trash(_)
             | Self::PermanentDelete(_)
             | Self::Restore(_)
-            | Self::UndoMove { .. }
-            | Self::PersistentHistoryAction { .. } => None,
+            | Self::UndoMove { .. } => None,
+            Self::PersistentHistoryAction {
+                completed_result, ..
+            } => completed_result.clone(),
         }
     }
 }
@@ -910,7 +913,10 @@ impl ApplicationState {
             .clone()
             .map(|history| ReplaceExecutor::spawn(Arc::clone(&jobs), history))
             .transpose()?;
-        let trash_executor = TrashExecutor::spawn(Arc::clone(&jobs))?;
+        let trash_executor = match undo_history.clone() {
+            Some(history) => TrashExecutor::spawn_with_undo(Arc::clone(&jobs), history)?,
+            None => TrashExecutor::spawn(Arc::clone(&jobs))?,
+        };
         let permanent_delete_executor = PermanentDeleteExecutor::spawn(Arc::clone(&jobs))?;
         let permission_executor = PermissionExecutor::spawn(Arc::clone(&jobs))?;
         let checksum_executor = ChecksumExecutor::spawn(Arc::clone(&jobs))?;
@@ -1083,6 +1089,23 @@ impl ApplicationState {
             (UndoHistoryAction::Redo, UndoRecipe::Copy { .. })
             | (UndoHistoryAction::Redo, UndoRecipe::Create(_)) => Ok(None),
             (
+                UndoHistoryAction::Undo,
+                UndoRecipe::Trash {
+                    original, payload, ..
+                },
+            ) => DestructiveScope::new(
+                DestructiveAction::Move,
+                vec![payload.to_path_buf(), original.to_path_buf()],
+                Some(original.to_path_buf()),
+            )
+            .map(Some)
+            .map_err(CopyInteractionError::from),
+            (UndoHistoryAction::Redo, UndoRecipe::Trash { original, .. }) => {
+                DestructiveScope::new(DestructiveAction::Trash, vec![original.to_path_buf()], None)
+                    .map(Some)
+                    .map_err(CopyInteractionError::from)
+            }
+            (
                 UndoHistoryAction::Undo | UndoHistoryAction::Redo,
                 UndoRecipe::Replace {
                     destination,
@@ -1120,13 +1143,37 @@ impl ApplicationState {
             UndoHistoryError::Blocked("Undo/Redo executor is unavailable".to_owned())
         })?;
         let submission = executor.submit(history_id, action)?;
+        let (source, destination, completed_result) = match (action, record.recipe()) {
+            (
+                UndoHistoryAction::Undo,
+                UndoRecipe::Trash {
+                    original, payload, ..
+                },
+            ) => (
+                Some(payload.to_path_buf()),
+                original.to_path_buf(),
+                Some(original.to_path_buf()),
+            ),
+            (
+                UndoHistoryAction::Redo,
+                UndoRecipe::Trash {
+                    original, payload, ..
+                },
+            ) => (Some(original.to_path_buf()), payload.to_path_buf(), None),
+            _ => (
+                record.recipe().source().map(Path::to_path_buf),
+                record.recipe().destination().to_path_buf(),
+                None,
+            ),
+        };
         self.track(
             submission.job_id(),
             TrackedOperation::PersistentHistoryAction {
                 history_id,
                 action,
-                source: record.recipe().source().map(Path::to_path_buf),
-                destination: record.recipe().destination().to_path_buf(),
+                source,
+                destination,
+                completed_result,
             },
         );
         Ok(submission)
@@ -4530,8 +4577,8 @@ mod tests {
             &self,
             _request: &TrashRequest,
             _cancellable: &gtk::gio::Cancellable,
-        ) -> Result<(), TrashError> {
-            Ok(())
+        ) -> Result<Option<floe_core::LocalTrashReceipt>, TrashError> {
+            Ok(None)
         }
     }
 
@@ -4677,13 +4724,13 @@ mod tests {
             &self,
             _request: &TrashRequest,
             _cancellable: &gtk::gio::Cancellable,
-        ) -> Result<(), TrashError> {
+        ) -> Result<Option<floe_core::LocalTrashReceipt>, TrashError> {
             if self.attempts.fetch_add(1, Ordering::SeqCst) == 0 {
                 Err(TrashError::Io {
                     message: "first attempt fails".to_owned(),
                 })
             } else {
-                Ok(())
+                Ok(None)
             }
         }
     }

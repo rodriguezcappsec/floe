@@ -57,7 +57,8 @@ use different development-package names.
 - Tabs, session restore, split panes, breadcrumbs, and local CLI routing.
 - Copy, move, rename, duplicate, links, templates, drag and drop, Trash,
   restore, permanent deletion, identity-checked Replace/Replace All, conflicts,
-  cancellation, and private 30-day Undo/Redo for reversible local work.
+  cancellation, and private 30-day Undo/Redo for reversible local work,
+  including exact-receipt Floe-owned local Trash actions.
 - Exact completed-operation reveal: successful copy, move, rename, create,
   duplicate, and replace results are selected, scrolled into view, and briefly
   emphasized when their destination folder is already visible.

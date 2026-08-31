@@ -1,3 +1,48 @@
+# Gates: Floe Phase 6W — Undo Trash
+
+- [x] W1: A successful Floe-owned local Trash operation records only a complete,
+  exact, no-follow revalidated payload/metadata receipt; unsupported or ambiguous
+  backends remain non-undoable without changing successful Trash semantics.
+  CHECK: `cargo test -p floe-app phase_6w_trash_receipt -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Core and executor receipt tests accept one exact new raw-path payload/metadata pair and leave missing, ambiguous, changed, or incomplete successful Trash work non-undoable.
+
+- [x] W2: The private bounded history codec round-trips raw paths, expires normal
+  records, preserves interrupted/changed records for review, and rejects hostile
+  or incomplete Trash recipes safely across restart.
+  CHECK: `cargo test -p floe-app phase_6w_history -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Version-3 history round-trips non-UTF-8 Trash recipes, Applied/Undone identities, restart states, malformed pairs, and Redo receipt replacement.
+
+- [x] W3: Undo restores without overwrite only after payload/metadata identity
+  checks; Redo revalidates the restored item, creates a fresh receipt, and every
+  conflict/cancellation/partial outcome remains truthful and recoverable.
+  CHECK: `cargo test -p floe-app phase_6w_undo_redo -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Isolated executor test verifies restore, destination conflict, exact no-follow revalidation, and fresh receipt after Redo with truthful conflict/partial mapping.
+
+- [x] W4: Operation History, Recovery Center, refresh/reveal, and action policy
+  expose Trash Undo/Redo accessibly without claiming unsupported administrator,
+  permanent-delete, remote, or malformed/orphan Trash coverage.
+  CHECK: `cargo test -p floe-app phase_6w_ui -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Operation History labels supported Trash records and exposes only state-valid Undo/Redo; completion carries exact restored path into existing refresh/reveal policy.
+
+- [x] W5: Format, workspace check, strict all-target/all-feature Clippy, workspace
+  tests, strict docs/render/release/diff, E2E contracts, and applicable native
+  Wayland gates pass or record exact external limitations.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Format, workspace check, strict all-target/all-feature Clippy, workspace tests, strict docs/render, release dependencies/advisories/matrix, eight E2E contracts, and diff hygiene pass. Current target/debug/floe native Wayland Ping/Quit exits 0; host AT-SPI bus remains unavailable and is not claimed.
+
+- [x] W6: Persistent status marks Phase 6W complete only after verification and
+  names exactly one bounded recommended next phase; no chooser phase is mixed in.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS. Persistent docs record exact-receipt boundary; exactly Phase 22A Selection Mode is NEXT and chooser code absent from this branch.
+
+---
+
 # Gates: Floe Reliability Hardening
 
 - [x] R1: Replace and nested Copy/Move errors produce truthful Cancelled,

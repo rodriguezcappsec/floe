@@ -384,7 +384,8 @@ Recovery to review the reason. **Reset Recovery Store** discards only the
 unreadable journal after an explicit warning; it never deletes recorded files.
 
 Operation History combines the bounded in-session list with a separate private
-durable history for completed local Copy, Move, Rename, and Create work. Durable
+durable history for completed local Copy, Move, Rename, Create, Replace, and
+supported Floe-owned local Trash work. Durable
 records expire 30 days after their last completed Undo or Redo state. Choose
 **Undo** for Applied work or **Redo** for Undone work. Floe executes both on a
 bounded worker, never overwrites an occupied destination, and rechecks the exact
@@ -394,8 +395,14 @@ Copy and Create Undo use ordinary recoverable Trash. A created directory must
 still be empty, so files added later are never removed. Interrupted Undo/Redo
 and uncertain partial outcomes appear in Recovery Center for Reveal and
 record-only resolution; Floe never deletes uncertain output automatically.
-Permanent deletion, Undo Trash, and administrator changes remain outside
-durable Undo. Safe local replacement participates in durable Undo/Redo by
+For a local **Move to Trash**, Undo is available only when Floe can prove the
+one exact new freedesktop Trash payload and matching `.trashinfo` record created
+by that action. Undo restores to the exact original path without overwriting;
+Redo must capture a fresh complete Trash receipt. A successful Trash action
+that is remote, administrator-owned, ambiguous, malformed, unsafe, or too large
+to inspect remains successful but is not advertised as undoable. Permanent
+deletion and administrator changes remain outside durable Undo. Safe local
+replacement participates in durable Undo/Redo by
 atomically swapping the exact current and retained versions; changed or
 occupied paths fail closed or enter Recovery Center review. Administrator
 dialogs explain that GVfs currently does not return enough exact post-operation
@@ -404,6 +411,8 @@ identity evidence to prove a safe fresh-authorized inverse.
 ## Trash and permanent deletion
 
 - Press `Delete` or choose **Move to Trash** for ordinary recoverable removal.
+- Open **Operation History…** to Undo or Redo a supported Floe-owned local
+  Trash action while its exact receipt remains valid.
 - Open Trash from the header menu or Command Palette.
 - Select Trash items and choose **Restore** to return them without overwriting.
 - **Empty Trash…** permanently removes all Trash items after confirmation.

@@ -10,9 +10,10 @@ use std::{
 
 use floe_core::{
     ConflictPolicy, CopyCancellation, CopyError, CopyRequest, CreateCancellation, CreateError,
-    FileIdentity, JobCommand, JobFailure, JobFailureKind, JobId, MoveCancellation, MoveError,
-    MoveRequest, OperationId, ReplaceError, exchange_replace_versions, execute_copy,
-    execute_create, execute_move,
+    FileIdentity, JobCommand, JobFailure, JobFailureKind, JobId, LocalTrashReceipt,
+    MoveCancellation, MoveError, MoveRequest, OperationId, ReplaceError, RestoreError,
+    RestoreRequest, exchange_replace_versions, execute_copy, execute_create, execute_move,
+    execute_restore,
 };
 use gtk::{gio, gio::prelude::*};
 use thiserror::Error;
@@ -297,7 +298,7 @@ fn execute_task(
     };
     let result = execute_action(&prepared, task.action, &task.cancellation, trash);
     let command = match result {
-        Ok(identity) => match history.complete_action(task.history_id, task.action, identity) {
+        Ok(success) => match complete_success(history, task.history_id, task.action, success) {
             Ok(()) => JobCommand::Complete,
             Err(error) => JobCommand::Fail(JobFailure::new(
                 JobFailureKind::Partial,
@@ -313,6 +314,10 @@ fn execute_task(
             let _ = history.cancel_action(task.history_id, task.action);
             JobCommand::Fail(JobFailure::new(JobFailureKind::Io, message))
         }
+        Err(ActionFailure::Conflict(message)) => {
+            let _ = history.cancel_action(task.history_id, task.action);
+            JobCommand::Fail(JobFailure::new(JobFailureKind::Conflict, message))
+        }
         Err(ActionFailure::Uncertain(message)) => {
             let _ = history.mark_action_uncertain(task.history_id);
             JobCommand::Fail(JobFailure::new(JobFailureKind::Partial, message))
@@ -322,10 +327,38 @@ fn execute_task(
     lock(cancellations).remove(&task.job_id);
 }
 
+#[derive(Debug)]
 enum ActionFailure {
     Cancelled(String),
+    Conflict(String),
     Certain(String),
     Uncertain(String),
+}
+
+enum ActionSuccess {
+    Identity(Option<FileIdentity>),
+    TrashUndone(FileIdentity),
+    TrashRedone(LocalTrashReceipt),
+}
+
+fn complete_success(
+    history: &UndoHistoryCoordinator,
+    id: u64,
+    action: UndoHistoryAction,
+    success: ActionSuccess,
+) -> Result<(), crate::undo_history::UndoHistoryError> {
+    match success {
+        ActionSuccess::Identity(identity) => history.complete_action(id, action, identity),
+        ActionSuccess::TrashUndone(identity) => history.complete_trash_undo(id, identity),
+        ActionSuccess::TrashRedone(receipt) => history.complete_trash_redo(
+            id,
+            receipt.original_path(),
+            receipt.payload_path(),
+            receipt.info_path(),
+            receipt.payload_identity(),
+            receipt.info_identity(),
+        ),
+    }
 }
 
 fn execute_action(
@@ -333,10 +366,10 @@ fn execute_action(
     action: UndoHistoryAction,
     cancellation: &UndoCancellation,
     trash: &dyn TrashBackend,
-) -> Result<Option<FileIdentity>, ActionFailure> {
+) -> Result<ActionSuccess, ActionFailure> {
     match action {
         UndoHistoryAction::Undo => execute_undo(record, cancellation, trash),
-        UndoHistoryAction::Redo => execute_redo(record, cancellation),
+        UndoHistoryAction::Redo => execute_redo(record, cancellation, trash),
     }
 }
 
@@ -344,7 +377,7 @@ fn execute_undo(
     record: &UndoHistoryRecord,
     cancellation: &UndoCancellation,
     trash: &dyn TrashBackend,
-) -> Result<Option<FileIdentity>, ActionFailure> {
+) -> Result<ActionSuccess, ActionFailure> {
     let identity = record.current_identity().ok_or_else(|| {
         ActionFailure::Certain("Undo record has no committed identity".to_owned())
     })?;
@@ -361,7 +394,7 @@ fn execute_undo(
             trash
                 .trash(&request, &cancellation.gio)
                 .map_err(map_trash_failure)?;
-            Ok(None)
+            Ok(ActionSuccess::Identity(None))
         }
         UndoRecipe::Move {
             source,
@@ -375,7 +408,7 @@ fn execute_undo(
                 .with_expected_source_identity(identity),
             &cancellation.move_item,
         )
-        .map(|outcome| Some(outcome.destination_identity()))
+        .map(|outcome| ActionSuccess::Identity(Some(outcome.destination_identity())))
         .map_err(map_move_failure),
         UndoRecipe::Replace {
             destination,
@@ -391,8 +424,24 @@ fn execute_undo(
                 ActionFailure::Certain("Replace Undo record has no backup identity".to_owned())
             })?;
             exchange_replace_versions(destination, backup, identity, backup_identity)
-                .map(|outcome| Some(outcome.destination_identity()))
+                .map(|outcome| ActionSuccess::Identity(Some(outcome.destination_identity())))
                 .map_err(map_replace_failure)
+        }
+        UndoRecipe::Trash {
+            original,
+            payload,
+            info,
+        } => {
+            let info_identity = record.alternate_identity().ok_or_else(|| {
+                ActionFailure::Certain("Trash Undo record has no metadata identity".to_owned())
+            })?;
+            let request = RestoreRequest::new(payload, info, original)
+                .map_err(|error| ActionFailure::Certain(error.to_string()))?
+                .with_expected_identities(identity, info_identity);
+            execute_restore(&request, &cancellation.move_item).map_err(map_restore_failure)?;
+            FileIdentity::capture(original)
+                .map(ActionSuccess::TrashUndone)
+                .map_err(|error| ActionFailure::Uncertain(error.to_string()))
         }
     }
 }
@@ -400,7 +449,8 @@ fn execute_undo(
 fn execute_redo(
     record: &UndoHistoryRecord,
     cancellation: &UndoCancellation,
-) -> Result<Option<FileIdentity>, ActionFailure> {
+    trash: &dyn TrashBackend,
+) -> Result<ActionSuccess, ActionFailure> {
     match record.recipe() {
         UndoRecipe::Copy {
             source,
@@ -419,7 +469,7 @@ fn execute_redo(
         .map_err(map_copy_failure)
         .and_then(|_| {
             FileIdentity::capture(destination)
-                .map(Some)
+                .map(|identity| ActionSuccess::Identity(Some(identity)))
                 .map_err(|error| ActionFailure::Uncertain(error.to_string()))
         }),
         UndoRecipe::Move {
@@ -438,11 +488,11 @@ fn execute_redo(
                     .with_expected_source_identity(identity),
                 &cancellation.move_item,
             )
-            .map(|outcome| Some(outcome.destination_identity()))
+            .map(|outcome| ActionSuccess::Identity(Some(outcome.destination_identity())))
             .map_err(map_move_failure)
         }
         UndoRecipe::Create(request) => execute_create(request, &cancellation.create, |_| {})
-            .map(|outcome| Some(outcome.destination_identity()))
+            .map(|outcome| ActionSuccess::Identity(Some(outcome.destination_identity())))
             .map_err(map_create_failure),
         UndoRecipe::Replace {
             destination,
@@ -461,8 +511,28 @@ fn execute_redo(
                 ActionFailure::Certain("Replace Redo record has no backup identity".to_owned())
             })?;
             exchange_replace_versions(destination, backup, destination_identity, backup_identity)
-                .map(|outcome| Some(outcome.destination_identity()))
+                .map(|outcome| ActionSuccess::Identity(Some(outcome.destination_identity())))
                 .map_err(map_replace_failure)
+        }
+        UndoRecipe::Trash { original, .. } => {
+            let identity = record.current_identity().ok_or_else(|| {
+                ActionFailure::Certain("Trash Redo record has no restored identity".to_owned())
+            })?;
+            let request = TrashRequest::new(original.to_path_buf())
+                .map_err(|error| ActionFailure::Certain(error.to_string()))?
+                .with_expected_source_identity(identity, false);
+            validate_expected_source(&request)
+                .map_err(|error| ActionFailure::Certain(error.to_string()))?;
+            match trash
+                .trash(&request, &cancellation.gio)
+                .map_err(map_trash_failure)?
+            {
+                Some(receipt) => Ok(ActionSuccess::TrashRedone(receipt)),
+                None => Err(ActionFailure::Uncertain(
+                    "Trash Redo completed, but no complete local Undo receipt was available"
+                        .to_owned(),
+                )),
+            }
         }
     }
 }
@@ -496,6 +566,18 @@ fn map_replace_failure(error: ReplaceError) -> ActionFailure {
         ActionFailure::Cancelled(error.to_string())
     } else if error.is_partial() {
         ActionFailure::Uncertain(error.to_string())
+    } else {
+        ActionFailure::Certain(error.to_string())
+    }
+}
+
+fn map_restore_failure(error: RestoreError) -> ActionFailure {
+    if error.is_cancelled() {
+        ActionFailure::Cancelled(error.to_string())
+    } else if error.is_partial() {
+        ActionFailure::Uncertain(error.to_string())
+    } else if error.is_conflict() {
+        ActionFailure::Conflict(error.to_string())
     } else {
         ActionFailure::Certain(error.to_string())
     }
@@ -552,7 +634,9 @@ mod tests {
         time::{Duration, Instant},
     };
 
-    use floe_core::{JobState, SymlinkPolicy};
+    use floe_core::{
+        JobState, SymlinkPolicy, TrashRoot, discover_local_trash_receipt, snapshot_trash_roots,
+    };
     use tempfile::tempdir;
 
     use crate::{
@@ -568,21 +652,65 @@ mod tests {
         next: AtomicU64,
     }
 
+    #[derive(Debug)]
+    struct ReceiptTrashBackend {
+        root: TrashRoot,
+        next: AtomicU64,
+    }
+
+    impl ReceiptTrashBackend {
+        fn new(root: TrashRoot) -> Self {
+            Self {
+                root,
+                next: AtomicU64::new(1),
+            }
+        }
+    }
+
+    impl TrashBackend for ReceiptTrashBackend {
+        fn trash(
+            &self,
+            request: &TrashRequest,
+            cancellable: &gio::Cancellable,
+        ) -> Result<Option<LocalTrashReceipt>, TrashError> {
+            if cancellable.is_cancelled() {
+                return Err(TrashError::Cancelled);
+            }
+            let snapshots = snapshot_trash_roots(vec![self.root.clone()]);
+            let id = self.next.fetch_add(1, Ordering::Relaxed);
+            let name = format!("item-{id}");
+            let payload = self.root.files().join(&name);
+            let info = self.root.info().join(format!("{name}.trashinfo"));
+            fs::rename(request.source(), &payload).map_err(|error| TrashError::Io {
+                message: error.to_string(),
+            })?;
+            fs::write(
+                &info,
+                format!("[Trash Info]\nPath={}\n", request.source().display()),
+            )
+            .map_err(|error| TrashError::Io {
+                message: error.to_string(),
+            })?;
+            Ok(discover_local_trash_receipt(&snapshots, request.source()))
+        }
+    }
+
     impl TrashBackend for RenameTrashBackend {
         fn trash(
             &self,
             request: &TrashRequest,
             cancellable: &gio::Cancellable,
-        ) -> Result<(), TrashError> {
+        ) -> Result<Option<LocalTrashReceipt>, TrashError> {
             if cancellable.is_cancelled() {
                 return Err(TrashError::Cancelled);
             }
             let id = self.next.fetch_add(1, Ordering::Relaxed);
-            fs::rename(request.source(), self.root.join(format!("trashed-{id}"))).map_err(|error| {
-                TrashError::Io {
+            fs::rename(request.source(), self.root.join(format!("trashed-{id}"))).map_err(
+                |error| TrashError::Io {
                     message: error.to_string(),
-                }
-            })
+                },
+            )?;
+            Ok(None)
         }
     }
 
@@ -753,5 +881,86 @@ mod tests {
         assert_eq!(wait_for_terminal(&jobs, undo.job_id()), JobState::Failed);
         assert!(destination.join("later-data").exists());
         assert_eq!(store.history()[0].state(), UndoHistoryState::Applied);
+    }
+
+    #[test]
+    fn phase_6w_undo_redo_restores_no_overwrite_and_refreshes_receipt() {
+        let fixture = tempdir().expect("fixture");
+        let root = TrashRoot::new(fixture.path().join("Trash"), None);
+        fs::create_dir_all(root.files()).expect("files");
+        fs::create_dir_all(root.info()).expect("info");
+        let original = fixture.path().join("original/item");
+        fs::create_dir_all(original.parent().expect("parent")).expect("original parent");
+        let payload = root.files().join("initial");
+        let info = root.info().join("initial.trashinfo");
+        fs::write(&payload, b"payload").expect("payload");
+        fs::write(
+            &info,
+            format!("[Trash Info]\nPath={}\n", original.display()),
+        )
+        .expect("metadata");
+
+        let store = UndoHistoryStore::open_at(fixture.path().join("state/undo.bin"))
+            .expect("history store");
+        let ticket = store
+            .begin(UndoRecipe::trash(&original, &payload, &info))
+            .expect("begin");
+        store
+            .complete_trash(
+                ticket,
+                FileIdentity::capture(&payload).expect("payload identity"),
+                FileIdentity::capture(&info).expect("info identity"),
+            )
+            .expect("complete");
+        let history = UndoHistoryCoordinator::from_store(store.clone());
+        let backend = ReceiptTrashBackend::new(root.clone());
+        let cancellation = UndoCancellation::new();
+
+        let prepared = history
+            .prepare_action(ticket.id(), UndoHistoryAction::Undo)
+            .expect("prepare undo");
+        let success = execute_action(&prepared, UndoHistoryAction::Undo, &cancellation, &backend)
+            .expect("undo");
+        complete_success(&history, ticket.id(), UndoHistoryAction::Undo, success)
+            .expect("commit undo");
+        assert_eq!(fs::read(&original).expect("restored"), b"payload");
+        assert!(!payload.exists());
+        assert!(!info.exists());
+        assert!(store.history()[0].can_redo());
+
+        let prepared = history
+            .prepare_action(ticket.id(), UndoHistoryAction::Redo)
+            .expect("prepare redo");
+        let success = execute_action(&prepared, UndoHistoryAction::Redo, &cancellation, &backend)
+            .expect("redo");
+        complete_success(&history, ticket.id(), UndoHistoryAction::Redo, success)
+            .expect("commit redo");
+        assert!(!original.exists());
+        let redone = store.history().pop().expect("redone record");
+        let (_, redone_payload, redone_info) = redone.recipe().trash_paths().expect("paths");
+        assert_eq!(
+            fs::read(redone_payload).expect("redone payload"),
+            b"payload"
+        );
+        assert!(redone_info.exists());
+        assert!(redone.can_undo());
+
+        fs::write(&original, b"unrelated occupant").expect("conflict occupant");
+        let prepared = history
+            .prepare_action(ticket.id(), UndoHistoryAction::Undo)
+            .expect("prepare conflict undo");
+        assert!(matches!(
+            execute_action(&prepared, UndoHistoryAction::Undo, &cancellation, &backend),
+            Err(ActionFailure::Conflict(_))
+        ));
+        history
+            .cancel_action(ticket.id(), UndoHistoryAction::Undo)
+            .expect("restore action state");
+        assert_eq!(
+            fs::read(&original).expect("occupant retained"),
+            b"unrelated occupant"
+        );
+        assert!(redone_payload.exists());
+        assert!(redone_info.exists());
     }
 }

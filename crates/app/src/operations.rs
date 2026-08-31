@@ -2332,12 +2332,16 @@ mod tests {
     };
 
     use floe_core::{
-        ConflictPolicy, JobFailure, JobState, MoveRequest, PermanentDeleteRequest, RenameRequest,
+        ConflictPolicy, FileIdentity, JobFailure, JobState, MoveRequest, PermanentDeleteRequest,
+        RenameRequest,
     };
     use tempfile::tempdir;
 
     use super::*;
-    use crate::trash_executor::TrashRequest;
+    use crate::{
+        trash_executor::TrashRequest,
+        undo_history::{UndoHistoryStore, UndoRecipe},
+    };
 
     fn wait_for_terminal(state: &ApplicationState, job_id: JobId) -> JobState {
         let deadline = Instant::now() + Duration::from_secs(3);
@@ -2364,6 +2368,36 @@ mod tests {
         assert!(!outcome_is_retryable(TerminalOutcome::Conflict));
         assert!(!outcome_is_retryable(TerminalOutcome::PartialFailure));
         assert!(outcome_is_retryable(TerminalOutcome::Failed));
+    }
+
+    #[test]
+    fn phase_6w_ui_labels_trash_history_and_exposes_only_valid_action() {
+        let fixture = tempdir().expect("fixture");
+        let original = fixture.path().join("Documents/report.txt");
+        let payload = fixture.path().join("Trash/files/report.txt");
+        let info = fixture.path().join("Trash/info/report.txt.trashinfo");
+        fs::create_dir_all(payload.parent().expect("payload parent")).expect("files");
+        fs::create_dir_all(info.parent().expect("info parent")).expect("info");
+        fs::write(&payload, b"report").expect("payload");
+        fs::write(&info, b"[Trash Info]\n").expect("metadata");
+        let store =
+            UndoHistoryStore::open_at(fixture.path().join("state/undo.bin")).expect("history");
+        let ticket = store
+            .begin(UndoRecipe::trash(&original, &payload, &info))
+            .expect("begin");
+        store
+            .complete_trash(
+                ticket,
+                FileIdentity::capture(&payload).expect("payload identity"),
+                FileIdentity::capture(&info).expect("info identity"),
+            )
+            .expect("complete");
+        let record = store.history().pop().expect("record");
+        let item = persistent_history_item(&record);
+        assert_eq!(item.title, "Trash report.txt");
+        assert!(item.detail.contains("Undo available"));
+        assert!(item.can_undo);
+        assert!(!item.can_redo);
     }
 
     #[test]
@@ -2423,6 +2457,7 @@ mod tests {
             action: UndoHistoryAction::Undo,
             source: Some(PathBuf::from("/source/video.mkv")),
             destination: PathBuf::from("/destination/video.mkv"),
+            completed_result: None,
         };
         let deleted = TrackedOperation::PermanentDelete(
             PermanentDeleteRequest::new(vec![PathBuf::from("/virtual/video.mkv")])

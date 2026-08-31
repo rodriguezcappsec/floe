@@ -9,12 +9,18 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use floe_core::{FileIdentity, JobCommand, JobFailure, JobFailureKind, JobId, OperationId};
+use floe_core::{
+    FileIdentity, JobCommand, JobFailure, JobFailureKind, JobId, LocalTrashReceipt, OperationId,
+    TrashRoot, discover_local_trash_receipt, snapshot_trash_roots,
+};
 use gio::prelude::*;
 use gtk::{gio, glib};
 use thiserror::Error;
 
-use crate::job_manager::{JobManagerError, SharedJobManager};
+use crate::{
+    job_manager::{JobManagerError, SharedJobManager},
+    undo_history::UndoHistoryCoordinator,
+};
 
 pub const DEFAULT_TRASH_QUEUE_CAPACITY: usize = 8;
 
@@ -130,7 +136,7 @@ pub(crate) trait TrashBackend: Send + Sync + 'static {
         &self,
         request: &TrashRequest,
         cancellable: &gio::Cancellable,
-    ) -> Result<(), TrashError>;
+    ) -> Result<Option<LocalTrashReceipt>, TrashError>;
 }
 
 #[derive(Debug, Default)]
@@ -141,15 +147,29 @@ impl TrashBackend for GioTrashBackend {
         &self,
         request: &TrashRequest,
         cancellable: &gio::Cancellable,
-    ) -> Result<(), TrashError> {
+    ) -> Result<Option<LocalTrashReceipt>, TrashError> {
         if cancellable.is_cancelled() {
             return Err(TrashError::Cancelled);
         }
 
-        gio::File::for_path(request.source())
-            .trash(Some(cancellable))
-            .map_err(map_gio_error)
+        let source = gio::File::for_path(request.source());
+        let snapshots = snapshot_trash_roots(local_trash_roots(&source, cancellable));
+        source.trash(Some(cancellable)).map_err(map_gio_error)?;
+        Ok(discover_local_trash_receipt(&snapshots, request.source()))
     }
+}
+
+fn local_trash_roots(source: &gio::File, cancellable: &gio::Cancellable) -> Vec<TrashRoot> {
+    let mut roots = vec![TrashRoot::for_data_home(glib::user_data_dir())];
+    if let Ok(mount) = source.find_enclosing_mount(Some(cancellable))
+        && let Some(top) = mount.root().path()
+    {
+        roots.extend(TrashRoot::for_mount_top(
+            &top,
+            rustix::process::getuid().as_raw(),
+        ));
+    }
+    roots
 }
 
 pub(crate) fn validate_expected_source(request: &TrashRequest) -> Result<(), TrashError> {
@@ -221,6 +241,20 @@ impl TrashExecutor {
             DEFAULT_TRASH_QUEUE_CAPACITY,
             Arc::new(GioTrashBackend),
             None,
+            None,
+        )
+    }
+
+    pub fn spawn_with_undo(
+        jobs: SharedJobManager,
+        undo_history: UndoHistoryCoordinator,
+    ) -> Result<Self, TrashExecutorSpawnError> {
+        Self::spawn_with_backend_and_gate(
+            jobs,
+            DEFAULT_TRASH_QUEUE_CAPACITY,
+            Arc::new(GioTrashBackend),
+            Some(undo_history),
+            None,
         )
     }
 
@@ -228,6 +262,7 @@ impl TrashExecutor {
         jobs: SharedJobManager,
         capacity: usize,
         backend: Arc<dyn TrashBackend>,
+        undo_history: Option<UndoHistoryCoordinator>,
         start_gate: Option<Receiver<()>>,
     ) -> Result<Self, TrashExecutorSpawnError> {
         if capacity == 0 {
@@ -244,7 +279,13 @@ impl TrashExecutor {
                 if let Some(gate) = start_gate {
                     let _ = gate.recv();
                 }
-                run_worker(receiver, worker_jobs, worker_cancellations, backend);
+                run_worker(
+                    receiver,
+                    worker_jobs,
+                    worker_cancellations,
+                    backend,
+                    undo_history,
+                );
             })
             .map_err(TrashExecutorSpawnError::Thread)?;
 
@@ -341,7 +382,7 @@ impl TrashExecutor {
         capacity: usize,
         backend: Arc<dyn TrashBackend>,
     ) -> Result<Self, TrashExecutorSpawnError> {
-        Self::spawn_with_backend_and_gate(jobs, capacity, backend, None)
+        Self::spawn_with_backend_and_gate(jobs, capacity, backend, None, None)
     }
 
     #[cfg(test)]
@@ -351,7 +392,7 @@ impl TrashExecutor {
         backend: Arc<dyn TrashBackend>,
         start_gate: Receiver<()>,
     ) -> Result<Self, TrashExecutorSpawnError> {
-        Self::spawn_with_backend_and_gate(jobs, capacity, backend, Some(start_gate))
+        Self::spawn_with_backend_and_gate(jobs, capacity, backend, None, Some(start_gate))
     }
 
     fn stop(&mut self) {
@@ -382,11 +423,18 @@ fn run_worker(
     jobs: SharedJobManager,
     cancellations: Arc<Mutex<HashMap<JobId, gio::Cancellable>>>,
     backend: Arc<dyn TrashBackend>,
+    undo_history: Option<UndoHistoryCoordinator>,
 ) {
     while let Ok(command) = receiver.recv() {
         match command {
             TrashCommand::Execute(task) => {
-                execute_task(task, &jobs, &cancellations, backend.as_ref());
+                execute_task(
+                    task,
+                    &jobs,
+                    &cancellations,
+                    backend.as_ref(),
+                    undo_history.as_ref(),
+                );
             }
             TrashCommand::Shutdown => break,
         }
@@ -398,6 +446,7 @@ fn execute_task(
     jobs: &SharedJobManager,
     cancellations: &Arc<Mutex<HashMap<JobId, gio::Cancellable>>>,
     backend: &dyn TrashBackend,
+    undo_history: Option<&UndoHistoryCoordinator>,
 ) {
     if transition(jobs, task.job_id, JobCommand::Start).is_err() {
         lock(cancellations).remove(&task.job_id);
@@ -407,7 +456,20 @@ fn execute_task(
     let result = validate_expected_source(&task.request)
         .and_then(|()| backend.trash(&task.request, &task.cancellable));
     let command = match result {
-        Ok(()) => JobCommand::Complete,
+        Ok(receipt) => {
+            if let (Some(history), Some(receipt)) = (undo_history, receipt)
+                && let Err(error) = history.record_trash(
+                    receipt.original_path(),
+                    receipt.payload_path(),
+                    receipt.info_path(),
+                    receipt.payload_identity(),
+                    receipt.info_identity(),
+                )
+            {
+                tracing::warn!(%error, "Trash completed without durable Undo receipt");
+            }
+            JobCommand::Complete
+        }
         Err(TrashError::Cancelled) => JobCommand::Cancel,
         Err(error) => JobCommand::Fail(trash_failure(&error)),
     };
@@ -475,7 +537,7 @@ mod tests {
     use std::{
         ffi::OsString,
         os::unix::ffi::{OsStrExt, OsStringExt},
-        sync::atomic::{AtomicUsize, Ordering},
+        sync::atomic::{AtomicU64, AtomicUsize, Ordering},
         time::{Duration, Instant},
     };
 
@@ -483,7 +545,10 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
-    use crate::job_manager::ApplicationJobManager;
+    use crate::{
+        job_manager::ApplicationJobManager,
+        undo_history::{UndoHistoryCoordinator, UndoHistoryStore, UndoRecipe},
+    };
 
     #[derive(Clone, Debug)]
     enum TestBehavior {
@@ -514,11 +579,11 @@ mod tests {
             &self,
             request: &TrashRequest,
             cancellable: &gio::Cancellable,
-        ) -> Result<(), TrashError> {
+        ) -> Result<Option<LocalTrashReceipt>, TrashError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             lock(&self.paths).push(request.source().to_path_buf());
             match &self.behavior {
-                TestBehavior::Success => Ok(()),
+                TestBehavior::Success => Ok(None),
                 TestBehavior::WaitForCancellation => {
                     let deadline = Instant::now() + Duration::from_secs(3);
                     while !cancellable.is_cancelled() {
@@ -532,6 +597,46 @@ mod tests {
                 }
                 TestBehavior::Fail(error) => Err(error.clone()),
             }
+        }
+    }
+
+    #[derive(Debug)]
+    struct ReceiptBackend {
+        root: TrashRoot,
+        next: AtomicU64,
+    }
+
+    impl ReceiptBackend {
+        fn new(root: TrashRoot) -> Self {
+            Self {
+                root,
+                next: AtomicU64::new(1),
+            }
+        }
+    }
+
+    impl TrashBackend for ReceiptBackend {
+        fn trash(
+            &self,
+            request: &TrashRequest,
+            _cancellable: &gio::Cancellable,
+        ) -> Result<Option<LocalTrashReceipt>, TrashError> {
+            let snapshots = snapshot_trash_roots(vec![self.root.clone()]);
+            let id = self.next.fetch_add(1, Ordering::Relaxed);
+            let name = format!("item-{id}");
+            let payload = self.root.files().join(&name);
+            let info = self.root.info().join(format!("{name}.trashinfo"));
+            fs::rename(request.source(), &payload).map_err(|error| TrashError::Io {
+                message: error.to_string(),
+            })?;
+            fs::write(
+                &info,
+                format!("[Trash Info]\nPath={}\n", request.source().display()),
+            )
+            .map_err(|error| TrashError::Io {
+                message: error.to_string(),
+            })?;
+            Ok(discover_local_trash_receipt(&snapshots, request.source()))
         }
     }
 
@@ -771,5 +876,61 @@ mod tests {
             wait_for_terminal(&jobs, submission.job_id()),
             JobState::Failed
         );
+    }
+
+    #[test]
+    fn phase_6w_trash_receipt_records_only_complete_executor_outcomes() {
+        let fixture = tempdir().expect("fixture");
+        let root = TrashRoot::new(fixture.path().join("Trash"), None);
+        fs::create_dir_all(root.files()).expect("files");
+        fs::create_dir_all(root.info()).expect("info");
+        let source = fixture.path().join("source/item");
+        fs::create_dir_all(source.parent().expect("parent")).expect("source parent");
+        fs::write(&source, b"payload").expect("source");
+        let store =
+            UndoHistoryStore::open_at(fixture.path().join("state/undo.bin")).expect("history");
+        let history = UndoHistoryCoordinator::from_store(store.clone());
+        let tracked_jobs = jobs();
+        let executor = TrashExecutor::spawn_with_backend_and_gate(
+            tracked_jobs.clone(),
+            1,
+            Arc::new(ReceiptBackend::new(root)),
+            Some(history),
+            None,
+        )
+        .expect("executor");
+        let submission = executor
+            .submit_trash(TrashRequest::new(source.clone()).expect("request"))
+            .expect("submission");
+        assert_eq!(
+            wait_for_terminal(&tracked_jobs, submission.job_id()),
+            JobState::Completed
+        );
+        let record = store.history().pop().expect("durable Trash record");
+        assert!(matches!(record.recipe(), UndoRecipe::Trash { .. }));
+        assert_eq!(record.recipe().destination(), source);
+        let (_, payload, info) = record.recipe().trash_paths().expect("receipt paths");
+        assert_eq!(fs::read(payload).expect("payload"), b"payload");
+        assert!(info.exists());
+
+        let unsupported_source = fixture.path().join("source/untracked");
+        fs::write(&unsupported_source, b"untracked").expect("untracked source");
+        let unsupported_jobs = jobs();
+        let unsupported = TrashExecutor::spawn_with_backend_and_gate(
+            unsupported_jobs.clone(),
+            1,
+            Arc::new(TestBackend::new(TestBehavior::Success)),
+            Some(UndoHistoryCoordinator::from_store(store.clone())),
+            None,
+        )
+        .expect("unsupported executor");
+        let submission = unsupported
+            .submit_trash(TrashRequest::new(unsupported_source).expect("request"))
+            .expect("submission");
+        assert_eq!(
+            wait_for_terminal(&unsupported_jobs, submission.job_id()),
+            JobState::Completed
+        );
+        assert_eq!(store.history().len(), 1, "no receipt means no Undo claim");
     }
 }

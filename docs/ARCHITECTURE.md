@@ -705,6 +705,16 @@ committed move becomes an explicit non-retryable partial failure. GTK submits
 Trash permanent deletion and Empty Trash reuse Phase 6M for both payload and
 companion metadata.
 
+Phase 6W extends the application-owned Trash executor with a bounded local
+receipt boundary. Before GIO Trash, it snapshots exact `.trashinfo` names in at
+most eight reviewed local roots and refuses roots over 4,096 entries. After a
+successful operation it accepts exactly one new parseable metadata record whose
+raw original path matches the request and captures no-follow identities for the
+payload and metadata. No or ambiguous receipt leaves the successful operation
+non-undoable. Durable Trash Undo uses the existing restore worker with both
+identities; Redo revalidates the restored original and requires a fresh receipt.
+GTK only observes resulting history and job state.
+
 ### `worker.rs`
 
 `BrowserWorker` owns one named `std::thread` and two `std::mpsc` channels. An
@@ -929,6 +939,11 @@ Trash action has no confirmation dialog. Phase 6M later adds Shift+Delete and
 permanent deletion; Phase 6N adds Trash browsing, restore, and Empty Trash.
 Phase 6P offers Undo only for completed move/rename records whose captured
 destination identity still matches; irreversible and incomplete work remains non-undoable.
+
+Phase 6W later adds a narrow durable Trash recipe only when a Floe-owned local
+GIO action produces one exact identity-bound receipt. Permanent deletion,
+administrator Trash, unsupported backends, and incomplete work remain
+non-undoable.
 
 Phase 5A generalizes retry dispatch and bounds application terminal history.
 Phase 5B adds the Operations Island Retry control for failed and cancelled

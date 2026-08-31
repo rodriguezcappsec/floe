@@ -19,7 +19,7 @@ use rustix::fs::OFlags;
 use thiserror::Error;
 
 const MAGIC: &[u8; 8] = b"FLOEUH01";
-const VERSION: u16 = 2;
+const VERSION: u16 = 3;
 pub const MAX_UNDO_HISTORY_RECORDS: usize = 256;
 const MAX_PATH_BYTES: usize = 16 * 1024;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
@@ -91,6 +91,11 @@ pub enum UndoRecipe {
         mode: ReplaceMode,
         symlink_policy: SymlinkPolicy,
     },
+    Trash {
+        original: PathBuf,
+        payload: PathBuf,
+        info: PathBuf,
+    },
 }
 
 impl UndoRecipe {
@@ -140,6 +145,18 @@ impl UndoRecipe {
         }
     }
 
+    pub fn trash(
+        original: impl Into<PathBuf>,
+        payload: impl Into<PathBuf>,
+        info: impl Into<PathBuf>,
+    ) -> Self {
+        Self::Trash {
+            original: original.into(),
+            payload: payload.into(),
+            info: info.into(),
+        }
+    }
+
     pub fn source(&self) -> Option<&Path> {
         match self {
             Self::Copy { source, .. } | Self::Move { source, .. } | Self::Rename { source, .. } => {
@@ -147,6 +164,7 @@ impl UndoRecipe {
             }
             Self::Create(request) => request.source(),
             Self::Replace { source, .. } => Some(source),
+            Self::Trash { original, .. } => Some(original),
         }
     }
 
@@ -157,6 +175,7 @@ impl UndoRecipe {
             | Self::Rename { destination, .. } => destination,
             Self::Create(request) => request.destination(),
             Self::Replace { destination, .. } => destination,
+            Self::Trash { original, .. } => original,
         }
     }
 
@@ -167,6 +186,7 @@ impl UndoRecipe {
             Self::Rename { .. } => "Rename",
             Self::Create(_) => "Create",
             Self::Replace { .. } => "Replace",
+            Self::Trash { .. } => "Trash",
         }
     }
 
@@ -180,6 +200,17 @@ impl UndoRecipe {
     pub fn replace_backup(&self) -> Option<&Path> {
         match self {
             Self::Replace { backup, .. } => Some(backup),
+            _ => None,
+        }
+    }
+
+    pub fn trash_paths(&self) -> Option<(&Path, &Path, &Path)> {
+        match self {
+            Self::Trash {
+                original,
+                payload,
+                info,
+            } => Some((original, payload, info)),
             _ => None,
         }
     }
@@ -353,6 +384,69 @@ impl UndoHistoryStore {
             record.updated_at = now;
             record.current_identity = Some(destination_identity);
             record.alternate_identity = Some(backup_identity);
+            Ok(())
+        })
+    }
+
+    pub fn complete_trash(
+        &self,
+        ticket: UndoHistoryTicket,
+        payload_identity: FileIdentity,
+        info_identity: FileIdentity,
+    ) -> Result<(), UndoHistoryError> {
+        self.update_record(ticket.0, |record, now| {
+            if record.state != UndoHistoryState::InProgress
+                || !matches!(record.recipe, UndoRecipe::Trash { .. })
+            {
+                return Err(UndoHistoryError::InvalidTransition(record.id));
+            }
+            record.state = UndoHistoryState::Applied;
+            record.updated_at = now;
+            record.current_identity = Some(payload_identity);
+            record.alternate_identity = Some(info_identity);
+            Ok(())
+        })
+    }
+
+    pub fn complete_trash_undo(
+        &self,
+        id: u64,
+        restored_identity: FileIdentity,
+    ) -> Result<(), UndoHistoryError> {
+        self.update_record(id, |record, now| {
+            if record.state != UndoHistoryState::Undoing
+                || !matches!(record.recipe, UndoRecipe::Trash { .. })
+            {
+                return Err(UndoHistoryError::InvalidTransition(id));
+            }
+            record.state = UndoHistoryState::Undone;
+            record.updated_at = now;
+            record.current_identity = Some(restored_identity);
+            record.alternate_identity = None;
+            Ok(())
+        })
+    }
+
+    pub fn complete_trash_redo(
+        &self,
+        id: u64,
+        original: &Path,
+        payload: &Path,
+        info: &Path,
+        payload_identity: FileIdentity,
+        info_identity: FileIdentity,
+    ) -> Result<(), UndoHistoryError> {
+        self.update_record(id, |record, now| {
+            if record.state != UndoHistoryState::Redoing
+                || !matches!(record.recipe, UndoRecipe::Trash { .. })
+            {
+                return Err(UndoHistoryError::InvalidTransition(id));
+            }
+            record.recipe = UndoRecipe::trash(original, payload, info);
+            record.state = UndoHistoryState::Applied;
+            record.updated_at = now;
+            record.current_identity = Some(payload_identity);
+            record.alternate_identity = Some(info_identity);
             Ok(())
         })
     }
@@ -632,6 +726,47 @@ impl UndoHistoryCoordinator {
             .complete_replace(ticket, destination_identity, backup_identity)
     }
 
+    pub fn record_trash(
+        &self,
+        original: &Path,
+        payload: &Path,
+        info: &Path,
+        payload_identity: FileIdentity,
+        info_identity: FileIdentity,
+    ) -> Result<(), UndoHistoryError> {
+        let store = self.ready_store()?;
+        let ticket = store.begin(UndoRecipe::trash(original, payload, info))?;
+        store.complete_trash(ticket, payload_identity, info_identity)
+    }
+
+    pub fn complete_trash_undo(
+        &self,
+        id: u64,
+        restored_identity: FileIdentity,
+    ) -> Result<(), UndoHistoryError> {
+        self.ready_store()?
+            .complete_trash_undo(id, restored_identity)
+    }
+
+    pub fn complete_trash_redo(
+        &self,
+        id: u64,
+        original: &Path,
+        payload: &Path,
+        info: &Path,
+        payload_identity: FileIdentity,
+        info_identity: FileIdentity,
+    ) -> Result<(), UndoHistoryError> {
+        self.ready_store()?.complete_trash_redo(
+            id,
+            original,
+            payload,
+            info,
+            payload_identity,
+            info_identity,
+        )
+    }
+
     pub fn retain_if_destination_exists(
         &self,
         ticket: UndoHistoryTicket,
@@ -765,6 +900,31 @@ fn validate_recipe(recipe: &UndoRecipe) -> Result<(), UndoHistoryError> {
                 .parent()
                 .and_then(Path::file_name)
                 .is_none_or(|name| name != REPLACE_BACKUP_DIRECTORY)
+        {
+            return Err(UndoHistoryError::InvalidPath);
+        }
+    }
+    if let Some((original, payload, info)) = recipe.trash_paths() {
+        for path in [original, payload, info] {
+            if !path.is_absolute()
+                || path.file_name().is_none()
+                || path.as_os_str().as_bytes().len() > MAX_PATH_BYTES
+            {
+                return Err(UndoHistoryError::InvalidPath);
+            }
+        }
+        if payload.parent().and_then(Path::file_name) != Some(std::ffi::OsStr::new("files"))
+            || info.parent().and_then(Path::file_name) != Some(std::ffi::OsStr::new("info"))
+        {
+            return Err(UndoHistoryError::InvalidPath);
+        }
+        let mut expected_info_name = payload
+            .file_name()
+            .ok_or(UndoHistoryError::InvalidPath)?
+            .to_os_string();
+        expected_info_name.push(".trashinfo");
+        if info.file_name() != Some(expected_info_name.as_os_str())
+            || payload.parent().and_then(Path::parent) != info.parent().and_then(Path::parent)
         {
             return Err(UndoHistoryError::InvalidPath);
         }
@@ -1080,6 +1240,16 @@ fn encode_recipe(output: &mut Vec<u8>, recipe: &UndoRecipe) -> Result<(), UndoHi
                 SymlinkPolicy::Reject => 2,
             });
         }
+        UndoRecipe::Trash {
+            original,
+            payload,
+            info,
+        } => {
+            output.push(6);
+            encode_path(output, original)?;
+            encode_path(output, payload)?;
+            encode_path(output, info)?;
+        }
     }
     Ok(())
 }
@@ -1175,7 +1345,16 @@ fn decode(bytes: &[u8]) -> Result<Vec<UndoHistoryRecord>, UndoHistoryError> {
             && state.is_history()
         {
             return Err(UndoHistoryError::Corrupt(
-                "completed replacement history lacks both version identities",
+                "completed two-identity history lacks required identities",
+            ));
+        }
+        if matches!(recipe, UndoRecipe::Trash { .. })
+            && (current_identity.is_none()
+                || (state == UndoHistoryState::Applied && alternate_identity.is_none()))
+            && state.is_history()
+        {
+            return Err(UndoHistoryError::Corrupt(
+                "completed Trash history lacks required identities",
             ));
         }
         records.push(UndoHistoryRecord {
@@ -1252,6 +1431,11 @@ fn decode_recipe(cursor: &mut Cursor<'_>) -> Result<UndoRecipe, UndoHistoryError
                 symlink_policy,
             ))
         }
+        6 => Ok(UndoRecipe::trash(
+            cursor.path()?,
+            cursor.path()?,
+            cursor.path()?,
+        )),
         _ => Err(UndoHistoryError::Corrupt("invalid Undo recipe kind")),
     }
 }
@@ -1830,5 +2014,89 @@ mod tests {
             fs::read(&backup).expect("changed occupant retained"),
             b"changed backup occupant"
         );
+    }
+
+    #[test]
+    fn phase_6w_history_round_trips_raw_trash_receipts_and_action_states() {
+        let fixture = tempdir().expect("fixture");
+        let history_path = fixture.path().join("state/undo.bin");
+        let original = fixture
+            .path()
+            .join(OsString::from_vec(vec![b'o', b'r', 0xff]));
+        let trash = fixture.path().join("Trash");
+        let payload = trash
+            .join("files")
+            .join(OsString::from_vec(vec![b'i', b't', 0xfe]));
+        let mut info_name = payload.file_name().expect("name").to_os_string();
+        info_name.push(".trashinfo");
+        let info = trash.join("info").join(info_name);
+
+        let store = UndoHistoryStore::open_at_time(history_path.clone(), 100).expect("history");
+        let ticket = store
+            .begin_at(UndoRecipe::trash(&original, &payload, &info), 100)
+            .expect("begin");
+        store
+            .complete_trash(ticket, identity(10), identity(11))
+            .expect("complete");
+        drop(store);
+
+        let restored = UndoHistoryStore::open_at_time(history_path.clone(), 101).expect("restart");
+        let record = restored.history().pop().expect("history record");
+        assert_eq!(
+            record.recipe().trash_paths(),
+            Some((original.as_path(), payload.as_path(), info.as_path()))
+        );
+        assert!(record.can_undo());
+
+        restored
+            .prepare_action(ticket.id(), UndoHistoryAction::Undo)
+            .expect("prepare undo");
+        restored
+            .complete_trash_undo(ticket.id(), identity(12))
+            .expect("complete undo");
+        let undone = restored.history().pop().expect("undone record");
+        assert!(undone.can_redo());
+        assert_eq!(undone.current_identity(), Some(identity(12)));
+        assert_eq!(undone.alternate_identity(), None);
+
+        let new_payload = trash.join("files/new");
+        let new_info = trash.join("info/new.trashinfo");
+        restored
+            .prepare_action(ticket.id(), UndoHistoryAction::Redo)
+            .expect("prepare redo");
+        restored
+            .complete_trash_redo(
+                ticket.id(),
+                &original,
+                &new_payload,
+                &new_info,
+                identity(13),
+                identity(14),
+            )
+            .expect("complete redo");
+        drop(restored);
+
+        let reopened = UndoHistoryStore::open_at_time(history_path, 102).expect("second restart");
+        let redone = reopened.history().pop().expect("redone record");
+        assert!(redone.can_undo());
+        assert_eq!(
+            redone.recipe().trash_paths(),
+            Some((
+                original.as_path(),
+                new_payload.as_path(),
+                new_info.as_path()
+            ))
+        );
+        assert_eq!(redone.current_identity(), Some(identity(13)));
+        assert_eq!(redone.alternate_identity(), Some(identity(14)));
+
+        assert!(matches!(
+            reopened.begin(UndoRecipe::trash(
+                &original,
+                trash.join("files/bad"),
+                trash.join("info/other.trashinfo")
+            )),
+            Err(UndoHistoryError::InvalidPath)
+        ));
     }
 }

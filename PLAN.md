@@ -1,3 +1,49 @@
+# Plan: Floe Phase 6W — Undo Trash
+
+## Contract
+
+Implement durable Undo/Redo only for Floe-owned moves into a standards-correct
+local freedesktop Trash whose exact payload and `.trashinfo` metadata Floe can
+identify and revalidate. The Trash executor, not GTK, captures a typed receipt
+after successful GIO Trash. Undo restores without overwrite to the recorded
+original path and removes metadata only after payload commit; Redo moves the
+same revalidated item back to Trash and refreshes the receipt. Records are
+bounded, expiring, restart-safe, and become review-required after uncertain or
+changed state.
+
+Unsupported Trash backends, orphan/malformed entries, permanent deletion,
+administrator Trash, remote resources, Restore Elsewhere, and general Trash
+history remain explicitly outside this phase. Failure to capture a complete
+receipt must not relabel an otherwise successful Trash operation as safely
+undoable.
+
+## Depth tree
+
+1. Standards-correct receipt and durable model
+   - exact original, payload, metadata paths and no-follow identities;
+   - bounded post-GIO discovery limited to reviewed local Trash roots;
+   - versioned raw-path codec, expiry, restart review, and capacity behavior.
+2. Execution and lifecycle
+   - ordinary Trash completion records only a fully revalidated receipt;
+   - Undo uses existing no-overwrite Restore semantics;
+   - Redo revalidates restored identity, obtains a fresh complete receipt, and
+     never overwrites or silently loses metadata.
+3. Application and presentation integration
+   - Operation History and Recovery Center expose truthful Trash Undo/Redo;
+   - refresh/reveal uses exact typed outcomes and ordinary conflict handling;
+   - unsupported backends remain successful Trash but explicitly non-undoable.
+4. Verification and handoff
+   - tempfile hostile/race/restart/raw-name tests plus focused controller/UI tests;
+   - full workspace, docs, release, E2E, and applicable native Wayland gates;
+   - mark 6W complete only with evidence and select exactly one later phase.
+
+## Status log
+
+- 2026-08-30: Started on `phase-6w-undo-trash` from verified reliability commit
+  `1358652`. Gates are in `gates/phase-6w.md`.
+
+---
+
 # Plan: Floe Reliability Hardening Before Undo Trash and File Chooser
 
 ## Contract

@@ -1315,9 +1315,23 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-30`
 
-Current phase: **USB device discovery maintenance fix (complete); Phase 6V remains complete**
+Current phase: **Phase 6W — Undo Trash (complete)**
 
 Completed this session:
+
+- Added durable Undo/Redo only for Floe-owned local GIO Trash operations where
+  one exact new standards-correct payload/`.trashinfo` pair can be proven.
+  Receipt discovery is bounded to eight reviewed local roots and 4,096 metadata
+  entries per root, preserves exact raw paths, and captures no-follow identities.
+- Undo revalidates payload and metadata identities, restores without overwrite,
+  and removes metadata only after payload commit. Redo revalidates the restored
+  original and requires a fresh complete receipt. Ambiguous, unsafe, oversized,
+  remote, administrator, and permanent-delete work remains non-undoable; a
+  successful unsupported Trash action still succeeds.
+- Added version-3 durable history migration/codec support, restart-safe
+  Applied/Undone transitions, conflict/partial Recovery Center behavior, exact
+  restored-result reveal, and focused core, executor, history, and UI coverage.
+  Full verification evidence is recorded in `gates/phase-6w.md`.
 
 - Reliability hardening now preserves nested Copy/Move cancellation and partial
   outcomes through Replace, Restore, Undo/Redo, and ordinary job mapping instead
@@ -1455,13 +1469,11 @@ Important decisions:
   support requires shared application services rather than unsafe independent
   processes racing settings and recovery stores.
 
-Recommended next task: create `phase-6w-undo-trash` and implement only durable,
-standards-correct Undo for Floe-owned local Trash operations. Reuse Phase
-6N/6P/18Y2 exact metadata and recovery foundations; require no-overwrite
-restore, identity revalidation, bounded expiry/restart review, and explicit
-conflicts. Keep unsupported Trash backends, permanent deletion, and
-administrator Trash outside the claim unless complete reversible evidence is
-available.
+Recommended next task: create `phase-selection-mode` and implement only Phase
+22A — Floe Selection Mode: Open File(s), Select Folder, and Save File with clear
+mode-specific validation, cancellation, accessibility, and exact local path
+results. It must work independently of any portal. The optional XDG FileChooser
+portal backend remains the later planned Phase 22B.
 
 ## Prior active status (Phase 21C)
 

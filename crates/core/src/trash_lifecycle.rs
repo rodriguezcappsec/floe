@@ -1,8 +1,12 @@
 use std::{
+    collections::HashSet,
     ffi::{OsStr, OsString},
     fs::{self, File},
     io::{self, Read},
-    os::unix::{ffi::OsStringExt, fs::PermissionsExt},
+    os::unix::{
+        ffi::{OsStrExt, OsStringExt},
+        fs::PermissionsExt,
+    },
     path::{Component, Path, PathBuf},
 };
 
@@ -10,11 +14,13 @@ use rustix::fs::{Mode, OFlags};
 use thiserror::Error;
 
 use crate::{
-    ConflictPolicy, DirectoryEntry, DirectoryError, MoveCancellation, MoveError, MoveRequest,
-    TrashMetadata, enumerate_directory_with_cancel, execute_move,
+    ConflictPolicy, DirectoryEntry, DirectoryError, FileIdentity, MoveCancellation, MoveError,
+    MoveRequest, TrashMetadata, enumerate_directory_with_cancel, execute_move,
 };
 
 const MAX_TRASHINFO_BYTES: u64 = 64 * 1024;
+pub const TRASH_RECEIPT_ENTRY_CAPACITY: usize = 4_096;
+pub const TRASH_RECEIPT_ROOT_CAPACITY: usize = 8;
 const TRASHINFO_HEADER: &[u8] = b"[Trash Info]";
 
 /// One supported local freedesktop Trash root.
@@ -66,6 +72,154 @@ impl TrashRoot {
     pub fn info(&self) -> &Path {
         &self.info
     }
+}
+
+/// Exact pre-operation view of one reviewed local freedesktop Trash root.
+///
+/// The snapshot contains names only. It is used to prove that a metadata entry
+/// appeared during one Floe-owned Trash operation without retaining file data.
+#[derive(Clone, Debug)]
+pub struct TrashRootSnapshot {
+    root: TrashRoot,
+    existing_info_names: HashSet<OsString>,
+}
+
+/// Complete local receipt required before a Trash operation may be advertised
+/// as undoable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LocalTrashReceipt {
+    original_path: PathBuf,
+    payload_path: PathBuf,
+    info_path: PathBuf,
+    payload_identity: FileIdentity,
+    info_identity: FileIdentity,
+}
+
+impl LocalTrashReceipt {
+    pub fn original_path(&self) -> &Path {
+        &self.original_path
+    }
+
+    pub fn payload_path(&self) -> &Path {
+        &self.payload_path
+    }
+
+    pub fn info_path(&self) -> &Path {
+        &self.info_path
+    }
+
+    pub const fn payload_identity(&self) -> FileIdentity {
+        self.payload_identity
+    }
+
+    pub const fn info_identity(&self) -> FileIdentity {
+        self.info_identity
+    }
+}
+
+/// Captures bounded exact metadata names before GIO moves an item to Trash.
+/// Unsafe, inaccessible, or oversized roots are omitted; this disables Undo
+/// for that operation without preventing ordinary desktop Trash behavior.
+pub fn snapshot_trash_roots(roots: Vec<TrashRoot>) -> Vec<TrashRootSnapshot> {
+    let mut snapshots = Vec::new();
+    let mut seen = HashSet::new();
+    for root in roots.into_iter().take(TRASH_RECEIPT_ROOT_CAPACITY) {
+        if !seen.insert(root.base().to_path_buf()) {
+            continue;
+        }
+        let Some(existing_info_names) = snapshot_info_names(&root) else {
+            continue;
+        };
+        snapshots.push(TrashRootSnapshot {
+            root,
+            existing_info_names,
+        });
+    }
+    snapshots
+}
+
+/// Finds the one newly-created, standards-correct local Trash entry for the
+/// exact original path. Ambiguous, changed, unsafe, or incomplete results are
+/// deliberately returned as unavailable.
+pub fn discover_local_trash_receipt(
+    snapshots: &[TrashRootSnapshot],
+    original_path: &Path,
+) -> Option<LocalTrashReceipt> {
+    let mut receipt = None;
+    for snapshot in snapshots {
+        let names = snapshot_info_names(&snapshot.root)?;
+        for name in names.difference(&snapshot.existing_info_names) {
+            let bytes = name.as_os_str().as_bytes();
+            let Some(payload_name) = bytes.strip_suffix(b".trashinfo") else {
+                continue;
+            };
+            if payload_name.is_empty() {
+                continue;
+            }
+            let info_path = snapshot.root.info().join(name);
+            let Ok(parsed) = parse_trash_info(&info_path, &snapshot.root) else {
+                continue;
+            };
+            if parsed.original_path.as_deref() != Some(original_path) {
+                continue;
+            }
+            let payload_path = snapshot
+                .root
+                .files()
+                .join(OsString::from_vec(payload_name.to_vec()));
+            let info_metadata = fs::symlink_metadata(&info_path).ok()?;
+            if !info_metadata.file_type().is_file() {
+                return None;
+            }
+            let candidate = LocalTrashReceipt {
+                original_path: original_path.to_path_buf(),
+                payload_identity: FileIdentity::capture(&payload_path).ok()?,
+                info_identity: FileIdentity::from_metadata(&info_metadata),
+                payload_path,
+                info_path,
+            };
+            if receipt.replace(candidate).is_some() {
+                return None;
+            }
+        }
+    }
+    let candidate = receipt?;
+    let payload_now = FileIdentity::capture(candidate.payload_path()).ok()?;
+    let info_now = FileIdentity::capture(candidate.info_path()).ok()?;
+    (payload_now == candidate.payload_identity && info_now == candidate.info_identity)
+        .then_some(candidate)
+}
+
+fn snapshot_info_names(root: &TrashRoot) -> Option<HashSet<OsString>> {
+    if let Some(ancestor) = root.guarded_ancestor.as_deref()
+        && fs::symlink_metadata(ancestor).is_ok()
+        && !validate_shared_root(ancestor).ok()?
+    {
+        return None;
+    }
+    for directory in [root.base(), root.files()] {
+        match fs::symlink_metadata(directory) {
+            Ok(metadata) if metadata.file_type().is_dir() => {}
+            Ok(_) => return None,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(_) => return None,
+        }
+    }
+    match fs::symlink_metadata(root.info()) {
+        Ok(metadata) if metadata.file_type().is_dir() => {}
+        Ok(_) => return None,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Some(HashSet::new()),
+        Err(_) => return None,
+    }
+    let mut names = HashSet::new();
+    let entries = fs::read_dir(root.info()).ok()?;
+    for entry in entries {
+        if names.len() == TRASH_RECEIPT_ENTRY_CAPACITY {
+            return None;
+        }
+        names.insert(entry.ok()?.file_name());
+    }
+    Some(names)
 }
 
 #[derive(Debug, Error)]
@@ -295,6 +449,8 @@ pub struct RestoreRequest {
     backing_path: PathBuf,
     info_path: PathBuf,
     destination: PathBuf,
+    expected_backing_identity: Option<FileIdentity>,
+    expected_info_identity: Option<FileIdentity>,
 }
 
 impl RestoreRequest {
@@ -307,6 +463,8 @@ impl RestoreRequest {
             backing_path: backing_path.into(),
             info_path: info_path.into(),
             destination: destination.into(),
+            expected_backing_identity: None,
+            expected_info_identity: None,
         };
         if request.backing_path.file_name().is_none() {
             return Err(RestoreRequestError::InvalidBacking(request.backing_path));
@@ -348,7 +506,16 @@ impl RestoreRequest {
         &self,
         destination: impl Into<PathBuf>,
     ) -> Result<Self, RestoreRequestError> {
-        Self::new(&self.backing_path, &self.info_path, destination)
+        let mut request = Self::new(&self.backing_path, &self.info_path, destination)?;
+        request.expected_backing_identity = self.expected_backing_identity;
+        request.expected_info_identity = self.expected_info_identity;
+        Ok(request)
+    }
+
+    pub fn with_expected_identities(mut self, backing: FileIdentity, info: FileIdentity) -> Self {
+        self.expected_backing_identity = Some(backing);
+        self.expected_info_identity = Some(info);
+        self
     }
 
     pub fn backing_path(&self) -> &Path {
@@ -361,6 +528,14 @@ impl RestoreRequest {
 
     pub fn destination(&self) -> &Path {
         &self.destination
+    }
+
+    pub const fn expected_backing_identity(&self) -> Option<FileIdentity> {
+        self.expected_backing_identity
+    }
+
+    pub const fn expected_info_identity(&self) -> Option<FileIdentity> {
+        self.expected_info_identity
     }
 }
 
@@ -404,6 +579,8 @@ pub enum RestoreError {
     Move(#[from] MoveError),
     #[error("Trash metadata is missing: {0:?}")]
     MetadataMissing(PathBuf),
+    #[error("Trash payload or metadata changed before restore: {0:?}")]
+    IdentityChanged(PathBuf),
     #[error("could not inspect Trash metadata {path}: {source}")]
     MetadataInspect {
         path: PathBuf,
@@ -416,6 +593,8 @@ pub enum RestoreError {
         #[source]
         source: io::Error,
     },
+    #[error("item was restored, but Trash metadata changed before cleanup: {0:?}")]
+    MetadataChangedAfterRestore(PathBuf),
 }
 
 impl RestoreError {
@@ -424,12 +603,13 @@ impl RestoreError {
     }
 
     pub fn is_conflict(&self) -> bool {
-        matches!(self, Self::Move(error) if error.is_conflict())
+        matches!(self, Self::IdentityChanged(_))
+            || matches!(self, Self::Move(error) if error.is_conflict())
     }
 
     pub const fn is_partial(&self) -> bool {
         match self {
-            Self::MetadataCleanup { .. } => true,
+            Self::MetadataCleanup { .. } | Self::MetadataChangedAfterRestore(_) => true,
             Self::Move(error) => error.is_partial(),
             _ => false,
         }
@@ -442,6 +622,7 @@ impl RestoreError {
                 Some(source.kind())
             }
             Self::MetadataMissing(_) => Some(io::ErrorKind::NotFound),
+            Self::IdentityChanged(_) | Self::MetadataChangedAfterRestore(_) => None,
         }
     }
 }
@@ -450,8 +631,8 @@ pub fn execute_restore(
     request: &RestoreRequest,
     cancellation: &MoveCancellation,
 ) -> Result<RestoreOutcome, RestoreError> {
-    match fs::symlink_metadata(request.info_path()) {
-        Ok(metadata) if metadata.file_type().is_file() => {}
+    let info_identity = match fs::symlink_metadata(request.info_path()) {
+        Ok(metadata) if metadata.file_type().is_file() => FileIdentity::from_metadata(&metadata),
         Ok(_) => return Err(RestoreError::MetadataMissing(request.info_path.clone())),
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
             return Err(RestoreError::MetadataMissing(request.info_path.clone()));
@@ -462,6 +643,23 @@ pub fn execute_restore(
                 source,
             });
         }
+    };
+    if request
+        .expected_info_identity()
+        .is_some_and(|expected| expected != info_identity)
+    {
+        return Err(RestoreError::IdentityChanged(request.info_path.clone()));
+    }
+    if let Some(expected) = request.expected_backing_identity() {
+        let current = FileIdentity::capture(request.backing_path()).map_err(|source| {
+            RestoreError::MetadataInspect {
+                path: request.backing_path.clone(),
+                source,
+            }
+        })?;
+        if current != expected {
+            return Err(RestoreError::IdentityChanged(request.backing_path.clone()));
+        }
     }
 
     execute_move(
@@ -469,9 +667,28 @@ pub fn execute_restore(
             request.backing_path(),
             request.destination(),
             ConflictPolicy::FailIfExists,
-        ),
+        )
+        .with_expected_source_identity(request.expected_backing_identity().unwrap_or(
+            FileIdentity::capture(request.backing_path()).map_err(|source| {
+                RestoreError::MetadataInspect {
+                    path: request.backing_path.clone(),
+                    source,
+                }
+            })?,
+        )),
         cancellation,
     )?;
+    let current_info = FileIdentity::capture(request.info_path()).map_err(|source| {
+        RestoreError::MetadataCleanup {
+            path: request.info_path.clone(),
+            source,
+        }
+    })?;
+    if current_info != info_identity {
+        return Err(RestoreError::MetadataChangedAfterRestore(
+            request.info_path.clone(),
+        ));
+    }
 
     fs::remove_file(request.info_path()).map_err(|source| RestoreError::MetadataCleanup {
         path: request.info_path.clone(),
@@ -648,5 +865,70 @@ mod tests {
             RestoreRequest::new(payload, mismatched, destination),
             Err(RestoreRequestError::MismatchedMetadata { .. })
         ));
+    }
+
+    #[test]
+    fn phase_6w_trash_receipt_captures_only_new_complete_exact_entry() {
+        let (fixture, root) = trash_fixture();
+        let original = fixture.path().join("original/item");
+        let snapshots = snapshot_trash_roots(vec![root.clone()]);
+
+        let payload = root.files().join("item");
+        let info = root.info().join("item.trashinfo");
+        fs::write(&payload, b"payload").expect("payload");
+        fs::write(
+            &info,
+            format!(
+                "[Trash Info]\nPath={}\nDeletionDate=2026-08-30T12:00:00\n",
+                original.display()
+            ),
+        )
+        .expect("metadata");
+
+        let receipt = discover_local_trash_receipt(&snapshots, &original).expect("receipt");
+        assert_eq!(receipt.original_path(), original);
+        assert_eq!(receipt.payload_path(), payload);
+        assert_eq!(receipt.info_path(), info);
+        assert_eq!(
+            receipt.payload_identity(),
+            FileIdentity::capture(receipt.payload_path()).expect("payload identity")
+        );
+        assert_eq!(
+            receipt.info_identity(),
+            FileIdentity::capture(receipt.info_path()).expect("info identity")
+        );
+    }
+
+    #[test]
+    fn phase_6w_trash_receipt_rejects_preexisting_ambiguous_and_changed_metadata() {
+        let (fixture, root) = trash_fixture();
+        let original = fixture.path().join("original/item");
+        fs::write(root.files().join("old"), b"old").expect("old payload");
+        fs::write(
+            root.info().join("old.trashinfo"),
+            format!("[Trash Info]\nPath={}\n", original.display()),
+        )
+        .expect("old metadata");
+        let snapshots = snapshot_trash_roots(vec![root.clone()]);
+
+        for name in ["first", "second"] {
+            fs::write(root.files().join(name), name.as_bytes()).expect("payload");
+            fs::write(
+                root.info().join(format!("{name}.trashinfo")),
+                format!("[Trash Info]\nPath={}\n", original.display()),
+            )
+            .expect("metadata");
+        }
+        assert!(discover_local_trash_receipt(&snapshots, &original).is_none());
+
+        fs::remove_file(root.files().join("second")).expect("remove second payload");
+        fs::remove_file(root.info().join("second.trashinfo")).expect("remove second metadata");
+        fs::remove_file(root.info().join("first.trashinfo")).expect("remove first metadata");
+        std::os::unix::fs::symlink(
+            root.info().join("old.trashinfo"),
+            root.info().join("first.trashinfo"),
+        )
+        .expect("metadata symlink");
+        assert!(discover_local_trash_receipt(&snapshots, &original).is_none());
     }
 }

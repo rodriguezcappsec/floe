@@ -123,7 +123,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Reflink acceleration | `DEFERRED` | 6O | Capability-driven optimization with safe fallback; never change copy semantics. |
 | Undo rename | `COMPLETE` | 6P | Completed rename captures destination identity; Undo revalidates it and uses no-overwrite move semantics. |
 | Undo move | `COMPLETE` | 6P | Completed same- or cross-filesystem move captures published destination identity; Undo rejects changed/missing objects and occupied original paths. |
-| Undo Trash | `NEXT` | 6W | Add durable, exact-identity Undo only for Floe-owned standards-correct local Trash records; unsupported backends, permanent delete, and administrator Trash remain excluded without complete reversible evidence. |
+| Undo Trash | `COMPLETE` | 6W | Durable Undo/Redo is recorded only when a Floe-owned local GIO Trash action yields one exact new standards-correct payload/`.trashinfo` pair. Restore is no-overwrite and identity-bound; Redo requires a fresh complete receipt. Unsupported, ambiguous, remote, administrator, and permanent-delete work remains non-undoable. |
 | Undo create | `COMPLETE` | 18Y | Completed create captures the no-follow destination identity. Undo uses ordinary recoverable Trash only while identity remains unchanged; created directories must also remain empty, so later user data is never removed. |
 | Redo | `COMPLETE` | 18Y2 | Completed durable local copy/move/rename/create records can be redone asynchronously with no-overwrite publication and exact current-item identity checks where an inverse moved the item. Changed, occupied, cancelled, partial, or interrupted cases fail closed or enter review. |
 
@@ -144,6 +144,15 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Shift+Delete | `COMPLETE` | 6M | Selection-aware shortcut and menu action open an explicit irreversible confirmation with escaped exact target context before submitting the application job. |
 | Secure erase claim | `NOT APPLICABLE` | Policy | SSD wear leveling, CoW, snapshots, and remote storage make general secure-erasure claims dishonest. |
 | Trash age/size cleanup preferences | `DEFERRED` | 20 | No reviewed portable desktop mechanism currently provides predictable semantics. |
+
+## File selection and chooser integration
+
+| Capability | Status | Phase | Notes |
+| --- | --- | --- | --- |
+| Native Open File(s) selection mode | `NEXT` | 22A | Reuse Floe's local browser with mode-specific validation and exact local path results; no portal dependency. |
+| Native Select Folder mode | `NEXT` | 22A | Accept exactly one local directory with clear title, action label, cancellation, keyboard, and accessibility behavior. |
+| Native Save File mode | `NEXT` | 22A | Accept one validated local destination filename without silently overwriting; confirmation and result contract remain application-owned. |
+| XDG FileChooser portal backend | `PLANNED` | 22B | Optional backend after Selection Mode; portal lifecycle, handles, parent identifiers, response codes, URIs, grants, and cancellation remain isolated from chooser widgets. |
 
 ## Drag and drop, creation, and productivity operations
 
