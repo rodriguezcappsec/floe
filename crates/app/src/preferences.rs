@@ -25,7 +25,13 @@ use crate::view::{
     FileViewDensity, FolderViewState, GridSize, ListColumnLayout, MillerColumnWidth, ViewMode,
 };
 use crate::{
-    appearance::AppearancePreset, iconography::EntryIconStyle, terminal::TerminalProviderId,
+    appearance::AppearancePreset,
+    iconography::EntryIconStyle,
+    terminal::TerminalProviderId,
+    threat_scan::{
+        CLAMAV_FILE_LIMIT_MIB_DEFAULT, CLAMAV_FILE_LIMIT_MIB_MAX, CLAMAV_FILE_LIMIT_MIB_MIN,
+        CLAMAV_TOTAL_LIMIT_GIB_DEFAULT, CLAMAV_TOTAL_LIMIT_GIB_MAX, CLAMAV_TOTAL_LIMIT_GIB_MIN,
+    },
 };
 use crate::{
     context_menu::ContextMenuPreferences,
@@ -270,6 +276,18 @@ pub fn clamp_font_scale(percent: u16) -> u16 {
     percent.clamp(FONT_SCALE_MIN, FONT_SCALE_MAX)
 }
 
+pub fn clamp_clamav_file_limit_mib(limit: u32) -> u32 {
+    limit.clamp(CLAMAV_FILE_LIMIT_MIB_MIN, CLAMAV_FILE_LIMIT_MIB_MAX)
+}
+
+pub fn normalized_clamav_total_limit_gib(file_limit_mib: u32, total_limit_gib: u32) -> u32 {
+    let file_limit_mib = clamp_clamav_file_limit_mib(file_limit_mib);
+    let minimum_for_file = file_limit_mib.div_ceil(1_024);
+    total_limit_gib
+        .clamp(CLAMAV_TOTAL_LIMIT_GIB_MIN, CLAMAV_TOTAL_LIMIT_GIB_MAX)
+        .max(minimum_for_file)
+}
+
 /// The last normal (neither maximized nor fullscreen) top-level window size.
 ///
 /// Wayland intentionally does not expose portable application-controlled
@@ -394,6 +412,8 @@ pub struct ViewPreferences {
     pub search_index_enabled: bool,
     pub metadata_sort_cache_enabled: bool,
     pub privileged_access_enabled: bool,
+    pub clamav_file_limit_mib: u32,
+    pub clamav_total_limit_gib: u32,
     pub custom_actions: Vec<CustomActionDefinition>,
     folder_views: Vec<FolderViewOverride>,
 }
@@ -431,6 +451,8 @@ impl Default for ViewPreferences {
             search_index_enabled: false,
             metadata_sort_cache_enabled: true,
             privileged_access_enabled: false,
+            clamav_file_limit_mib: CLAMAV_FILE_LIMIT_MIB_DEFAULT,
+            clamav_total_limit_gib: CLAMAV_TOTAL_LIMIT_GIB_DEFAULT,
             custom_actions: Vec::new(),
             folder_views: Vec::new(),
         }
@@ -637,6 +659,16 @@ impl ViewPreferences {
                 "privileged-access-enabled" => {
                     preferences.privileged_access_enabled = value == "true";
                 }
+                "clamav-file-limit-mib" => {
+                    if let Ok(limit) = value.parse::<u32>() {
+                        preferences.clamav_file_limit_mib = clamp_clamav_file_limit_mib(limit);
+                    }
+                }
+                "clamav-total-limit-gib" => {
+                    if let Ok(limit) = value.parse::<u32>() {
+                        preferences.clamav_total_limit_gib = limit;
+                    }
+                }
                 "custom-action" => {
                     if let Some(action) = CustomActionDefinition::parse_record(value) {
                         preferences
@@ -661,6 +693,10 @@ impl ViewPreferences {
                 _ => {}
             }
         }
+        preferences.clamav_total_limit_gib = normalized_clamav_total_limit_gib(
+            preferences.clamav_file_limit_mib,
+            preferences.clamav_total_limit_gib,
+        );
         preferences
     }
 
@@ -696,6 +732,14 @@ impl ViewPreferences {
             self.metadata_sort_cache_enabled,
             self.privileged_access_enabled,
         );
+        serialized.push_str(&format!(
+            "clamav-file-limit-mib={}\nclamav-total-limit-gib={}\n",
+            clamp_clamav_file_limit_mib(self.clamav_file_limit_mib),
+            normalized_clamav_total_limit_gib(
+                self.clamav_file_limit_mib,
+                self.clamav_total_limit_gib,
+            ),
+        ));
         if let Some(font_family) = self.font_family.as_deref() {
             serialized.push_str("font-family=");
             serialized.push_str(font_family);
@@ -879,7 +923,30 @@ pub struct PreferenceWorker {
     worker: Option<JoinHandle<()>>,
 }
 
+#[derive(Clone)]
+pub struct PreferenceHandle {
+    sender: SyncSender<ViewPreferences>,
+}
+
+impl PreferenceHandle {
+    pub fn try_save(&self, preferences: ViewPreferences) -> Result<(), PreferenceSubmitError> {
+        match self.sender.try_send(preferences) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(preferences)) => {
+                Err(PreferenceSubmitError::Full(Box::new(preferences)))
+            }
+            Err(TrySendError::Disconnected(_)) => Err(PreferenceSubmitError::Disconnected),
+        }
+    }
+}
+
 impl PreferenceWorker {
+    pub fn handle(&self) -> Option<PreferenceHandle> {
+        self.sender
+            .as_ref()
+            .cloned()
+            .map(|sender| PreferenceHandle { sender })
+    }
     /// Loads the user's familiar presentation without running migrations or
     /// creating configuration files. Selection Mode uses this read-only path
     /// so chooser-local adjustments remain process-local.
@@ -938,6 +1005,7 @@ impl PreferenceWorker {
         ))
     }
 
+    #[cfg(test)]
     pub fn try_save(&self, preferences: ViewPreferences) -> Result<(), PreferenceSubmitError> {
         let Some(sender) = self.sender.as_ref() else {
             return Err(PreferenceSubmitError::Disconnected);
@@ -1709,5 +1777,33 @@ mod tests {
         assert_eq!(folder.sort.column, SortColumn::Comment);
         assert_eq!(folder.sort.directories, DirectoryPlacement::Last);
         assert!(folder.sort.hidden_last);
+    }
+
+    #[test]
+    fn clamav_limit_preferences_default_clamp_and_round_trip() {
+        let defaults = ViewPreferences::parse("version=18\n");
+        assert_eq!(
+            defaults.clamav_file_limit_mib,
+            CLAMAV_FILE_LIMIT_MIB_DEFAULT
+        );
+        assert_eq!(
+            defaults.clamav_total_limit_gib,
+            CLAMAV_TOTAL_LIMIT_GIB_DEFAULT
+        );
+
+        let hostile =
+            ViewPreferences::parse("clamav-file-limit-mib=999999999\nclamav-total-limit-gib=0\n");
+        assert_eq!(hostile.clamav_file_limit_mib, CLAMAV_FILE_LIMIT_MIB_MAX);
+        assert_eq!(hostile.clamav_total_limit_gib, 16);
+
+        let preferences = ViewPreferences {
+            clamav_file_limit_mib: 1_536,
+            clamav_total_limit_gib: 64,
+            ..ViewPreferences::default()
+        };
+        let serialized = preferences.serialize();
+        assert!(serialized.contains("clamav-file-limit-mib=1536\n"));
+        assert!(serialized.contains("clamav-total-limit-gib=64\n"));
+        assert_eq!(ViewPreferences::parse(&serialized), preferences);
     }
 }

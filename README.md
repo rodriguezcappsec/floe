@@ -76,7 +76,7 @@ use different development-package names.
 
 - Virtualized List and Grid plus bounded spatial Miller columns.
 - Tabs, session restore, split panes, breadcrumbs, and local CLI routing.
-- Multiple independent windows with `Ctrl+N` and exact **Open Folder in New Window** routing. Closing an idle window never waits on stalled read-only filesystem workers; a window with active file jobs asks you to wait or cancel first. Cross-window job/session coordination remains the next hardening phase.
+- Multiple independent windows with `Ctrl+N`, exact **Open Folder in New Window** routing, one shared operation/event coordinator, and bounded multi-window session restoration. Closing an idle window never waits on stalled read-only workers; an active presentation owner asks you to wait or cancel first.
 - Copy, move, rename, duplicate, links, templates, drag and drop, Trash,
   restore, permanent deletion, identity-checked Replace/Replace All, conflicts,
   cancellation, and private 30-day Undo/Redo for reversible local work,
@@ -92,6 +92,7 @@ use different development-package names.
 - Searchable Settings, five appearance presets, text scale, reduced motion,
   customizable shortcuts, optional Vim navigation, and direct-argv actions.
 - Natural filename sorting, renameable/reorderable bookmarks, a persistent collapsible sidebar, optional path-free completion notifications, on-demand SHA-256 from Inspector/Properties, and Owner/Group/Path/Link Target list columns.
+- Required Bubblewrap isolation for installed thumbnail/Preview helpers; explainable suspicious-file and metadata inspection; optional local `clamd` scanning with bounded user-configurable file/request limits; preview-confirmed, source-preserving JPEG/PNG/WebP sanitized copies. A persistent Background Activity panel keeps running, cancellation, results, and reveal feedback visible while browsing or after returning to Floe.
 
 ## Keyboard entry points
 
@@ -137,10 +138,8 @@ use different development-package names.
   empty-item permanent deletion, and Unix mode changes; previews, external
   tools, archives, ownership, ACL/xattr, and recursive administrator copy remain
   unavailable.
-- Provider helpers are supervised but not sandboxed and retain normal user
-  authority.
-- Encrypted Vault, Sensitive Folder, Private Mode, Open Safely, Secure Share,
-  portable encryption, and provider sandboxing are unavailable.
+- Installed thumbnail/Preview helpers require Bubblewrap and fail unavailable if the boundary cannot start. Ordinary **Open** is not sandboxed and remains a normal desktop launch; **Open Safely** is not implemented.
+- Encrypted Vault, Sensitive Folder, user-facing Private Mode, Secure Share, and portable encryption are unavailable.
 - Protected Folder is an accidental-change guardrail, not encryption or access
   control. Permanent deletion is not secure erase.
 - Hashes do not prove authenticity, authorship, malware safety, or trust.
@@ -169,8 +168,4 @@ and [AGENTS.md](./AGENTS.md) before changing the project.
 
 ## Project status
 
-Phase 22C portal option support and the Phase 23B–23G daily-driver features are
-implemented. Phase 23A provides usable multi-window browsing but remains partial
-until one application-owned job/event coordinator and bounded multi-window
-session restoration are verified in Phase 23H. [Roadmap](./docs/ROADMAP.md) is
-the phase-sequencing authority; code and tests determine completion.
+Phase 23H multi-window runtime/session hardening and Phases 18L, 18N/18N2, 18O, and 18P's bounded local privacy/safety tools are implemented. Phase 18M **Open Safely** is the sole recommended next phase. The [Roadmap](./docs/ROADMAP.md) is the sequencing authority; code and tests determine completion.

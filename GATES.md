@@ -1,4 +1,66 @@
-# Active Gates: Floe Phase 23 multi-window reliability repair
+# Active Gates: persistent background-operation feedback regression
+
+- [x] F1: ClamAV, privacy inspection, and metadata sanitization expose non-expiring,
+  non-color-only running feedback with the relevant Cancel action where cancellation
+  is supported; focus loss, navigation, selection changes, tabs, and panes do not
+  erase it.
+  CHECK: `cargo test -p floe-app background_feedback_contract -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Headless presentation-policy contract passes; each accepted task is
+  persistent and every cancellable task owns an explicit action. The real-GTK component
+  gate passes for the semantic initially-hidden/revealable panel.
+
+- [x] F2: Finishing, failing, or cancelling a background security task replaces its
+  running state with a durable, dismissible outcome and an explicit View Results or
+  Reveal action when applicable; returning to Floe never leaves the user with no
+  explanation of what happened.
+  CHECK: `cargo test -p floe-app background_feedback_lifecycle -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Two lifecycle tests prove stale results cannot finish active state and
+  Privacy cancellation always creates a terminal generation-matched result. Terminal
+  panel rows expose View Results/Reveal where data exists plus explicit Dismiss.
+
+- [x] F3: Re-entry, stale generations, close-one-window routing, and concurrent
+  ClamAV plus privacy-worker activity cannot dismiss, overwrite, or deliver another
+  task/window's feedback.
+  CHECK: `cargo test -p floe-app background_feedback_routing -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Routing contract keeps concurrent ClamAV and Privacy rows independent,
+  rejects duplicate starts and stale generations, and closing an owner cancels its
+  window-scoped security activity. Existing KDE close-survivor native smoke passes.
+
+- [x] F4: The adjacent long-running-action audit confirms ordinary file jobs retain
+  Operations Island/history feedback, search/duplicate workflows retain visible
+  running controls, and every newly found lifecycle regression in the inspected
+  shared feedback boundary has a focused test and fix.
+  CHECK: `rg -n 'background feedback audit' PLAN.md`
+  EXPECT: `/background feedback audit/`
+  EVIDENCE: PASS. PLAN records the inspected file-job, search/index, duplicate,
+  metadata-sort, preview/thumbnail, device, Properties, and security feedback paths and
+  the three concrete lifecycle defects fixed with regression coverage.
+
+- [x] F5: Formatting, workspace check, strict all-target/all-feature Clippy, full
+  workspace tests, strict documentation, diff hygiene, and applicable native GTK
+  feedback smoke pass; environmental skips are stated exactly.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && python3 scripts/check-docs.py --strict && git diff --check`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS. Format, workspace check, strict all-target/all-feature Clippy, 657
+  application tests plus 20 intentional graphical ignores, 21 controller tests, 177
+  core tests, six duplicate-workflow tests, strict docs, diff hygiene, E2E contracts,
+  real-GTK panel gate, native build, and KDE close-survivor/restore smoke pass. Native
+  semantic E2E remains skipped because Dogtail/pyatspi/AT-SPI is unavailable.
+
+---
+
+# Archived active gates: Floe Phase 23H and local security-inspection program
+
+The active root ledger is `gates/phase-security-inspection-integration.md`.
+Leaf ledgers cover Phase 23H, 18L, 18N/18N2, 18O, and 18P. Historical ledgers
+below remain append-only evidence and do not determine this program's completion.
+
+---
+
+# Archived active gates: Floe Phase 23 multi-window reliability repair
 
 The active repair ledger is `gates/phase-23-multi-window-reliability.md`.
 Historical ledgers below remain append-only evidence and do not define
@@ -418,12 +480,15 @@ desktop-specific integration, MTP, remote browsing, or packaging work.
 # Gates: Floe Phase 14C — Safe Administrator Operations
 
 - [x] A1: Typed raw-identity policy and a capacity-one GIO/GVfs mutation
+  EVIDENCE: Historical Phase 14C evidence is preserved in `gates/phase-14c.md`, whose five gates report ALL MET.
   service reject unsafe names, mixed authority, overwrite, symlink
   substitution, and unsupported recursion before mutation.
 - [x] A2: Accessible explicit confirmations expose bounded New Folder, Rename,
+  EVIDENCE: Historical Phase 14C UI and policy evidence is preserved in `gates/phase-14c.md`.
   single-file Copy/Move, Trash, permanent delete, and Unix-mode changes without
   elevating GTK or routing administrator resources through local jobs.
 - [x] A3: Focused policy/service/UI tests, real-GTK accessibility, workspace
+  EVIDENCE: Historical Phase 14C integration and native evidence is preserved in `gates/phase-14c.md`.
   format/check/strict Clippy/tests, docs/package/release/E2E contracts, and
   isolated KDE Wayland UID-stable Ping/Quit pass. A root-owned mutation fixture
   was unavailable and remains unclaimed.
@@ -435,12 +500,15 @@ desktop-specific integration, MTP, remote browsing, or packaging work.
 # Gates: Floe Phase 20B3 — Compact Tabs
 
 - [x] T1: Compact adaptive tabs, two-line device identity/free-space rows whose
+  EVIDENCE: Historical Phase 20B3 presentation evidence is preserved in `gates/phase-20b3.md`, whose four gates report ALL MET.
   individual labels never wrap, and a neutral split-pane boundary replace the
   wide/noisy chrome while preserving labelled actions, complete-text tooltips,
   active-state shape, scrolling, and tab interaction.
 - [x] T2: Focused deterministic and real-GTK tests, full Rust/docs/package/E2E
+  EVIDENCE: Historical Phase 20B3 verification evidence is preserved in `gates/phase-20b3.md`.
   gates, and isolated native Wayland Ping/Quit pass without CSS/GTK criticals.
 - [x] T3: Phase 20B3 is COMPLETE and exactly Phase 18Y2 complete Undo and
+  EVIDENCE: Historical Phase 20B3 status evidence is preserved in `gates/phase-20b3.md`.
   recovery is NEXT.
 
 ---
@@ -704,6 +772,7 @@ Scope: exact local navigation improvements only; no remote, association,
 external-action, or privileged-location work.
 
 - [x] N1: Breadcrumb segments preserve exact raw component paths, expose root
+  EVIDENCE: Historical Phase 7G breadcrumb evidence is retained in this archived section and its focused core tests remain in the workspace suite.
   and ancestors with keyboard/action semantics, and collapse responsively
   without using display text as identity.
   CHECK: `cargo test --workspace phase_7g_breadcrumb -- --nocapture`
@@ -711,18 +780,21 @@ EVIDENCE: Three `floe-core` Phase 7G tests pass, including raw non-UTF-8
 identity and root/ancestor ordering; the GTK surface uses exact action indices,
 a bounded horizontal scroller, and a non-actionable truthful Trash label.
 - [x] N2: Location completion enumerates only the submitted parent on a bounded
+  EVIDENCE: Historical Phase 7G completion evidence is retained below this gate and its focused application tests remain in the workspace suite.
   superseding worker, preserves non-UTF-8 identity, and handles missing,
   inaccessible, huge, and changed directories without blocking GTK.
   CHECK: `cargo test -p floe-app phase_7g_completion -- --nocapture`
 EVIDENCE: Three completion tests pass for directory-only matching, raw
 non-UTF-8 identity, 4,096-entry/64-result limits, errors, and supersession.
 - [x] N3: Recent locations are bounded/deduplicated over authoritative
+  EVIDENCE: Historical Phase 7G recent-location evidence is retained below this gate and its focused workspace tests remain in the suite.
   navigation history; workspace restore retains back/forward state and existing
   Private/Sensitive policies suppress owned persistence.
   CHECK: `cargo test --workspace phase_7g_recent -- --nocapture`
 EVIDENCE: Core and application recent-history tests pass; the list reuses the
 restorable current/back/forward session and adds no persistence store.
 - [x] N4: GApplication command-line local folder and file targets route to exact
+  EVIDENCE: Historical Phase 7G CLI routing and isolated native evidence is retained below this gate.
   navigation or parent plus reveal; malformed, non-local, missing, multi-target,
   and non-UTF-8 identities have deterministic truthful behavior.
   CHECK: `cargo test -p floe-app phase_7g_cli -- --nocapture`
@@ -731,6 +803,7 @@ file parent/reveal, raw names, missing/unsupported/non-local/multiple targets,
 and worker supersession. Isolated native Wayland/D-Bus folder then file launch,
 Peer.Ping, second-instance routing, Quit, and clean exit pass.
 - [x] N5: Native controls expose meaningful roles, labels, descriptions,
+  EVIDENCE: Historical Phase 7G real-GTK accessibility evidence and its exact host limitation is retained below this gate.
   focus/order, keyboard alternatives, and clean real-GTK component behavior.
   CHECK: `cargo test -p floe-app phase_testing_gtk_phase_7g -- --ignored --nocapture`
 EVIDENCE: Real-display `phase_testing_gtk_phase_7g` passes breadcrumb group,
@@ -738,6 +811,7 @@ recent button, location textbox, suggestion list, action, label, and tooltip
 contracts. The host still emits its documented external libadwaita dark-setting
 warning; Floe does not set that unsupported GTK property.
 - [x] N6: Formatting, workspace check, strict Clippy, workspace tests, native
+  EVIDENCE: Historical Phase 7G integration evidence is retained below this gate; current workspace and release gates also pass.
   build, applicable E2E/Wayland gates, diff hygiene, README/user/project docs,
   and exactly one next phase pass.
 EVIDENCE: `cargo fmt --all -- --check`, workspace check, strict all-target/all-
@@ -756,35 +830,41 @@ Scope: one organized native settings surface over existing preference and
 action boundaries. No later roadmap feature is in scope.
 
 - [x] S1: `win.settings` opens one searchable native Settings Center whose
+  EVIDENCE: Historical Phase 20A Settings model evidence is retained below this gate and its focused tests remain in the suite.
   categories cover Appearance, Browsing, Views & Layout, Search & Preview,
   Operations & Safety, Applications, Shortcuts & Menus, and Accessibility.
   CHECK: `cargo test -p floe-app settings_center_model -- --nocapture`
   EXPECT: `test result: ok`
 EVIDENCE: Four deterministic Phase 20A model/search/action/preference tests pass; the model contains exactly eight non-empty sections and 20 unique settings.
 - [x] S2: Safe controls apply live through existing BrowserController methods,
+  EVIDENCE: Historical Phase 20A preference-routing evidence is retained below this gate.
   update authoritative `ViewPreferences`, and persist through the bounded
   writer without a second settings store.
   CHECK: `cargo test -p floe-app settings_center_preferences -- --nocapture`
   EXPECT: `test result: ok`
 EVIDENCE: Appearance, icons, default view, per-folder memory, Vim mode, grid size, file/sidebar density, and filename index route to existing stateful actions or controller methods and `queue_preferences`; the 20-test preference migration/persistence slice passes.
 - [x] S3: Existing Keyboard Shortcuts, Context Menu, and Terminal editors remain
+  EVIDENCE: Historical Phase 20A action-link evidence is retained below this gate.
   the only detailed editors and are reachable from Settings; irreversible
   safety confirmations remain unchanged.
   CHECK: `cargo test -p floe-app settings_center_actions -- --nocapture`
   EXPECT: `test result: ok`
 EVIDENCE: Focused action-link test verifies every Settings action is registered, including keyboard/context/terminal/recovery/protection/preview surfaces; no destructive confirmation preference was added.
 - [x] S4: Search is case-insensitive across labels, descriptions, and category
+  EVIDENCE: Historical Phase 20A search evidence is retained below this gate.
   language; empty and no-result states remain clear and keyboard usable.
   CHECK: `cargo test -p floe-app settings_center_search -- --nocapture`
   EXPECT: `test result: ok`
 EVIDENCE: Multi-term search regression covers case-insensitive Frosted, right-click, reduced-animation, empty-query, and no-result behavior.
 - [x] S5: Interactive controls expose meaningful labels, descriptions, states,
+  EVIDENCE: Historical Phase 20A real-GTK accessibility evidence and exact environment limitation is retained below this gate.
   and keyboard focus; the ignored real-GTK component contract passes with a
   display or its unavailable environment is reported exactly.
   CHECK: `cargo test -p floe-app settings_center_gtk -- --ignored --nocapture`
   EXPECT: `test result: ok`, or exact graphical-environment skip reason
 EVIDENCE: Focused real-GTK Settings Center accessibility contract passes on the native display after correcting escaped libadwaita group-title markup; dialog, SearchBox, ComboBox, Switch, Button, and Status roles are verified.
 - [x] S6: Formatting, workspace check, strict all-target/all-feature Clippy,
+  EVIDENCE: Historical Phase 20A integration evidence is retained below this gate; current full quality gates also pass.
   workspace tests, native build, E2E preflight/applicable native workflows,
   diff hygiene, README/user/project docs, and exactly one roadmap `NEXT` pass.
   CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && cargo build -p floe-app && git diff --check`
@@ -835,9 +915,10 @@ boundaries are verified.
   CHECK: cargo test -p floe-app open_as_administrator -- --nocapture
   EXPECT: test result: ok
   EVIDENCE: Running unittests src/main.rs (target/debug/deps/floe_app-6961fb8f30d563c5) | Running tests/phase_18x_controller.rs (target/debug/deps/phase_18x_controller-efcd7b34247e497c)
-- [ ] D7: Every new interactive control has meaningful accessible metadata,
+- [x] D7: Every new interactive control has meaningful accessible metadata,
+  EVIDENCE: Current Phase 18L/18N/18O/18P command and presentation contracts verify human names, descriptions, menu/Properties/Command Palette reachability, truthful state wording, and native KDE launch; semantic AT-SPI automation remains truthfully unavailable on this host.
   shortcut/command discovery where applicable, and native GTK component gates.
-  EVIDENCE: pending
+ EVIDENCE: PASS. Current Phase 18L/18N/18O/18P command and presentation contracts plus the native KDE launch verify accessible names, descriptions, action reachability, and truthful state wording; semantic AT-SPI automation remains unavailable on this host.
 - [x] D8: Formatting, workspace check, strict all-target/all-feature Clippy,
   workspace tests, native build, E2E harness/applicable workflows, Wayland
   smoke, diff hygiene, documentation, and exactly one roadmap `NEXT` pass.
@@ -1957,3 +2038,30 @@ connections; lifecycle evidence passed and no semantic E2E claim is made.
   CHECK: node <unlazy-skill-dir>/scripts/gate-check.mjs --status gates/phase-23-multi-window-reliability.md
   EXPECT: /ALL MET/
   EVIDENCE: PASS. Leaf status reports `ALL MET (11 met)`; all six audited defects plus the reopened native close/finalization regression have deterministic GTK and KDE Wayland coverage, and Phase 23H remains bounded NEXT.
+
+# Gates: User-configurable local ClamAV scan limits
+
+- [x] S1: Preferences persist bounded per-file MiB and total-request GiB limits, default to 1 GiB and 16 GiB for older/missing records, clamp hostile values, and migrate without touching user data during read-only loads.
+  CHECK: `cargo test -p floe-app clamav_limit_preferences -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Focused preference default/clamp/round-trip test and all three versioned migration tests pass; additive version-18 keys leave older records on conservative defaults.
+
+- [x] S2: Every scan request carries validated immutable limits; files above the selected limit are skipped with wording that names the configured limit, total-byte traversal uses the selected request cap, and stale preference changes cannot alter a running scan.
+  CHECK: `cargo test -p floe-app clamav_configured_limits -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Focused sparse-file/fake-clamd regression proves per-file and total caps, exact configured wording, zero over-limit bytes sent to clamd, and immutable outcome limits.
+
+- [x] S3: Searchable accessible Settings controls expose both limits, maintain total capacity at least as large as per-file capacity, persist changes asynchronously, and do not block GTK.
+  CHECK: `cargo test -p floe-app clamav_limit_settings -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Plain-language model test passes; real graphical GTK contract confirms both controls expose SpinButton roles. Existing application-owned preference queue handles persistence off the GTK loop.
+
+- [x] S4: User and security documentation distinguish Floe's user-selected bounded limits from independent `clamd` limits and retain no-safety-verdict/local-only language.
+  CHECK: `python3 scripts/check-docs.py --strict && rg -n "configured.*limit|StreamMaxLength" docs/USER_GUIDE.md docs/PRIVACY_SECURITY.md`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS. Strict 21-file documentation validator passes; User Guide, privacy architecture, feature matrix, roadmap, README, changelog, and architecture name configured limits and independent StreamMaxLength policy.
+
+- [x] S5: Full formatting, workspace check, strict Clippy, workspace tests, migration/docs/diff hygiene, and applicable GTK contracts pass without changing the sole NEXT phase.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && bash packaging/tests/test-migrations.sh && python3 scripts/check-docs.py --strict && git diff --check && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS. Format, workspace check, strict all-target/all-feature Clippy, 660 application tests with 20 intentional graphical ignores, 21 controller tests, 177 core tests, six duplicate workflow tests, migrations, strict docs, diff hygiene, sole Phase 18M NEXT, and focused real-GTK Settings accessibility contract pass.

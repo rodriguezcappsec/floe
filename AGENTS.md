@@ -1315,58 +1315,46 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-08-31`
 
-Current phase: **Phase 22C and Phase 23B–23G complete; Phase 23A multi-window browsing partial**
+Current phase: **Phase 23H and Phases 18L/18N/18N2/18O/18P complete**
 
-Latest session:
+Completed this session:
 
-- Reopened and fixed the user-reproduced native close regression. Before an
-  allowed window close, Floe now pops down and unparents its location-completion
-  plus list/grid/search context popovers so no `GtkPopover` remains under a
-  finalizing `GtkEntry` or view. Focused real-GTK and guarded KDE Wayland
-  close/survivor/third-window gates pass without the reported warning or freeze.
-- Repaired the two-window close freeze: active jobs reject close with accessible
-  wait/cancel guidance, idle browser teardown cancels and detaches stalled
-  read-only filesystem/presentation workers rather than joining on GTK's main
-  thread, and application shutdown retains per-window state only weakly.
-- Failed new-window construction now routes a target only to the exact returned
-  controller and cannot redirect an older window. XDG chooser filters are
-  advisory for explicit valid selections. Properties checksum actions capture
-  the presented exact path. Completion notification IDs are namespaced per
-  window so equal local job IDs cannot replace one another.
-- Completed bounded portal filters/current-filter/boolean and combo choices,
-  including worker-owned visual glob/MIME filtering that keeps directories
-  navigable and exact option/result framing through the owning portal request.
-- Added usable multi-window browsing with `Ctrl+N`, repeated activation, exact
-  **Open Folder in New Window**, newest-live routing after a window closes, and
-  independent window navigation. Secondary windows intentionally retain
-  isolated transient operation state and no duplicate persistence writers.
-- Added optional path-free completion notifications for typed completed jobs of
-  at least two seconds while the originating window is unfocused.
-- Added raw-byte-safe Natural Name sorting; version-2 bookmark aliases and
-  reorder/reset/remove options in one compact menu; persisted collapsible
-  sidebar state with expanded-width restoration; explicit SHA-256 from
-  Inspector/Properties; and Owner, Group, Path and Link Target list columns.
-- Nine focused reliability regressions, 646 application tests (627 passed and 19
-  intentional graphical ignores), 21 controller tests, 174 core tests, and six
-  duplicate workflows pass with formatting, workspace check, strict Clippy,
-  docs/render/package/migration/release/E2E contracts and diff hygiene. Isolated
-  native KDE Wayland created two windows, closed one exact same-process window,
-  sustained survivor/main-loop actions, created a third window, and quit cleanly
-  without the reported GTK warning.
-  The combined graphical GTK command remains unusable on this host because
-  separate Rust test threads try to initialize GTK from different threads.
+- Fixed transient background feedback for read-only Properties, Privacy inspection,
+  local ClamAV, and metadata sanitization. A dedicated accessible panel below the tabs
+  retains separate Running/Stopping/terminal rows across focus, navigation, selection,
+  tab, and pane changes, with Cancel, View Results, Reveal, and Dismiss actions.
+  Selection no longer silently supersedes accepted Properties work; Privacy cancellation
+  now always emits a generation-matched terminal outcome and checks between files.
+- Adversarial feedback audit confirmed file jobs retain Operations Island/history,
+  search/indexing retains visible status and Stop, duplicate scans retain progress/result
+  dialogs, metadata sorting retains spinner/status/cancel, preview/thumbnail work retains
+  local presentation feedback, and device actions retain row busy/outcome state. Separate
+  panel rows avoid persistent-toast queue starvation when security tasks run concurrently.
 
-Known limitation:
+- Replaced per-secondary transient mutation state with one normal-process `ApplicationState` and `OperationEventHub`. At most 16 windows share one destructive event drain; exactly one live presentation inbox owns each event, ownership transfers on close, and shutdown captures all live window workspaces.
+- Added versioned bounded multi-window session storage with legacy one-window migration, 64 MiB/16-window limits, corrupt/trailing rejection, and Private/Sensitive trace suppression. Preferences use one application-owned worker with cloneable handles.
+- Required Bubblewrap for production external thumbnail/Preview providers. The policy clears the environment, unshares network/session namespaces, mounts only reviewed runtime files read-only, grants exact input read and private output write, retains process-group timeout/cancellation/output limits, and fails closed without unsandboxed fallback.
+- Added explainable suspicious-file analysis plus optional separately installed local `clamd` scanning. Exact local traversal is bounded, no-follow, same-device, cancellable, identity-revalidated, and distinguishes detection/no-signature/not-scanned/changed/cancelled/limit/error without upload, automatic mutation, or safety claim. Process-wide generations and bounded result queues prevent one window from stealing or cancelling another window's result.
+- Replaced fixed ClamAV byte caps with bounded persisted Settings controls: 1–16384 MiB per file (1024 MiB default) and 1–1024 GiB per request (16 GiB default). Each request snapshots normalized limits, over-limit results name the user's configured value, reports retain the exact policy and link back to Settings, and independent `clamd` limits remain explicit.
+- Added a read-only Privacy Inspector for actual reviewed JPEG/TIFF EXIF and PNG/WebP metadata evidence. Added preview-confirmed batch JPEG/PNG/WebP sanitized sibling copies with 0600 staging, cleanup on failed source revalidation, WebP VP8X metadata-flag repair, reviewed-removal verification, cancellation, and atomic `RENAME_NOREPLACE` publication.
+- Added selection-aware main-menu, customizable context-menu, Properties, and Command Palette actions with accessible evidence-based wording. Sources, paths, metadata values, scan findings, and signatures are not added to normal logs or persistent history.
 
-- Multi-window application-wide jobs/recovery, one preference/bookmark/session
-  writer, and bounded window-set restoration are not implemented. Sharing the
-  current destructive event drain among several `OperationController`s would
-  duplicate or steal events/conflict dialogs. Phase 23H must introduce an
-  explicit application-owned coordinator rather than weakening this boundary.
+Verification status:
+
+- Focused Phase 23H, 18L, 18N/18N2, 18O, and 18P Rust tests, configured ClamAV limit regressions, a real-GTK Settings accessibility contract, and strict all-target/all-feature Clippy pass.
+- Full workspace tests pass sequentially: 660 application tests with 20 intentional graphical ignores, 21 Phase 18X controller tests, 177 core tests, and six duplicate-workflow tests. Format, workspace check, strict all-target/all-feature Clippy, docs/render, E2E contracts, package layout/migrations, deterministic release source/candidate, native build, and diff hygiene pass.
+- KDE Wayland native smoke closed one of two windows, kept the survivor responsive, opened a third window, quit cleanly, restarted with the same private roots, and restored both surviving workspaces as two windows. The new Privacy label emits no GTK markup warning. The host AT-SPI bus still refuses connections, so semantic Dogtail/pyatspi and that environmental GTK critical are not claimed fixed.
+- `/usr/bin/bwrap` is installed but required nested namespace creation fails with `NETLINK_ROUTE ... Operation not permitted`; live sandbox-provider execution is unavailable without direct fallback. Deterministic ClamAV protocol capture, capability-gated pathname-socket tests, and a live daemon availability probe pass.
 
 Recommended next task:
 
-- **Phase 23H — Multi-window runtime and session hardening.**
+- Current-host ClamAV status: `/run/clamav/clamd.ctl`
+  now exists and `clamdscan --config-file=/etc/clamav/clamd.conf --ping=1:1`
+  returns `PONG`. Pointer-driven live scan automation remains unavailable because the
+  host AT-SPI bus refuses connections. The focused real-GTK Background Activity
+  accessibility/reveal gate and isolated KDE close-survivor/restore smoke both pass.
+
+- **Phase 18M — Open Safely.** It must reuse the actual Phase 18L restriction boundary, show persistent granted/denied capabilities, and never silently turn a failed restricted launch into ordinary Open.
 
 Historical completed-session notes:
 

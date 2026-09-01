@@ -144,10 +144,52 @@ done
 wait "$floe_pid"
 floe_pid=""
 
+# Restart with the same private roots. Two live workspaces remained at clean
+# shutdown (the survivor and the third window), so both must be restored.
+env \
+    HOME="$floe_test_root/home" \
+    XDG_CONFIG_HOME="$floe_test_root/config" \
+    XDG_CACHE_HOME="$floe_test_root/cache" \
+    XDG_DATA_HOME="$floe_test_root/data" \
+    XDG_STATE_HOME="$floe_test_root/state" \
+    "$floe_binary" >>"$floe_test_root/floe.log" 2>&1 &
+floe_pid=$!
+
+restored_windows=false
+for _attempt in {1..120}; do
+    if window_alive 1 && window_alive 2; then
+        restored_windows=true
+        break
+    fi
+    sleep 0.05
+done
+[[ "$restored_windows" == true ]] || {
+    printf 'Floe did not restore both surviving native windows\n' >&2
+    exit 1
+}
+
+gdbus call --session --dest "$application_name" --object-path \
+    "$application_path" --method org.gtk.Actions.Activate quit '[]' '{}' \
+    >/dev/null 2>&1 || true
+restored_exited=false
+for _attempt in {1..120}; do
+    if ! kill -0 "$floe_pid" >/dev/null 2>&1; then
+        restored_exited=true
+        break
+    fi
+    sleep 0.05
+done
+[[ "$restored_exited" == true ]] || {
+    printf 'Restored Floe process did not quit cleanly\n' >&2
+    exit 1
+}
+wait "$floe_pid"
+floe_pid=""
+
 if rg -n 'Finalizing GtkEntry|children left' "$floe_test_root/floe.log"; then
     printf 'GTK reported an owned transient during window finalization\n' >&2
     exit 1
 fi
 
-printf 'PASS close-survivor-responsive=true third-window=true log=%s\n' \
+printf 'PASS close-survivor-responsive=true third-window=true restored-windows=true log=%s\n' \
     "$floe_test_root/floe.log"

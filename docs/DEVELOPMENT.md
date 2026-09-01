@@ -957,3 +957,19 @@ invent a root-owned test target. This host passed the active generic/Plasma
 Wayland lifecycle at UID 1000; it lacked Python Dogtail/pyatspi and did not
 provide separate Niri or disposable root-owned-fixture gates, so the feature
 must remain experimental.
+## Phase 23H and local privacy/safety verification
+
+The deterministic gates for the shared multi-window runtime, required provider sandbox, suspicious-file/ClamAV workflow, Privacy Inspector, and sanitizer are:
+
+```bash
+cargo test -p floe-app phase_23h_ -- --nocapture --test-threads=1
+cargo test -p floe-app phase_18l_ -- --nocapture --test-threads=1
+cargo test -p floe-core phase_18n_suspicious -- --nocapture
+cargo test -p floe-app phase_18n_ -- --nocapture --test-threads=1
+cargo test -p floe-app phase_18o_ -- --nocapture --test-threads=1
+cargo test -p floe-app phase_18p_ -- --nocapture --test-threads=1
+```
+
+`scripts/native-close-survivor-kde.sh` is the native close-one/survivor/new-window/Ping/Quit and restart-restoration gate after `cargo build -p floe-app --bin floe`. It restarts with the same private roots and requires both surviving workspaces to return as two windows. It requires a KDE Wayland session with `qdbus6`, `gdbus`, and KWin scripting. A real provider sandbox smoke additionally requires usable unprivileged Bubblewrap namespaces; installed `bwrap` alone is not evidence that the host permits the boundary. The deterministic Phase 18L test skips that live subcase when a no-content Bubblewrap probe fails and still verifies that production policy never falls back to direct execution.
+
+For ClamAV, unit/integration tests use a fragmented fake local daemon and do not depend on host signatures. A manual native scan requires separately installed/running `clamd`; use only a disposable standard antivirus test fixture, never real user data, and verify the UI says **signature reported** rather than making a malware or safety claim.

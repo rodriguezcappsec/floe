@@ -4,7 +4,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use adw::prelude::*;
 
-pub const CONTEXT_MENU_GROUP_CAPACITY: usize = 7;
+pub const CONTEXT_MENU_GROUP_CAPACITY: usize = 8;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ContextMenuGroup {
@@ -15,6 +15,7 @@ pub enum ContextMenuGroup {
     Checksums,
     Terminal,
     SplitView,
+    PrivacySafety,
 }
 
 impl ContextMenuGroup {
@@ -26,14 +27,16 @@ impl ContextMenuGroup {
         Self::Checksums,
         Self::Terminal,
         Self::SplitView,
+        Self::PrivacySafety,
     ];
 
-    pub const DEFAULT: [Self; 5] = [
+    pub const DEFAULT: [Self; 6] = [
         Self::Archives,
         Self::BatchRename,
         Self::Links,
         Self::Terminal,
         Self::SplitView,
+        Self::PrivacySafety,
     ];
 
     pub const fn persisted(self) -> &'static str {
@@ -45,6 +48,7 @@ impl ContextMenuGroup {
             Self::Checksums => "checksums",
             Self::Terminal => "terminal",
             Self::SplitView => "split-view",
+            Self::PrivacySafety => "privacy-safety",
         }
     }
 
@@ -57,6 +61,7 @@ impl ContextMenuGroup {
             "checksums" => Some(Self::Checksums),
             "terminal" => Some(Self::Terminal),
             "split-view" => Some(Self::SplitView),
+            "privacy-safety" => Some(Self::PrivacySafety),
             _ => None,
         }
     }
@@ -70,6 +75,7 @@ impl ContextMenuGroup {
             Self::Checksums => "Checksums",
             Self::Terminal => "Terminal",
             Self::SplitView => "Split view",
+            Self::PrivacySafety => "Privacy and safety",
         }
     }
 
@@ -82,6 +88,9 @@ impl ContextMenuGroup {
             Self::Checksums => "Calculate SHA-256, SHA-512, or legacy MD5 checksums",
             Self::Terminal => "Open the preferred terminal in a selected or current folder",
             Self::SplitView => "Open, transfer, switch, and resize the other pane",
+            Self::PrivacySafety => {
+                "Inspect local privacy and safety signals, scan with optional ClamAV, and create verified sanitized image copies"
+            }
         }
     }
 
@@ -94,6 +103,7 @@ impl ContextMenuGroup {
             Self::Checksums => 1 << 4,
             Self::Terminal => 1 << 5,
             Self::SplitView => 1 << 6,
+            Self::PrivacySafety => 1 << 7,
         }
     }
 }

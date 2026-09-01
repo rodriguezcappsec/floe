@@ -312,6 +312,51 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [F, T, H]
     ),
     command!(
+        "inspect-privacy-safety",
+        "Inspect Privacy & Safety…",
+        "Show explainable local filename, type, permission, and supported image metadata evidence without declaring a file safe",
+        Files,
+        ["privacy", "metadata", "suspicious", "exif", "local"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "scan-threats",
+        "Scan with Local ClamAV…",
+        "Stream selected local files to a separately installed clamd service; a no-signature result is not proof of safety",
+        Files,
+        ["malware", "virus", "clamav", "clamd", "local"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "cancel-threat-scan",
+        "Cancel Local ClamAV Scan",
+        "Stop the active bounded local ClamAV scan",
+        Operations,
+        ["malware", "virus", "clamav", "stop"],
+        [],
+        [H]
+    ),
+    command!(
+        "create-sanitized-copy",
+        "Create Sanitized Copy…",
+        "Preserve the source and create a verified no-overwrite JPEG, PNG, or WebP copy without reviewed metadata blocks",
+        Files,
+        ["privacy", "remove metadata", "exif", "xmp", "copy"],
+        [],
+        [F, H]
+    ),
+    command!(
+        "cancel-sanitization",
+        "Cancel Metadata Sanitization",
+        "Stop a batch after its current item while keeping already verified copies and every source unchanged",
+        Operations,
+        ["privacy", "metadata", "stop", "batch"],
+        [],
+        [H]
+    ),
+    command!(
         "checksum",
         "Calculate Checksums…",
         "Calculate or compare file checksums",
@@ -1356,6 +1401,50 @@ mod tests {
             );
             assert!(!definition.name.trim().is_empty());
         }
+    }
+
+    #[test]
+    fn phase_18n_ui_registers_truthful_local_analysis_commands() {
+        for action in [
+            "win.inspect-privacy-safety",
+            "win.scan-threats",
+            "win.cancel-threat-scan",
+        ] {
+            let definition = command(action).unwrap_or_else(|| panic!("missing {action}"));
+            assert!(definition.searchable);
+            assert!(!definition.name.trim().is_empty());
+            assert!(!definition.description.trim().is_empty());
+        }
+        let scan = command("win.scan-threats").expect("local ClamAV command");
+        assert!(scan.description.contains("separately installed clamd"));
+        assert!(scan.description.contains("not proof of safety"));
+        assert!(scan.placements.contains(&CommandPlacement::FileContext));
+        assert!(scan.placements.contains(&CommandPlacement::HeaderMenu));
+    }
+
+    #[test]
+    fn phase_18o_ui_explains_inspection_scope_without_a_safety_claim() {
+        let inspect = command("win.inspect-privacy-safety").expect("inspection command");
+        assert!(inspect.description.contains("evidence"));
+        assert!(
+            inspect
+                .description
+                .contains("without declaring a file safe")
+        );
+        assert!(inspect.placements.contains(&CommandPlacement::FileContext));
+        assert!(inspect.placements.contains(&CommandPlacement::HeaderMenu));
+    }
+
+    #[test]
+    fn phase_18p_ui_registers_source_preserving_sanitization_commands() {
+        let create = command("win.create-sanitized-copy").expect("sanitized-copy command");
+        let cancel = command("win.cancel-sanitization").expect("cancel sanitization command");
+        assert!(create.description.contains("Preserve the source"));
+        assert!(create.description.contains("no-overwrite"));
+        assert!(create.description.contains("JPEG, PNG, or WebP"));
+        assert!(create.placements.contains(&CommandPlacement::FileContext));
+        assert!(create.placements.contains(&CommandPlacement::HeaderMenu));
+        assert!(cancel.description.contains("already verified copies"));
     }
 
     #[test]
