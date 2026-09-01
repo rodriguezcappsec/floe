@@ -67,7 +67,7 @@ Filename search, content search, metadata indexing, checksums, integrity tools,
 and duplicate detection are application-owned local operations. Floe does not
 upload filenames, hashes, or file contents to perform them.
 
-Features called Private Mode, Sensitive Folder, Encrypted Vault, or Open Safely
+Features called Private Mode, Sensitive Folder, Encrypted Vault
 must not appear until their stated protection is real. Floe prefers an honest
 limitation over a reassuring label with no enforceable mechanism.
 

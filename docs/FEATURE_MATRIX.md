@@ -630,15 +630,15 @@ advanced predicates and explicit Match Case control.
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | Sandboxed thumbnail/preview provider policy | `COMPLETE` | 18L | Production external providers require Bubblewrap with exact target-only read, private writable output/temp, cleared environment, no network/session namespaces, time/output bounds, process-group termination, and fail-closed setup. |
-| Open Safely | `PLANNED` | 18M | Restricted external launch using reviewed Bubblewrap/Landlock/portal mechanisms and explicit unsupported fallback. |
-| Sandbox status indicator | `PLANNED` | 18M/20 | Never claim sandboxing when restriction setup fails; state is not color-only. |
+| Open Safely | `DEFERRED` | 18M | Intentionally removed from current product scope; ordinary Open/Open With remain and no restricted-launch claim is made. |
+| Open Safely status indicator | `DEFERRED` | 18M | No indicator is exposed because the corresponding restricted-launch feature is intentionally absent. |
 | Download/untrusted-origin indicator | `PLANNED` | 18N | Use only trustworthy platform metadata and explain evidence. |
 | Executable/script/desktop/AppImage warning | `COMPLETE` | 18N | Combines content type, executable permission, and reviewed active types; explains evidence without a malware verdict. |
 | Double-extension warning | `COMPLETE` | 18N | Flags document-looking active suffixes such as `invoice.pdf.sh`; reviewed compound extensions avoid common false positives. |
 | Extension/MIME mismatch | `COMPLETE` | 18N | Conservative extension/content-type signal only; never proof of malicious intent. |
 | Unicode/invisible/misleading filename analysis | `COMPLETE` | 18N | Detects bidi and invisible/control hazards while preserving exact raw path identity. |
 | Safe escaped filename display | `COMPLETE` | 18N/10 | Non-UTF-8 and control bytes receive bounded escaped evidence text; display text never reconstructs a path. |
-| Optional quarantine area | `DEFERRED` | 18N/19 | Only with restore/original-path records and Open Safely; never market as antivirus quarantine. |
+| Optional quarantine area | `DEFERRED` | 18N/19 | Only with restore/original-path records and a separately reviewed restricted-review flow; never market as antivirus quarantine. |
 | Inspect Read-Only | `COMPLETE` | 9/18L | Built-ins stay passive; external thumbnail/preview providers run only inside the active required Bubblewrap policy and fail unavailable rather than fall back. |
 | Antivirus protection claim | `NOT APPLICABLE` | Policy | Floe does not claim antivirus protection; optional separately installed local `clamd` scanning reports only engine evidence and never calls a no-signature result safe. |
 | Optional local ClamAV scanning | `COMPLETE` | 18N2 | Streams bounded no-follow regular-file bytes to reviewed local `clamd` Unix sockets, revalidates identity, preserves cancellation as a distinct outcome, routes results by process-wide generation across windows, and performs no automatic mutation or upload. Settings persist bounded 1–16384 MiB per-file and 1–1024 GiB total-request limits with conservative 1/16 GiB defaults; each scan snapshots and reports its exact limits while independent daemon limits remain authoritative. |
@@ -748,7 +748,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Detailed errors available | `COMPLETE` | 1-20B2 | Failure toasts show a concise summary and a Details action carrying its own bounded memory-only technical payload, avoiding stale-toast races; the dialog remains non-blocking. |
 | Hidden/filter/search mode obvious | `COMPLETE` | 1/13A/13B | Hidden toggle, Text/Glob/Regex filter mode, and distinct filename-search mode expose visible scope, Search, Stop, Close, progress, and result state. |
 | Active pane/tab obvious | `COMPLETE` | 7B/7E/20B2 | Active-side text, pane labels, focus restoration, and a high-contrast outline provide redundant non-color ownership cues. |
-| Private/vault/sandbox status obvious | `PLANNED` | 18H/18K/18M | Text/icon/accessibility state, never color alone. |
+| Private/vault status obvious | `PLANNED` | 18H/18K | Text/icon/accessibility state, never color alone. |
 | Watcher storms coalesced | `COMPLETE` | 6S | One 140 ms cancellable timer deduplicates paths and caps 16,384 events, 4,096 paths, and 1,024 rename pairs before conservative overflow reconciliation. |
 | Context menus selection-aware | `COMPLETE` | 6J | Existing multi-selection is preserved when appropriate. |
 | Upgrades preserve settings | `COMPLETE` | 6D/6K2/20B2/21B | Versioned preference, bookmark, and session decoders plus Phase 21B private no-follow atomic migration and backup rules cover supported formats. |
@@ -783,7 +783,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Vault auto-lock | `PLANNED` | 18I | Safe mount/unmount and open-handle lifecycle. |
 | Private preview/search | `PLANNED` | 18J | Privacy-safe cache/history/index architecture and vault lifecycle. |
 | Sandboxed Preview | `PLANNED` | 18L | Explicit provider process boundary and enforceable restriction policy. |
-| Open Safely | `PLANNED` | 18M | Defined sandbox policy and truthful failure/unsupported behavior. |
+| Open Safely | `DEFERRED` | 18M | Intentionally outside current product scope after compatibility and UI-cost review. |
 | Secure Share | `PLANNED` | 18Q | Metadata inspection, sanitization, encryption, recipients, checksum, safe output. |
 | Integrity monitoring | `COMPLETE` | 18U | Explicit private baselines plus bounded coalesced same-device watcher and rescan-required gaps. |
 | Copy and Verify | `COMPLETE` | 18V | Existing safe copy engine plus source/destination revalidation and reviewed streaming SHA-256. |

@@ -138,7 +138,7 @@ use different development-package names.
   empty-item permanent deletion, and Unix mode changes; previews, external
   tools, archives, ownership, ACL/xattr, and recursive administrator copy remain
   unavailable.
-- Installed thumbnail/Preview helpers require Bubblewrap and fail unavailable if the boundary cannot start. Ordinary **Open** is not sandboxed and remains a normal desktop launch; **Open Safely** is not implemented.
+- Installed thumbnail/Preview helpers require Bubblewrap and fail unavailable if the boundary cannot start. Ordinary **Open** and **Open With** are not sandboxed and remain normal desktop launches; the proposed Open Safely workflow was intentionally removed from current scope.
 - Encrypted Vault, Sensitive Folder, user-facing Private Mode, Secure Share, and portable encryption are unavailable.
 - Protected Folder is an accidental-change guardrail, not encryption or access
   control. Permanent deletion is not secure erase.
@@ -168,4 +168,4 @@ and [AGENTS.md](./AGENTS.md) before changing the project.
 
 ## Project status
 
-Phase 23H multi-window runtime/session hardening and Phases 18L, 18N/18N2, 18O, and 18P's bounded local privacy/safety tools are implemented. Phase 18M **Open Safely** is the sole recommended next phase. The [Roadmap](./docs/ROADMAP.md) is the sequencing authority; code and tests determine completion.
+Phase 23H multi-window runtime/session hardening and Phases 18L, 18N/18N2, 18O, and 18P's bounded local privacy/safety tools are implemented. Open Safely was intentionally removed from current scope; Phase 18R **Permission Auditor** is the sole recommended next phase. The [Roadmap](./docs/ROADMAP.md) is the sequencing authority; code and tests determine completion.

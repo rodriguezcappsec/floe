@@ -2287,3 +2287,24 @@ Replace the fixed 1 GiB per-file and 16 GiB per-request ClamAV limits with persi
 ## Completion
 
 - 2026-08-31: Complete. Bounded version-18 preferences, immutable request limits, exact skip/report wording, searchable accessible Settings controls, direct report-to-Settings action, user/security documentation, focused sparse-file/fake-clamd regressions, real-GTK accessibility, full Rust/Clippy/migration/docs/diff gates all pass. Phase 18M remains the sole NEXT phase and was not started.
+
+---
+
+# Decision: Remove Open Safely from current scope
+
+Status: **COMPLETE**
+
+## User-authorized scope
+
+Remove the uncommitted Phase 18M restricted application-launch feature because
+its compatibility, policy, and interface footprint adds more complexity than
+daily-use value. Preserve ordinary Open/Open With and the independent Phase 18L
+fail-closed sandbox for external thumbnail/Preview providers.
+
+## Completion
+
+- 2026-09-01: The Phase 18M worker, commands, menus, dialog, persistent activity
+  state, tests, dependency feature, and implementation claims were removed.
+  Roadmap and user/security documentation record the product decision as
+  DEFERRED rather than recommending reimplementation. Exactly Phase 18R
+  Permission Auditor is NEXT.

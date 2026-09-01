@@ -736,7 +736,7 @@ Select one or more items and open **Privacy & Safety** from the right-click menu
   Privacy/ClamAV reports or **Reveal** for a created sanitized copy. Outcomes remain
   visible after switching away from and returning to Floe.
 
-External thumbnail and Preview helpers require an active Bubblewrap boundary. If Bubblewrap is absent or prohibited by the host, those provider-backed results are unavailable and Floe uses its generic fallback; it never silently runs the helper unsandboxed. Normal **Open** remains an ordinary desktop application launch. **Open Safely** is the next planned, separate capability.
+External thumbnail and Preview helpers require an active Bubblewrap boundary. If Bubblewrap is absent or prohibited by the host, those provider-backed results are unavailable and Floe uses its generic fallback; it never silently runs the helper unsandboxed. Normal **Open** and **Open With** remain ordinary desktop application launches. Open Safely was intentionally removed from current scope after its compatibility and interface cost outweighed its daily-use value.
 
 Use **Customize Context Menus…** to hide or show the **Privacy & Safety** right-click submenu. This does not remove the same commands from the main menu or Command Palette.
 
@@ -793,5 +793,6 @@ optional service does not disable ordinary local browsing.
 
 For development and diagnostic commands, see
 [Developing Floe](./DEVELOPMENT.md). For exact implementation status, see the
-- Open Safely, user-facing Private Mode, Sensitive Folders, encrypted vaults,
-  and portable encryption are planned security work, not current claims.
+- User-facing Private Mode, Sensitive Folders, encrypted vaults, and portable
+  encryption are planned security work, not current claims. Open Safely is
+  intentionally deferred and is not a current or recommended feature.

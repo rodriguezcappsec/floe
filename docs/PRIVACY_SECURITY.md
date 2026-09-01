@@ -3,7 +3,8 @@
 Status: authoritative product-wide security architecture. Phase 18A and runtime
 Phases 18L, 18N/18N2, 18O, 18P, and 18T–18Y are **COMPLETE** within their
 documented boundaries. Cryptography, vaults, user-facing Private Mode/Sensitive
-Folder, Open Safely, and later security capabilities remain **PLANNED**. This
+Folder and later security capabilities remain **PLANNED**. Open Safely is
+intentionally **DEFERRED** and outside the current product scope. This
 document does not select a cryptographic library, vault backend, or credential
 backend.
 
@@ -304,7 +305,7 @@ upload hashes, paths, or content.
 
 ### PLANNED and unavailable today
 
-Portable encryption, recipient encryption, encrypted vaults, recovery keys, privacy sessions, Sensitive Folders, Private Mode, Privacy Lock, privacy-safe caches and history, sandboxed providers, Open Safely, suspicious-file analysis, metadata sanitization, permission auditing, sensitive-content scanning remain planned. No current Cargo dependency implements cryptography or a sandbox.
+Portable encryption, recipient encryption, encrypted vaults, recovery keys, privacy sessions, Sensitive Folders, Private Mode, Privacy Lock, privacy-safe caches and history, sandboxed providers, suspicious-file analysis, metadata sanitization, permission auditing, sensitive-content scanning remain planned. No current Cargo dependency implements cryptography or a sandbox.
 
 ## Security objectives and intended protections
 
@@ -312,7 +313,7 @@ After their planned phases are complete and audited, Floe intends to:
 
 - protect encrypted-file and locked-vault plaintext against offline access to copied ciphertext or a powered-off or lost storage device, subject to credential strength and documented metadata leakage;
 - keep passwords, private identities, recovery material, and decrypted keys out of configuration, logs, process arguments, notifications, and ordinary persistence;
-- prevent untrusted providers and Open Safely targets from receiving unrelated filesystem, vault, network, device, or write access beyond a documented sandbox policy;
+- prevent untrusted providers from receiving unrelated filesystem, vault, network, device, or write access beyond a documented sandbox policy;
 - reduce Floe-owned traces for Sensitive Folders and Private Mode without calling those modes encryption;
 - report evidence-based suspicious file traits, permission exposure, and privacy metadata without declaring a file malicious;
 - preserve originals and report exact partial outcomes when encryption, sanitization, transfer, verification, recovery, or destructive work fails;
@@ -364,7 +365,7 @@ The normal desktop user's kernel and session are trusted while sensitive plainte
 ### Phase 19B external-action boundary
 
 Custom actions are explicit unprivileged process launches, not plugins,
-sandboxes, Open Safely, or administrator jobs. Floe persists at most 32
+sandboxes or administrator jobs. Floe persists at most 32
 definitions in its existing private atomic preference file: user-visible name,
 executable, one argument per record item, file/folder and MIME eligibility, and
 multi-selection policy. Definitions cannot contain environment assignments or
@@ -701,11 +702,11 @@ applications. Floe clears a cut clipboard after it queues the move as a
 best-effort lifecycle action, never as an erasure claim. Future Sensitive and
 Private policy must clear or visibly scope both internal and desktop state.
 
-## Sandboxed providers and Open Safely
+## Sandboxed providers
 
-Status: **IMPLEMENTED for external thumbnail and Preview providers; Open Safely remains PLANNED**. Phase 18L requires `/usr/bin/bwrap` or `/bin/bwrap`, clears the environment, unshares all namespaces including network and session IPC, mounts `/usr` read-only, grants only the exact source at `/run/floe/input`, grants only a private output directory at `/run/floe/output`, uses private `/tmp`, and retains timeout, output, identity-revalidation, cancellation, and process-group termination limits. If Bubblewrap is missing, unusable, or policy setup fails, Floe reports the provider unavailable and never retries with ordinary user authority.
+Status: **IMPLEMENTED for external thumbnail and Preview providers**. Phase 18L requires `/usr/bin/bwrap` or `/bin/bwrap`, clears the environment, unshares all namespaces including network and session IPC, mounts `/usr` read-only, grants only the exact source at `/run/floe/input`, grants only a private output directory at `/run/floe/output`, uses a private `/tmp`, and retains timeout, output, identity-revalidation, cancellation, and process-group termination limits. If Bubblewrap is missing, unusable, or policy setup fails, Floe reports the provider unavailable and never retries with ordinary user authority.
 
-This boundary restricts installed helper access; it does not prove a helper is bug-free or make its output trusted. The current verification host has `/usr/bin/bwrap`, but its sandbox blocks the required network namespace with `NETLINK_ROUTE ... Operation not permitted`. Deterministic policy and controlled-fixture gates pass; a live sandboxed provider run remains an explicit native-environment limitation and Floe does not fall back to direct execution.
+This boundary restricts installed helper access; it does not prove a helper is bug-free or make its output trusted. Deterministic policy and controlled-fixture gates pass; Floe does not fall back to direct unsandboxed execution.
 
 ### Provider execution boundary
 
@@ -727,11 +728,10 @@ Active content, macros, scripts, archive entries, links, embedded objects, and n
 
 The implementation phase must compare portals, Bubblewrap, Landlock, namespaces, resource controls, and packaging constraints. Merely invoking one mechanism is not a security design. Unavailable support produces a truthful unavailable result.
 
-### Open Safely
+### Restricted application launch
 
-Open Safely is a distinct action that launches a compatible external application only after an actual restriction policy is active. Its UI states the granted input, write locations, network and device policy, and known limits.
+Floe intentionally does not expose an Open Safely application-launch workflow. Ordinary **Open** and **Open With** use normal desktop application authority and must never be described as sandboxed. Reintroducing restricted application launch requires a new explicit product decision and a separately reviewed threat model.
 
-Sandbox setup failure stops Open Safely. A user may separately choose normal Open after a warning, but Floe must never silently convert the safe action into a normal launch or retain a sandbox indicator.
 
 Child processes, D-Bus and session-bus access, portals, file chooser grants, downloads, save and export behavior, and cleanup require tests. An unsupported application is reported unsupported, not sandboxed.
 
@@ -858,7 +858,7 @@ Status: **PLANNED**.
 
 - Suspicious-file analysis combines reliable origin metadata, executable bits and content type, MIME and extension mismatch, desktop or script traits, double extensions, Unicode bidi or invisible controls, deceptive whitespace, and safe escaped filename display.
 - A warning states evidence and uncertainty. “Type does not match extension” or “potentially executable” is not “malware.” Legitimate international names are not rejected merely for containing Unicode.
-- A future quarantine is a Floe-managed restricted location with exact original identity, restore, delete, and Open Safely-only behavior. It is not antivirus quarantine.
+- A future quarantine is a Floe-managed restricted location with exact original identity, restore, delete, and restricted review behavior. It is not antivirus quarantine.
 - The Privacy Inspector reports format-specific evidence such as GPS, camera or device data, timestamps, author, organization, creator, comments, revisions, embedded thumbnails, and media tags.
 - Absence of a finding does not prove that a file has no identifying metadata.
 - Create Sanitized Copy preserves the original, lists targeted fields, uses a reviewed format-specific writer, finalizes safely, and verifies supported fields. “All metadata removed” is prohibited without exhaustive format-specific verification.
@@ -1065,7 +1065,7 @@ Floe must not claim:
 - vault protection from same-user malware, external applications, screen capture, or key capture while unlocked;
 - encryption when data is merely hidden, renamed, obfuscated, permission-gated, Sensitive, Private, or Protected;
 - that Sensitive Folder is encryption, Private Mode is cryptographic privacy, or Protected Folder resists attackers;
-- sandbox security, Open Safely, or sandboxed preview when the actual restriction did not start or silently degraded;
+- sandbox security or sandboxed preview when the actual restriction did not start or silently degraded;
 - antivirus, malware detection, intrusion detection, compromise detection, or quarantine scanning without a real implementation;
 - that MIME mismatch, executable state, Unicode, origin metadata, a scanner heuristic, or a permission finding proves malicious intent;
 - exhaustive metadata removal or privacy merely because known fields were removed;
@@ -1077,7 +1077,7 @@ Floe must not claim:
 - that successful polkit or mount authentication gives Floe ownership of desktop-cached credentials;
 - that using `age`, Bubblewrap, Landlock, portals, FUSE, a password dialog, or any named dependency alone establishes protection.
 
-Language is part of security correctness. Use **Encrypted Vault** only for real encrypted storage, **Sensitive Folder** only for reduced Floe-owned traces, **Protected Folder** only for accidental-change guardrails, **Private Mode** only for trace minimization, **Open Safely** only for an active restriction policy, and **Integrity verified** only after real verification.
+Language is part of security correctness. Use **Encrypted Vault** only for real encrypted storage, **Sensitive Folder** only for reduced Floe-owned traces, **Protected Folder** only for accidental-change guardrails, **Private Mode** only for trace minimization, and **Integrity verified** only after real verification.
 
 ## Dependency, lifecycle, and audit gates
 

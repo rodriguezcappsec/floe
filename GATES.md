@@ -2065,3 +2065,29 @@ connections; lifecycle evidence passed and no semantic E2E claim is made.
   CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && bash packaging/tests/test-migrations.sh && python3 scripts/check-docs.py --strict && git diff --check && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
   EXPECT: `/test result: ok/`
   EVIDENCE: PASS. Format, workspace check, strict all-target/all-feature Clippy, 660 application tests with 20 intentional graphical ignores, 21 controller tests, 177 core tests, six duplicate workflow tests, migrations, strict docs, diff hygiene, sole Phase 18M NEXT, and focused real-GTK Settings accessibility contract pass.
+
+# Open Safely removal decision
+
+- [x] OR1: No Open Safely application action, worker, dialog, background state,
+  command registry entry, or dedicated source module remains in executable code.
+  CHECK: `! rg -n 'open-safely|Open Safely|SafeOpen|safe_open' crates/app/src`
+  EXPECT: ``
+  EVIDENCE: PASS. Repository search finds no Open Safely action, type, module,
+  command identifier, or presentation string in executable application source.
+
+- [x] OR2: Phase 18L external provider sandboxing and ordinary Open/Open With
+  remain present and compile after the restricted application launcher removal.
+  CHECK: `rg -n 'SandboxMode::Required|open-with|add_action\("open"' crates/app/src/system_thumbnailer.rs crates/app/src/browser.rs`
+  EXPECT: `/open-with/`
+  EVIDENCE: PASS. `SandboxMode::Required` remains in the system thumbnailer;
+  browser actions `open` and `open-with` remain registered and tested.
+
+- [x] OR3: Persistent documentation marks Open Safely DEFERRED, exactly Phase
+  18R NEXT, and all formatting/build/lint/test/docs/diff gates pass.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && python3 scripts/check-docs.py --strict && sh scripts/render-docs.sh --check && git diff --check && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1 && rg -n '18M.*DEFERRED|18R.*NEXT' docs/ROADMAP.md`
+  EXPECT: `/18R.*NEXT/`
+  EVIDENCE: PASS. Format, workspace check, strict all-target/all-feature Clippy,
+  full workspace tests, strict 21-file docs, rendered docs, and diff hygiene
+  pass. The workspace suite then passed eight consecutive reruns: 660 application
+  tests with 20 intentional graphical ignores, 21 controller tests, 177 core
+  tests, and six duplicate-workflow tests. Roadmap has exactly Phase 18R NEXT.

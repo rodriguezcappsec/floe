@@ -1313,12 +1313,16 @@ is active, and **Integrity verified** only after verification completes.
 
 ## Active status
 
-Last updated: `2026-08-31`
+Last updated: `2026-09-01`
 
-Current phase: **Phase 23H and Phases 18L/18N/18N2/18O/18P complete**
+Current phase: **Open Safely intentionally removed; Phase 18R next**
 
 Completed this session:
 
+- Removed the uncommitted Phase 18M Open Safely implementation after product
+  review found its compatibility, policy, and interface surface outweighed its
+  daily-use value. Ordinary Open/Open With remain unchanged; Phase 18L's
+  fail-closed external thumbnail/Preview provider sandbox remains intact.
 - Fixed transient background feedback for read-only Properties, Privacy inspection,
   local ClamAV, and metadata sanitization. A dedicated accessible panel below the tabs
   retains separate Running/Stopping/terminal rows across focus, navigation, selection,
@@ -1354,7 +1358,9 @@ Recommended next task:
   host AT-SPI bus refuses connections. The focused real-GTK Background Activity
   accessibility/reveal gate and isolated KDE close-survivor/restore smoke both pass.
 
-- **Phase 18M — Open Safely.** It must reuse the actual Phase 18L restriction boundary, show persistent granted/denied capabilities, and never silently turn a failed restricted launch into ordinary Open.
+- **Phase 18R — Permission Auditor.** Explain risky Unix modes, ownership,
+  ACL/xattr/capability exposure, and conservative fixes using the existing 10D
+  permission boundary; preserve symlink, cancellation, and partial-edit safety.
 
 Historical completed-session notes:
 
@@ -1603,7 +1609,7 @@ Important decisions:
 - Logs and technical details may contain sensitive paths and require review and
   redaction before sharing.
 - Flatpak, compositor-specific features, remote/MTP, cryptography, vaults,
-  sandboxing, Open Safely, and Secure Share remain unavailable or deferred.
+  sandboxing and Secure Share remain unavailable or deferred.
 
 Known issues:
 

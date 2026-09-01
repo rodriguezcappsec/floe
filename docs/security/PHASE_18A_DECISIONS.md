@@ -100,10 +100,10 @@ credential backend, vault backend, or sandbox mechanism.
   filename/structure leakage analysis; large/random writes; rename/truncate;
   crash/full-disk/disconnect; concurrent handles; password change; recovery.
 
-### SEC-18A-06 — Provider sandbox and Open Safely boundary
+### SEC-18A-06 — Provider sandbox boundary
 
-- **Status:** Bubblewrap is a leading candidate; portals and Landlock are
-  complementary candidates. Final selection is deferred to Phases 18L–18M.
+- **Status:** Phase 18L selected Bubblewrap for external providers; restricted
+  application launch is intentionally outside current scope.
 - **Context:** Current in-process parsers and system thumbnail providers run with
   normal user authority. A helper process alone is not a sandbox.
 - **Decision:** A restricted action must establish a verifiable deny-by-default
@@ -218,8 +218,8 @@ credential backend, vault backend, or sandbox mechanism.
 - **Decision:** **Encrypted Vault** means real encrypted storage; **Sensitive
   Folder** means reduced Floe-owned traces; **Protected Folder** means
   accidental-change guardrails; **Private Mode** means history/cache
-  minimization; **Open Safely** requires an active restriction policy; and
-  **Integrity verified** requires completed verification. State is textual and
+  minimization; and **Integrity verified** requires completed verification.
+  Ordinary Open/Open With must never be described as sandboxed. State is textual and
   accessible, not color-only.
 - **Rationale:** Precise language is part of the security boundary.
 - **Rejected/deferred:** Marketing euphemisms, fear scores, “secure erase,”

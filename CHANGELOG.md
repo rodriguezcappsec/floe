@@ -46,6 +46,10 @@ does not promise API or format stability beyond documented migration behavior.
 
 ### Changed
 
+- Removed the proposed Open Safely application-launch workflow from current
+  product scope. Ordinary Open/Open With remain normal desktop launches; the
+  existing fail-closed sandbox for external thumbnail/Preview providers remains.
+
 - Fixed the location-completion `GtkPopover` remaining parented to a finalizing
   `GtkEntry`. All manually parented browser popovers now detach before an
   allowed window close; a native KDE Wayland close/survivor regression covers it.
@@ -71,7 +75,9 @@ does not promise API or format stability beyond documented migration behavior.
 
 ### Known limitations
 
-- Flatpak, compositor-specific, remote/network, Android/MTP, cryptography, vault, user-facing Private Mode, Sensitive Folder, Open Safely, and Secure Share remain unavailable.
+- Flatpak, compositor-specific, remote/network, Android/MTP, cryptography, vault,
+  user-facing Private Mode, Sensitive Folder, and Secure Share remain unavailable.
+  Open Safely is intentionally outside current product scope.
 - Installed external providers require usable Bubblewrap namespaces. When the boundary is prohibited, provider-backed results remain unavailable rather than running unsandboxed.
 - ClamAV scanning requires a separately installed and running local `clamd`; Floe is not antivirus protection and no-signature is not proof of safety.
 - Complete Orca, translated RTL, physical fractional-scale, and physical media
