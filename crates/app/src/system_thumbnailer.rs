@@ -49,6 +49,8 @@ pub(crate) enum SystemThumbnailerError {
     ContentType(String),
     #[error("thumbnailer process could not be started: {0}")]
     Spawn(#[source] io::Error),
+    #[error("provider sandbox is unavailable")]
+    SandboxUnavailable,
     #[error("thumbnailer process failed with status {0}")]
     ProcessFailed(i32),
     #[error("thumbnailer process exceeded its time limit")]
@@ -71,13 +73,28 @@ pub(crate) struct ProviderOutput {
 struct ExecutionConfig {
     temporary_root: PathBuf,
     timeout: Duration,
+    sandbox: SandboxMode,
+}
+
+#[derive(Clone, Debug)]
+enum SandboxMode {
+    Required(PathBuf),
+    #[cfg(test)]
+    DirectFixture,
 }
 
 impl ExecutionConfig {
+    #[cfg(not(test))]
     fn production() -> Self {
         Self {
             temporary_root: std::env::temp_dir(),
             timeout: PROVIDER_TIMEOUT,
+            sandbox: SandboxMode::Required(
+                [PathBuf::from("/usr/bin/bwrap"), PathBuf::from("/bin/bwrap")]
+                    .into_iter()
+                    .find(|path| path.is_file())
+                    .unwrap_or_default(),
+            ),
         }
     }
 }
@@ -137,12 +154,15 @@ impl SystemThumbnailerRegistry {
         requested_edge: u32,
         cancelled: impl Fn() -> bool,
     ) -> Result<ProviderOutput, SystemThumbnailerError> {
-        self.generate_with_config(
-            source,
-            requested_edge,
-            &ExecutionConfig::production(),
-            cancelled,
-        )
+        #[cfg(not(test))]
+        let config = ExecutionConfig::production();
+        #[cfg(test)]
+        let config = ExecutionConfig {
+            temporary_root: std::env::temp_dir(),
+            timeout: PROVIDER_TIMEOUT,
+            sandbox: SandboxMode::DirectFixture,
+        };
+        self.generate_with_config(source, requested_edge, &config, cancelled)
     }
 
     pub(crate) fn supports_path(&self, source: &Path) -> Result<(), SystemThumbnailerError> {
@@ -209,20 +229,82 @@ impl SystemThumbnailer {
             return Err(SystemThumbnailerError::Cancelled);
         }
         let temporary = TemporaryOutput::create(&config.temporary_root)?;
-        let uri = gio::File::for_path(source).uri();
+        let (provider_source, provider_output) = match &config.sandbox {
+            SandboxMode::Required(bwrap) if bwrap.as_os_str().is_empty() => {
+                return Err(SystemThumbnailerError::SandboxUnavailable);
+            }
+            SandboxMode::Required(_) => (
+                Path::new("/run/floe/input"),
+                Path::new("/run/floe/output/thumbnail.png"),
+            ),
+            #[cfg(test)]
+            SandboxMode::DirectFixture => (source, temporary.output.as_path()),
+        };
+        let uri = gio::File::for_path(provider_source).uri();
         let argv = expand_argv(
             &self.argv,
-            source,
+            provider_source,
             uri.as_str(),
-            &temporary.output,
+            provider_output,
             requested_edge,
         )?;
         let (program, arguments) = argv
             .split_first()
             .ok_or_else(|| SystemThumbnailerError::InvalidDefinition("empty Exec".to_owned()))?;
-        let mut child = Command::new(program)
-            .args(arguments)
-            .current_dir(&temporary.directory)
+        let mut command = match &config.sandbox {
+            SandboxMode::Required(bwrap) => {
+                let mut command = Command::new(bwrap);
+                command.args([
+                    OsStr::new("--die-with-parent"),
+                    OsStr::new("--new-session"),
+                    OsStr::new("--unshare-all"),
+                    OsStr::new("--clearenv"),
+                    OsStr::new("--proc"),
+                    OsStr::new("/proc"),
+                    OsStr::new("--dev"),
+                    OsStr::new("/dev"),
+                    OsStr::new("--tmpfs"),
+                    OsStr::new("/tmp"),
+                    OsStr::new("--ro-bind"),
+                    OsStr::new("/usr"),
+                    OsStr::new("/usr"),
+                    OsStr::new("--symlink"),
+                    OsStr::new("usr/bin"),
+                    OsStr::new("/bin"),
+                    OsStr::new("--symlink"),
+                    OsStr::new("usr/lib"),
+                    OsStr::new("/lib"),
+                    OsStr::new("--symlink"),
+                    OsStr::new("usr/lib"),
+                    OsStr::new("/lib64"),
+                    OsStr::new("--dir"),
+                    OsStr::new("/run"),
+                    OsStr::new("--dir"),
+                    OsStr::new("/run/floe"),
+                    OsStr::new("--ro-bind"),
+                    source.as_os_str(),
+                    OsStr::new("/run/floe/input"),
+                    OsStr::new("--bind"),
+                    temporary.directory.as_os_str(),
+                    OsStr::new("/run/floe/output"),
+                    OsStr::new("--setenv"),
+                    OsStr::new("PATH"),
+                    OsStr::new("/usr/bin:/bin"),
+                    OsStr::new("--chdir"),
+                    OsStr::new("/tmp"),
+                    OsStr::new("--"),
+                ]);
+                command.arg(program).args(arguments);
+                command
+            }
+            #[cfg(test)]
+            SandboxMode::DirectFixture => {
+                let mut command = Command::new(program);
+                command.args(arguments).current_dir(&temporary.directory);
+                command
+            }
+        };
+        let mut child = command
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -745,6 +827,7 @@ mod tests {
                 &ExecutionConfig {
                     temporary_root: temporary.clone(),
                     timeout: Duration::from_secs(2),
+                    sandbox: SandboxMode::DirectFixture,
                 },
                 || false,
             )
@@ -797,6 +880,7 @@ mod tests {
                     &ExecutionConfig {
                         temporary_root: temporary.clone(),
                         timeout,
+                        sandbox: SandboxMode::DirectFixture,
                     },
                     || polls.fetch_add(1, Ordering::Relaxed) >= cancellation_after,
                 )
@@ -840,6 +924,7 @@ mod tests {
                 &ExecutionConfig {
                     temporary_root: temporary.clone(),
                     timeout: Duration::from_millis(60),
+                    sandbox: SandboxMode::DirectFixture,
                 },
                 || false,
             ),
@@ -891,6 +976,7 @@ mod tests {
                         &ExecutionConfig {
                             temporary_root: temporary.clone(),
                             timeout: Duration::from_secs(1),
+                            sandbox: SandboxMode::DirectFixture,
                         },
                         || false,
                     )
@@ -907,5 +993,110 @@ mod tests {
         let error = read_regular_file_bounded(&oversized, MAX_PROVIDER_OUTPUT_BYTES)
             .expect_err("oversized output should be rejected");
         assert_eq!(error.kind(), io::ErrorKind::FileTooLarge);
+    }
+
+    #[test]
+    fn phase_18l_policy_fails_closed_without_a_sandbox_launcher() {
+        let root = tempdir().expect("temporary directory");
+        let data = root.path().join("data");
+        let temporary = root.path().join("temporary");
+        fs::create_dir(&temporary).expect("temporary root");
+        let source = root.path().join("source.txt");
+        fs::write(&source, PNG_1X1).expect("source fixture");
+        write_definition(
+            &data,
+            "provider.thumbnailer",
+            "/usr/bin/cp %i %o",
+            "text/plain",
+        );
+        let registry = SystemThumbnailerRegistry::discover_from_data_dirs(&[data]);
+        let error = registry
+            .generate_with_config(
+                &source,
+                32,
+                &ExecutionConfig {
+                    temporary_root: temporary,
+                    timeout: Duration::from_secs(1),
+                    sandbox: SandboxMode::Required(PathBuf::new()),
+                },
+                || false,
+            )
+            .expect_err("missing sandbox must not run provider directly");
+        assert!(matches!(error, SystemThumbnailerError::SandboxUnavailable));
+    }
+
+    #[test]
+    fn phase_18l_presentation_keeps_provider_failure_states_distinct() {
+        let unavailable = SystemThumbnailerError::SandboxUnavailable.to_string();
+        let timed_out = SystemThumbnailerError::TimedOut.to_string();
+        let unsupported = SystemThumbnailerError::Unsupported.to_string();
+        let cancelled = SystemThumbnailerError::Cancelled.to_string();
+
+        assert!(unavailable.contains("sandbox"));
+        assert!(unavailable.contains("unavailable"));
+        assert!(timed_out.contains("time limit"));
+        assert!(unsupported.contains("no reviewed system thumbnailer"));
+        assert!(cancelled.contains("cancelled"));
+        assert_ne!(unavailable, timed_out);
+        assert_ne!(unavailable, unsupported);
+        assert!(!unavailable.contains("safe"));
+    }
+
+    #[test]
+    fn phase_18l_execution_uses_real_bubblewrap_when_available() {
+        let bwrap = PathBuf::from("/usr/bin/bwrap");
+        if !bwrap.is_file() {
+            return;
+        }
+        let usable = Command::new(&bwrap)
+            .args([
+                "--unshare-all",
+                "--ro-bind",
+                "/usr",
+                "/usr",
+                "--proc",
+                "/proc",
+                "--dev",
+                "/dev",
+                "--tmpfs",
+                "/tmp",
+                "--",
+                "/usr/bin/true",
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if !usable {
+            return;
+        }
+        let root = tempdir().expect("temporary directory");
+        let data = root.path().join("data");
+        let temporary = root.path().join("temporary");
+        fs::create_dir(&temporary).expect("temporary root");
+        let source = root.path().join("source.txt");
+        fs::write(&source, PNG_1X1).expect("source fixture");
+        write_definition(
+            &data,
+            "provider.thumbnailer",
+            "/usr/bin/cp %i %o",
+            "text/plain",
+        );
+        let registry = SystemThumbnailerRegistry::discover_from_data_dirs(&[data]);
+        let output = registry
+            .generate_with_config(
+                &source,
+                32,
+                &ExecutionConfig {
+                    temporary_root: temporary.clone(),
+                    timeout: Duration::from_secs(3),
+                    sandbox: SandboxMode::Required(bwrap),
+                },
+                || false,
+            )
+            .expect("Bubblewrap provider");
+        assert_eq!(output.bytes, PNG_1X1);
+        assert!(temporary_entries(&temporary).is_empty());
     }
 }

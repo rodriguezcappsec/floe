@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    collections::VecDeque,
     os::unix::ffi::OsStringExt,
     rc::{Rc, Weak},
 };
@@ -17,6 +18,7 @@ use crate::{
     inspector::InspectorWorker,
     locations,
     metadata::MetadataWorker,
+    operation_hub::OperationEventHub,
     operations::{OperationCallbacks, OperationController},
     preferences::{PreferenceWorker, ViewPreferences},
     preview::{PreviewProviderRegistry, PreviewWorker},
@@ -109,16 +111,24 @@ fn run_normal() -> glib::ExitCode {
     };
     let preference_worker = Rc::new(RefCell::new(preference_worker));
     let session_policy = SessionTracePolicy::from_environment();
-    let (restored_tabs, session_worker) = match SessionStoreWorker::spawn(session_policy) {
+    let (restored_tabs, session_worker) = match SessionStoreWorker::spawn_windows(session_policy) {
         Ok(result) => (result.0, Some(result.1)),
         Err(error) => {
             tracing::warn!(%error, "could not start session store; using one new tab");
-            (None, None)
+            (Vec::new(), None)
         }
     };
-    let restored_tabs = Rc::new(RefCell::new(restored_tabs));
+    let restored_tabs = Rc::new(RefCell::new(VecDeque::from(restored_tabs)));
     let session_worker = Rc::new(RefCell::new(session_worker));
     let browser_controller = Rc::new(RefCell::new(Vec::<Weak<BrowserController>>::new()));
+    let application_state = match ApplicationState::new() {
+        Ok(state) => Rc::new(state),
+        Err(error) => {
+            tracing::error!(%error, "could not start application filesystem services");
+            return glib::ExitCode::FAILURE;
+        }
+    };
+    let operation_event_hub = OperationEventHub::new(Rc::clone(&application_state));
 
     let application = adw::Application::builder()
         .application_id(APPLICATION_ID)
@@ -130,16 +140,23 @@ fn run_normal() -> glib::ExitCode {
     let session_worker_for_activate = Rc::clone(&session_worker);
     let browser_for_activate = Rc::clone(&browser_controller);
     let preferences_for_activate = view_preferences.clone();
+    let application_state_for_activate = Rc::clone(&application_state);
+    let event_hub_for_activate = Rc::clone(&operation_event_hub);
     application.connect_activate(move |application| {
-        let _controller = build_window(
-            application,
-            preferences_for_activate.clone(),
-            &preference_worker_for_activate,
-            &restored_tabs_for_activate,
-            &session_worker_for_activate,
-            &browser_for_activate,
-            None,
-        );
+        let window_count = restored_tabs_for_activate.borrow().len().max(1);
+        for _ in 0..window_count {
+            let _controller = build_window(
+                application,
+                preferences_for_activate.clone(),
+                &preference_worker_for_activate,
+                &restored_tabs_for_activate,
+                &session_worker_for_activate,
+                &browser_for_activate,
+                &application_state_for_activate,
+                &event_hub_for_activate,
+                None,
+            );
+        }
     });
 
     let preference_worker_for_open = Rc::clone(&preference_worker);
@@ -147,6 +164,8 @@ fn run_normal() -> glib::ExitCode {
     let session_worker_for_open = Rc::clone(&session_worker);
     let browser_for_open = Rc::clone(&browser_controller);
     let preferences_for_open = view_preferences.clone();
+    let application_state_for_open = Rc::clone(&application_state);
+    let event_hub_for_open = Rc::clone(&operation_event_hub);
     application.connect_open(move |application, files, _hint| {
         let controller = build_window(
             application,
@@ -155,6 +174,8 @@ fn run_normal() -> glib::ExitCode {
             &restored_tabs_for_open,
             &session_worker_for_open,
             &browser_for_open,
+            &application_state_for_open,
+            &event_hub_for_open,
             None,
         );
         match local_open_target(files) {
@@ -178,6 +199,8 @@ fn run_normal() -> glib::ExitCode {
     let session_worker_for_new = Rc::clone(&session_worker);
     let browser_for_new = Rc::clone(&browser_controller);
     let preferences_for_new = view_preferences.clone();
+    let application_state_for_new = Rc::clone(&application_state);
+    let event_hub_for_new = Rc::clone(&operation_event_hub);
     new_window.connect_activate(move |_, _| {
         if let Some(application) = application_weak.upgrade() {
             let _controller = build_window(
@@ -187,6 +210,8 @@ fn run_normal() -> glib::ExitCode {
                 &restored_tabs_for_new,
                 &session_worker_for_new,
                 &browser_for_new,
+                &application_state_for_new,
+                &event_hub_for_new,
                 None,
             );
         }
@@ -202,6 +227,8 @@ fn run_normal() -> glib::ExitCode {
     let session_worker_for_target = Rc::clone(&session_worker);
     let browser_for_target = Rc::clone(&browser_controller);
     let preferences_for_target = view_preferences.clone();
+    let application_state_for_target = Rc::clone(&application_state);
+    let event_hub_for_target = Rc::clone(&operation_event_hub);
     open_new_window.connect_activate(move |_, parameter| {
         let Some(bytes) = parameter.and_then(glib::Variant::get::<Vec<u8>>) else {
             return;
@@ -220,6 +247,8 @@ fn run_normal() -> glib::ExitCode {
             &restored_tabs_for_target,
             &session_worker_for_target,
             &browser_for_target,
+            &application_state_for_target,
+            &event_hub_for_target,
             None,
         );
         route_new_window_target(controller, path, |controller, path| {
@@ -238,6 +267,40 @@ fn run_normal() -> glib::ExitCode {
     application.add_action(&quit);
     application.set_accels_for_action("app.quit", &["<Control>q"]);
 
+    let browsers_for_shutdown = Rc::clone(&browser_controller);
+    let session_worker_for_shutdown = Rc::clone(&session_worker);
+    let preference_worker_for_shutdown = Rc::clone(&preference_worker);
+    let application_state_for_shutdown = Rc::clone(&application_state);
+    application.connect_shutdown(move |_| {
+        let (snapshots, final_preferences) = {
+            let mut registry = browsers_for_shutdown.borrow_mut();
+            registry.retain(|browser| browser.strong_count() > 0);
+            let live = registry
+                .iter()
+                .filter_map(Weak::upgrade)
+                .collect::<Vec<_>>();
+            let preferences = live.last().map(|browser| browser.preferences_snapshot());
+            let snapshots = live
+                .iter()
+                .map(|browser| browser.session_snapshot())
+                .collect::<Vec<_>>();
+            (snapshots, preferences)
+        };
+        if !snapshots.is_empty()
+            && let Some(mut worker) = session_worker_for_shutdown.borrow_mut().take()
+            && let Err(error) = worker.save_windows_before_shutdown(snapshots)
+        {
+            tracing::warn!(%error, "could not submit final multi-window session");
+        }
+        if let Some(preferences) = final_preferences
+            && let Some(worker) = preference_worker_for_shutdown.borrow().as_ref()
+            && let Err(error) = worker.save_before_shutdown(preferences)
+        {
+            tracing::warn!(%error, "could not submit final view preferences");
+        }
+        application_state_for_shutdown.cleanup_selection_transient_state();
+    });
+
     application.run()
 }
 
@@ -252,10 +315,18 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
     // Selection Mode may consume ordinary preferences for a familiar view, but
     // every chooser-local adjustment is transient and must not overwrite them.
     let preference_worker = Rc::new(RefCell::new(None));
-    let restored_tabs = Rc::new(RefCell::new(None));
+    let restored_tabs = Rc::new(RefCell::new(VecDeque::new()));
     let session_worker = Rc::new(RefCell::new(None));
     let browser_controller = Rc::new(RefCell::new(Vec::<Weak<BrowserController>>::new()));
     let completion = Rc::new(RefCell::new(None));
+    let application_state = match ApplicationState::new_selection_mode() {
+        Ok(state) => Rc::new(state),
+        Err(error) => {
+            tracing::error!(%error, "could not start Selection Mode services");
+            return glib::ExitCode::FAILURE;
+        }
+    };
+    let operation_event_hub = OperationEventHub::new(Rc::clone(&application_state));
     let launch = SelectionLaunch {
         config,
         completion: Rc::clone(&completion),
@@ -265,6 +336,8 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
         .application_id(&application_id)
         .build();
     let preferences_for_activate = view_preferences.clone();
+    let application_state_for_activate = Rc::clone(&application_state);
+    let event_hub_for_activate = Rc::clone(&operation_event_hub);
     let preference_worker_for_activate = Rc::clone(&preference_worker);
     let restored_tabs_for_activate = Rc::clone(&restored_tabs);
     let session_worker_for_activate = Rc::clone(&session_worker);
@@ -277,6 +350,8 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
             &restored_tabs_for_activate,
             &session_worker_for_activate,
             &browser_for_activate,
+            &application_state_for_activate,
+            &event_hub_for_activate,
             Some(launch.clone()),
         );
     });
@@ -326,13 +401,16 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_window(
     application: &adw::Application,
     view_preferences: ViewPreferences,
     preference_worker: &Rc<RefCell<Option<PreferenceWorker>>>,
-    restored_tabs: &Rc<RefCell<Option<floe_core::BrowserTabs>>>,
-    session_worker: &Rc<RefCell<Option<SessionStoreWorker>>>,
+    restored_tabs: &Rc<RefCell<VecDeque<floe_core::BrowserTabs>>>,
+    _session_worker: &Rc<RefCell<Option<SessionStoreWorker>>>,
     browser_controller: &BrowserRegistry,
+    application_state: &Rc<ApplicationState>,
+    operation_event_hub: &Rc<OperationEventHub>,
     selection_launch: Option<SelectionLaunch>,
 ) -> Option<Rc<BrowserController>> {
     let existing_controller = selection_launch
@@ -346,7 +424,7 @@ fn build_window(
     }
 
     let places = locations::standard_locations();
-    let restored_tabs = restored_tabs.borrow_mut().take();
+    let restored_tabs = restored_tabs.borrow_mut().pop_front();
     let initial_path = selection_launch
         .as_ref()
         .map(|launch| launch.config.initial_directory_or_else(glib::home_dir))
@@ -452,24 +530,10 @@ fn build_window(
         }
     };
     let device_monitor = DeviceMonitor::new();
-    let application_state = match if selection_launch.is_some() || secondary_normal_window {
-        ApplicationState::new_selection_mode()
-    } else {
-        ApplicationState::new()
-    } {
-        Ok(state) => Rc::new(state),
+    let application_state = Rc::clone(application_state);
+    let window_runtime_id = match operation_event_hub.register() {
+        Ok(id) => id,
         Err(error) => {
-            tracing::error!(%error, "could not start copy executor");
-            widgets.spinner.stop();
-            widgets
-                .status_label
-                .set_label("Filesystem operations are unavailable");
-            widgets.toast_overlay.add_toast(
-                adw::Toast::builder()
-                    .title(format!("Could not start filesystem operations: {error}"))
-                    .timeout(0)
-                    .build(),
-            );
             if fail_selection_launch(&selection_launch) {
                 application.quit();
                 return None;
@@ -477,8 +541,6 @@ fn build_window(
             if let Some(existing) = existing_controller.as_ref() {
                 existing
                     .show_external_message(&format!("Could not open another window: {error}"), 7);
-            } else {
-                widgets.window.present();
             }
             return None;
         }
@@ -502,11 +564,16 @@ fn build_window(
             storage_worker,
             bookmark_worker,
             device_monitor,
-            preference_worker.borrow_mut().take(),
-            session_worker.borrow_mut().take(),
+            preference_worker
+                .borrow()
+                .as_ref()
+                .and_then(PreferenceWorker::handle),
+            None,
         ),
         view_preferences,
         Rc::clone(&application_state),
+        Rc::clone(operation_event_hub),
+        window_runtime_id,
     );
     if let Some(launch) = selection_launch {
         let application = application.downgrade();
@@ -538,6 +605,8 @@ fn build_window(
         operation_toasts,
         operation_widgets,
         application_state,
+        Rc::clone(operation_event_hub),
+        window_runtime_id,
         move || {
             browser_for_guardrails
                 .upgrade()

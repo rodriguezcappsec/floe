@@ -10,6 +10,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use crate::operation_hub::{OperationEventHub, WindowRuntimeId};
 use crate::operation_reveal::{
     OPERATION_REVEAL_DURATION_MS, OperationRevealRequest, PendingOperationReveal,
 };
@@ -352,6 +353,10 @@ use crate::{
         default_compression_name, destination_preview, extraction_request, selected_format,
         with_archive_extension,
     },
+    background_feedback::{
+        BackgroundActivity, BackgroundFeedbackState, BackgroundOutcomeKind, FeedbackPresentation,
+        result_action, running_presentation, stopping_presentation,
+    },
     batch_rename::{BatchRenameSource, build_batch_rename_dialog, refresh_batch_rename_dialog},
     bookmarks::{
         BookmarkRecord, BookmarkWorker, BookmarkWorkerEvent, records_with_alias, reordered_records,
@@ -397,13 +402,17 @@ use crate::{
         MillerPresentationState, resolve_action_context_entries,
     },
     preferences::{
-        ClickPolicy, ColorSchemePreference, PreferenceSubmitError, PreferenceWorker,
+        ClickPolicy, ColorSchemePreference, PreferenceHandle, PreferenceSubmitError,
         SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, SidebarDensity, ViewPreferences, WindowSize,
-        clamp_font_scale, clamp_sidebar_width, validated_font_family,
+        clamp_clamav_file_limit_mib, clamp_font_scale, clamp_sidebar_width,
+        normalized_clamav_total_limit_gib, validated_font_family,
     },
     preview::{
         PREVIEW_QUEUE_CAPACITY, PreviewCachePolicy, PreviewLimits, PreviewOutcome, PreviewRequest,
         PreviewSourceKey, PreviewSubmitError, PreviewWorker,
+    },
+    privacy_security::{
+        InspectionOutcome, PrivacyInspectionState, PrivacySecurityRequest, PrivacySecurityResult,
     },
     properties::{
         ExecutableEdit, PROPERTIES_RESULT_CAPACITY, PermissionEditorInput, PropertiesRequest,
@@ -426,6 +435,9 @@ use crate::{
     storage::{
         StorageFacts, StorageRequest, StorageSubmitError, StorageTarget, StorageWorker,
         format_bytes, format_storage_facts,
+    },
+    threat_scan::{
+        ThreatFileStatus, ThreatScanLimits, ThreatScanOutcome, ThreatScanRequest, format_scan_limit,
     },
     thumbnail::{ThumbnailSubmitError, ThumbnailWorker},
     trash_executor::TrashRequest,
@@ -617,7 +629,7 @@ pub struct BrowserServices {
     storage: Option<StorageWorker>,
     bookmarks: Option<BookmarkWorker>,
     devices: DeviceMonitor,
-    preferences: Option<PreferenceWorker>,
+    preferences: Option<PreferenceHandle>,
     session_store: Option<SessionStoreWorker>,
 }
 
@@ -640,7 +652,7 @@ impl BrowserServices {
         storage: Option<StorageWorker>,
         bookmarks: Option<BookmarkWorker>,
         devices: DeviceMonitor,
-        preferences: Option<PreferenceWorker>,
+        preferences: Option<PreferenceHandle>,
         session_store: Option<SessionStoreWorker>,
     ) -> Self {
         Self {
@@ -679,6 +691,14 @@ pub struct BrowserController {
     preview_generation: Cell<u64>,
     properties_worker: RefCell<Option<PropertiesWorker>>,
     properties_generation: Cell<u64>,
+    privacy_security_generation: Cell<u64>,
+    threat_scan_generation: Cell<u64>,
+    background_feedback_state: RefCell<BackgroundFeedbackState>,
+    background_feedback_rows: RefCell<HashMap<BackgroundActivity, gtk::Box>>,
+    last_properties_presentation: RefCell<Option<crate::properties::PropertiesPresentation>>,
+    last_privacy_outcome: RefCell<Option<InspectionOutcome>>,
+    last_threat_outcome: RefCell<Option<ThreatScanOutcome>>,
+    last_sanitized_copy: RefCell<Option<PathBuf>>,
     storage_worker: RefCell<Option<StorageWorker>>,
     current_storage_generation: Cell<u64>,
     device_storage_generation: Cell<u64>,
@@ -749,7 +769,7 @@ pub struct BrowserController {
     grid_size: Cell<GridSize>,
     file_density: Cell<FileViewDensity>,
     list_columns: Cell<crate::view::ListColumnLayout>,
-    preference_worker: RefCell<Option<PreferenceWorker>>,
+    preference_worker: RefCell<Option<PreferenceHandle>>,
     session_store: RefCell<Option<SessionStoreWorker>>,
     session_saved: Cell<bool>,
     pending_preferences: Cell<Option<ViewPreferences>>,
@@ -769,6 +789,8 @@ pub struct BrowserController {
     custom_action_worker: RefCell<Option<crate::custom_actions::CustomActionWorker>>,
     privileged_access: Rc<crate::privileged_access::PrivilegedAccessController>,
     application_state: Rc<ApplicationState>,
+    operation_event_hub: Rc<OperationEventHub>,
+    window_runtime_id: WindowRuntimeId,
     completion_notification_namespace: u64,
     bookmark_worker: RefCell<Option<BookmarkWorker>>,
     bookmarks: RefCell<Vec<BookmarkRecord>>,
@@ -869,6 +891,19 @@ impl SelectionModeRuntime {
 
 impl Drop for BrowserController {
     fn drop(&mut self) {
+        let feedback = self.background_feedback_state.get_mut();
+        let threat_generation = self.threat_scan_generation.get();
+        if feedback.is_active(BackgroundActivity::ThreatScan, threat_generation) {
+            self.application_state.cancel_threat_scan(threat_generation);
+        }
+        let privacy_generation = self.privacy_security_generation.get();
+        if feedback.is_active(BackgroundActivity::PrivacyInspection, privacy_generation)
+            || feedback.is_active(BackgroundActivity::MetadataSanitization, privacy_generation)
+        {
+            self.application_state
+                .cancel_privacy_security(privacy_generation);
+        }
+        self.operation_event_hub.unregister(self.window_runtime_id);
         if let Some(source) = self.sidebar_save_source.get_mut().take() {
             source.remove();
         }
@@ -906,6 +941,7 @@ impl Drop for BrowserController {
 }
 
 impl BrowserController {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         widgets: BrowserWidgets,
         initial_path: PathBuf,
@@ -913,6 +949,8 @@ impl BrowserController {
         services: BrowserServices,
         view_preferences: ViewPreferences,
         application_state: Rc<ApplicationState>,
+        operation_event_hub: Rc<OperationEventHub>,
+        window_runtime_id: WindowRuntimeId,
     ) -> Rc<Self> {
         let BrowserServices {
             browser,
@@ -1047,6 +1085,14 @@ impl BrowserController {
             preview_generation: Cell::new(0),
             properties_worker: RefCell::new(properties),
             properties_generation: Cell::new(0),
+            privacy_security_generation: Cell::new(0),
+            threat_scan_generation: Cell::new(0),
+            background_feedback_state: RefCell::new(BackgroundFeedbackState::default()),
+            background_feedback_rows: RefCell::new(HashMap::new()),
+            last_properties_presentation: RefCell::new(None),
+            last_privacy_outcome: RefCell::new(None),
+            last_threat_outcome: RefCell::new(None),
+            last_sanitized_copy: RefCell::new(None),
             storage_worker: RefCell::new(storage),
             current_storage_generation: Cell::new(0),
             device_storage_generation: Cell::new(0),
@@ -1137,6 +1183,8 @@ impl BrowserController {
             custom_action_worker: RefCell::new(custom_action_worker),
             privileged_access,
             application_state,
+            operation_event_hub,
+            window_runtime_id,
             completion_notification_namespace:
                 crate::completeness::next_completion_notification_namespace(),
             bookmark_worker: RefCell::new(bookmarks),
@@ -1413,6 +1461,14 @@ impl BrowserController {
             }
             glib::Propagation::Proceed
         });
+
+        let event_hub = Rc::clone(&self.operation_event_hub);
+        let window_runtime_id = self.window_runtime_id;
+        self.widgets.window.connect_is_active_notify(move |window| {
+            if window.is_active() {
+                event_hub.mark_active(window_runtime_id);
+            }
+        });
         let keys = gtk::EventControllerKey::new();
         keys.set_propagation_phase(gtk::PropagationPhase::Capture);
         let controller = Rc::downgrade(self);
@@ -1643,7 +1699,12 @@ impl BrowserController {
             let Some(controller) = controller.upgrade() else {
                 return glib::Propagation::Proceed;
             };
-            if window_close_allowed(controller.application_state.has_active_jobs()) {
+            let owns_active_presentation = controller
+                .operation_event_hub
+                .owns_presentation(controller.window_runtime_id);
+            if window_close_allowed(
+                owns_active_presentation && controller.application_state.has_active_jobs(),
+            ) {
                 controller.widgets.prepare_for_window_close();
                 glib::Propagation::Proceed
             } else {
@@ -2809,6 +2870,8 @@ impl BrowserController {
             controller.drain_inspector_worker();
             controller.drain_preview_worker();
             controller.drain_properties_worker();
+            controller.drain_privacy_security_worker();
+            controller.drain_threat_scan_worker();
             controller.drain_storage_worker();
             controller.drain_terminal_worker();
             controller.drain_guardrail_policy_worker();
@@ -2833,15 +2896,19 @@ impl BrowserController {
         }
     }
 
+    pub(crate) fn session_snapshot(&self) -> BrowserTabs {
+        self.restore_pending_navigation();
+        self.save_active_session_state();
+        self.tabs.borrow().clone()
+    }
+
     pub fn persist_for_shutdown(&self) {
         self.finish_window_size_tracking();
         self.persist_session_for_shutdown();
-        let Some(worker) = self.preference_worker.borrow_mut().take() else {
-            return;
-        };
-        if let Err(error) = worker.save_before_shutdown(self.current_preferences.borrow().clone()) {
-            tracing::warn!(%error, "could not submit final view preferences");
-        }
+    }
+
+    pub(crate) fn preferences_snapshot(&self) -> ViewPreferences {
+        self.current_preferences.borrow().clone()
     }
 
     fn arm_window_size_persistence(self: &Rc<Self>) {
@@ -5324,6 +5391,78 @@ impl BrowserController {
         let properties_action =
             self.add_action("properties", |controller| controller.show_properties());
         properties_action.set_enabled(false);
+        let inspect_security = self.add_action("inspect-privacy-safety", |controller| {
+            controller.inspect_privacy_safety();
+        });
+        inspect_security.set_enabled(false);
+        let scan_threats = self.add_action("scan-threats", |controller| {
+            controller.scan_selected_for_threats();
+        });
+        scan_threats.set_enabled(false);
+        let cancel_threat_scan = self.add_action("cancel-threat-scan", |controller| {
+            let generation = controller.threat_scan_generation.get();
+            controller.application_state.cancel_threat_scan(generation);
+            controller.set_action_enabled("cancel-threat-scan", false);
+            controller
+                .mark_background_feedback_stopping(BackgroundActivity::ThreatScan, generation);
+        });
+        cancel_threat_scan.set_enabled(false);
+        let cancel_privacy = self.add_action("cancel-privacy-inspection", |controller| {
+            let generation = controller.privacy_security_generation.get();
+            controller
+                .application_state
+                .cancel_privacy_security(generation);
+            controller.set_action_enabled("cancel-privacy-inspection", false);
+            controller.mark_background_feedback_stopping(
+                BackgroundActivity::PrivacyInspection,
+                generation,
+            );
+        });
+        cancel_privacy.set_enabled(false);
+        let cancel_sanitization = self.add_action("cancel-sanitization", |controller| {
+            let generation = controller.privacy_security_generation.get();
+            controller
+                .application_state
+                .cancel_privacy_security(generation);
+            controller.set_action_enabled("cancel-sanitization", false);
+            controller.mark_background_feedback_stopping(
+                BackgroundActivity::MetadataSanitization,
+                generation,
+            );
+        });
+        cancel_sanitization.set_enabled(false);
+        self.add_action("show-last-properties", |controller| {
+            if let Some(presentation) = controller.last_properties_presentation.borrow().clone() {
+                controller.present_properties_dialog(&presentation);
+            } else {
+                controller.show_toast("Properties result is no longer available", 5);
+            }
+        });
+        self.add_action("show-last-privacy-report", |controller| {
+            if let Some(outcome) = controller.last_privacy_outcome.borrow().clone() {
+                controller.present_inspection_outcome(&outcome);
+            } else {
+                controller.show_toast("Privacy inspection result is no longer available", 5);
+            }
+        });
+        self.add_action("show-last-threat-report", |controller| {
+            if let Some(outcome) = controller.last_threat_outcome.borrow().clone() {
+                controller.present_threat_scan_outcome(&outcome);
+            } else {
+                controller.show_toast("ClamAV result is no longer available", 5);
+            }
+        });
+        self.add_action("reveal-last-sanitized-copy", |controller| {
+            if let Some(path) = controller.last_sanitized_copy.borrow().clone() {
+                controller.navigate_to_revealing(path);
+            } else {
+                controller.show_toast("Sanitized copy is no longer available", 5);
+            }
+        });
+        let sanitize = self.add_action("create-sanitized-copy", |controller| {
+            controller.create_sanitized_copy();
+        });
+        sanitize.set_enabled(false);
         let checksum_action =
             self.add_action("checksum", |controller| controller.show_checksum_dialog());
         checksum_action.set_enabled(false);
@@ -7279,6 +7418,71 @@ impl BrowserController {
                         "Advanced metadata cache reuse disabled and cache clearing requested"
                     },
                     5,
+                );
+            });
+
+        let total_limit_control = settings.clamav_total_limit.clone();
+        let controller = Rc::downgrade(self);
+        settings
+            .clamav_file_limit
+            .connect_value_changed(move |spin| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                let file_limit = clamp_clamav_file_limit_mib(spin.value_as_int().max(0) as u32);
+                let mut preferences = controller.current_preferences.borrow_mut();
+                let total_limit = normalized_clamav_total_limit_gib(
+                    file_limit,
+                    preferences.clamav_total_limit_gib,
+                );
+                if preferences.clamav_file_limit_mib == file_limit
+                    && preferences.clamav_total_limit_gib == total_limit
+                {
+                    return;
+                }
+                preferences.clamav_file_limit_mib = file_limit;
+                preferences.clamav_total_limit_gib = total_limit;
+                drop(preferences);
+                if total_limit_control.value_as_int() != total_limit as i32 {
+                    total_limit_control.set_value(f64::from(total_limit));
+                }
+                controller.queue_preferences();
+                controller.show_toast(&format!("ClamAV per-file limit set to {file_limit} MiB"), 4);
+            });
+
+        let controller = Rc::downgrade(self);
+        settings
+            .clamav_total_limit
+            .connect_value_changed(move |spin| {
+                let Some(controller) = controller.upgrade() else {
+                    return;
+                };
+                let file_limit = controller
+                    .current_preferences
+                    .borrow()
+                    .clamav_file_limit_mib;
+                let requested = spin.value_as_int().max(0) as u32;
+                let total_limit = normalized_clamav_total_limit_gib(file_limit, requested);
+                if spin.value_as_int() != total_limit as i32 {
+                    spin.set_value(f64::from(total_limit));
+                    return;
+                }
+                if controller
+                    .current_preferences
+                    .borrow()
+                    .clamav_total_limit_gib
+                    == total_limit
+                {
+                    return;
+                }
+                controller
+                    .current_preferences
+                    .borrow_mut()
+                    .clamav_total_limit_gib = total_limit;
+                controller.queue_preferences();
+                controller.show_toast(
+                    &format!("ClamAV total scan limit set to {total_limit} GiB"),
+                    4,
                 );
             });
 
@@ -9499,11 +9703,6 @@ impl BrowserController {
     }
 
     fn apply_action_selection(&self, selected_entries: Vec<Arc<DirectoryEntry>>) {
-        let properties_generation = self.properties_generation.get().wrapping_add(1).max(1);
-        self.properties_generation.set(properties_generation);
-        if let Some(worker) = self.properties_worker.borrow().as_ref() {
-            worker.supersede(properties_generation);
-        }
         let state = selection_action_state(&selected_entries);
         let folder_tab = folder_tab_eligible(&selected_entries, self.trash_active.get());
         let duplicate_eligible = !self.trash_active.get();
@@ -9511,7 +9710,53 @@ impl BrowserController {
         self.refresh_custom_action_context_menu();
         self.set_open_enabled(state.single);
         self.set_open_with_enabled(state.open_with);
-        self.set_properties_enabled(!self.selected_entries.borrow().is_empty());
+        let properties_busy = self.background_feedback_state.borrow().is_active(
+            BackgroundActivity::Properties,
+            self.properties_generation.get(),
+        );
+        self.set_properties_enabled(!self.selected_entries.borrow().is_empty() && !properties_busy);
+        let feedback = self.background_feedback_state.borrow();
+        let privacy_busy = feedback.is_active(
+            BackgroundActivity::PrivacyInspection,
+            self.privacy_security_generation.get(),
+        ) || feedback.is_active(
+            BackgroundActivity::MetadataSanitization,
+            self.privacy_security_generation.get(),
+        );
+        let threat_busy = feedback.is_active(
+            BackgroundActivity::ThreatScan,
+            self.threat_scan_generation.get(),
+        );
+        drop(feedback);
+        let security_selection = self.selected_entries.borrow();
+        for (name, enabled) in [
+            (
+                "inspect-privacy-safety",
+                !security_selection.is_empty() && !privacy_busy,
+            ),
+            (
+                "scan-threats",
+                !security_selection.is_empty() && !threat_busy,
+            ),
+            (
+                "create-sanitized-copy",
+                !security_selection.is_empty()
+                    && !privacy_busy
+                    && security_selection
+                        .iter()
+                        .all(|entry| entry.kind() == EntryKind::RegularFile),
+            ),
+        ] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(enabled && !self.trash_active.get());
+            }
+        }
+        drop(security_selection);
         self.set_reveal_enabled(
             (self.filename_search_active.get() || self.content_search_active.get()) && state.single,
         );
@@ -10578,7 +10823,7 @@ impl BrowserController {
         match submitted {
             Some(Ok(())) => {
                 self.set_properties_enabled(false);
-                self.show_toast("Loading read-only Properties…", 2);
+                self.begin_background_feedback(BackgroundActivity::Properties, generation);
             }
             Some(Err(PropertiesSubmitError::Full(_))) => {
                 self.show_toast("Properties queue is busy; try again", 5);
@@ -10587,6 +10832,461 @@ impl BrowserController {
                 self.show_toast("Properties worker is unavailable", 6);
             }
         }
+    }
+
+    fn inspect_privacy_safety(&self) {
+        let paths = self.selected_paths();
+        let generation = self.application_state.next_security_generation();
+        let request = match PrivacySecurityRequest::inspect(generation, paths) {
+            Ok(request) => request,
+            Err(error) => {
+                self.show_toast(&error.to_string(), 5);
+                return;
+            }
+        };
+        match self.application_state.submit_privacy_security(request) {
+            Ok(()) => {
+                self.privacy_security_generation.set(generation);
+                self.set_action_enabled("inspect-privacy-safety", false);
+                self.set_action_enabled("cancel-privacy-inspection", true);
+                self.begin_background_feedback(BackgroundActivity::PrivacyInspection, generation);
+            }
+            Err(error) => self.show_toast(&error.to_string(), 6),
+        }
+    }
+
+    fn scan_selected_for_threats(&self) {
+        let generation = self.application_state.next_security_generation();
+        let limits = {
+            let preferences = self.current_preferences.borrow();
+            ThreatScanLimits::from_preferences(
+                preferences.clamav_file_limit_mib,
+                preferences.clamav_total_limit_gib,
+            )
+        };
+        let request =
+            match ThreatScanRequest::with_limits(generation, self.selected_paths(), limits) {
+                Ok(request) => request,
+                Err(error) => {
+                    self.show_toast(&error.to_string(), 6);
+                    return;
+                }
+            };
+        match self.application_state.submit_threat_scan(request) {
+            Ok(()) => {
+                self.threat_scan_generation.set(generation);
+                self.set_action_enabled("scan-threats", false);
+                self.set_action_enabled("cancel-threat-scan", true);
+                self.begin_background_feedback(BackgroundActivity::ThreatScan, generation);
+            }
+            Err(error) => self.show_toast(
+                &format!(
+                    "Could not start local ClamAV scan: {error}. Install and start clamd; Floe does not upload files or bundle an engine."
+                ),
+                9,
+            ),
+        }
+    }
+
+    fn create_sanitized_copy(self: &Rc<Self>) {
+        let sources = self.selected_paths();
+        if sources.is_empty() {
+            self.show_toast("Select one or more JPEG, PNG, or WebP files", 4);
+            return;
+        }
+        let subject = if sources.len() == 1 {
+            sources[0]
+                .file_name()
+                .unwrap_or(sources[0].as_os_str())
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            format!("{} selected items", sources.len())
+        };
+        let dialog = adw::AlertDialog::builder()
+            .heading("Create a sanitized copy?")
+            .body(format!(
+                "Floe will keep {subject} unchanged, create no-overwrite sibling copies for supported JPEG, PNG, or WebP files, remove only reviewed metadata blocks, and verify those reviewed blocks are absent. Unsupported and failed items remain explicit. This is not an exhaustive anonymity guarantee."
+            ))
+            .default_response("create")
+            .close_response("cancel")
+            .build();
+        dialog.add_responses(&[("cancel", "Cancel"), ("create", "Create Copy")]);
+        dialog.set_response_appearance("create", adw::ResponseAppearance::Suggested);
+        let controller = Rc::downgrade(self);
+        dialog.connect_response(None, move |_, response| {
+            if response != "create" {
+                return;
+            }
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            let generation = controller.application_state.next_security_generation();
+            let request = match PrivacySecurityRequest::sanitize(generation, sources.clone()) {
+                Ok(request) => request,
+                Err(error) => {
+                    controller.show_toast(&error.to_string(), 6);
+                    return;
+                }
+            };
+            match controller
+                .application_state
+                .submit_privacy_security(request)
+            {
+                Ok(()) => {
+                    controller.privacy_security_generation.set(generation);
+                    controller.set_action_enabled("create-sanitized-copy", false);
+                    controller.set_action_enabled("cancel-sanitization", true);
+                    controller.begin_background_feedback(
+                        BackgroundActivity::MetadataSanitization,
+                        generation,
+                    );
+                }
+                Err(error) => controller.show_toast(&error.to_string(), 6),
+            }
+        });
+        dialog.present(Some(&self.widgets.window));
+    }
+
+    fn drain_privacy_security_worker(&self) {
+        for _ in 0..8 {
+            let Some(result) = self
+                .application_state
+                .take_privacy_security_result(self.privacy_security_generation.get())
+            else {
+                break;
+            };
+            match result {
+                PrivacySecurityResult::Inspection(outcome)
+                    if outcome.generation == self.privacy_security_generation.get() =>
+                {
+                    self.set_action_enabled(
+                        "inspect-privacy-safety",
+                        !self.selected_entries.borrow().is_empty() && !self.trash_active.get(),
+                    );
+                    self.set_action_enabled("cancel-privacy-inspection", false);
+                    self.last_privacy_outcome.replace(Some(outcome.clone()));
+                    let (kind, title) = if outcome.cancelled {
+                        (
+                            BackgroundOutcomeKind::Cancelled,
+                            "Privacy and safety inspection cancelled; partial results are available",
+                        )
+                    } else {
+                        (
+                            BackgroundOutcomeKind::Completed,
+                            "Privacy and safety inspection complete",
+                        )
+                    };
+                    self.finish_background_feedback(
+                        BackgroundActivity::PrivacyInspection,
+                        outcome.generation,
+                        kind,
+                        title,
+                        true,
+                    );
+                    if self.widgets.window.is_active() {
+                        self.present_inspection_outcome(&outcome);
+                    }
+                }
+                PrivacySecurityResult::Sanitized(outcome)
+                    if outcome.generation == self.privacy_security_generation.get() =>
+                {
+                    let can_sanitize = !self.trash_active.get()
+                        && !self.selected_entries.borrow().is_empty()
+                        && self
+                            .selected_entries
+                            .borrow()
+                            .iter()
+                            .all(|entry| entry.kind() == EntryKind::RegularFile);
+                    self.set_action_enabled("create-sanitized-copy", can_sanitize);
+                    self.set_action_enabled("cancel-sanitization", false);
+                    let completed = outcome
+                        .items
+                        .iter()
+                        .filter(|item| item.result.is_ok())
+                        .count();
+                    let failed = outcome.items.len().saturating_sub(completed);
+                    let destination = outcome.items.iter().find_map(|item| {
+                        item.result
+                            .as_ref()
+                            .ok()
+                            .map(|copy| copy.destination.clone())
+                    });
+                    self.last_sanitized_copy.replace(destination.clone());
+                    let kind = if outcome.cancelled {
+                        BackgroundOutcomeKind::Cancelled
+                    } else if failed == 0 {
+                        BackgroundOutcomeKind::Completed
+                    } else if completed > 0 {
+                        BackgroundOutcomeKind::Partial
+                    } else {
+                        BackgroundOutcomeKind::Failed
+                    };
+                    let suffix = if outcome.cancelled {
+                        " · cancelled"
+                    } else {
+                        ""
+                    };
+                    self.finish_background_feedback(
+                        BackgroundActivity::MetadataSanitization,
+                        outcome.generation,
+                        kind,
+                        &format!(
+                            "Sanitized copies: {completed} created, {failed} not created{suffix}"
+                        ),
+                        destination.is_some(),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn drain_threat_scan_worker(&self) {
+        let Some(result) = self
+            .application_state
+            .take_threat_scan_result(self.threat_scan_generation.get())
+        else {
+            return;
+        };
+        let generation = result.generation;
+        self.set_action_enabled(
+            "scan-threats",
+            !self.selected_entries.borrow().is_empty() && !self.trash_active.get(),
+        );
+        self.set_action_enabled("cancel-threat-scan", false);
+        match result.outcome {
+            Ok(outcome) if outcome.generation == self.threat_scan_generation.get() => {
+                let (kind, title) = if outcome.cancelled {
+                    (
+                        BackgroundOutcomeKind::Cancelled,
+                        "Local ClamAV scan stopped; partial results are available".to_owned(),
+                    )
+                } else if outcome.truncated {
+                    (
+                        BackgroundOutcomeKind::Partial,
+                        "Local ClamAV scan reached a safety limit; partial results are available"
+                            .to_owned(),
+                    )
+                } else if outcome.detections > 0 {
+                    (
+                        BackgroundOutcomeKind::Completed,
+                        format!(
+                            "Local ClamAV scan complete: {} signature report{}",
+                            outcome.detections,
+                            if outcome.detections == 1 { "" } else { "s" }
+                        ),
+                    )
+                } else {
+                    (
+                        BackgroundOutcomeKind::Completed,
+                        "Local ClamAV scan complete: no known signature reported".to_owned(),
+                    )
+                };
+                self.last_threat_outcome.replace(Some(outcome.clone()));
+                self.finish_background_feedback(
+                    BackgroundActivity::ThreatScan,
+                    generation,
+                    kind,
+                    &title,
+                    true,
+                );
+                if self.widgets.window.is_active() {
+                    self.present_threat_scan_outcome(&outcome);
+                }
+            }
+            Ok(_) => {}
+            Err(crate::threat_scan::ThreatScanError::Cancelled) => {
+                self.finish_background_feedback(
+                    BackgroundActivity::ThreatScan,
+                    generation,
+                    BackgroundOutcomeKind::Cancelled,
+                    "Local ClamAV scan cancelled",
+                    false,
+                );
+            }
+            Err(error) => {
+                self.finish_background_feedback(
+                    BackgroundActivity::ThreatScan,
+                    generation,
+                    BackgroundOutcomeKind::Failed,
+                    &format!("Local ClamAV scan failed: {error}"),
+                    false,
+                );
+            }
+        }
+    }
+
+    fn present_inspection_outcome(&self, outcome: &InspectionOutcome) {
+        let mut body = String::from(
+            "Local, read-only evidence. Suspicious signals are not a malware verdict, and privacy inspection is format-specific rather than exhaustive.\n\n",
+        );
+        for entry in &outcome.entries {
+            let name = entry
+                .path
+                .file_name()
+                .unwrap_or(entry.path.as_os_str())
+                .to_string_lossy();
+            body.push_str(&format!("{name}\n"));
+            if entry.suspicious.findings.is_empty() {
+                body.push_str(
+                    "  Safety: no reviewed filename, type, or permission signal found.\n",
+                );
+            } else {
+                for finding in &entry.suspicious.findings {
+                    body.push_str(&format!("  Safety: {}\n", finding.explanation));
+                }
+            }
+            match &entry.privacy {
+                PrivacyInspectionState::Reviewed { format, findings } if findings.is_empty() => {
+                    body.push_str(&format!("  Privacy: {} reviewed; no supported metadata block found. This is not exhaustive.\n", format.label()));
+                }
+                PrivacyInspectionState::Reviewed { format, findings } => {
+                    body.push_str(&format!("  Privacy: {}\n", format.label()));
+                    for finding in findings {
+                        body.push_str(&format!(
+                            "    {} — {}\n",
+                            finding.category, finding.explanation
+                        ));
+                    }
+                }
+                PrivacyInspectionState::Unsupported => {
+                    body.push_str("  Privacy: unsupported format; not inspected.\n")
+                }
+                PrivacyInspectionState::TooLarge => {
+                    body.push_str("  Privacy: not inspected; exceeds 64 MiB limit.\n")
+                }
+                PrivacyInspectionState::NotRegular => {
+                    body.push_str("  Privacy: not inspected; not a no-follow regular file.\n")
+                }
+                PrivacyInspectionState::Changed => {
+                    body.push_str("  Privacy: result discarded because the file changed.\n")
+                }
+                PrivacyInspectionState::Inaccessible(error) => {
+                    body.push_str(&format!("  Privacy: inaccessible ({error}).\n"))
+                }
+                PrivacyInspectionState::Malformed(error) => body.push_str(&format!(
+                    "  Privacy: malformed supported container ({error}).\n"
+                )),
+            }
+            body.push('\n');
+        }
+        self.present_text_report("Privacy & Safety Inspector", &body);
+    }
+
+    fn present_threat_scan_outcome(&self, outcome: &ThreatScanOutcome) {
+        let mut body = format!(
+            "Engine: {}\nScanned files: {}\nNo known signature reported: {}\nDetections: {}\nNot scanned or changed: {}\nConfigured per-file limit: {}\nConfigured total limit: {}\n\nA no-signature result is not proof that a file is safe or malware-free. Floe streamed bytes only to the separately installed local clamd service. clamd may enforce its own lower StreamMaxLength or engine limits.\n",
+            outcome.engine,
+            outcome.scanned_files,
+            outcome.no_known_signature,
+            outcome.detections,
+            outcome.not_scanned,
+            format_scan_limit(outcome.limits.max_file_bytes()),
+            format_scan_limit(outcome.limits.max_total_bytes()),
+        );
+        if outcome.cancelled {
+            body.push_str("\nThe scan was cancelled; results are incomplete.\n");
+        }
+        if outcome.truncated {
+            body.push_str("\nLimits were reached; results are incomplete.\n");
+        }
+        for result in &outcome.retained_results {
+            let name = result
+                .path
+                .file_name()
+                .unwrap_or(result.path.as_os_str())
+                .to_string_lossy();
+            match &result.status {
+                ThreatFileStatus::Detected { signature } => {
+                    body.push_str(&format!("\n{name}: signature reported — {signature}"))
+                }
+                ThreatFileStatus::NotScanned { reason } => {
+                    body.push_str(&format!("\n{name}: not scanned — {reason}"))
+                }
+                ThreatFileStatus::Changed => {
+                    body.push_str(&format!("\n{name}: changed during scan; result discarded"))
+                }
+                ThreatFileStatus::NoKnownSignature => {}
+            }
+        }
+        self.present_text_report_with_action(
+            "Local ClamAV Scan",
+            &body,
+            Some(("Change scan limits…", "win.settings")),
+        );
+    }
+
+    fn present_text_report(&self, title: &str, body: &str) {
+        self.present_text_report_with_action(title, body, None);
+    }
+
+    fn present_text_report_with_action(
+        &self,
+        title: &str,
+        body: &str,
+        action: Option<(&str, &str)>,
+    ) {
+        let dialog = adw::Dialog::builder()
+            .title(title)
+            .content_width(680)
+            .content_height(620)
+            .build();
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        content.set_margin_top(18);
+        content.set_margin_bottom(18);
+        content.set_margin_start(18);
+        content.set_margin_end(18);
+        let heading = gtk::Label::builder()
+            .label(title)
+            .halign(gtk::Align::Start)
+            .css_classes(["title-2"])
+            .build();
+        let report = gtk::Label::builder()
+            .label(body)
+            .halign(gtk::Align::Start)
+            .valign(gtk::Align::Start)
+            .xalign(0.0)
+            .yalign(0.0)
+            .wrap(true)
+            .selectable(true)
+            .build();
+        report.update_property(&[
+            gtk::accessible::Property::Label(title),
+            gtk::accessible::Property::Description(body),
+        ]);
+        let scroll = gtk::ScrolledWindow::builder()
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .child(&report)
+            .build();
+        let close = gtk::Button::with_label("Close");
+        close.set_halign(gtk::Align::End);
+        let weak_dialog = dialog.downgrade();
+        close.connect_clicked(move |_| {
+            if let Some(dialog) = weak_dialog.upgrade() {
+                dialog.close();
+            }
+        });
+        content.append(&heading);
+        content.append(&scroll);
+        if let Some((label, action_name)) = action {
+            let action_button = gtk::Button::builder()
+                .label(label)
+                .action_name(action_name)
+                .halign(gtk::Align::Start)
+                .build();
+            action_button.update_property(&[
+                gtk::accessible::Property::Label(label),
+                gtk::accessible::Property::Description(
+                    "Open Settings to change limits for future local ClamAV scans",
+                ),
+            ]);
+            content.append(&action_button);
+        }
+        content.append(&close);
+        dialog.set_child(Some(&content));
+        dialog.present(Some(&self.widgets.window));
     }
 
     fn drain_properties_worker(&self) {
@@ -10602,10 +11302,33 @@ impl BrowserController {
             if response.generation != self.properties_generation.get() {
                 continue;
             }
+            let generation = response.generation;
             self.set_properties_enabled(!self.selected_entries.borrow().is_empty());
             match response.result {
-                Ok(snapshot) => self.present_properties_dialog(&present_properties(&snapshot)),
-                Err(error) => self.show_toast(&format!("Properties unavailable: {error}"), 7),
+                Ok(snapshot) => {
+                    let presentation = present_properties(&snapshot);
+                    self.last_properties_presentation
+                        .replace(Some(presentation.clone()));
+                    self.finish_background_feedback(
+                        BackgroundActivity::Properties,
+                        generation,
+                        BackgroundOutcomeKind::Completed,
+                        "Read-only Properties are ready",
+                        true,
+                    );
+                    if self.widgets.window.is_active() {
+                        self.present_properties_dialog(&presentation);
+                    }
+                }
+                Err(error) => {
+                    self.finish_background_feedback(
+                        BackgroundActivity::Properties,
+                        generation,
+                        BackgroundOutcomeKind::Failed,
+                        &format!("Properties unavailable: {error}"),
+                        false,
+                    );
+                }
             }
         }
     }
@@ -10628,6 +11351,22 @@ impl BrowserController {
                 gio::prelude::ActionGroupExt::activate_action(&window, "open-with", None);
             }
         });
+        for (button, action_name) in [
+            (&widgets.privacy_safety_button, "inspect-privacy-safety"),
+            (&widgets.threat_scan_button, "scan-threats"),
+            (&widgets.sanitize_button, "create-sanitized-copy"),
+        ] {
+            let window = self.widgets.window.downgrade();
+            let dialog = widgets.dialog.downgrade();
+            button.connect_clicked(move |_| {
+                if let Some(dialog) = dialog.upgrade() {
+                    dialog.close();
+                }
+                if let Some(window) = window.upgrade() {
+                    gio::prelude::ActionGroupExt::activate_action(&window, action_name, None);
+                }
+            });
+        }
         let checksum_parent = self.widgets.window.clone();
         let checksum_toasts = self.widgets.toast_overlay.clone();
         let checksum_state = Rc::clone(&self.application_state);
@@ -12850,6 +13589,142 @@ impl BrowserController {
         dialog.present(Some(&self.widgets.window));
     }
 
+    fn replace_background_feedback(
+        &self,
+        activity: BackgroundActivity,
+        title: &str,
+        button: Option<(&str, &str)>,
+        dismissible: bool,
+    ) {
+        if let Some(previous) = self.background_feedback_rows.borrow_mut().remove(&activity)
+            && previous.parent().is_some()
+        {
+            self.widgets.background_feedback_list.remove(&previous);
+        }
+
+        let row = gtk::Box::builder()
+            .orientation(gtk::Orientation::Horizontal)
+            .spacing(10)
+            .margin_top(8)
+            .margin_bottom(8)
+            .margin_start(12)
+            .margin_end(12)
+            .build();
+        row.set_accessible_role(gtk::AccessibleRole::Group);
+        row.update_property(&[
+            gtk::accessible::Property::Label(title),
+            gtk::accessible::Property::Description(if dismissible {
+                "Completed background activity"
+            } else {
+                "Background activity in progress"
+            }),
+        ]);
+        if !dismissible {
+            let spinner = gtk::Spinner::new();
+            spinner.start();
+            spinner.set_accessible_role(gtk::AccessibleRole::Presentation);
+            row.append(&spinner);
+        }
+        let status = gtk::Label::builder()
+            .label(title)
+            .halign(gtk::Align::Start)
+            .hexpand(true)
+            .wrap(true)
+            .xalign(0.0)
+            .build();
+        status.add_css_class("floe-status");
+        row.append(&status);
+        if let Some((label, action)) = button {
+            let action_button = gtk::Button::builder()
+                .label(label)
+                .action_name(action)
+                .build();
+            action_button.add_css_class("flat");
+            row.append(&action_button);
+        }
+        if dismissible {
+            let dismiss = gtk::Button::builder()
+                .icon_name("floe-phosphor-x-symbolic")
+                .tooltip_text("Dismiss background activity")
+                .build();
+            dismiss.add_css_class("flat");
+            dismiss.update_property(&[gtk::accessible::Property::Label(
+                "Dismiss background activity",
+            )]);
+            let list = self.widgets.background_feedback_list.clone();
+            let revealer = self.widgets.background_feedback_revealer.clone();
+            let weak_row = row.downgrade();
+            dismiss.connect_clicked(move |_| {
+                if let Some(row) = weak_row.upgrade()
+                    && row.parent().is_some()
+                {
+                    list.remove(&row);
+                }
+                if list.first_child().is_none() {
+                    revealer.set_reveal_child(false);
+                }
+            });
+            row.append(&dismiss);
+        }
+        self.widgets.background_feedback_list.append(&row);
+        self.widgets
+            .background_feedback_revealer
+            .set_reveal_child(true);
+        self.background_feedback_rows
+            .borrow_mut()
+            .insert(activity, row);
+    }
+
+    fn present_feedback(&self, activity: BackgroundActivity, presentation: FeedbackPresentation) {
+        debug_assert!(presentation.persistent);
+        self.replace_background_feedback(
+            activity,
+            presentation.title,
+            presentation.button_label.zip(presentation.action_name),
+            false,
+        );
+    }
+
+    fn begin_background_feedback(&self, activity: BackgroundActivity, generation: u64) {
+        if self
+            .background_feedback_state
+            .borrow_mut()
+            .start(activity, generation)
+        {
+            self.present_feedback(activity, running_presentation(activity));
+        }
+    }
+
+    fn mark_background_feedback_stopping(&self, activity: BackgroundActivity, generation: u64) {
+        if self
+            .background_feedback_state
+            .borrow()
+            .is_active(activity, generation)
+        {
+            self.present_feedback(activity, stopping_presentation(activity));
+        }
+    }
+
+    fn finish_background_feedback(
+        &self,
+        activity: BackgroundActivity,
+        generation: u64,
+        kind: BackgroundOutcomeKind,
+        title: &str,
+        result_available: bool,
+    ) -> bool {
+        if !self
+            .background_feedback_state
+            .borrow_mut()
+            .finish(activity, generation, kind)
+        {
+            return false;
+        }
+        let action = result_available.then(|| result_action(activity)).flatten();
+        self.replace_background_feedback(activity, title, action, true);
+        true
+    }
+
     fn show_toast(&self, title: &str, timeout: u32) {
         let failure = ["could not", "failed", "failure", "error"]
             .iter()
@@ -12871,6 +13746,17 @@ impl BrowserController {
                 .action_target(&details.to_variant());
         }
         self.widgets.toast_overlay.add_toast(builder.build());
+    }
+
+    fn set_action_enabled(&self, name: &str, enabled: bool) {
+        if let Some(action) = self
+            .widgets
+            .window
+            .lookup_action(name)
+            .and_downcast::<gio::SimpleAction>()
+        {
+            action.set_enabled(enabled);
+        }
     }
 
     pub fn notify_operation_completed(&self, job_id: JobId) {

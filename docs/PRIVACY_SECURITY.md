@@ -1,13 +1,13 @@
 # Floe Privacy, Security, and Data-Integrity Architecture
 
-Status: authoritative product-wide security architecture. Phase 18A's threat,
-decision, dependency-admission, and test-plan baseline and runtime Phases
-18T–18Y are **COMPLETE**. Cryptography, vaults, Private Mode, Sensitive Folder,
-provider sandboxing, and most other security capabilities remain **PLANNED**.
-This document does not select a cryptographic library, vault backend,
-credential backend, or sandbox mechanism.
+Status: authoritative product-wide security architecture. Phase 18A and runtime
+Phases 18L, 18N/18N2, 18O, 18P, and 18T–18Y are **COMPLETE** within their
+documented boundaries. Cryptography, vaults, user-facing Private Mode/Sensitive
+Folder, Open Safely, and later security capabilities remain **PLANNED**. This
+document does not select a cryptographic library, vault backend, or credential
+backend.
 
-Last reviewed against the repository: `2026-08-30`, after the pre-6W reliability checkpoint.
+Last reviewed against repository: `2026-08-31`, after the Phase 23H and local security-inspection suite.
 
 If Undo-history capacity cleanup cannot prove that a retained replacement
 backup is still Floe-owned, the record changes to review-required and that
@@ -249,13 +249,15 @@ Security state must use text and accessible semantics, never color alone. A fail
 - Normal Open and Open With give an external application the selected file URI under the user's normal authority. The launch is not sandboxed. That application or the desktop may record recents, logs, thumbnails, or network activity outside Floe's control.
 - Raster decoding is bounded and non-executing, but it occurs in Floe's thumbnail worker process. It is not a parser sandbox; a decoder vulnerability can affect Floe's process.
 - Phase 6L system thumbnailers run as supervised external process groups on the
-  capacity-64 thumbnail worker. Floe parses reviewed field codes into argv
-  without a shell, passes one exact input URI/path plus a private temporary
-  output, enforces timeout/cancellation, rejects symlink/non-regular/oversized
-  output, decodes only bounded PNG pixels, revalidates source metadata, and
-  cleans temporary output. These helpers are **not sandboxed**: they inherit the
-  user's normal filesystem, environment, session, and network authority, so a
-  vulnerable or malicious installed provider can access data beyond the input.
+  capacity-64 thumbnail worker. Phase 18L now requires the reviewed Bubblewrap
+  boundary: Floe parses field codes into argv without a shell, grants the exact
+  input read-only plus a private temporary output directory, removes network and
+  session namespaces, enforces timeout/cancellation, rejects
+  symlink/non-regular/oversized output, decodes only bounded PNG pixels,
+  revalidates source metadata, and cleans temporary output. If Bubblewrap is
+  absent or the policy cannot start, the provider is unavailable; Floe never
+  retries it with the user's ambient authority. Bubblewrap reduces provider
+  reach but is not a claim that the provider or decoder is vulnerability-free.
 - Conflict refusal, atomic no-replace rename, source revalidation, and cleanup improve data safety. They are not content-integrity verification, authenticity, crash recovery, or durable transaction guarantees.
 - Phase 20B2 completion notifications use generic text without filenames or paths. Failure toast details are bounded to 2,048 characters, remain memory-only, and appear only after the user activates that toast's Details action; technical errors can still contain sensitive paths inside the Floe window. Other current toasts and desktop integration do not yet have a complete sensitive-name notification policy. Search indexing, privacy-aware session history, and secret clipboard handling are not implemented. Phase 18Y operation recovery is implemented with the bounded trace policy documented below.
 - Phase 6V completed-operation reveal holds at most 4,096 exact result paths in
@@ -701,9 +703,9 @@ Private policy must clear or visibly scope both internal and desktop state.
 
 ## Sandboxed providers and Open Safely
 
-Status: **PARTIAL**. Phase 6L supervises installed system thumbnailers, but no
-current previewer, thumbnailer, or Open action is sandboxed. Phase 18L owns the
-restricted provider boundary described below.
+Status: **IMPLEMENTED for external thumbnail and Preview providers; Open Safely remains PLANNED**. Phase 18L requires `/usr/bin/bwrap` or `/bin/bwrap`, clears the environment, unshares all namespaces including network and session IPC, mounts `/usr` read-only, grants only the exact source at `/run/floe/input`, grants only a private output directory at `/run/floe/output`, uses private `/tmp`, and retains timeout, output, identity-revalidation, cancellation, and process-group termination limits. If Bubblewrap is missing, unusable, or policy setup fails, Floe reports the provider unavailable and never retries with ordinary user authority.
+
+This boundary restricts installed helper access; it does not prove a helper is bug-free or make its output trusted. The current verification host has `/usr/bin/bwrap`, but its sandbox blocks the required network namespace with `NETLINK_ROUTE ... Operation not permitted`. Deterministic policy and controlled-fixture gates pass; a live sandboxed provider run remains an explicit native-environment limitation and Floe does not fall back to direct execution.
 
 ### Provider execution boundary
 
@@ -732,6 +734,28 @@ Open Safely is a distinct action that launches a compatible external application
 Sandbox setup failure stops Open Safely. A user may separately choose normal Open after a warning, but Floe must never silently convert the safe action into a normal launch or retain a sandbox indicator.
 
 Child processes, D-Bus and session-bus access, portals, file chooser grants, downloads, save and export behavior, and cleanup require tests. An unsupported application is reported unsupported, not sandboxed.
+
+## Suspicious-file evidence and optional local ClamAV
+
+Status: **IMPLEMENTED within Phase 18N/18N2's local evidence boundary**.
+
+**Inspect Privacy & Safety…** analyzes exact selected paths on a bounded worker. It reports executable permission, document-looking active suffixes, desktop launchers, scripts, AppImages, conservative extension/content-type mismatches, bidi controls, invisible/control characters, and a safe escaped raw filename. These are explainable signals, not a malware diagnosis. International filenames are not called suspicious merely for being non-ASCII.
+
+**Scan with Local ClamAV…** is optional and requires a separately installed, configured, running `clamd`. Floe does not link `libclamav`, bundle signatures, invoke a shell, or upload data. It connects only to reviewed local Unix socket locations, requests the engine version, and streams exact no-follow regular-file bytes through `INSTREAM` in bounded chunks. Directory traversal is local, bounded, same-device, depth-limited, and never follows symbolic links. The user selects a 1–16384 MiB per-file limit (default 1024 MiB) and a 1–1024 GiB total-request limit (default 16 GiB); Floe normalizes the total to at least the per-file capacity and snapshots both values into each request. Traversal remains capped at 100,000 files/directories and retained findings at 4,096. Source device/inode/size/mtime/ctime is revalidated.
+
+The local daemon remains a separate policy boundary. Its `StreamMaxLength`, `MaxFileSize`, archive, or engine limits may be lower than Floe's configured limits. Floe reports daemon refusals as **not scanned** and never implies that increasing an application limit overrides `clamd` policy. Preferences are bounded before persistence and again when constructing an immutable scan request; changing Settings cannot retroactively alter a running scan.
+
+Outcomes distinguish **signature reported**, **no known signature reported**, **not scanned**, **changed**, **cancelled**, **limit reached**, daemon/protocol error, and scanner unavailable. Cancellation during the initial daemon handshake or a file stream remains cancellation rather than a communication failure. Process-wide generations and bounded result routing prevent one Floe window from consuming or cancelling another window's scan. A digest or no-signature result is never described as safe, clean, trusted, or malware-free. Floe does not quarantine, delete, move, or open any result automatically. Paths and signatures remain memory-only presentation state and are not added to normal logs or notifications.
+
+## Privacy Inspector and metadata sanitization
+
+Background Activity rows for Properties, privacy inspection, ClamAV scans, and metadata sanitization are generation-bound so a late worker result cannot replace a newer operation's state. Findings, reports, and reveal targets remain memory-only: Floe does not copy them into logs, desktop notifications, session persistence, or ordinary operation history. Closing the owning window cancels its active security work and removes that window's presentation state.
+
+Status: **IMPLEMENTED for the reviewed local image-format subset**.
+
+The Privacy Inspector reads at most 64 MiB from an exact no-follow regular file, revalidates identity, and reports unsupported, malformed, inaccessible, oversized, or changed states explicitly. JPEG and TIFF EXIF parsing identifies actual GPS, camera/device/lens/serial, software, artist/copyright, timestamp, and embedded-thumbnail fields when present. PNG inspection identifies EXIF, text/XMP, and time chunks. WebP inspection identifies EXIF and XMP chunks. A supported format with no reviewed finding is not an exhaustive privacy guarantee; Floe does not inspect steganography, pixels, every vendor tag, active document content, or external sidecars in this phase.
+
+**Create Sanitized Copy…** supports JPEG, PNG, and WebP only. After explicit preview/confirmation it removes reviewed JPEG APP1 EXIF/XMP, APP13 IPTC/Photoshop, and comment segments; PNG EXIF/text/time chunks; or WebP EXIF/XMP chunks. WebP publication also clears the matching EXIF/XMP feature bits in a retained VP8X header. It never modifies or replaces the source. Each result is written to a 0600 private sibling stage, synchronized, verified to contain none of the reviewed removable classes, revalidates the source, and is atomically published with Linux no-replace semantics to a unique ` (sanitized)` sibling. Every failed source-revalidation path cleans the Floe-owned stage. Batch requests are capped at 128 and cancellation stops between items; completed copies remain visible and unsupported/failed/cancelled items remain explicit. This is metadata reduction, not proof of anonymity or removal of all personal information.
 
 ## Inspector selection facts and metadata providers
 

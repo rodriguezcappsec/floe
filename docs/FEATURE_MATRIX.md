@@ -172,14 +172,14 @@ job/session ownership remains Phase 23H.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Multi-window browsing | `PARTIAL` | 23A | `Ctrl+N`, repeated activation, newest-live open routing, close-one/survivor behavior and exact **Open Folder in New Window** are implemented. Shared persistent job/event services and multi-window session restoration remain 23H. |
+| Multi-window browsing | `COMPLETE` | 23A/23H | `Ctrl+N`, exact **Open Folder in New Window**, independent window navigation, one shared operation state/event owner, bounded multi-window restore, and close-owner transfer are implemented. |
 | Completion notifications | `COMPLETE` | 23B | Persisted opt-out; typed completed jobs lasting at least two seconds notify only while the originating window is unfocused, with fixed path-free text and stable deduplicating ID. |
 | Natural Name sorting | `COMPLETE` | 23C | Worker-owned raw-byte comparator handles long numeric runs, leading zeros, case folding and deterministic non-UTF-8 ties; ordinary sort/group/directory policies and persistence remain active. |
 | Bookmark rename and reorder | `COMPLETE` | 23D | Version-2 private records preserve raw paths and optional bounded aliases, migrate v1, preserve missing destinations, and expose Rename/Reset/Move Up/Move Down/Remove through one compact accessible menu. |
 | Collapsible sidebar | `COMPLETE` | 23E | Persistent icon-rail state remembers expanded width independently; labels remain accessible through names/tooltips and device names stay single-line. |
 | Inspector/Properties SHA-256 | `COMPLETE` | 23F | Explicit one-regular-file action reuses reviewed checksum job/result UI; no eager hashing and no authenticity/safety claim. |
 | Owner, Group, Path, Link Target columns | `COMPLETE` | 23G | Selectable/reorderable/resizable persistent columns use lazy UID/GID and no-follow link-target metadata with explicit broken/inaccessible state and exact path identity. |
-| Multi-window shared runtime and restore | `NEXT` | 23H | Introduce one application-owned service/event coordinator and bounded versioned window-session model without duplicate recovery writers, conflict dialogs or event consumption. |
+| Multi-window shared runtime restore | `COMPLETE` | 23H | One application-owned operation/event coordinator restores at most 16 versioned raw-path workspaces, migrates legacy one-window data, rejects corrupt/oversized/trailing state, and suppresses Private/Sensitive traces. |
 
 ## Drag and drop, creation, and productivity operations
 
@@ -402,16 +402,16 @@ advanced predicates and explicit Match Case control.
 | Thumbnail HiDPI policy | `PARTIAL` | 6D/20B2 | Cache identity remains the configured logical thumbnail edge while GTK owns device scaling; bounds and native logical presentation are tested, but a multi-monitor fractional-scale provider-output matrix remains Phase 21 evidence. |
 | Video frame thumbnails | `COMPLETE` | 6L | Uses an installed reviewed freedesktop provider; unavailable/failed providers retain the generic icon. |
 | PDF page thumbnails | `COMPLETE` | 6L | Provider output is accepted only as bounded passive PNG; Floe does not intentionally execute document active content. |
-| Office/DOCX thumbnails | `COMPLETE` | 6L | Uses installed providers through supervised argv execution; helpers are not sandboxed. |
+| Office/DOCX thumbnails | `COMPLETE` | 6L/18L | Uses installed providers through supervised argv execution inside the required Bubblewrap boundary; unavailable sandboxing fails closed to the generic icon. |
 | Font thumbnails | `COMPLETE` | 6L | Uses installed providers with timeout, cancellation, bounded PNG output, and generic fallback. |
 | Text/code thumbnails | `COMPLETE` | 6L | Uses reviewed text MIME policy without a shell or syntax-command interpolation. |
 | Embedded audio artwork | `COMPLETE` | 6L | Uses installed audio providers; availability and extraction quality remain provider-dependent. |
-| Archive previews | `COMPLETE` | 6L | Uses installed archive providers; helpers run with normal user authority until Phase 18L. |
+| Archive previews | `COMPLETE` | 6L/18L | Uses installed archive providers only through the required Bubblewrap boundary; unavailable sandboxing fails closed. |
 | Safe SVG thumbnails | `PLANNED` | 18L/9B | Add only with reviewed passive renderer/provider and external-resource denial. |
 | AVIF/HEIF/RAW thumbnails | `DEFERRED` | 6L/18L | Add only after provider/decoder and hostile-input review. |
 | Remote thumbnail policy | `PLANNED` | 17/18J | Avoid silent full downloads and plaintext cache leakage. |
 | Sensitive/vault thumbnail cache policy | `PLANNED` | 18J | Safe default is memory-only, encrypted per-vault cache, or disabled persistence. |
-| Sandboxed external thumbnailers | `PLANNED` | 18L | Phase 6L establishes providers; Phase 18L adds the explicit restricted execution boundary. |
+| Sandboxed external thumbnailers | `COMPLETE` | 18L | Required Bubblewrap policy grants the exact target read-only and a private output directory, removes network/session namespaces, bounds process groups, and fails closed without unsandboxed fallback. |
 
 ## Quick Preview
 
@@ -629,28 +629,29 @@ advanced predicates and explicit Match Case control.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Sandboxed thumbnail/preview provider policy | `PLANNED` | 18L | Define read-only target, unrelated-filesystem denial, no network, no vaults, temp isolation, time/resource limits. |
+| Sandboxed thumbnail/preview provider policy | `COMPLETE` | 18L | Production external providers require Bubblewrap with exact target-only read, private writable output/temp, cleared environment, no network/session namespaces, time/output bounds, process-group termination, and fail-closed setup. |
 | Open Safely | `PLANNED` | 18M | Restricted external launch using reviewed Bubblewrap/Landlock/portal mechanisms and explicit unsupported fallback. |
 | Sandbox status indicator | `PLANNED` | 18M/20 | Never claim sandboxing when restriction setup fails; state is not color-only. |
 | Download/untrusted-origin indicator | `PLANNED` | 18N | Use only trustworthy platform metadata and explain evidence. |
-| Executable/script/desktop/AppImage warning | `PLANNED` | 18N | Combine content/MIME and executable metadata, not extension alone. |
-| Double-extension warning | `PLANNED` | 18N | Flag patterns such as `invoice.pdf.sh` without asserting malware. |
-| Extension/MIME mismatch | `PLANNED` | 18N | Warning signal only; not proof of malicious intent. |
-| Unicode/invisible/misleading filename analysis | `PLANNED` | 18N | Explain bidi/control/confusable risk while respecting legitimate international names. |
-| Safe escaped filename display | `PLANNED` | 18N/10 | Inspector exposes why a filename is suspicious. |
+| Executable/script/desktop/AppImage warning | `COMPLETE` | 18N | Combines content type, executable permission, and reviewed active types; explains evidence without a malware verdict. |
+| Double-extension warning | `COMPLETE` | 18N | Flags document-looking active suffixes such as `invoice.pdf.sh`; reviewed compound extensions avoid common false positives. |
+| Extension/MIME mismatch | `COMPLETE` | 18N | Conservative extension/content-type signal only; never proof of malicious intent. |
+| Unicode/invisible/misleading filename analysis | `COMPLETE` | 18N | Detects bidi and invisible/control hazards while preserving exact raw path identity. |
+| Safe escaped filename display | `COMPLETE` | 18N/10 | Non-UTF-8 and control bytes receive bounded escaped evidence text; display text never reconstructs a path. |
 | Optional quarantine area | `DEFERRED` | 18N/19 | Only with restore/original-path records and Open Safely; never market as antivirus quarantine. |
-| Inspect Read-Only | `PLANNED` | 9/18L | Passive preview path for documents, code, text, images, and archives. |
-| Antivirus protection claim | `NOT APPLICABLE` | Policy | Floe has no malware engine and must never claim antivirus protection. |
+| Inspect Read-Only | `COMPLETE` | 9/18L | Built-ins stay passive; external thumbnail/preview providers run only inside the active required Bubblewrap policy and fail unavailable rather than fall back. |
+| Antivirus protection claim | `NOT APPLICABLE` | Policy | Floe does not claim antivirus protection; optional separately installed local `clamd` scanning reports only engine evidence and never calls a no-signature result safe. |
+| Optional local ClamAV scanning | `COMPLETE` | 18N2 | Streams bounded no-follow regular-file bytes to reviewed local `clamd` Unix sockets, revalidates identity, preserves cancellation as a distinct outcome, routes results by process-wide generation across windows, and performs no automatic mutation or upload. Settings persist bounded 1–16384 MiB per-file and 1–1024 GiB total-request limits with conservative 1/16 GiB defaults; each scan snapshots and reports its exact limits while independent daemon limits remain authoritative. |
 | Sandbox claim without active sandbox | `NOT APPLICABLE` | Policy | Strictly prohibited. |
 
 ## Metadata privacy, permissions, and local sensitive scanning
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Privacy metadata Inspector | `PLANNED` | 18O | Inspect GPS, camera/device/time, author, organization, creator, comments, and embedded metadata by format. |
-| Create Sanitized Copy | `PLANNED` | 18P | Preserve original, show before/after findings, safely finalize output, and never overclaim removal. |
-| Remove GPS/personal metadata | `PLANNED` | 18P | Format-specific verified providers; failure leaves original untouched. |
-| Batch metadata sanitization | `PLANNED` | 18P | Preview, progress, cancellation, partial failure, source preservation by default. |
+| Privacy metadata Inspector | `COMPLETE` | 18O | Local read-only JPEG/TIFF EXIF and PNG/WebP chunk inspection reports actual parsed location, camera/device, software, creator, time and embedded-thumbnail evidence where supported. |
+| Create Sanitized Copy | `COMPLETE` | 18P | Preview-confirmed JPEG/PNG/WebP sibling copies preserve sources, verify reviewed metadata is absent, and publish atomically without overwrite. |
+| Remove GPS/personal metadata | `COMPLETE` | 18P | Removing reviewed JPEG APP1/APP13/comment, PNG EXIF/text/time, and WebP EXIF/XMP containers is verified; unsupported formats remain explicit. |
+| Batch metadata sanitization | `COMPLETE` | 18P | Up to 128 exact local sources run on one bounded worker with between-item cancellation, partial per-item results, private staging, and source preservation. |
 | Share-time privacy warning | `PLANNED` | 18Q | Risk-based, non-noisy warning with Remove & Share, Share Anyway, Cancel. |
 | Secure Share | `PLANNED` | 18Q | Depends on inspection, sanitization, portable encryption, recipient support, and checksums. |
 | Unix permission auditor | `PLANNED` | 18R | Explain world-readable/writable and sensitive-key exposure in symbolic and numeric forms. |
@@ -734,6 +735,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Minimal confirmation friction | `COMPLETE` | 4F | Recoverable Move to Trash is not needlessly confirmed. |
 | Strong irreversible confirmation | `COMPLETE` | 6M/18X | Permanent delete retains its irreversible confirmation and adds exact action/scope/risk guardrail review where required. |
 | No focus stealing after jobs | `PARTIAL` | 4B-6K2/20 | Operations Island is non-modal; full notification/recovery audit remains. |
+| Persistent background-task feedback | `COMPLETE` | 10C/18N2/18O/18P | Properties, Privacy inspection, local ClamAV, and sanitization retain separate accessible running/stopping/outcome rows across focus, navigation, selection, tabs, and panes; results/reveal and explicit dismissal remain available. |
 | Reveal completed destination | `PLANNED` | 6Q/11A | Reuse the Phase 6Q navigation/reveal action and preserve focus. |
 | Configurable single/double click | `COMPLETE` | 20B2 | One persisted Settings choice controls list, grid, search-result, and Miller pointer activation; Enter remains immediate in either mode. |
 | Sidebar width persists | `COMPLETE` | 6K2 | Debounced complete-state preference and reset are verified across launches. |

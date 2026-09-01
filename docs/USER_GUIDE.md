@@ -55,7 +55,7 @@ name, description, category, or familiar phrases such as “right click”,
 Appearance preset, System/Light/Dark color scheme, interface font and 75–200%
 text scale, reduced motion, icon style, single/double-click opening, default
 view, per-folder view memory, Vim navigation, grid size, file/sidebar density,
-and the optional private filename index apply immediately and continue to use
+the optional private filename index, and local ClamAV scan limits apply immediately and continue to use
 Floe's existing bounded preferences. **Reset appearance** restores Frosted,
 system colors/font, 100% text, and normal motion. Settings does not create a
 second configuration store. Detailed editors remain focused:
@@ -78,6 +78,11 @@ multi-monitor fractional-scale matrix remain release-hardening work.
 - The central browser can use List, Grid, or Miller/Columns presentation.
 - The Operations Island appears while work is running and reports progress,
   cancellation, conflicts, failures, retry actions, and completion.
+- A separate **Background Activity** panel appears below the tabs for read-only
+  Properties, Privacy inspection, local ClamAV scans, and metadata sanitization.
+  Running rows do not expire when Floe loses focus or you navigate, change selection,
+  switch tabs, or switch panes. Terminal rows retain **View Results** or **Reveal**
+  until explicitly dismissed.
 - Compact tabs appear above the browser; long folder names remain one line and
   show the complete path on hover. Split View adds a second independently
   navigable pane.
@@ -551,10 +556,7 @@ adds filesystem details, aggregate folder facts, Open With information,
 permissions, and advanced metadata where available. Permission editing is an
 explicit background operation with risk acknowledgement and no-follow checks.
 
-Some document thumbnails and previews depend on installed freedesktop
-thumbnailer/provider applications. Those helpers are supervised and bounded,
-but currently run with the user's normal authority; provider sandboxing is a
-later security phase.
+Some document thumbnails and previews depend on installed freedesktop provider applications. Floe runs those external helpers only through the required Phase 18L Bubblewrap boundary. If Bubblewrap cannot establish exact target-only/no-network isolation, the provider result is unavailable rather than retried with normal user authority.
 
 ## Archives
 
@@ -719,6 +721,25 @@ dialogs, and other input controls keep standard editing behavior.
 Open **Keyboard Shortcuts…** for the authoritative live list because most
 shortcuts can be customized.
 
+## Privacy and safety tools
+
+Select one or more items and open **Privacy & Safety** from the right-click menu, the main **Tools & Safety** menu, Properties, or the Command Palette.
+
+- **Inspect Privacy & Safety…** is read-only and local. It explains executable, double-extension, MIME, bidi/control filename signals and supported JPEG/TIFF/PNG/WebP metadata evidence. A result with no reviewed finding is not proof that the item is safe or free of private information.
+- **Scan with Local ClamAV…** requires a separately installed and running `clamd`. Floe streams bounded file bytes to its local Unix socket; it does not upload files, bundle signatures, link the ClamAV library, quarantine, or delete. **No known signature reported** means only that the configured local engine reported no known signature for those bytes. Open **Settings → Operations & Safety** to choose **ClamAV maximum file size** (1–16384 MiB, default 1024 MiB) and **ClamAV total scan size** (1–1024 GiB, default 16 GiB). The total is kept at least as large as one configured file. Each report records the limits actually used and offers **Change scan limits…** for future scans.
+- **Create Sanitized Copy…** supports JPEG, PNG, and WebP. Floe preserves every source and creates unique ` (sanitized)` siblings. Batch results report unsupported and failed items separately. Floe removes and verifies only documented EXIF/XMP/IPTC/comment/text/time containers; it does not promise anonymity or inspect pixels/steganography.
+- The persistent Background Activity row provides **Cancel** for Privacy inspection,
+  local ClamAV, and metadata sanitization, then displays **Stopping** until the worker
+  acknowledges cancellation. Sanitization and Privacy inspection stop between items;
+  already verified sanitized copies remain while every source remains unchanged.
+- Completion does not redirect the folder being browsed. Use **View Results** for
+  Privacy/ClamAV reports or **Reveal** for a created sanitized copy. Outcomes remain
+  visible after switching away from and returning to Floe.
+
+External thumbnail and Preview helpers require an active Bubblewrap boundary. If Bubblewrap is absent or prohibited by the host, those provider-backed results are unavailable and Floe uses its generic fallback; it never silently runs the helper unsandboxed. Normal **Open** remains an ordinary desktop application launch. **Open Safely** is the next planned, separate capability.
+
+Use **Customize Context Menus…** to hide or show the **Privacy & Safety** right-click submenu. This does not remove the same commands from the main menu or Command Palette.
+
 ## Troubleshooting
 
 ### A changed appearance does not show
@@ -736,12 +757,13 @@ FLOE_APPEARANCE=glass cargo run -p floe-app
 Blur is compositor-dependent. Floe supplies transparent surfaces; it cannot
 force every Wayland compositor to blur the wallpaper behind them.
 
-### A thumbnail or document preview is missing
+### thumbnail or document preview is missing
 
-Image previews use Floe's built-in reviewed decoders. PDF, office, video, and
-other system-provided thumbnails can depend on installed freedesktop
-thumbnailers. Floe falls back to a semantic file icon when no eligible provider
-is available or a provider rejects the file.
+Image previews use Floe's built-in reviewed decoders. PDF, office, video, and other system-provided thumbnails can depend on installed freedesktop providers plus usable Bubblewrap user namespaces. Floe falls back to a semantic file icon when no eligible provider is available, the sandbox cannot start, or the provider rejects the file.
+
+### local ClamAV scan is unavailable
+
+Floe does not install or start ClamAV. Install the appropriate ClamAV daemon package for your distribution, update its signatures, and start `clamd`. Floe reviews common local sockets under `/run/clamav`, `/run/clamd.scan`, and `/var/run/clamav`; it does not accept arbitrary remote scanners. Check the distribution service log if the daemon exists but its Unix socket is inaccessible. `clamd` can independently enforce a lower `StreamMaxLength`, `MaxFileSize`, or engine limit. Raising Floe's setting does not override the daemon configuration; an affected result remains **not scanned** and includes the daemon's response.
 
 ### A command is disabled
 
@@ -771,5 +793,5 @@ optional service does not disable ordinary local browsing.
 
 For development and diagnostic commands, see
 [Developing Floe](./DEVELOPMENT.md). For exact implementation status, see the
-[Feature Matrix](./FEATURE_MATRIX.md), [Roadmap](./ROADMAP.md), and
-[Privacy & Security](./PRIVACY_SECURITY.md).
+- Open Safely, user-facing Private Mode, Sensitive Folders, encrypted vaults,
+  and portable encryption are planned security work, not current claims.

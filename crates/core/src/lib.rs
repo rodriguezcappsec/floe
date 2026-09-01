@@ -27,6 +27,7 @@ mod search_index;
 mod session;
 mod sorting;
 mod split;
+mod suspicious;
 mod tabs;
 mod trash_lifecycle;
 mod user_sort_metadata;
@@ -157,6 +158,10 @@ pub use sorting::{
 pub use split::{
     BrowserSplit, SPLIT_RATIO_DEFAULT, SPLIT_RATIO_MAX, SPLIT_RATIO_MIN, SplitRatio, SplitSide,
     SplitStateError,
+};
+pub use suspicious::{
+    SuspiciousAnalysis, SuspiciousFinding, SuspiciousFindingKind, SuspiciousSeverity,
+    analyze_suspicious_file, escaped_os_name,
 };
 pub use tabs::{
     BrowserTabs, ClosedTab, RECENTLY_CLOSED_CAPACITY, TAB_CAPACITY, TabActivation, TabError,

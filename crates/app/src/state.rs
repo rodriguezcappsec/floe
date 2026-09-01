@@ -65,6 +65,9 @@ use crate::{
         PermissionExecutor, PermissionExecutorSpawnError, PermissionSubmission,
         PermissionSubmitError,
     },
+    privacy_security::{
+        PrivacySecurityError, PrivacySecurityRequest, PrivacySecurityResult, PrivacySecurityWorker,
+    },
     replace_executor::{
         ReplaceCancelError, ReplaceExecutor, ReplaceExecutorSpawnError, ReplaceSubmission,
         ReplaceSubmitError,
@@ -73,6 +76,7 @@ use crate::{
         RestoreCancelError, RestoreExecutor, RestoreExecutorSpawnError, RestoreSubmission,
         RestoreSubmitError,
     },
+    threat_scan::{ThreatScanError, ThreatScanRequest, ThreatScanResult, ThreatScanWorker},
     trash_executor::{
         TrashCancelError, TrashExecutor, TrashExecutorSpawnError, TrashRequest, TrashRequestError,
         TrashSubmission, TrashSubmitError,
@@ -221,6 +225,27 @@ pub enum TrackedOperation {
 
 pub const MAX_TERMINAL_HISTORY: usize = 64;
 const MAX_BATCH_HISTORY: usize = 64;
+const SECURITY_RESULT_CAPACITY: usize = 16;
+
+fn push_security_result<T>(queue: &RefCell<VecDeque<T>>, result: T) {
+    let mut queue = queue.borrow_mut();
+    if queue.len() == SECURITY_RESULT_CAPACITY {
+        queue.pop_front();
+    }
+    queue.push_back(result);
+}
+
+fn take_security_result<T>(
+    queue: &RefCell<VecDeque<T>>,
+    generation: u64,
+    generation_of: impl Fn(&T) -> u64,
+) -> Option<T> {
+    let mut queue = queue.borrow_mut();
+    let position = queue
+        .iter()
+        .position(|result| generation_of(result) == generation)?;
+    queue.remove(position)
+}
 
 #[derive(Debug)]
 struct PendingBatchItem {
@@ -825,6 +850,8 @@ pub enum ApplicationStateSpawnError {
     Restore(#[from] RestoreExecutorSpawnError),
     #[error(transparent)]
     UndoExecutor(#[from] UndoExecutorSpawnError),
+    #[error("could not start privacy and safety worker: {0}")]
+    PrivacySecurity(#[source] io::Error),
 }
 
 /// Application-wide services and state that outlive any one browser concern.
@@ -847,6 +874,13 @@ pub struct ApplicationState {
     recovery: Option<RecoveryCoordinator>,
     undo_history: Option<UndoHistoryCoordinator>,
     undo_executor: Option<UndoExecutor>,
+    privacy_security: RefCell<PrivacySecurityWorker>,
+    privacy_security_active: Cell<Option<u64>>,
+    privacy_security_results: RefCell<VecDeque<PrivacySecurityResult>>,
+    threat_scan: RefCell<Option<ThreatScanWorker>>,
+    threat_scan_active: Cell<Option<u64>>,
+    threat_scan_results: RefCell<VecDeque<ThreatScanResult>>,
+    security_generation: Cell<u64>,
     guardrails: RefCell<GuardrailController>,
     guardrail_policy_worker: RefCell<GuardrailPolicyWorker>,
     guardrail_policy_pending: Cell<Option<u64>>,
@@ -937,6 +971,98 @@ impl ApplicationState {
         lock(&self.jobs).has_active_jobs()
     }
 
+    pub fn submit_privacy_security(
+        &self,
+        request: PrivacySecurityRequest,
+    ) -> Result<(), PrivacySecurityError> {
+        if self.privacy_security_active.get().is_some() {
+            return Err(PrivacySecurityError::QueueFull);
+        }
+        let generation = match &request {
+            PrivacySecurityRequest::Inspect { generation, .. }
+            | PrivacySecurityRequest::Sanitize { generation, .. } => *generation,
+        };
+        self.privacy_security.borrow().submit(request)?;
+        self.privacy_security_active.set(Some(generation));
+        Ok(())
+    }
+
+    pub fn take_privacy_security_result(&self, generation: u64) -> Option<PrivacySecurityResult> {
+        while let Some(result) = self.privacy_security.borrow().try_result() {
+            let result_generation = match &result {
+                PrivacySecurityResult::Inspection(outcome) => outcome.generation,
+                PrivacySecurityResult::Sanitized(outcome) => outcome.generation,
+            };
+            if self.privacy_security_active.get() == Some(result_generation) {
+                self.privacy_security_active.set(None);
+            }
+            push_security_result(&self.privacy_security_results, result);
+        }
+        take_security_result(
+            &self.privacy_security_results,
+            generation,
+            |result| match result {
+                PrivacySecurityResult::Inspection(outcome) => outcome.generation,
+                PrivacySecurityResult::Sanitized(outcome) => outcome.generation,
+            },
+        )
+    }
+
+    pub fn cancel_privacy_security(&self, generation: u64) {
+        if self.privacy_security_active.get() == Some(generation) {
+            self.privacy_security.borrow().cancel();
+        }
+    }
+
+    pub fn next_security_generation(&self) -> u64 {
+        let generation = self.security_generation.get().max(1);
+        self.security_generation
+            .set(generation.wrapping_add(1).max(1));
+        generation
+    }
+
+    pub fn submit_threat_scan(&self, request: ThreatScanRequest) -> Result<(), ThreatScanError> {
+        if self.threat_scan_active.get().is_some() {
+            return Err(ThreatScanError::QueueFull);
+        }
+        if self.threat_scan.borrow().is_none() {
+            self.threat_scan.replace(Some(ThreatScanWorker::spawn()?));
+        }
+        let generation = request.generation;
+        self.threat_scan
+            .borrow()
+            .as_ref()
+            .ok_or(ThreatScanError::Stopped)?
+            .submit(request)?;
+        self.threat_scan_active.set(Some(generation));
+        Ok(())
+    }
+
+    pub fn cancel_threat_scan(&self, generation: u64) {
+        if self.threat_scan_active.get() == Some(generation)
+            && let Some(worker) = self.threat_scan.borrow().as_ref()
+        {
+            worker.cancel();
+        }
+    }
+
+    pub fn take_threat_scan_result(&self, generation: u64) -> Option<ThreatScanResult> {
+        while let Some(result) = self
+            .threat_scan
+            .borrow()
+            .as_ref()
+            .and_then(ThreatScanWorker::try_result)
+        {
+            if self.threat_scan_active.get() == Some(result.generation) {
+                self.threat_scan_active.set(None);
+            }
+            push_security_result(&self.threat_scan_results, result);
+        }
+        take_security_result(&self.threat_scan_results, generation, |result| {
+            result.generation
+        })
+    }
+
     pub fn new() -> Result<Self, ApplicationStateSpawnError> {
         Self::new_with_persistence(true)
     }
@@ -1005,6 +1131,8 @@ impl ApplicationState {
         let integrity_executor = IntegrityExecutor::spawn(Arc::clone(&jobs))?;
         let verified_copy_executor = VerifiedCopyExecutor::spawn(Arc::clone(&jobs))?;
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
+        let privacy_security =
+            PrivacySecurityWorker::spawn().map_err(ApplicationStateSpawnError::PrivacySecurity)?;
         let selection_transient_state = (!persistent)
             .then(SelectionTransientState::create)
             .transpose()
@@ -1035,6 +1163,13 @@ impl ApplicationState {
             recovery,
             undo_history,
             undo_executor,
+            privacy_security: RefCell::new(privacy_security),
+            privacy_security_active: Cell::new(None),
+            privacy_security_results: RefCell::new(VecDeque::new()),
+            threat_scan: RefCell::new(None),
+            threat_scan_active: Cell::new(None),
+            threat_scan_results: RefCell::new(VecDeque::new()),
+            security_generation: Cell::new(1),
             guardrails: RefCell::new(guardrails),
             guardrail_policy_worker: RefCell::new(guardrail_policy_worker),
             guardrail_policy_pending: Cell::new(None),
@@ -3797,6 +3932,8 @@ impl ApplicationState {
         let integrity_executor = IntegrityExecutor::spawn(Arc::clone(&jobs))?;
         let verified_copy_executor = VerifiedCopyExecutor::spawn(Arc::clone(&jobs))?;
         let restore_executor = RestoreExecutor::spawn(Arc::clone(&jobs))?;
+        let privacy_security =
+            PrivacySecurityWorker::spawn().map_err(ApplicationStateSpawnError::PrivacySecurity)?;
         let guardrails = GuardrailController::load_at(guardrail_store_path.clone())?;
         let guardrail_policy_worker = GuardrailPolicyWorker::spawn(guardrail_store_path)
             .map_err(ApplicationStateSpawnError::GuardrailPolicy)?;
@@ -3818,6 +3955,13 @@ impl ApplicationState {
             recovery: None,
             undo_history: None,
             undo_executor: None,
+            privacy_security: RefCell::new(privacy_security),
+            privacy_security_active: Cell::new(None),
+            privacy_security_results: RefCell::new(VecDeque::new()),
+            threat_scan: RefCell::new(None),
+            threat_scan_active: Cell::new(None),
+            threat_scan_results: RefCell::new(VecDeque::new()),
+            security_generation: Cell::new(1),
             guardrails: RefCell::new(guardrails),
             guardrail_policy_worker: RefCell::new(guardrail_policy_worker),
             guardrail_policy_pending: Cell::new(None),
@@ -4170,6 +4314,24 @@ mod tests {
         guardrail_controller::GuardrailBlock, guardrail_preflight::GuardrailPreflightError,
         guardrail_store::GuardrailStore,
     };
+
+    #[test]
+    fn phase_23h_runtime_security_result_routing_prevents_cross_window_stealing() {
+        let queue = RefCell::new(VecDeque::new());
+        push_security_result(&queue, (11_u64, "first window"));
+        push_security_result(&queue, (22_u64, "second window"));
+
+        assert_eq!(take_security_result(&queue, 99, |item| item.0), None);
+        assert_eq!(queue.borrow().len(), 2);
+        assert_eq!(
+            take_security_result(&queue, 22, |item| item.0),
+            Some((22, "second window"))
+        );
+        assert_eq!(
+            take_security_result(&queue, 11, |item| item.0),
+            Some((11, "first window"))
+        );
+    }
 
     #[test]
     fn phase_22a_selection_transient_state_is_private_unique_and_cleaned() {

@@ -116,6 +116,10 @@ Floe names security and privacy features according to what they demonstrably do.
 | File operations appear as jobs | Progress, cancellation, conflicts, failure, and recovery should outlive one GTK callback. |
 | Quick Preview never intentionally executes active content | Looking at a file must not silently become running it. Unsandboxed helper limitations remain visible. |
 | Search and duplicate detection run locally | Filenames, content, and hashes can reveal private information and do not need a remote service. |
+| Suspicious-file inspection explains evidence rather than declaring malware | Filename, MIME, permission, and Unicode signals can justify caution but cannot prove intent or safety. |
+| ClamAV is optional, local, and separately installed | Users may want known-signature evidence without uploads or binding Floe's lifecycle/license to an antivirus engine; no-signature still is not proof of safety. |
+| Sanitization creates a new verified copy | Privacy cleanup must not destroy the original or imply that a reviewed metadata subset is every possible identifying trace. |
+| External preview helpers fail when Bubblewrap cannot start | Opening attacker-controlled bytes with full user authority would contradict narrow authority; missing previews are preferable to silent sandbox downgrade. |
 | Duplicate results confirm bytes after hashing | A digest narrows candidates, but Floe does not call files identical from a digest match alone. |
 | Checksums are not called signatures | Integrity evidence is different from identity or authenticity. |
 | Protected Folders are not called encryption | They guard against accidental Floe operations, not other applications or attackers. |

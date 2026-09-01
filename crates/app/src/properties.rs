@@ -169,10 +169,6 @@ impl PropertiesWorker {
     pub fn try_response(&self) -> Option<PropertiesResponse> {
         self.responses.lock().ok()?.pop_front()
     }
-
-    pub fn supersede(&self, generation: u64) {
-        self.latest_generation.store(generation, Ordering::Release);
-    }
 }
 
 impl Drop for PropertiesWorker {

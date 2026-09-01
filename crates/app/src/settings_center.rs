@@ -9,6 +9,10 @@ use crate::{
         ClickPolicy, ColorSchemePreference, FONT_SCALE_MAX, FONT_SCALE_MIN, SidebarDensity,
         ViewPreferences,
     },
+    threat_scan::{
+        CLAMAV_FILE_LIMIT_MIB_MAX, CLAMAV_FILE_LIMIT_MIB_MIN, CLAMAV_TOTAL_LIMIT_GIB_MAX,
+        CLAMAV_TOTAL_LIMIT_GIB_MIN,
+    },
     view::{FileViewDensity, GRID_SIZES, GridSize, ViewMode},
 };
 
@@ -85,6 +89,8 @@ enum SettingId {
     OperationHistory,
     RecoveryCenter,
     ProtectedFolders,
+    ClamAvFileLimit,
+    ClamAvTotalLimit,
     PreferredTerminal,
     CustomActions,
     PrivilegedAccess,
@@ -106,7 +112,7 @@ struct SettingDefinition {
     action: Option<&'static str>,
 }
 
-const SETTINGS: [SettingDefinition; 29] = [
+const SETTINGS: [SettingDefinition; 31] = [
     setting(
         SettingId::AppearancePreset,
         SettingsSection::Appearance,
@@ -268,6 +274,22 @@ const SETTINGS: [SettingDefinition; 29] = [
         Some("win.protected-folders"),
     ),
     setting(
+        SettingId::ClamAvFileLimit,
+        SettingsSection::OperationsSafety,
+        "ClamAV maximum file size",
+        "Choose the largest individual file Floe may stream to local clamd, in MiB. Default 1024; bounded 1–16384 MiB.",
+        "clamav antivirus malware scan file size limit mib security",
+        None,
+    ),
+    setting(
+        SettingId::ClamAvTotalLimit,
+        SettingsSection::OperationsSafety,
+        "ClamAV total scan size",
+        "Choose the maximum combined file size for one scan request, in GiB. Floe keeps this at least as large as the per-file limit.",
+        "clamav antivirus malware folder request total size limit gib security",
+        None,
+    ),
+    setting(
         SettingId::PreferredTerminal,
         SettingsSection::Applications,
         "Preferred terminal",
@@ -422,6 +444,8 @@ pub struct SettingsCenterWidgets {
     pub sidebar_density: gtk::DropDown,
     pub search_index: gtk::Switch,
     pub metadata_sort_cache: gtk::Switch,
+    pub clamav_file_limit: gtk::SpinButton,
+    pub clamav_total_limit: gtk::SpinButton,
     pub privileged_access: gtk::Switch,
     pub reduced_motion: gtk::Switch,
     pub action_buttons: Vec<(&'static str, gtk::Button)>,
@@ -579,6 +603,30 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         "Reuse advanced sort metadata",
         definition(SettingId::MetadataSortCache).description,
     );
+    let clamav_file_limit = gtk::SpinButton::with_range(
+        f64::from(CLAMAV_FILE_LIMIT_MIB_MIN),
+        f64::from(CLAMAV_FILE_LIMIT_MIB_MAX),
+        64.0,
+    );
+    clamav_file_limit.set_value(f64::from(preferences.clamav_file_limit_mib));
+    clamav_file_limit.set_digits(0);
+    clamav_file_limit.set_valign(gtk::Align::Center);
+    clamav_file_limit.update_property(&[
+        gtk::accessible::Property::Label("Maximum ClamAV file size in MiB"),
+        gtk::accessible::Property::Description(definition(SettingId::ClamAvFileLimit).description),
+    ]);
+    let clamav_total_limit = gtk::SpinButton::with_range(
+        f64::from(CLAMAV_TOTAL_LIMIT_GIB_MIN),
+        f64::from(CLAMAV_TOTAL_LIMIT_GIB_MAX),
+        1.0,
+    );
+    clamav_total_limit.set_value(f64::from(preferences.clamav_total_limit_gib));
+    clamav_total_limit.set_digits(0);
+    clamav_total_limit.set_valign(gtk::Align::Center);
+    clamav_total_limit.update_property(&[
+        gtk::accessible::Property::Label("Maximum total ClamAV scan size in GiB"),
+        gtk::accessible::Property::Description(definition(SettingId::ClamAvTotalLimit).description),
+    ]);
     let privileged_access = settings_switch(
         preferences.privileged_access_enabled,
         "Experimental administrator browsing",
@@ -615,6 +663,8 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
                 SettingId::SidebarDensity => control_row(item, &sidebar_density),
                 SettingId::SearchIndex => control_row(item, &search_index),
                 SettingId::MetadataSortCache => control_row(item, &metadata_sort_cache),
+                SettingId::ClamAvFileLimit => control_row(item, &clamav_file_limit),
+                SettingId::ClamAvTotalLimit => control_row(item, &clamav_total_limit),
                 SettingId::PrivilegedAccess => control_row(item, &privileged_access),
                 SettingId::ReducedMotion => control_row(item, &reduced_motion),
                 SettingId::SystemAccessibility => info_row(item),
@@ -709,6 +759,8 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
         sidebar_density,
         search_index,
         metadata_sort_cache,
+        clamav_file_limit,
+        clamav_total_limit,
         privileged_access,
         reduced_motion,
         action_buttons,
@@ -871,6 +923,26 @@ mod tests {
     }
 
     #[test]
+    fn clamav_limit_settings_are_searchable_and_bounded() {
+        assert!(matching_settings("clamav file size").contains(&SettingId::ClamAvFileLimit));
+        assert!(matching_settings("clamav total").contains(&SettingId::ClamAvTotalLimit));
+        assert_eq!(
+            definition(SettingId::ClamAvFileLimit).section,
+            SettingsSection::OperationsSafety
+        );
+        assert!(
+            definition(SettingId::ClamAvFileLimit)
+                .description
+                .contains("16384")
+        );
+        assert!(
+            definition(SettingId::ClamAvTotalLimit)
+                .description
+                .contains("at least")
+        );
+    }
+
+    #[test]
     #[ignore = "requires a real disposable GTK display"]
     fn phase_testing_gtk_phase_20a_settings_center_accessibility_contract() {
         gtk::init().expect("GTK display");
@@ -898,6 +970,14 @@ mod tests {
         assert_eq!(
             widgets.metadata_sort_cache.accessible_role(),
             gtk::AccessibleRole::Switch
+        );
+        assert_eq!(
+            widgets.clamav_file_limit.accessible_role(),
+            gtk::AccessibleRole::SpinButton
+        );
+        assert_eq!(
+            widgets.clamav_total_limit.accessible_role(),
+            gtk::AccessibleRole::SpinButton
         );
         assert_eq!(widgets.action_buttons.len(), 11);
         assert_eq!(

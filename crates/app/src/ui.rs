@@ -918,6 +918,9 @@ pub struct PropertiesDialogWidgets {
     pub dialog: adw::Dialog,
     pub open_with_button: gtk::Button,
     pub checksum_button: gtk::Button,
+    pub privacy_safety_button: gtk::Button,
+    pub threat_scan_button: gtk::Button,
+    pub sanitize_button: gtk::Button,
     pub edit_permissions_button: gtk::Button,
     pub close_button: gtk::Button,
 }
@@ -1043,6 +1046,8 @@ pub struct BrowserWidgets {
     appearance_manager: AppearanceManager,
     entry_icon_style: Rc<Cell<EntryIconStyle>>,
     pub toast_overlay: adw::ToastOverlay,
+    pub background_feedback_revealer: gtk::Revealer,
+    pub background_feedback_list: gtk::Box,
     pub back_button: gtk::Button,
     pub forward_button: gtk::Button,
     pub parent_button: gtk::Button,
@@ -2420,6 +2425,25 @@ pub fn build(
     );
     open_inspect_model.append(Some("Properties"), Some("win.properties"));
     tools_safety_model.append(Some("Calculate Checksums…"), Some("win.checksum"));
+    let privacy_safety_model = gio::Menu::new();
+    privacy_safety_model.append(
+        Some("Inspect Privacy & Safety…"),
+        Some("win.inspect-privacy-safety"),
+    );
+    privacy_safety_model.append(Some("Scan with Local ClamAV…"), Some("win.scan-threats"));
+    privacy_safety_model.append(
+        Some("Create Sanitized Copy…"),
+        Some("win.create-sanitized-copy"),
+    );
+    privacy_safety_model.append(
+        Some("Cancel Local ClamAV Scan"),
+        Some("win.cancel-threat-scan"),
+    );
+    privacy_safety_model.append(
+        Some("Cancel Metadata Sanitization"),
+        Some("win.cancel-sanitization"),
+    );
+    tools_safety_model.append_submenu(Some("Privacy & Safety"), &privacy_safety_model);
     tools_safety_model.append(Some("Operation Recovery…"), Some("win.recovery-center"));
 
     let protected_folders_model = gio::Menu::new();
@@ -3014,8 +3038,36 @@ pub fn build(
     tab_strip.add_css_class("floe-tab-strip");
     tab_strip.append(&tab_scroller);
     tab_strip.append(&new_tab_button);
+    let background_feedback_list = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(6)
+        .build();
+    let background_feedback_surface = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .margin_top(6)
+        .margin_bottom(6)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    background_feedback_surface.add_css_class("card");
+    background_feedback_surface.add_css_class("floe-background-feedback");
+    background_feedback_surface.append(&background_feedback_list);
+    let background_feedback_revealer = gtk::Revealer::builder()
+        .transition_type(gtk::RevealerTransitionType::SlideDown)
+        .reveal_child(false)
+        .child(&background_feedback_surface)
+        .build();
+    background_feedback_revealer.set_accessible_role(gtk::AccessibleRole::Group);
+    background_feedback_revealer.update_property(&[
+        gtk::accessible::Property::Label("Background activity"),
+        gtk::accessible::Property::Description(
+            "Persistent running and completed background task feedback",
+        ),
+    ]);
+
     root.append(&header);
     root.append(&tab_strip);
+    root.append(&background_feedback_revealer);
     root.append(&workspace);
 
     let operations = build_operations_island();
@@ -3032,6 +3084,8 @@ pub fn build(
         appearance_manager,
         entry_icon_style,
         toast_overlay,
+        background_feedback_revealer,
+        background_feedback_list,
         back_button,
         forward_button,
         parent_button,
@@ -3761,6 +3815,30 @@ pub fn build_properties_dialog(
         "Calculate on demand. A checksum is not proof of authenticity or safety.",
     ));
     content.append(&checksum_button);
+
+    let privacy_heading = gtk::Label::builder()
+        .label("Privacy & Safety")
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .build();
+    privacy_heading.add_css_class("heading");
+    content.append(&privacy_heading);
+    let privacy_safety_button = gtk::Button::with_label("Inspect Privacy & Safety…");
+    privacy_safety_button.set_halign(gtk::Align::Start);
+    content.append(&privacy_safety_button);
+    let threat_scan_button = gtk::Button::with_label("Scan with Local ClamAV…");
+    threat_scan_button.set_halign(gtk::Align::Start);
+    threat_scan_button.set_tooltip_text(Some(
+        "Requires a separately installed and running clamd service; no-signature is not proof of safety",
+    ));
+    content.append(&threat_scan_button);
+    let sanitize_button = gtk::Button::with_label("Create Sanitized Copy…");
+    sanitize_button.set_halign(gtk::Align::Start);
+    sanitize_button.set_sensitive(presentation.open_with_available);
+    sanitize_button.set_tooltip_text(Some(
+        "Available for one supported regular JPEG, PNG, or WebP; the source remains unchanged",
+    ));
+    content.append(&sanitize_button);
     let permissions_heading = gtk::Label::builder()
         .label("Permissions")
         .halign(gtk::Align::Start)
@@ -3809,6 +3887,9 @@ pub fn build_properties_dialog(
         dialog,
         open_with_button,
         checksum_button,
+        privacy_safety_button,
+        threat_scan_button,
+        sanitize_button,
         edit_permissions_button,
         close_button,
     }
@@ -6237,6 +6318,22 @@ fn populate_file_context_menu_model(
         menu.append_section(None, &checksums);
     }
 
+    if preferences.is_visible(ContextMenuGroup::PrivacySafety) {
+        let security = gio::Menu::new();
+        security.append(
+            Some("Inspect Privacy & Safety…"),
+            Some("win.inspect-privacy-safety"),
+        );
+        security.append(Some("Scan with Local ClamAV…"), Some("win.scan-threats"));
+        security.append(
+            Some("Create Sanitized Copy…"),
+            Some("win.create-sanitized-copy"),
+        );
+        let section = gio::Menu::new();
+        section.append_submenu(Some("Privacy & Safety"), &security);
+        menu.append_section(None, &section);
+    }
+
     let destructive = gio::Menu::new();
     destructive.append(Some("Move to Trash"), Some("win.trash"));
     destructive.append(Some("Delete Permanently…"), Some("win.permanent-delete"));
@@ -7998,6 +8095,9 @@ mod tests {
             "win.extract-to",
             "win.compress",
             "win.batch-rename",
+            "win.inspect-privacy-safety",
+            "win.scan-threats",
+            "win.create-sanitized-copy",
             "win.context-menu-settings",
         ] {
             assert!(
@@ -8008,7 +8108,7 @@ mod tests {
         assert!(!actions.iter().any(|action| action == "win.checksum"));
         assert!(!actions.iter().any(|action| action == "win.copy-path"));
         assert!(
-            model.n_items() <= 8,
+            model.n_items() <= 9,
             "root stays grouped into compact sections"
         );
     }
@@ -8772,6 +8872,39 @@ mod tests {
         assert_eq!(presentation.selection_count, 2);
         assert!(!presentation.open_with_available);
         assert!(presentation.general[0].value.contains("not merged"));
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_testing_gtk_background_feedback_surface_is_persistent_and_semantic() {
+        gtk::init().expect("GTK component gate requires available display");
+        adw::init().expect("libadwaita must initialize in GTK component gate");
+        let display = gtk::gdk::Display::default().expect("GTK display must be available");
+        crate::iconography::register(&display);
+        let application = adw::Application::builder()
+            .application_id("io.github.rodriguezcappsec.Floe.BackgroundFeedbackTest")
+            .build();
+        application
+            .register(None::<&gio::Cancellable>)
+            .expect("component-test application must register before creating window");
+        let widgets = build(
+            &application,
+            &[],
+            Appearance::for_preset(AppearancePreset::Native),
+            ViewPreferences::default(),
+        );
+        assert_eq!(
+            widgets.background_feedback_revealer.accessible_role(),
+            gtk::AccessibleRole::Group
+        );
+        assert!(!widgets.background_feedback_revealer.reveals_child());
+        assert!(widgets.background_feedback_list.first_child().is_none());
+
+        let row = gtk::Label::new(Some("Scanning locally with ClamAV"));
+        widgets.background_feedback_list.append(&row);
+        widgets.background_feedback_revealer.set_reveal_child(true);
+        assert!(widgets.background_feedback_revealer.reveals_child());
+        assert!(widgets.background_feedback_list.first_child().is_some());
     }
 
     #[test]

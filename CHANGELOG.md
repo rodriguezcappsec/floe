@@ -7,6 +7,20 @@ does not promise API or format stability beyond documented migration behavior.
 
 ### Added
 
+- Persisted Privacy & Safety controls for local ClamAV per-file and total-request scan limits. Conservative 1 GiB/16 GiB defaults remain, user values are bounded and snapshotted per request, reports show the limits used and link back to Settings, and independent `clamd` limits remain explicit.
+
+- Persistent accessible Background Activity rows for read-only Properties, Privacy
+  inspection, local ClamAV, and metadata sanitization. Running and terminal feedback
+  survives focus/navigation/selection/tab/pane changes with cancellation, View
+  Results/Reveal, and explicit dismissal. Properties is no longer silently superseded
+  by selection changes, and Privacy cancellation always returns a terminal result.
+
+- One application-owned multi-window operation/event coordinator and bounded versioned restoration of up to 16 windows, including legacy one-window migration and Private/Sensitive trace suppression.
+- Required Bubblewrap isolation for external thumbnail/Preview providers with target-only read, private output/temp, cleared environment, no network/session namespaces, process-group termination, and fail-closed setup.
+- **Inspect Privacy & Safety…** evidence for executable/double-extension/MIME/Unicode signals and reviewed JPEG/TIFF/PNG/WebP metadata.
+- Optional local `clamd` streaming scans with explicit detection, no-signature, not-scanned, changed, cancelled, limit, unavailable, and error outcomes plus generation-routed multi-window delivery; no cloud, quarantine, or safety claim.
+- Preview-confirmed batch JPEG/PNG/WebP sanitized sibling copies with source preservation, private staging cleanup, WebP feature-flag repair, verification, cancellation, and atomic no-overwrite publication.
+
 - Optional FileChooser portal filters, current-filter selection, and bounded
   boolean/combo choices with responsive visual filtering.
 - Multi-window browsing through `Ctrl+N`, repeated activation, and **Open Folder
@@ -57,12 +71,9 @@ does not promise API or format stability beyond documented migration behavior.
 
 ### Known limitations
 
-- Multi-window browsing does not yet share one application-owned operation
-  coordinator or restore a bounded set of windows; Phase 23H owns that hardening.
-
-- Flatpak, compositor-specific, remote/network, Android/MTP, cryptography,
-  vault, Private Mode, Sensitive Folder, Open Safely, Secure Share, and provider
-  sandbox functionality are unavailable.
+- Flatpak, compositor-specific, remote/network, Android/MTP, cryptography, vault, user-facing Private Mode, Sensitive Folder, Open Safely, and Secure Share remain unavailable.
+- Installed external providers require usable Bubblewrap namespaces. When the boundary is prohibited, provider-backed results remain unavailable rather than running unsandboxed.
+- ClamAV scanning requires a separately installed and running local `clamd`; Floe is not antivirus protection and no-signature is not proof of safety.
 - Complete Orca, translated RTL, physical fractional-scale, and physical media
   remain unclaimed.
 

@@ -72,14 +72,7 @@ does not strand an older one. `Ctrl+N` creates a fresh window; **Open Folder in
 New Window** transfers an exact raw-path byte variant to the application action
 without reconstructing it from a label.
 
-Phase 23A intentionally does not share the current destructive job-event drain
-between several `OperationController` instances. Secondary windows therefore
-use isolated transient application state and do not own preference, bookmark or
-session writers. This prevents duplicate event consumption, recovery writers
-and conflict dialogs, but means secondary-window operations and state are not
-restored application-wide. Phase 23H must introduce one application-owned
-coordinator with explicit per-window observation/ownership before those
-services can be shared safely.
+Phase 23H replaces the per-secondary transient operation boundary with one normal-process `ApplicationState` and `OperationEventHub`. The hub is the only destructive event drain. It assigns events to exactly one live window inbox, follows explicit active-window ownership, and transfers queued presentation ownership when a window closes. Registration is capped at 16. Preferences remain one application-owned worker with cloneable handles; the session worker stores one versioned bounded set of raw-path window workspaces, migrates legacy one-window state, and suppresses all restoration/writes under Private or Sensitive trace policy. GTK windows still own only navigation/presentation workers and never execute filesystem mutations directly.
 
 Window close is lifecycle-safe at this interim boundary. A close request is
 rejected while that window's job registry contains queued, running, paused, or
@@ -563,8 +556,15 @@ application-owned operation commands.
 `ui::build` constructs the header, `GtkPaned` sidebar/content layout, a compact
 vertically scrollable Places/Bookmarks/Devices surface, `GtkListView`, empty
 overlay, status strip, toast overlay, and compact
-Operations Island in a non-modal `GtkOverlay`. A
-`GtkSignalListItemFactory` binds boxed `DirectoryEntry` values to virtualized
+Operations Island in a non-modal `GtkOverlay`. A separate bounded Background
+Activity panel below the tab strip presents window-owned read-only/security workers
+that are not filesystem jobs. Its generation-aware ledger owns at most one row each
+for Properties, Privacy inspection, ClamAV, and sanitization. Focus, navigation,
+selection, tab, and pane changes do not mutate the ledger; only a matching worker
+generation replaces Running/Stopping with a durable terminal row. Reports and reveal
+targets remain memory-only.
+
+A `GtkSignalListItemFactory` binds boxed `DirectoryEntry` values to virtualized
 rows. Phase 6A keeps presentation inside that bind boundary and exposes aligned
 Name, Type, Size, and Modified columns from metadata already owned by directory
 enumeration;
@@ -1072,8 +1072,7 @@ persistent-cache lookup, execute in a private temporary directory on cache miss,
 terminate the process group on cancellation/timeout, accept only no-follow
 regular output under 32 MiB, decode it as bounded passive PNG, revalidate the
 source, and reuse the existing cache/pixel result boundary. GTK observes only
-owned pixels or failure and retains generic icons. These helpers are supervised
-but not sandboxed; Phase 18L owns isolation. Phase 6N adds standards-correct
+owned pixels or failure and retains generic icons. Phase 18L now wraps production external providers in required Bubblewrap target-only/no-network/private-output isolation; unavailable setup fails closed and controlled test fixtures use a test-only direct mode. Phase 6N adds standards-correct
 local Trash browsing and restore. Phase 6O adds space-aware, metadata-aware
 copy, staged cross-filesystem move, and bounded desktop clipboard
 interoperability. Phase 6P adds operation control. Phase 6Q adds create,
@@ -1111,6 +1110,14 @@ dispatch, including queued work, undo/retry, and revised conflict destinations.
 Corrupt policy state fails closed. This is accidental-loss prevention, not
 encryption, access control, or privilege elevation. Phase 18Y is the next
 bounded architecture leaf and owns privacy-aware operation recovery journals.
+
+## Phase 18L/18N/18O/18P local security-inspection workers
+
+Each local ClamAV request snapshots normalized persisted per-file and total-byte limits, so later Settings changes cannot mutate an active worker policy or its final report.
+
+`ApplicationState` owns one `PrivacySecurityWorker` and lazily owns one optional `ThreatScanWorker`, so several windows cannot create competing scanner/sanitizer queues. It allocates process-wide generations, permits one active privacy/sanitization request and one active ClamAV request, and retains completed results in bounded generation-addressed queues. A window polling first therefore cannot consume another window's result or cancel work it does not own. GTK actions submit only typed exact-path requests and poll their generation. `floe-core::suspicious` owns pure filename/type/permission signal classification; the application worker owns no-follow content reads, reviewed container parsing, local `clamd` protocol streaming, and source-preserving sanitized-copy publication.
+
+External thumbnail/Preview provider execution stays in `system_thumbnailer.rs`, not the filesystem core. Production commands are exact argv under required Bubblewrap; missing or unusable sandbox setup is an explicit unavailable error. ClamAV uses a separately installed daemon through reviewed local Unix sockets and never links the GPL engine into Floe. Sanitization writes 0600 private sibling stages, verifies the supported removal classes, revalidates source identity, and uses `renameat2(RENAME_NOREPLACE)` publication. Results are memory-only and normal tracing does not add target paths, signatures, or metadata values.
 
 ## Known architectural debt
 

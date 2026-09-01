@@ -1,3 +1,134 @@
+# Active plan: persistent background-operation feedback regression
+
+## User-visible contract
+
+1. An accepted long-running action must immediately expose persistent, accessible
+   running feedback. Losing focus, navigating Back/Forward, switching folders,
+   changing selection, tabs, panes, or windows must not erase the state.
+2. Running feedback owns the applicable Cancel action and cannot be displaced by an
+   unrelated task. Repeated activation is rejected truthfully.
+3. Completion, partial completion, cancellation, and failure replace only their own
+   running state with durable dismissible feedback. Reports and created outputs stay
+   reachable through explicit View Results or Reveal actions after returning to Floe.
+4. Background work remains application-owned and bounded; GTK callbacks only submit,
+   cancel, and present state. Exact paths and sensitive findings remain memory-only.
+
+## Depth tree
+
+1. Trace ClamAV and privacy/sanitization request, application routing, per-window
+   generation, GTK presentation, cancellation, and completion paths.
+2. Add one reusable per-window background-feedback coordinator supporting concurrent
+   task IDs, non-expiring running/outcome toasts, exact action ownership, and bounded
+   retained report/output state.
+3. Wire the three security workflows, then perform the adjacent background feedback audit
+   across Operations Island, search/indexing, duplicate scans, properties/checksums,
+   preview/thumbnail work, storage actions, and close/navigation/focus transitions.
+4. Add lowest-layer lifecycle/routing tests plus applicable real-GTK contracts; run
+   focused, workspace, documentation, and native gates before updating status.
+
+## Status log
+
+- 2026-08-31: Regression reproduced from code path: accepted ClamAV work emits only a
+  three-second toast, so focus loss or a longer scan leaves no visible running state.
+  Gates F1-F5 defined before implementation. Edge-case-hunter optional Rust/Linux/UI
+  reference files are absent from this checkout; its complete core workflow is in use.
+- 2026-08-31: The background feedback audit traced file jobs to the persistent
+  Operations Island/history, filename/content search and search indexing to their
+  visible status plus Stop controls, duplicate scans to their persistent progress and
+  results dialogs, metadata sorting to spinner/status/cancellation, preview/thumbnail
+  work to local loading/error presentation, and device actions to row busy/outcome
+  feedback. The concrete transient-only gaps were ClamAV, Privacy inspection,
+  sanitization, and Properties. The audit also found and fixed selection-driven silent
+  Properties supersession and Privacy cancellation paths that emitted no terminal
+  result. Concurrent security activities now use separate panel rows rather than
+  mutually blocking persistent toast queues.
+
+---
+
+# Archived active plan: Floe Phase 23H and local security-inspection program
+
+## User-authorized scope
+
+Implement these six bounded capabilities in dependency order:
+
+1. Phase 23H — one application-owned multi-window mutation/event coordinator
+   and bounded multi-window session restoration.
+2. Phase 18L — enforceable sandboxing for external thumbnail/Preview providers.
+3. Phase 18N — explainable suspicious-file analysis without a malware verdict.
+4. Phase 18N2 — optional local ClamAV scanning through a separately installed
+   `clamd` Unix socket, with no upload or direct `libclamav` linkage.
+5. Phase 18O — format-specific, read-only Privacy Inspector findings.
+6. Phase 18P — no-overwrite sanitized copies for the formats Floe can verify.
+
+This program excludes encryption, vaults, Open Safely, cloud reputation,
+automatic deletion/quarantine, behavioral execution, YARA, remote/MTP scanning,
+and Niri/KDE-specific integration.
+
+## Cross-feature contracts
+
+- Exact `PathBuf`/`OsString` identity remains authoritative. Security labels and
+  lossy display text never reconstruct a path.
+- GTK callbacks submit typed requests only. Traversal, MIME/content inspection,
+  ClamAV streaming, provider launch policy, and sanitization run on bounded
+  application/core workers.
+- One normal Floe process owns exactly one mutation/recovery state and one
+  terminal event drain. Windows subscribe to coordinated outcomes; they do not
+  compete for destructive events or start additional persistence writers.
+- The session store persists at most 16 normal windows, each with an existing
+  bounded `BrowserTabs` workspace. Version 1 single-window data migrates; corrupt,
+  oversized, duplicate, Private, and Sensitive state fails safely.
+- External providers run only when a verified Bubblewrap policy is active:
+  private namespaces, no network/session bus, target-only read, output-only
+  private writable directory, resource/deadline limits, process-group teardown.
+  Missing or failed policy means an explicit unavailable provider, never an
+  unsandboxed fallback.
+- Suspicious-file findings are evidence: executable state, extension/MIME
+  mismatch, double extension, and Unicode/control hazards. They are not a
+  malware diagnosis.
+- ClamAV is optional and local. Floe discovers reviewed Unix socket locations,
+  streams bounded regular-file bytes with `INSTREAM`, revalidates source identity,
+  reports engine/signature/limit/cancellation/error states, and never calls an
+  unscanned or no-signature result safe. Process-wide generations route results
+  to the submitting window. Scanner findings remain memory-only and path-free in
+  logs/notifications.
+- Privacy findings are format-specific and bounded. Unsupported or malformed
+  content remains explicit; absence of a finding is not an exhaustive privacy
+  guarantee.
+- Sanitization never modifies or replaces a source. It writes a private staged
+  sibling, cleans failed staging, verifies selected removals and WebP feature
+  flags, atomically publishes with no-overwrite semantics, and truthfully reports
+  unsupported formats or partial cleanup.
+
+## Depth tree and ledgers
+
+- Phase 23H: `gates/phase-23h-multi-window-runtime.md`
+- Phase 18L: `gates/phase-18l-sandboxed-providers.md`
+- Phase 18N/18N2: `gates/phase-18n-local-threat-analysis.md`
+- Phase 18O: `gates/phase-18o-privacy-inspector.md`
+- Phase 18P: `gates/phase-18p-metadata-sanitization.md`
+- Root integration: `gates/phase-security-inspection-integration.md`
+
+## Applicable verification layers
+
+- Deterministic unit/property tests for codecs, bounds, raw names, classification,
+  protocol parsing, sanitization, and claim wording.
+- Tempfile-only filesystem integration for no-follow identity races, provider
+  policy, fake `clamd`, malformed media, cancellation, staging, and no-overwrite.
+- Focused ignored real-GTK tests for actions, accessible dialogs, and multi-window
+  lifecycle where the host display permits.
+- Isolated native Wayland smoke for restore, close-one/survivor, sandbox helper,
+  fake-scanner action, sanitization publication, Ping, and clean Quit.
+- Full format/check/strict-Clippy/workspace tests plus docs/render/package/release
+  consistency gates before any phase becomes `COMPLETE`.
+
+## Status log
+
+- 2026-08-31: Program started on `phase-23h-security-inspection-suite` from
+  verified commit `07e14e8`; contracts and leaf gates written before code.
+- 2026-08-31: Adversarial completion replaced path-bound fake-ClamAV dependence with exact in-memory protocol capture plus a capability-gated real connector, added process-wide generation routing for multi-window security results, preserved handshake/stream cancellation, cleaned failed sanitizer stages, repaired WebP VP8X metadata flags, and removed a GTK markup warning. Full verification evidence is recorded in the active ledgers.
+
+---
+
 # Plan: Floe Phase 22A — Selection Mode
 
 ## Contract
@@ -2136,3 +2267,23 @@ future Phase 23H application-wide job/session coordinator.
   location-completion popover. The repair is not complete until manually
   parented transient widgets are detached before destruction and an actual
   close-one-window native run proves the surviving window remains responsive.
+
+---
+
+# Plan: User-configurable local ClamAV scan limits
+
+## User-authorized scope
+
+Replace the fixed 1 GiB per-file and 16 GiB per-request ClamAV limits with persisted, user-controlled Privacy & Safety settings. Preserve conservative defaults, bounded validation, cancellability, no-follow path handling, local-only scanning, and `clamd`'s independent policy boundary. Do not change malware-verdict language, add cloud scanning, quarantine, or begin Phase 18M.
+
+## Implementation
+
+1. Add bounded preference fields for the per-file MiB limit and total-request GiB limit, including backward-compatible defaults, versioned persistence, corruption clamping, and round-trip tests.
+2. Pass an immutable validated limits value with each typed scan request; enforce it in the application worker and report the exact configured per-file limit for skipped files.
+3. Add searchable accessible controls under Settings → Operations & Safety, keep total capacity at least one file capacity, persist changes asynchronously, and show immediate confirmation.
+4. Update scan reports and user/security documentation to explain user limits, hard ceilings, and `clamd`'s independent `StreamMaxLength`/engine limits.
+5. Run focused and full Rust, GTK, documentation, migration, and hygiene gates. Keep exactly Phase 18M as the sole recommended next phase.
+
+## Completion
+
+- 2026-08-31: Complete. Bounded version-18 preferences, immutable request limits, exact skip/report wording, searchable accessible Settings controls, direct report-to-Settings action, user/security documentation, focused sparse-file/fake-clamd regressions, real-GTK accessibility, full Rust/Clippy/migration/docs/diff gates all pass. Phase 18M remains the sole NEXT phase and was not started.

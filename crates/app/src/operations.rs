@@ -24,6 +24,7 @@ use crate::{
     integrity_executor::IntegrityOutcome,
     integrity_ui::{build_integrity_results_dialog, integrity_title, present_integrity},
     operation_control::{BatchId, BatchSnapshot, BatchStatus, TransferEstimate, TransferTelemetry},
+    operation_hub::{OperationEventHub, WindowRuntimeId},
     operation_recovery::{RecoveryPathStatus, RecoveryStoreHealth},
     operation_reveal::OperationRevealRequest,
     state::{
@@ -132,6 +133,8 @@ pub struct OperationController {
     toast_overlay: adw::ToastOverlay,
     widgets: OperationWidgets,
     state: Rc<ApplicationState>,
+    event_hub: Rc<OperationEventHub>,
+    window_runtime_id: WindowRuntimeId,
     active_jobs: RefCell<VecDeque<JobId>>,
     visible_job: Cell<Option<JobId>>,
     visible_batch: Cell<Option<BatchId>>,
@@ -148,11 +151,14 @@ pub struct OperationController {
 }
 
 impl OperationController {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         window: adw::ApplicationWindow,
         toast_overlay: adw::ToastOverlay,
         widgets: OperationWidgets,
         state: Rc<ApplicationState>,
+        event_hub: Rc<OperationEventHub>,
+        window_runtime_id: WindowRuntimeId,
         guardrail_environment: impl Fn() -> PreflightEnvironment + 'static,
         callbacks: OperationCallbacks,
     ) -> Rc<Self> {
@@ -167,6 +173,8 @@ impl OperationController {
             toast_overlay,
             widgets,
             state,
+            event_hub,
+            window_runtime_id,
             active_jobs: RefCell::new(VecDeque::new()),
             visible_job: Cell::new(None),
             visible_batch: Cell::new(None),
@@ -618,7 +626,7 @@ impl OperationController {
     }
 
     fn drain_job_events(self: &Rc<Self>) {
-        for event in self.state.drain_job_events() {
+        for event in self.event_hub.drain_for(self.window_runtime_id) {
             self.handle_event(&event);
         }
     }
