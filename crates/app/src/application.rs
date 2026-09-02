@@ -11,7 +11,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{
     appearance::Appearance,
-    bookmarks::BookmarkWorker,
+    bookmarks::SharedBookmarks,
     browser::{BrowserController, BrowserServices},
     devices::DeviceMonitor,
     iconography,
@@ -20,7 +20,7 @@ use crate::{
     metadata::MetadataWorker,
     operation_hub::OperationEventHub,
     operations::{OperationCallbacks, OperationController},
-    preferences::{PreferenceWorker, ViewPreferences},
+    preferences::{PreferenceWorker, SharedPreferences, ViewPreferences},
     preview::{PreviewProviderRegistry, PreviewWorker},
     properties::PropertiesWorker,
     selection_mode::{
@@ -81,6 +81,10 @@ fn route_new_window_target<T>(
     true
 }
 
+fn application_quit_allowed(has_application_jobs: bool) -> bool {
+    !has_application_jobs
+}
+
 pub fn run() -> glib::ExitCode {
     init_logging();
 
@@ -110,6 +114,20 @@ fn run_normal() -> glib::ExitCode {
         }
     };
     let preference_worker = Rc::new(RefCell::new(preference_worker));
+    let shared_preferences = SharedPreferences::new(
+        view_preferences.clone(),
+        preference_worker
+            .borrow()
+            .as_ref()
+            .and_then(PreferenceWorker::handle),
+    );
+    let shared_bookmarks = match SharedBookmarks::spawn() {
+        Ok(bookmarks) => Some(bookmarks),
+        Err(error) => {
+            tracing::warn!(%error, "could not start bookmark worker; bookmarks unavailable");
+            None
+        }
+    };
     let session_policy = SessionTracePolicy::from_environment();
     let (restored_tabs, session_worker) = match SessionStoreWorker::spawn_windows(session_policy) {
         Ok(result) => (result.0, Some(result.1)),
@@ -135,7 +153,8 @@ fn run_normal() -> glib::ExitCode {
         .flags(gio::ApplicationFlags::HANDLES_OPEN)
         .build();
 
-    let preference_worker_for_activate = Rc::clone(&preference_worker);
+    let shared_preferences_for_activate = shared_preferences.clone();
+    let shared_bookmarks_for_activate = shared_bookmarks.clone();
     let restored_tabs_for_activate = Rc::clone(&restored_tabs);
     let session_worker_for_activate = Rc::clone(&session_worker);
     let browser_for_activate = Rc::clone(&browser_controller);
@@ -148,7 +167,8 @@ fn run_normal() -> glib::ExitCode {
             let _controller = build_window(
                 application,
                 preferences_for_activate.clone(),
-                &preference_worker_for_activate,
+                Some(shared_preferences_for_activate.clone()),
+                shared_bookmarks_for_activate.clone(),
                 &restored_tabs_for_activate,
                 &session_worker_for_activate,
                 &browser_for_activate,
@@ -159,7 +179,8 @@ fn run_normal() -> glib::ExitCode {
         }
     });
 
-    let preference_worker_for_open = Rc::clone(&preference_worker);
+    let shared_preferences_for_open = shared_preferences.clone();
+    let shared_bookmarks_for_open = shared_bookmarks.clone();
     let restored_tabs_for_open = Rc::clone(&restored_tabs);
     let session_worker_for_open = Rc::clone(&session_worker);
     let browser_for_open = Rc::clone(&browser_controller);
@@ -170,7 +191,8 @@ fn run_normal() -> glib::ExitCode {
         let controller = build_window(
             application,
             preferences_for_open.clone(),
-            &preference_worker_for_open,
+            Some(shared_preferences_for_open.clone()),
+            shared_bookmarks_for_open.clone(),
             &restored_tabs_for_open,
             &session_worker_for_open,
             &browser_for_open,
@@ -194,7 +216,8 @@ fn run_normal() -> glib::ExitCode {
 
     let new_window = gio::SimpleAction::new(NEW_WINDOW_ACTION, None);
     let application_weak = application.downgrade();
-    let preference_worker_for_new = Rc::clone(&preference_worker);
+    let shared_preferences_for_new = shared_preferences.clone();
+    let shared_bookmarks_for_new = shared_bookmarks.clone();
     let restored_tabs_for_new = Rc::clone(&restored_tabs);
     let session_worker_for_new = Rc::clone(&session_worker);
     let browser_for_new = Rc::clone(&browser_controller);
@@ -206,7 +229,8 @@ fn run_normal() -> glib::ExitCode {
             let _controller = build_window(
                 &application,
                 preferences_for_new.clone(),
-                &preference_worker_for_new,
+                Some(shared_preferences_for_new.clone()),
+                shared_bookmarks_for_new.clone(),
                 &restored_tabs_for_new,
                 &session_worker_for_new,
                 &browser_for_new,
@@ -222,7 +246,8 @@ fn run_normal() -> glib::ExitCode {
     let open_new_window =
         gio::SimpleAction::new(OPEN_NEW_WINDOW_ACTION, Some(glib::VariantTy::BYTE_STRING));
     let application_weak = application.downgrade();
-    let preference_worker_for_target = Rc::clone(&preference_worker);
+    let shared_preferences_for_target = shared_preferences.clone();
+    let shared_bookmarks_for_target = shared_bookmarks.clone();
     let restored_tabs_for_target = Rc::clone(&restored_tabs);
     let session_worker_for_target = Rc::clone(&session_worker);
     let browser_for_target = Rc::clone(&browser_controller);
@@ -243,7 +268,8 @@ fn run_normal() -> glib::ExitCode {
         let controller = build_window(
             &application,
             preferences_for_target.clone(),
-            &preference_worker_for_target,
+            Some(shared_preferences_for_target.clone()),
+            shared_bookmarks_for_target.clone(),
             &restored_tabs_for_target,
             &session_worker_for_target,
             &browser_for_target,
@@ -259,9 +285,15 @@ fn run_normal() -> glib::ExitCode {
 
     let quit = gio::SimpleAction::new("quit", None);
     let application_weak = application.downgrade();
+    let application_state_for_quit = Rc::clone(&application_state);
+    let browsers_for_quit = Rc::clone(&browser_controller);
     quit.connect_activate(move |_, _| {
         if let Some(application) = application_weak.upgrade() {
-            application.quit();
+            if application_quit_allowed(application_state_for_quit.has_active_jobs()) {
+                application.quit();
+            } else if let Some(browser) = most_recent_browser(&browsers_for_quit) {
+                browser.show_active_operation_close_message();
+            }
         }
     });
     application.add_action(&quit);
@@ -270,21 +302,19 @@ fn run_normal() -> glib::ExitCode {
     let browsers_for_shutdown = Rc::clone(&browser_controller);
     let session_worker_for_shutdown = Rc::clone(&session_worker);
     let preference_worker_for_shutdown = Rc::clone(&preference_worker);
+    let shared_preferences_for_shutdown = shared_preferences.clone();
     let application_state_for_shutdown = Rc::clone(&application_state);
     application.connect_shutdown(move |_| {
-        let (snapshots, final_preferences) = {
+        let snapshots = {
             let mut registry = browsers_for_shutdown.borrow_mut();
             registry.retain(|browser| browser.strong_count() > 0);
             let live = registry
                 .iter()
                 .filter_map(Weak::upgrade)
                 .collect::<Vec<_>>();
-            let preferences = live.last().map(|browser| browser.preferences_snapshot());
-            let snapshots = live
-                .iter()
+            live.iter()
                 .map(|browser| browser.session_snapshot())
-                .collect::<Vec<_>>();
-            (snapshots, preferences)
+                .collect::<Vec<_>>()
         };
         if !snapshots.is_empty()
             && let Some(mut worker) = session_worker_for_shutdown.borrow_mut().take()
@@ -292,9 +322,9 @@ fn run_normal() -> glib::ExitCode {
         {
             tracing::warn!(%error, "could not submit final multi-window session");
         }
-        if let Some(preferences) = final_preferences
-            && let Some(worker) = preference_worker_for_shutdown.borrow().as_ref()
-            && let Err(error) = worker.save_before_shutdown(preferences)
+        if let Some(worker) = preference_worker_for_shutdown.borrow().as_ref()
+            && let Err(error) =
+                worker.save_before_shutdown(shared_preferences_for_shutdown.snapshot())
         {
             tracing::warn!(%error, "could not submit final view preferences");
         }
@@ -314,7 +344,6 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
     };
     // Selection Mode may consume ordinary preferences for a familiar view, but
     // every chooser-local adjustment is transient and must not overwrite them.
-    let preference_worker = Rc::new(RefCell::new(None));
     let restored_tabs = Rc::new(RefCell::new(VecDeque::new()));
     let session_worker = Rc::new(RefCell::new(None));
     let browser_controller = Rc::new(RefCell::new(Vec::<Weak<BrowserController>>::new()));
@@ -338,7 +367,6 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
     let preferences_for_activate = view_preferences.clone();
     let application_state_for_activate = Rc::clone(&application_state);
     let event_hub_for_activate = Rc::clone(&operation_event_hub);
-    let preference_worker_for_activate = Rc::clone(&preference_worker);
     let restored_tabs_for_activate = Rc::clone(&restored_tabs);
     let session_worker_for_activate = Rc::clone(&session_worker);
     let browser_for_activate = Rc::clone(&browser_controller);
@@ -346,7 +374,8 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
         let _controller = build_window(
             application,
             preferences_for_activate.clone(),
-            &preference_worker_for_activate,
+            None,
+            None,
             &restored_tabs_for_activate,
             &session_worker_for_activate,
             &browser_for_activate,
@@ -405,7 +434,8 @@ fn run_selection(config: SelectionConfig) -> glib::ExitCode {
 fn build_window(
     application: &adw::Application,
     view_preferences: ViewPreferences,
-    preference_worker: &Rc<RefCell<Option<PreferenceWorker>>>,
+    shared_preferences: Option<SharedPreferences>,
+    shared_bookmarks: Option<SharedBookmarks>,
     restored_tabs: &Rc<RefCell<VecDeque<floe_core::BrowserTabs>>>,
     _session_worker: &Rc<RefCell<Option<SessionStoreWorker>>>,
     browser_controller: &BrowserRegistry,
@@ -413,11 +443,14 @@ fn build_window(
     operation_event_hub: &Rc<OperationEventHub>,
     selection_launch: Option<SelectionLaunch>,
 ) -> Option<Rc<BrowserController>> {
+    let view_preferences = shared_preferences
+        .as_ref()
+        .map(SharedPreferences::snapshot)
+        .unwrap_or(view_preferences);
     let existing_controller = selection_launch
         .is_none()
         .then(|| most_recent_browser(browser_controller))
         .flatten();
-    let secondary_normal_window = existing_controller.is_some();
     let appearance = Appearance::from_environment_or(view_preferences.appearance);
     if let Some(display) = gtk::gdk::Display::default() {
         iconography::register(&display);
@@ -512,23 +545,6 @@ fn build_window(
             None
         }
     };
-    let bookmark_worker = if secondary_normal_window {
-        None
-    } else {
-        match BookmarkWorker::spawn() {
-            Ok(worker) => Some(worker),
-            Err(error) => {
-                tracing::warn!(%error, "could not start bookmark worker");
-                widgets.toast_overlay.add_toast(
-                    adw::Toast::builder()
-                        .title("Bookmarks are unavailable for this session")
-                        .timeout(6)
-                        .build(),
-                );
-                None
-            }
-        }
-    };
     let device_monitor = DeviceMonitor::new();
     let application_state = Rc::clone(application_state);
     let window_runtime_id = match operation_event_hub.register() {
@@ -562,12 +578,9 @@ fn build_window(
             preview_worker,
             properties_worker,
             storage_worker,
-            bookmark_worker,
+            shared_bookmarks,
             device_monitor,
-            preference_worker
-                .borrow()
-                .as_ref()
-                .and_then(PreferenceWorker::handle),
+            shared_preferences,
             None,
         ),
         view_preferences,
@@ -702,6 +715,12 @@ fn init_logging() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adversarial_quit_policy_blocks_ctrl_q_while_application_jobs_are_active() {
+        assert!(application_quit_allowed(false));
+        assert!(!application_quit_allowed(true));
+    }
 
     #[test]
     fn phase_7g_application_accepts_exactly_one_local_open_target() {

@@ -7,6 +7,8 @@
 - Major GTK controls use semantic names, roles, descriptions, and states.
 - Supported navigation and Escape dismissal return focus to the active view.
 - Pane, group, warning, and operation states do not rely on color alone.
+- Background activity rows distinguish running, stopping, completed, partial,
+  cancelled, and failed outcomes in their accessible descriptions.
 - High-contrast component contracts, 75–200% text scale, and reduced motion are
   implemented.
 - Collapsible group controls are focusable and expose expanded state.

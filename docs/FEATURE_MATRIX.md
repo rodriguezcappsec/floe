@@ -44,9 +44,9 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Large-directory presentation foundation | `COMPLETE` | 1/6A | Virtualized list/grid and 256-entry main-loop insertion batches avoid eager widget creation. Formal 10k/100k profiling remains Phase 21. |
 | Binary-safe Linux paths | `COMPLETE` | 0-6K2 | Core identity uses `Path`, `PathBuf`, `OsStr`, and `OsString`; lossy text is display-only. |
 | Non-UTF-8 enumeration, selection, sorting, operations, bookmarks, duplication, and local file URIs | `COMPLETE` | 1-6Q | Focused tests preserve exact raw identity throughout these implemented paths; text-only clipboard commands explicitly reject lossy conversion. |
-| Open with registered default application | `COMPLETE` | 2/6I | GIO discovery and launch are asynchronous and use the original path URI. |
+| Open with registered default application | `COMPLETE` | 2/6I | GIO discovery accepts registered file-only and URI-capable applications. `%f`/`%F` handlers receive a local `GFile`; `%u`/`%U` handlers receive the original local URI, with no shell interpolation. |
 | Open when no default is registered | `COMPLETE` | 6I | Normal Open reuses the existing chooser rather than failing at a dead end. |
-| One-time Open With | `COMPLETE` | 5D | Compatible GIO applications are shown default-first without changing associations. |
+| One-time Open With | `COMPLETE` | 5D | Compatible visible GIO file-only and URI-capable applications are shown default-first without changing associations. |
 | Explicit Set as Default | `COMPLETE` | 5D | Association changes are separate from one-time Open and report failures. |
 | Full association management | `COMPLETE` | 19B | Open With inspects current, recommended, and all apps and explicitly queues set or reset of the XDG MIME default; missing apps and desktop errors remain visible. |
 | Create folder | `COMPLETE` | 6Q | Validated explicit naming submits a no-overwrite directory request through the bounded create executor. |
@@ -55,7 +55,7 @@ drag and drop (6R), file watching (6S), and browser completeness (6T).
 | Duplicate | `COMPLETE` | 6Q | Multi-selection duplicates run FIFO through bounded batches, preserve symlinks/raw names, and use deterministic no-overwrite suffixes that advance existing `(copy)`/`(copy N)` names without stacking. |
 | Inline rename | `PARTIAL` | 4D/12C | A validated modal rename dialog exists; in-place row/grid rename and its QoL contract do not. |
 | Rename | `COMPLETE` | 4C/4D | Same-parent exact-name rename uses atomic no-replace semantics and a bounded executor. |
-| Symbolic-link preservation during copy/move | `COMPLETE` | 4A/4C | Links are preserved without following their targets. |
+| Symbolic-link preservation during copy/move | `COMPLETE` | 4A/4C | Links are preserved without following their targets. Planned regular-file copy opens no-follow and revalidates kind/device/inode before accepting bytes; rollback removes only the exact Floe-created identity. |
 | Create symbolic link | `COMPLETE` | 6Q/12E | Native creation explicitly offers relative or absolute target storage, preserves exact raw path components without canonicalizing/following, validates one destination name, and permits intentionally broken results with truthful guidance. |
 | Create hard link | `COMPLETE` | 6Q/12E | Enabled only for one regular non-symlink file; core preflights destination-parent device, reports cross-filesystem limitations, creates without overwrite, and revalidates linked inode identity. |
 | Broken-symlink presentation | `PARTIAL` | 1/10C/12E | Entries preserve link identity and Phase 12E creation explicitly explains that relative or absolute links may become broken; dedicated broken-status/recovery presentation remains planned. |
@@ -172,7 +172,7 @@ job/session ownership remains Phase 23H.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Multi-window browsing | `COMPLETE` | 23A/23H | `Ctrl+N`, exact **Open Folder in New Window**, independent window navigation, one shared operation state/event owner, bounded multi-window restore, and close-owner transfer are implemented. |
+| Multi-window browsing | `COMPLETE` | 23A/23H | `Ctrl+N`, exact **Open Folder in New Window**, independent navigation, one shared operation state/event owner, bounded restore, close-owner transfer, application-wide active-job Quit guard, authoritative shared preferences, and one shared bookmark catalog/worker are implemented. |
 | Completion notifications | `COMPLETE` | 23B | Persisted opt-out; typed completed jobs lasting at least two seconds notify only while the originating window is unfocused, with fixed path-free text and stable deduplicating ID. |
 | Natural Name sorting | `COMPLETE` | 23C | Worker-owned raw-byte comparator handles long numeric runs, leading zeros, case folding and deterministic non-UTF-8 ties; ordinary sort/group/directory policies and persistence remain active. |
 | Bookmark rename and reorder | `COMPLETE` | 23D | Version-2 private records preserve raw paths and optional bounded aliases, migrate v1, preserve missing destinations, and expose Rename/Reset/Move Up/Move Down/Remove through one compact accessible menu. |
@@ -478,7 +478,7 @@ advanced predicates and explicit Match Case control.
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
 | XDG Places | `COMPLETE` | 6K | Home plus every distinct existing standard XDG user directory. |
-| Exact-path bookmarks | `COMPLETE` | 6K | Versioned raw-path format with bounded async private atomic persistence. |
+| Exact-path bookmarks | `COMPLETE` | 6K/23H | Versioned raw-path format with bounded async private atomic persistence. All normal/restored windows observe one application-owned catalog and one persistence worker; Selection Mode receives neither. |
 | Add/remove bookmark | `COMPLETE` | 6K | Current folder can be added; explicit adjacent control removes a bookmark. |
 | Reorder/rename bookmark | `PLANNED` | 20 | Preserve raw path identity; rename affects display label only. |
 | Bookmark custom icon | `DEFERRED` | 20 | Only if worthwhile after core bookmark editing. |
@@ -528,7 +528,7 @@ advanced predicates and explicit Match Case control.
 | Remote thumbnails | `DEFERRED` | 17/18J | User-deferred with remote browsing; no remote cache is added. |
 | Remote encryption | `DEFERRED` | 17/18B | Requires streaming URI I/O design; never create silent plaintext temp copies. |
 | MTP/Android browsing | `DEFERRED` | 17 | User-deferred; existing local GIO device and mount behavior remains. |
-| Open as Administrator | `COMPLETE` | 14B/14C | Experimental opt-in view constructs typed local `admin` GFiles through GLib/GIO URI APIs, delegates credentials to GVfs/polkit, pages no-follow metadata, and keeps persistent accessible Administrator state. Phase 14C adds separately typed, request-scoped, capacity-one GIO New Folder, Rename, single-file Copy/Move, Trash, permanent delete, and Unix-mode operations with fresh confirmation, fingerprint revalidation, no-follow/no-overwrite flags, cancellation distinction, partial-output evidence, and close blocking. Floe stays UID-stable; privileged resources never enter local jobs, previews, terminals, archives, launcher, custom actions, clipboard, or plugins. Recursive copy, ownership, ACL/xattr, and cross-restart privileged recovery remain unavailable. |
+| Open as Administrator | `COMPLETE` | 14B/14C | Experimental opt-in view constructs typed local `admin` GFiles through GLib/GIO URI APIs, delegates credentials to GVfs/polkit, pages no-follow metadata, and keeps persistent accessible Administrator state. Phase 14C adds separately typed, request-scoped, capacity-one GIO New Folder, Rename, single-file Copy/Move, Trash, permanent delete, and Unix-mode operations with fresh confirmation, fingerprint revalidation, no-follow/no-overwrite flags, cancellation distinction, partial-output evidence, and close blocking. A 30-second no-progress watchdog offers Continue Waiting or cancellation escape without claiming rollback. Floe stays UID-stable; privileged resources never enter local jobs, previews, terminals, archives, launcher, custom actions, clipboard, or plugins. Recursive copy, ownership, ACL/xattr, and cross-restart privileged recovery remain unavailable. |
 | Elevate whole Floe process | `NOT APPLICABLE` | Policy | Prohibited; never run the GTK application as root. |
 | Capture administrator/mount passwords in Floe | `NOT APPLICABLE` | Policy | Native desktop/polkit/mount operations own authentication. |
 
@@ -629,7 +629,7 @@ advanced predicates and explicit Match Case control.
 
 | Capability | Status | Phase | Notes |
 | --- | --- | --- | --- |
-| Sandboxed thumbnail/preview provider policy | `COMPLETE` | 18L | Production external providers require Bubblewrap with exact target-only read, private writable output/temp, cleared environment, no network/session namespaces, time/output bounds, process-group termination, and fail-closed setup. |
+| Sandboxed thumbnail/preview provider policy | `COMPLETE` | 18L | Production external providers require Bubblewrap with exact target-only read, private writable output/temp, cleared environment, no network/session namespaces, time/output bounds, process-group termination, and fail-closed setup. Discovery filters out provider executables not reachable through the `/usr`-only sandbox mount. |
 | Open Safely | `DEFERRED` | 18M | Intentionally removed from current product scope; ordinary Open/Open With remain and no restricted-launch claim is made. |
 | Open Safely status indicator | `DEFERRED` | 18M | No indicator is exposed because the corresponding restricted-launch feature is intentionally absent. |
 | Download/untrusted-origin indicator | `PLANNED` | 18N | Use only trustworthy platform metadata and explain evidence. |
@@ -735,7 +735,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Minimal confirmation friction | `COMPLETE` | 4F | Recoverable Move to Trash is not needlessly confirmed. |
 | Strong irreversible confirmation | `COMPLETE` | 6M/18X | Permanent delete retains its irreversible confirmation and adds exact action/scope/risk guardrail review where required. |
 | No focus stealing after jobs | `PARTIAL` | 4B-6K2/20 | Operations Island is non-modal; full notification/recovery audit remains. |
-| Persistent background-task feedback | `COMPLETE` | 10C/18N2/18O/18P | Properties, Privacy inspection, local ClamAV, and sanitization retain separate accessible running/stopping/outcome rows across focus, navigation, selection, tabs, and panes; results/reveal and explicit dismissal remain available. |
+| Persistent background-task feedback | `COMPLETE` | 10C/18N2/18O/18P | Properties, Privacy inspection, local ClamAV, and sanitization retain separate accessible rows across focus, navigation, selection, tabs, and panes. Running, stopping, completed, partial, cancelled, and failed states have distinct descriptions, with results/reveal and explicit dismissal where applicable. |
 | Reveal completed destination | `PLANNED` | 6Q/11A | Reuse the Phase 6Q navigation/reveal action and preserve focus. |
 | Configurable single/double click | `COMPLETE` | 20B2 | One persisted Settings choice controls list, grid, search-result, and Miller pointer activation; Enter remains immediate in either mode. |
 | Sidebar width persists | `COMPLETE` | 6K2 | Debounced complete-state preference and reset are verified across launches. |

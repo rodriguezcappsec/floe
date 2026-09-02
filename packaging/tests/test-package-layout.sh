@@ -60,6 +60,23 @@ rg -q '^MimeType=inode/directory;$' \
 test "$(cat "$XDG_CONFIG_HOME/sentinel")" = phase-21b-config-sentinel
 test ! -e "$XDG_CONFIG_HOME/mimeapps.list"
 
+# The service activation command must follow both supported installation
+# prefixes; /usr/local is the install script's default.
+DESTDIR="$temporary/root-local" "$repo_root/packaging/install.sh"
+while IFS='|' read -r source destination mode; do
+    case "$source" in ""|'#'*) continue ;; esac
+    installed="$temporary/root-local/usr/local/$destination"
+    test -f "$installed"
+    test "$(stat -c '%a' "$installed")" = "${mode#0}"
+done < "$repo_root/packaging/install-manifest.txt"
+grep -Fxq 'Exec=/usr/local/bin/floe --portal-filechooser-backend' \
+    "$temporary/root-local/usr/local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.floe.service"
+DESTDIR="$temporary/root-local" "$repo_root/packaging/uninstall.sh"
+while IFS='|' read -r source destination mode; do
+    case "$source" in ""|'#'*) continue ;; esac
+    test ! -e "$temporary/root-local/usr/local/$destination"
+done < "$repo_root/packaging/install-manifest.txt"
+
 DESTDIR="$temporary/root" PREFIX=/usr sh "$repo_root/packaging/uninstall.sh"
 while IFS='|' read -r source destination mode; do
   case "$source" in ""|'#'*) continue ;; esac

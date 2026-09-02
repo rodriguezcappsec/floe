@@ -355,11 +355,12 @@ use crate::{
     },
     background_feedback::{
         BackgroundActivity, BackgroundFeedbackState, BackgroundOutcomeKind, FeedbackPresentation,
-        result_action, running_presentation, stopping_presentation,
+        outcome_accessible_description, result_action, running_presentation, stopping_presentation,
     },
     batch_rename::{BatchRenameSource, build_batch_rename_dialog, refresh_batch_rename_dialog},
     bookmarks::{
-        BookmarkRecord, BookmarkWorker, BookmarkWorkerEvent, records_with_alias, reordered_records,
+        BookmarkRecord, SharedBookmarkNotice, SharedBookmarks, records_with_alias,
+        reordered_records,
     },
     checksum_ui::{ChecksumDialogInput, build_checksum_request},
     cli_routing::{CliRoute, CliRouteError, CliRouteWorker},
@@ -402,8 +403,8 @@ use crate::{
         MillerPresentationState, resolve_action_context_entries,
     },
     preferences::{
-        ClickPolicy, ColorSchemePreference, PreferenceHandle, PreferenceSubmitError,
-        SIDEBAR_WIDTH_MAX, SIDEBAR_WIDTH_MIN, SidebarDensity, ViewPreferences, WindowSize,
+        ClickPolicy, ColorSchemePreference, PreferencePresentationChanges, SIDEBAR_WIDTH_MAX,
+        SIDEBAR_WIDTH_MIN, SharedPreferences, SidebarDensity, ViewPreferences, WindowSize,
         clamp_clamav_file_limit_mib, clamp_font_scale, clamp_sidebar_width,
         normalized_clamav_total_limit_gib, validated_font_family,
     },
@@ -627,9 +628,9 @@ pub struct BrowserServices {
     preview: Option<PreviewWorker>,
     properties: Option<PropertiesWorker>,
     storage: Option<StorageWorker>,
-    bookmarks: Option<BookmarkWorker>,
+    bookmarks: Option<SharedBookmarks>,
     devices: DeviceMonitor,
-    preferences: Option<PreferenceHandle>,
+    preferences: Option<SharedPreferences>,
     session_store: Option<SessionStoreWorker>,
 }
 
@@ -650,9 +651,9 @@ impl BrowserServices {
         preview: Option<PreviewWorker>,
         properties: Option<PropertiesWorker>,
         storage: Option<StorageWorker>,
-        bookmarks: Option<BookmarkWorker>,
+        bookmarks: Option<SharedBookmarks>,
         devices: DeviceMonitor,
-        preferences: Option<PreferenceHandle>,
+        preferences: Option<SharedPreferences>,
         session_store: Option<SessionStoreWorker>,
     ) -> Self {
         Self {
@@ -769,10 +770,10 @@ pub struct BrowserController {
     grid_size: Cell<GridSize>,
     file_density: Cell<FileViewDensity>,
     list_columns: Cell<crate::view::ListColumnLayout>,
-    preference_worker: RefCell<Option<PreferenceHandle>>,
+    shared_preferences: Option<SharedPreferences>,
     session_store: RefCell<Option<SessionStoreWorker>>,
     session_saved: Cell<bool>,
-    pending_preferences: Cell<Option<ViewPreferences>>,
+    preference_baseline: RefCell<ViewPreferences>,
     current_preferences: RefCell<ViewPreferences>,
     window_size_save_source: RefCell<Option<glib::SourceId>>,
     sidebar_save_source: RefCell<Option<glib::SourceId>>,
@@ -792,7 +793,7 @@ pub struct BrowserController {
     operation_event_hub: Rc<OperationEventHub>,
     window_runtime_id: WindowRuntimeId,
     completion_notification_namespace: u64,
-    bookmark_worker: RefCell<Option<BookmarkWorker>>,
+    shared_bookmarks: Option<SharedBookmarks>,
     bookmarks: RefCell<Vec<BookmarkRecord>>,
     bookmarks_loaded: Cell<bool>,
     bookmark_revision: Cell<u64>,
@@ -1163,10 +1164,10 @@ impl BrowserController {
             grid_size: Cell::new(initial_view.grid_size),
             file_density: Cell::new(initial_view.density),
             list_columns: Cell::new(initial_view.columns),
-            preference_worker: RefCell::new(preferences),
+            shared_preferences: preferences,
             session_store: RefCell::new(session_store),
             session_saved: Cell::new(false),
-            pending_preferences: Cell::new(None),
+            preference_baseline: RefCell::new(view_preferences.clone()),
             current_preferences: RefCell::new(view_preferences),
             window_size_save_source: RefCell::new(None),
             sidebar_save_source: RefCell::new(None),
@@ -1187,7 +1188,7 @@ impl BrowserController {
             window_runtime_id,
             completion_notification_namespace:
                 crate::completeness::next_completion_notification_namespace(),
-            bookmark_worker: RefCell::new(bookmarks),
+            shared_bookmarks: bookmarks,
             bookmarks: RefCell::new(Vec::new()),
             bookmarks_loaded: Cell::new(false),
             bookmark_revision: Cell::new(0),
@@ -2363,90 +2364,63 @@ impl BrowserController {
             self.show_toast("Bookmarks cannot be changed in Selection Mode", 4);
             return;
         }
-        if self.bookmark_save_in_flight.get() {
-            self.show_toast("Please wait for the current bookmark change", 4);
+        let Some(shared) = self.shared_bookmarks.as_ref() else {
+            self.show_toast("Bookmarks are unavailable for this session", 5);
             return;
-        }
-        let revision = self.bookmark_revision.get().saturating_add(1);
-        let result = self
-            .bookmark_worker
-            .borrow()
-            .as_ref()
-            .map(|worker| worker.try_save(revision, records));
-        match result {
-            Some(Ok(())) => {
-                self.bookmark_revision.set(revision);
-                self.bookmark_save_in_flight.set(true);
-                self.widgets.add_bookmark_button.set_sensitive(false);
-                self.render_bookmarks();
-            }
-            Some(Err(error)) => {
+        };
+        match shared.try_save(records) {
+            Ok(()) => self.sync_shared_bookmarks(),
+            Err(error) => {
                 self.show_toast(&format!("Could not save bookmarks: {error}"), 6);
             }
-            None => self.show_toast("Bookmarks are unavailable for this session", 5),
         }
     }
 
     fn drain_bookmark_worker(self: &Rc<Self>) {
-        loop {
-            let event = {
-                let worker = self.bookmark_worker.borrow();
-                worker.as_ref().map(BookmarkWorker::try_event)
-            };
-            let Some(event) = event else {
-                return;
-            };
-            match event {
-                Ok(BookmarkWorkerEvent::Loaded(Ok(bookmarks))) => {
-                    self.bookmarks.replace(bookmarks.records().to_vec());
-                    self.bookmarks_loaded.set(true);
-                    self.widgets.add_bookmark_button.set_sensitive(
-                        self.selection_mode.borrow().is_none()
-                            && ui::bookmark_actions_enabled(self.bookmarks_loaded.get(), false),
-                    );
-                    self.render_bookmarks();
-                }
-                Ok(BookmarkWorkerEvent::Loaded(Err(error))) => {
+        let Some(shared) = self.shared_bookmarks.as_ref() else {
+            return;
+        };
+        for notice in shared.poll() {
+            match notice {
+                SharedBookmarkNotice::Loaded => {}
+                SharedBookmarkNotice::Saved => self.show_toast("Bookmarks updated", 3),
+                SharedBookmarkNotice::LoadFailed(error) => {
                     tracing::warn!(%error, "could not load bookmarks");
                     self.show_toast(&format!("Could not load bookmarks: {error}"), 6);
                 }
-                Ok(BookmarkWorkerEvent::Saved { revision, result }) => {
-                    if revision != self.bookmark_revision.get() {
-                        continue;
-                    }
-                    self.bookmark_save_in_flight.set(false);
-                    self.widgets.add_bookmark_button.set_sensitive(
-                        self.selection_mode.borrow().is_none()
-                            && ui::bookmark_actions_enabled(self.bookmarks_loaded.get(), false),
-                    );
-                    self.widgets
-                        .add_bookmark_button
-                        .set_tooltip_text(Some("Add current folder to Bookmarks"));
-                    match result {
-                        Ok(bookmarks) => {
-                            self.bookmarks.replace(bookmarks.records().to_vec());
-                            self.render_bookmarks();
-                            self.show_toast("Bookmarks updated", 3);
-                        }
-                        Err(error) => {
-                            tracing::warn!(%error, "could not persist bookmarks");
-                            self.render_bookmarks();
-                            self.show_toast(&format!("Could not save bookmarks: {error}"), 6);
-                        }
-                    }
+                SharedBookmarkNotice::SaveFailed(error) => {
+                    tracing::warn!(%error, "could not persist bookmarks");
+                    self.show_toast(&format!("Could not save bookmarks: {error}"), 6);
                 }
-                Err(std::sync::mpsc::TryRecvError::Empty) => return,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    self.bookmark_worker.borrow_mut().take();
-                    self.bookmarks_loaded.set(false);
-                    self.bookmark_save_in_flight.set(false);
-                    self.widgets.add_bookmark_button.set_sensitive(false);
-                    self.render_bookmarks();
-                    self.show_toast("Bookmark storage stopped unexpectedly", 6);
-                    return;
+                SharedBookmarkNotice::Disconnected => {
+                    self.show_toast("Bookmark storage disconnected; changes are unavailable", 6)
                 }
             }
         }
+        self.sync_shared_bookmarks();
+    }
+
+    fn sync_shared_bookmarks(self: &Rc<Self>) {
+        let Some(shared) = self.shared_bookmarks.as_ref() else {
+            return;
+        };
+        let snapshot = shared.snapshot();
+        if snapshot.version == self.bookmark_revision.get() {
+            return;
+        }
+        self.bookmark_revision.set(snapshot.version);
+        self.bookmarks.replace(snapshot.records);
+        self.bookmarks_loaded.set(snapshot.loaded);
+        self.bookmark_save_in_flight.set(snapshot.save_in_flight);
+        self.widgets.add_bookmark_button.set_sensitive(
+            self.selection_mode.borrow().is_none()
+                && snapshot.available
+                && ui::bookmark_actions_enabled(snapshot.loaded, snapshot.save_in_flight),
+        );
+        self.widgets
+            .add_bookmark_button
+            .set_tooltip_text(Some("Add current folder to Bookmarks"));
+        self.render_bookmarks();
     }
 
     fn render_bookmarks(self: &Rc<Self>) {
@@ -2905,10 +2879,6 @@ impl BrowserController {
     pub fn persist_for_shutdown(&self) {
         self.finish_window_size_tracking();
         self.persist_session_for_shutdown();
-    }
-
-    pub(crate) fn preferences_snapshot(&self) -> ViewPreferences {
-        self.current_preferences.borrow().clone()
     }
 
     fn arm_window_size_persistence(self: &Rc<Self>) {
@@ -8113,9 +8083,15 @@ impl BrowserController {
             tabs.active().current().path().to_path_buf()
         };
         preferences.remember_folder_state(current, state);
-        *self.current_preferences.borrow_mut() = preferences.clone();
-        self.pending_preferences.set(Some(preferences));
-        self.flush_pending_preferences();
+        if let Some(shared) = self.shared_preferences.as_ref() {
+            let merged = shared.merge_snapshot(&self.preference_baseline.borrow(), &preferences);
+            *self.preference_baseline.borrow_mut() = merged.clone();
+            *self.current_preferences.borrow_mut() = merged;
+            shared.flush();
+        } else {
+            *self.preference_baseline.borrow_mut() = preferences.clone();
+            *self.current_preferences.borrow_mut() = preferences;
+        }
     }
 
     fn change_sidebar_density(&self, density: SidebarDensity) {
@@ -8183,22 +8159,100 @@ impl BrowserController {
     }
 
     fn flush_pending_preferences(&self) {
-        let Some(preferences) = self.pending_preferences.take() else {
-            return;
-        };
-        let result = {
-            let worker = self.preference_worker.borrow();
-            worker.as_ref().map(|worker| worker.try_save(preferences))
-        };
-        match result {
-            Some(Ok(())) | None => {}
-            Some(Err(PreferenceSubmitError::Full(preferences))) => {
-                self.pending_preferences.set(Some(*preferences));
+        if let Some(shared) = self.shared_preferences.as_ref() {
+            shared.flush();
+            let latest = shared.snapshot();
+            let baseline = self.preference_baseline.borrow().clone();
+            let mut current = self.current_preferences.borrow_mut();
+            if latest != baseline && *current == baseline {
+                let changes = PreferencePresentationChanges::between(&baseline, &latest);
+                *current = latest.clone();
+                *self.preference_baseline.borrow_mut() = latest;
+                drop(current);
+                self.apply_shared_preference_presentation(changes);
             }
-            Some(Err(PreferenceSubmitError::Disconnected)) => {
-                tracing::warn!("view preference worker disconnected; persistence disabled");
-                self.preference_worker.borrow_mut().take();
+        }
+    }
+
+    fn apply_shared_preference_presentation(&self, changes: PreferencePresentationChanges) {
+        let preferences = self.current_preferences.borrow().clone();
+        if changes.appearance {
+            self.widgets.apply_appearance_preferences(&preferences);
+        }
+        if changes.click_policy {
+            self.widgets.apply_click_policy(preferences.click_policy);
+        }
+        if changes.icon_style {
+            self.widgets.apply_entry_icon_style(preferences.icon_style);
+            if self.filename_search_active.get() || self.content_search_active.get() {
+                self.apply_search_result_order();
+            } else {
+                let selected = self.selected_paths();
+                self.install_entries(self.visible_entries.borrow().clone(), &selected, false);
             }
+        }
+        if changes.sidebar {
+            self.widgets
+                .apply_sidebar_density(preferences.sidebar_density);
+            self.ignore_sidebar_position_signal.set(true);
+            self.widgets
+                .apply_sidebar_collapsed(preferences.sidebar_collapsed);
+            if !preferences.sidebar_collapsed {
+                let width = preferences
+                    .sidebar_width
+                    .map(clamp_sidebar_width)
+                    .map(i32::from)
+                    .unwrap_or(self.widgets.sidebar_default_width);
+                self.widgets.workspace.set_position(width);
+            }
+            self.ignore_sidebar_position_signal.set(false);
+        }
+        if changes.context_menu {
+            self.refresh_custom_action_context_menu();
+        }
+        if changes.keybindings
+            && let Some(application) = self
+                .widgets
+                .window
+                .application()
+                .and_downcast::<adw::Application>()
+        {
+            crate::keybindings::install_effective_window_shortcuts(
+                &application,
+                &preferences.keybindings,
+            );
+        }
+        if changes.vim_mode {
+            self.widgets.miller_view.set_vim_mode(preferences.vim_mode);
+            self.widgets
+                .vim_mode_button
+                .set_label(if preferences.vim_mode {
+                    ui::VIM_MODE_ON_LABEL
+                } else {
+                    ui::VIM_MODE_OFF_LABEL
+                });
+            self.widgets
+                .vim_mode_button
+                .update_property(&[gtk::accessible::Property::Label(if preferences.vim_mode {
+                    "Vim navigation mode enabled"
+                } else {
+                    "Vim navigation mode disabled"
+                })]);
+        }
+        if changes.view_policy {
+            let path = self.tabs.borrow().active().current().path().to_path_buf();
+            let view = preferences.effective_state(&path);
+            self.view_mode.set(view.mode);
+            self.grid_size.set(view.grid_size);
+            self.sort_order.set(view.sort);
+            self.file_density.set(view.density);
+            self.list_columns.set(view.columns);
+            self.tabs.borrow_mut().active_mut().set_view(view);
+            self.widgets.set_view_mode(view.mode);
+            self.widgets.set_grid_size(view.grid_size);
+            self.widgets
+                .apply_file_view_policy(view.density, view.columns, view.sort.grouping);
+            self.update_sort_headers();
         }
     }
 
@@ -13593,6 +13647,7 @@ impl BrowserController {
         &self,
         activity: BackgroundActivity,
         title: &str,
+        accessible_description: &str,
         button: Option<(&str, &str)>,
         dismissible: bool,
     ) {
@@ -13613,11 +13668,7 @@ impl BrowserController {
         row.set_accessible_role(gtk::AccessibleRole::Group);
         row.update_property(&[
             gtk::accessible::Property::Label(title),
-            gtk::accessible::Property::Description(if dismissible {
-                "Completed background activity"
-            } else {
-                "Background activity in progress"
-            }),
+            gtk::accessible::Property::Description(accessible_description),
         ]);
         if !dismissible {
             let spinner = gtk::Spinner::new();
@@ -13680,6 +13731,7 @@ impl BrowserController {
         self.replace_background_feedback(
             activity,
             presentation.title,
+            presentation.accessible_description,
             presentation.button_label.zip(presentation.action_name),
             false,
         );
@@ -13721,7 +13773,13 @@ impl BrowserController {
             return false;
         }
         let action = result_available.then(|| result_action(activity)).flatten();
-        self.replace_background_feedback(activity, title, action, true);
+        self.replace_background_feedback(
+            activity,
+            title,
+            outcome_accessible_description(kind),
+            action,
+            true,
+        );
         true
     }
 
@@ -13746,6 +13804,10 @@ impl BrowserController {
                 .action_target(&details.to_variant());
         }
         self.widgets.toast_overlay.add_toast(builder.build());
+    }
+
+    pub(crate) fn show_active_operation_close_message(&self) {
+        self.show_toast(ACTIVE_OPERATION_CLOSE_MESSAGE, 7);
     }
 
     fn set_action_enabled(&self, name: &str, enabled: bool) {

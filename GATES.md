@@ -1,4 +1,45 @@
-# Active Gates: persistent background-operation feedback regression
+# Active Gates: adversarial audit remediation
+
+Leaf ledgers:
+
+- `gates/adversarial-core-remediation.md`
+- `gates/adversarial-app-remediation.md`
+- `gates/adversarial-linux-remediation.md`
+
+- [x] R1: All ten audited findings are fixed in their owning layers and every
+  reproduced defect has a regression test; parent reruns each leaf's focused
+  checks and adversarially challenges retained guards.
+  CHECK: `node <unlazy-skill-dir>/scripts/gate-check.mjs --status gates/adversarial-core-remediation.md gates/adversarial-app-remediation.md gates/adversarial-linux-remediation.md`
+  EXPECT: `/ALL MET \(15 met\)/`
+  EVIDENCE: PASS 2026-09-01. Leaf gate check reports ALL MET (15 met). Parent reran all five core-copy and all application/Linux `adversarial_` regressions; each passed. Review retained no-follow source identity, rollback ownership, single-worker shared state, generation-bound watchdog, GIO file/URI dispatch, and sandbox reachability guards.
+
+- [x] R2: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, and diff hygiene pass with no unrelated refactor.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && git diff --check`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-01. `cargo fmt --all -- --check`, workspace check, strict all-target/all-feature Clippy, `cargo test --workspace`, and `git diff --check` exited 0. Full workspace: 667 app unit tests passed with 20 intentional graphical ignores, 21 app integration tests, 182 core unit/property tests, and 6 core integration tests.
+
+- [x] R3: Documentation, packaging, migrations, release contracts, and E2E
+  harness pass; status records the remediation and exactly Phase 18R remains
+  roadmap NEXT.
+  CHECK: `python3 scripts/check-docs.py --strict && sh packaging/tests/test-package-layout.sh && sh packaging/tests/test-migrations.sh && python3 -m unittest discover -s e2e -p 'test_*.py' -v && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/OK/`
+  EVIDENCE: PASS 2026-09-01. Strict docs reported `phase-21c-docs-ok files=21 strict=true`; `/usr` and `/usr/local` package layout reported `phase-21b-package-layout-ok`; migrations passed; E2E discovery ran 9 contract tests successfully with native Dogtail skipped because unavailable. Roadmap still contains exactly one `NEXT`, Phase 18R.
+
+- [x] R4: Applicable real-GTK/native Wayland behavior is exercised without
+  touching user data; unavailable Dogtail/AT-SPI, polkit/GVfs, Bubblewrap, or
+  physical-device gates are reported exactly and never inferred from unit tests.
+  EVIDENCE: PASS with exact limits 2026-09-01. Focused real-GTK Phase 14C accessibility test passed on KDE Wayland, including Continue Waiting. Isolated KDE close-one/survivor/new-window/restart smoke passed (`close-survivor-responsive=true third-window=true restored-windows=true`). Running all ignored GTK tests in one process is unsupported by gtk-rs and failed after the first pass with `Attempted to initialize GTK from two different threads`; individual relevant GTK gate passed. Dogtail/pyatspi are unavailable; no physical USB, polkit prompt, EXDEV, or Niri claim is made. Bubblewrap is installed and sandbox policy regressions passed.
+
+- [x] R5: Repository status and changed-file audit confirm only scoped code,
+  tests, packaging metadata, and persistent documentation changed.
+  CHECK: `git diff --check`
+  EXPECT: ``
+  EVIDENCE: PASS 2026-09-01. Changed files are confined to active planning/gates, copy/app/Linux integration fixes and regressions, portal packaging tests, and persistent user/security/install/accessibility documentation. Generated E2E bytecode was removed; `git diff --check` is clean.
+
+---
+
+# Archived active gates: persistent background-operation feedback regression
 
 - [x] F1: ClamAV, privacy inspection, and metadata sanitization expose non-expiring,
   non-color-only running feedback with the relevant Cancel action where cancellation

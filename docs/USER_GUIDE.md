@@ -287,8 +287,9 @@ keep their native Cancel/Close behavior.
   its recommendations again. Set/reset work runs on a bounded GIO worker and
   reports the actual result.
 
-Applications are launched with native file/URI APIs. Floe does not interpolate
-filenames into shell commands.
+Applications are launched with native GIO APIs. Desktop applications that accept
+local files (`%f`/`%F`) receive a `GFile`; URI handlers (`%u`/`%U`) receive a local
+file URI. Floe does not interpolate filenames into shell commands.
 
 ### Custom actions
 
@@ -644,11 +645,12 @@ They do not prove authenticity, safety, ownership, or absence of malware.
   browser window. Right-click one folder and choose **Open Folder in New Window**
   to open that exact destination. Closing one window leaves the others running.
   If that window still owns an active copy, move, Trash, checksum, integrity, or
-  other file job, Floe keeps it open and tells you to wait or cancel first. This
-  prevents work from continuing without visible progress or cancellation. An
-  idle window closes without waiting for a stalled preview, thumbnail, metadata,
-  search, or external-drive query. Multi-window session restoration and one
-  shared cross-window Operations Island are not implemented yet.
+  other file job, Floe keeps it open and tells you to wait or cancel first.
+  `Ctrl+Q` uses the same application-wide guard. Idle windows close without
+  waiting for a stalled preview, thumbnail, metadata, search, or external-drive
+  query. Floe restores a bounded set of normal window workspaces; normal windows
+  share bookmarks and preferences, so a change in one appears in the others
+  without a stale window reverting it.
 - Choose **Natural Name** under **Sort By** when names such as `file2` and `file10` should sort in human numeric order. Ordinary direction, folder placement, grouping and per-folder settings still apply.
 - Each bookmark has one **Bookmark options** button. Use it to rename the sidebar label, restore the folder-derived name, move the bookmark up or down, or remove it. Renaming never renames or reconstructs the folder path.
 - Choose **Main menu → View & Layout → Sidebar → Collapse or Expand Sidebar** for an icon rail. Floe stores the collapsed state separately from the expanded width, so expanding restores the prior size.

@@ -27,6 +27,7 @@ pub enum BackgroundOutcomeKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FeedbackPresentation {
     pub title: &'static str,
+    pub accessible_description: &'static str,
     pub button_label: Option<&'static str>,
     pub action_name: Option<&'static str>,
     pub persistent: bool,
@@ -106,6 +107,7 @@ pub fn running_presentation(activity: BackgroundActivity) -> FeedbackPresentatio
     };
     FeedbackPresentation {
         title,
+        accessible_description: "Background activity is running",
         button_label,
         action_name,
         persistent: true,
@@ -123,9 +125,19 @@ pub fn stopping_presentation(activity: BackgroundActivity) -> FeedbackPresentati
     };
     FeedbackPresentation {
         title,
+        accessible_description: "Background activity is stopping after cancellation",
         button_label: None,
         action_name: None,
         persistent: true,
+    }
+}
+
+pub fn outcome_accessible_description(kind: BackgroundOutcomeKind) -> &'static str {
+    match kind {
+        BackgroundOutcomeKind::Completed => "Background activity completed successfully",
+        BackgroundOutcomeKind::Partial => "Background activity completed with partial results",
+        BackgroundOutcomeKind::Cancelled => "Background activity was cancelled",
+        BackgroundOutcomeKind::Failed => "Background activity failed",
     }
 }
 
@@ -145,6 +157,23 @@ pub fn result_action(activity: BackgroundActivity) -> Option<(&'static str, &'st
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn adversarial_background_accessibility_distinguishes_every_outcome() {
+        let descriptions = [
+            running_presentation(BackgroundActivity::Properties).accessible_description,
+            stopping_presentation(BackgroundActivity::Properties).accessible_description,
+            outcome_accessible_description(BackgroundOutcomeKind::Completed),
+            outcome_accessible_description(BackgroundOutcomeKind::Partial),
+            outcome_accessible_description(BackgroundOutcomeKind::Cancelled),
+            outcome_accessible_description(BackgroundOutcomeKind::Failed),
+        ];
+        let unique = descriptions
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(unique.len(), 6);
+        assert!(unique.iter().all(|description| !description.is_empty()));
+    }
 
     #[test]
     fn background_feedback_contract_running_state_is_persistent_and_actionable() {
