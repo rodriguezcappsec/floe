@@ -1,4 +1,123 @@
-# Active Gates: Phase 20C contextual help and terminology clarity
+# Active Gates: First public repository readiness and history privacy rewrite
+
+Scope: Make the repository professionally reviewable for public source access
+and outside pull requests while preserving proprietary licensing and runtime
+behavior.
+
+- [x] R1: Floe's proprietary/source-available license remains unmodified and
+  consistently represented by `LICENSE`, Cargo metadata, README, contribution
+  terms, and public templates; no open-source claim or invented entity exists.
+  CHECK: `test "$(rg -c 'license = "LicenseRef-proprietary"' Cargo.toml)" -eq 1 && rg -n 'source-available.*proprietary|proprietary.*source-available' README.md CONTRIBUTING.md CLA.md && git diff --exit-code main -- LICENSE`
+  EXPECT: `/source-available/`
+  EVIDENCE: PASS. Root `LICENSE` is unchanged from `main`; Cargo, AppStream,
+  Arch, README, contribution, and CLA wording consistently preserve
+  `LicenseRef-proprietary` and source-available proprietary status.
+
+- [x] R2: Contribution policy and inbound license grant cover welcomed changes,
+  proportional issue-first workflow, testing, CLA acknowledgement, contributor
+  ownership/rights warranties, proprietary/commercial incorporation,
+  sublicensing/relicensing, and employer permission.
+  CHECK: `python3 scripts/check-public-release.py community`
+  EXPECT: `/public-release-community-ok/`
+  EVIDENCE: PASS. `public-release-community-ok`; manual review confirms the CLA
+  contains the complete requested grant, ownership, warranty, employer, and
+  pull-request agreement terms without inventing an entity or legal review.
+
+- [x] R3: GitHub CI and bug/feature/PR templates are valid, concise, privacy-aware,
+  and CI runs the exact four documented headless Rust gates on PRs and main using
+  documented Ubuntu system dependencies and Rust 1.85 with Cargo caching.
+  CHECK: `python3 scripts/check-public-release.py github`
+  EXPECT: `/public-release-github-ok/`
+  EVIDENCE: PASS. `public-release-github-ok`; PyYAML parses all three YAML files.
+  CI contains each required command exactly once and excludes graphical suites.
+
+- [x] R4: README and SECURITY accurately state maturity, supported platform,
+  build path, limitations, contribution model, implemented local inspection,
+  optional clamd scanning, sandboxed external providers, unsandboxed ordinary
+  launches, guardrail/hash/delete/recovery limits, and private-reporting route.
+  CHECK: `python3 scripts/check-public-release.py documentation`
+  EXPECT: `/public-release-documentation-ok/`
+  EVIDENCE: PASS. `public-release-documentation-ok`, strict documentation, and
+  GFM rendering pass; implementation claims were cross-checked against current
+  threat-scan, privacy, provider, launcher, guardrail, and permission boundaries.
+
+- [x] R5: Public launch checklist separates automated evidence from manual GitHub
+  settings, recommends but does not create `v0.1.0-alpha.1`, and includes private
+  vulnerability reporting, issues, optional discussions, ruleset/CI, assets,
+  history, advisory/license, package/smoke, tag, and visibility checks.
+  CHECK: `python3 scripts/check-public-release.py checklist`
+  EXPECT: `/public-release-checklist-ok/`
+  EVIDENCE: PASS. `public-release-checklist-ok`; automated gates are marked only
+  after execution and manual history/legal/GitHub/release/visibility actions stay
+  unchecked. No tag, release, or visibility change occurred.
+
+- [x] R6: Tracked-tree and Git-history privacy/secret review plus direct
+  dependency/bundled-asset/license review are completed without exposing possible
+  secrets; any uncertainty is categorized for human/legal review.
+  EVIDENCE: PASS WITH BLOCKERS. Working-tree scans find zero high-confidence
+  secret markers, account-home paths, email strings, or sensitive filenames.
+  History scan finds no high-confidence secret marker but does retain one
+  non-public author email identity and historical machine-specific paths; both
+  are documented publication blockers pending acceptance or history rewrite.
+  Resolved dependency policy passes 206 packages/10 allowed SPDX identifiers;
+  direct dependencies and the bundled proprietary/Phosphor assets were reviewed.
+  Human legal and notice-obligation review remains explicit.
+
+- [x] R7: Rust formatting, build, strict Clippy, workspace tests, strict docs,
+  rendered docs, packaging layout/migrations/source/release-candidate, advisory or
+  dependency checks, E2E preflight, public-release contracts, and diff hygiene are
+  each run and recorded truthfully; graphical skips are not reported as passes.
+  EVIDENCE: PASS with truthful external skips. All named deterministic gates,
+  frozen release build, package layout/migrations, deterministic source,
+  release-candidate, repository contracts, and two native Wayland smokes pass.
+  E2E preflight passes five contracts and reports two skips: Dogtail/AT-SPI is
+  unavailable and no staged installed artifact was configured. `cargo-audit`,
+  `cargo-deny`, rustup, and a local Rust 1.85 run are unavailable.
+
+- [x] R8: `AGENTS.md` records the verified review branch outcome and exactly one
+  recommended next feature remains Phase 19A; no feature, tag, release,
+  visibility, merge, or direct `main` push occurs.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1 && git branch --show-current && git diff --check`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS. Status records implementation, evidence, blockers, skips, and
+  manual actions; roadmap still has exactly Phase 19A as NEXT. Branch is
+  `release/public-repository-readiness`; `main`, tags, releases, and visibility
+  were not changed.
+
+- [ ] R9: The verified public-readiness tree is committed with the configured
+  GitHub noreply identity before rewriting; a full external bundle contains and
+  verifies every pre-rewrite local ref, and the canonical origin URL is recorded.
+  CHECK: `git bundle verify "$FLOE_HISTORY_BACKUP"`
+  EXPECT: `/The bundle records a complete history/`
+  EVIDENCE: pending
+
+- [ ] R10: Every reachable local commit has the configured noreply author and
+  committer email, and no reachable blob contains the former account-specific
+  home, media, or unlazy-skill paths. Names, timestamps, messages, topology,
+  file modes, and all unrelated blob content remain unchanged.
+  CHECK: `python3 scripts/check-public-release.py history`
+  EXPECT: `/public-release-history-ok/`
+  EVIDENCE: pending
+
+- [ ] R11: Rewrite backup refs are removed only after the external bundle is
+  verified; reflogs and unreachable originals are expired/pruned, then the
+  complete local ref/blob/metadata audit still passes. No force-push, tag,
+  release, repository visibility change, or merge to `main` occurs.
+  CHECK: `python3 scripts/check-public-release.py history && test -z "$(git for-each-ref --format='%(refname)' refs/original/)"`
+  EXPECT: `/public-release-history-ok/`
+  EVIDENCE: pending
+
+- [ ] R12: Public-release documentation, deterministic source checksum,
+  repository contracts, strict docs, release-source policy, and diff hygiene
+  agree with the rewritten history and accurately leave remote replacement as a
+  separate manual step.
+  CHECK: `python3 scripts/check-public-release.py all && python3 scripts/check-docs.py --strict && sh packaging/tests/test-release-source.sh && git diff --check`
+  EXPECT: `/public-release-all-ok/`
+  EVIDENCE: pending
+
+---
+
+# Archived active gates: Phase 20C contextual help and terminology clarity
 
 Scope: Give complex Floe controls concise hover help and equivalent accessible
 descriptions while preserving native GTK menus and the completed Phase 18R work.

@@ -1,4 +1,78 @@
-# Active plan: Phase 20C contextual help and terminology clarity
+# Active plan: First public repository readiness and history privacy rewrite
+
+Depth: tree 3
+
+Mode: solo
+
+## Contract
+
+Prepare `rodriguezcappsec/floe` for public source viewing and outside pull
+requests without changing Floe's proprietary `LicenseRef-proprietary` model,
+application behavior, release tags, repository visibility, or `main`. Add
+professional contribution and inbound-license terms, precise security reporting
+guidance, deterministic headless CI, issue/PR templates, a manual launch
+checklist, and focused README/status corrections. Audit the tracked tree, Git
+history, direct dependencies, and bundled assets for publication risks without
+printing possible secrets or making unsupported legal claims.
+
+## Depth tree
+
+1. Baseline and publication audit
+   1.1 Repository, identity, and legal metadata
+      1.1.1 Verify branch/remote/version/license consistency, review dependencies,
+      assets, notices, tracked files, and history for release blockers.
+2. Community and repository infrastructure
+   2.1 Contribution contract
+      2.1.1 Add `CONTRIBUTING.md`, `CLA.md`, issue forms, and pull-request
+      template with concise workflow, safety prompts, and proprietary inbound
+      licensing acknowledgement.
+   2.2 Continuous integration
+      2.2.1 Add ordinary Ubuntu headless CI using the documented Rust 1.85,
+      GTK 4.14, libadwaita 1.5, Cargo cache, and exact four Rust quality gates.
+3. Public documentation
+   3.1 Honest security and project presentation
+      3.1.1 Correct `SECURITY.md`, polish README discovery/licensing/contribution
+      sections, and add a complete manual public-launch checklist.
+4. Verification and handoff
+   4.1 Release-readiness evidence
+      4.1.1 Run Rust, docs/render, packaging/migration/source/release,
+      dependency/advisory/license, E2E preflight, and diff gates; update
+      `AGENTS.md` status and categorize remaining manual/blocking work.
+5. Authorized local history rewrite
+   5.1 Recovery boundary
+      5.1.1 Commit the verified working tree, create a full external Git bundle,
+      verify it, and retain the canonical origin URL before rewriting refs.
+   5.2 Identity and path sanitization
+      5.2.1 Rewrite every reachable local ref so author/committer emails use the
+      configured GitHub noreply identity and historical account-specific paths
+      use documented neutral placeholders.
+   5.3 Re-audit and documentation
+      5.3.1 Re-audit every reachable commit and blob, update the public-release
+      evidence and source checksum, rerun applicable gates, and stop without a
+      force-push, tag, release, visibility change, or `main` merge.
+
+## Status log
+
+- 2026-09-02: Began from clean synchronized `main` at `33273e5`; created
+  `release/public-repository-readiness`. Initial review confirmed root Cargo
+  metadata and `LICENSE` both retain `LicenseRef-proprietary`; identified stale
+  `SECURITY.md` claims about implemented provider sandboxing and ClamAV scanning.
+- 2026-09-02: Implementation and available gates complete. Community files,
+  exact CI, public documentation, release checklist, sanitized current-tree
+  paths, deterministic source checksum, packaging/E2E/native evidence all pass.
+  Publication remains blocked pending intentional-disclosure or history-rewrite
+  decisions for the non-public author email and historical machine paths, plus
+  manual GitHub settings. Phase 19A remains the sole recommended next feature and
+  was not started.
+- 2026-09-02: The repository owner supplied the GitHub noreply identity
+  `37666398+rodriguezcappsec@users.noreply.github.com` and explicitly authorized
+  rewriting local history. The rewrite will cover all reachable local refs and
+  retain a verified full bundle in `/tmp`; replacing remote history remains a
+  separate destructive action and is not authorized in this pass.
+
+---
+
+# Archived active plan: Phase 20C contextual help and terminology clarity
 
 Depth: tree 3
 Mode: solo

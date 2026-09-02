@@ -880,9 +880,6 @@ Focused deterministic verification is available with:
 
 ```bash
 cargo test --workspace phase_18 -- --nocapture
-node <unlazy-skill-dir>/scripts/gate-check.mjs --status \
-  gates/phase-18t.md gates/phase-18u.md gates/phase-18v.md \
-  gates/phase-18w.md gates/phase-18x.md
 ```
 
 GTK contracts must run as separate filtered processes because GTK can only be

@@ -1315,6 +1315,82 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-09-02`
 
+Current phase: **First public repository readiness implemented and verified on a review branch; publication blockers require maintainer action; Phase 19A remains next**
+
+Completed this session:
+
+- Prepared `release/public-repository-readiness` without changing runtime code,
+  `main`, repository visibility, tags, or releases. Added contribution guidance,
+  a neutral inbound-license agreement for proprietary/commercial incorporation,
+  GitHub issue forms, pull-request template, confirmed-owner CODEOWNERS, minimal
+  Rust CI, public launch checklist, and dependency-free repository contracts.
+- Preserved the root proprietary license and `LicenseRef-proprietary` Cargo,
+  AppStream, and Arch metadata. README now presents alpha maturity,
+  source-available proprietary rights, build/install path, contribution route,
+  implemented highlights, and limitations without claiming Floe is open source.
+- Replaced stale security policy claims with exact implemented suspicious-file,
+  optional local `clamd`, metadata/privacy, permission-audit, sanitized-copy, and
+  Bubblewrap provider boundaries. Ordinary Open/Open With remains explicitly
+  unsandboxed; Protected Folder, hash, deletion, recovery, and general-boundary
+  limitations remain explicit. Private Vulnerability Reporting is the preferred
+  sensitive-report route once enabled.
+- Removed account-specific absolute home paths from the tracked working tree and
+  expanded strict documentation/render/source-package coverage to the new public
+  files. Updated the deterministic Arch source checksum.
+
+Verified:
+
+- Formatting, workspace check, strict all-target Clippy, workspace tests,
+  dependency/advisory/environment policy, strict documentation, rendered docs,
+  YAML parsing, package layout, settings migrations, frozen release build,
+  deterministic source/release-candidate checks, diff hygiene, and repository
+  contracts pass.
+- E2E harness contracts pass; native Dogtail/AT-SPI and installed-artifact
+  walkthrough remain truthfully skipped for missing external setup. Existing KDE
+  close-survivor/restart smoke and isolated release-binary Wayland Ping/actions/
+  clean-quit smoke pass with private HOME/XDG roots.
+
+Important decisions:
+
+- Public source visibility does not grant redistribution, repackaging, sale, or
+  derivative-publication rights. Intentional pull-request submission constitutes
+  agreement to `CLA.md`; contributors retain their own copyright.
+- Ordinary CI uses Ubuntu 24.04, the documented Rust 1.85.0 minimum, GTK and
+  libadwaita development packages, Cargo caching, and only the four deterministic
+  headless Rust gates. Graphical compositor suites remain separate.
+- Automated SPDX/advisory policy is inventory evidence, not a legal opinion or a
+  live full advisory-database scan. Human review of CLA and redistribution
+  obligations remains required.
+
+Known issues:
+
+- Git history contains one author email value across existing commits; the
+  repository owner's GitHub profile does not publish an email. The maintainer
+  must confirm intentional disclosure or rewrite history before publication.
+- Historical commits retain account-specific home/agent paths even though the
+  current tree is clean. The maintainer must explicitly accept that disclosure
+  or rewrite and re-audit history before publication.
+- `cargo-audit`, `cargo-deny`, and local Rust 1.85 via rustup are unavailable on
+  this host. Repository dependency-license policy and recorded advisory floors
+  pass; CI must confirm the actual Rust 1.85 Ubuntu job after the branch is
+  pushed.
+
+Deferred:
+
+- Enabling GitHub Private Vulnerability Reporting, branch rules, required CI,
+  optional Discussions, visibility changes, tagging, and publishing the proposed
+  `v0.1.0-alpha.1` prerelease are manual maintainer actions. None was performed.
+
+Recommended next task:
+
+- After publication blockers and manual settings are resolved, create
+  `phase-19a-git-awareness` and implement only the roadmap's opt-in Git awareness
+  phase. Do not begin it as part of repository publication work.
+
+## Prior active status (Phase 20C)
+
+Last updated: `2026-09-02`
+
 Current phase: **Phase 20C contextual help implemented; Phase 19A next**
 
 Completed this session:
