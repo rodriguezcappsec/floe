@@ -54,11 +54,10 @@ behavior.
 - [x] R6: Tracked-tree and Git-history privacy/secret review plus direct
   dependency/bundled-asset/license review are completed without exposing possible
   secrets; any uncertainty is categorized for human/legal review.
-  EVIDENCE: PASS WITH BLOCKERS. Working-tree scans find zero high-confidence
-  secret markers, account-home paths, email strings, or sensitive filenames.
-  History scan finds no high-confidence secret marker but does retain one
-  non-public author email identity and historical machine-specific paths; both
-  are documented publication blockers pending acceptance or history rewrite.
+  EVIDENCE: PASS. Working-tree and reachable-history scans find zero
+  high-confidence secret markers, account-home paths, non-public commit email
+  identities, or sensitive filenames after the authorized rewrite. The external
+  bundle comparison proves only the reviewed email/path substitutions changed.
   Resolved dependency policy passes 206 packages/10 allowed SPDX identifiers;
   direct dependencies and the bundled proprietary/Phosphor assets were reviewed.
   Human legal and notice-obligation review remains explicit.
@@ -84,36 +83,55 @@ behavior.
   `release/public-repository-readiness`; `main`, tags, releases, and visibility
   were not changed.
 
-- [ ] R9: The verified public-readiness tree is committed with the configured
+- [x] R9: The verified public-readiness tree is committed with the configured
   GitHub noreply identity before rewriting; a full external bundle contains and
   verifies every pre-rewrite local ref, and the canonical origin URL is recorded.
-  CHECK: `git bundle verify "$FLOE_HISTORY_BACKUP"`
+  CHECK: `test "$(stat -c '%a' /tmp/floe-pre-public-rewrite-2e04694.bundle)" = 600 && git bundle verify /tmp/floe-pre-public-rewrite-2e04694.bundle`
   EXPECT: `/The bundle records a complete history/`
-  EVIDENCE: pending
+  EVIDENCE: PASS 2026-09-02. Commit `2e04694` captured the verified tree using
+  the reviewed noreply identity before rewriting. The mode-0600 bundle contains
+  218 refs, verifies as complete, and has SHA-256
+  `24c47fb0743d42b6846b594cc54dc744c083ed436a11eb044781029b64734208`.
+  Canonical origin remains `git@github.com:rodriguezcappsec/floe.git`.
 
-- [ ] R10: Every reachable local commit has the configured noreply author and
+- [x] R10: Every reachable local commit has the configured noreply author and
   committer email, and no reachable blob contains the former account-specific
   home, media, or unlazy-skill paths. Names, timestamps, messages, topology,
   file modes, and all unrelated blob content remain unchanged.
   CHECK: `python3 scripts/check-public-release.py history`
   EXPECT: `/public-release-history-ok/`
-  EVIDENCE: pending
+  EVIDENCE: PASS 2026-09-02. Repository gate reports
+  `public-release-history-ok commits=134 refs=217`. Independent bundle-to-live
+  canonical comparison reports `history-rewrite-equivalent refs=217 commits=134`;
+  it compares every ref's complete reachable graph, commit metadata, messages,
+  tree paths, modes, and normalized blob bytes.
 
-- [ ] R11: Rewrite backup refs are removed only after the external bundle is
+- [x] R11: Rewrite backup refs are removed only after the external bundle is
   verified; reflogs and unreachable originals are expired/pruned, then the
   complete local ref/blob/metadata audit still passes. No force-push, tag,
   release, repository visibility change, or merge to `main` occurs.
   CHECK: `python3 scripts/check-public-release.py history && test -z "$(git for-each-ref --format='%(refname)' refs/original/)"`
   EXPECT: `/public-release-history-ok/`
-  EVIDENCE: pending
+  EVIDENCE: PASS 2026-09-02. The external bundle and equivalence audit passed
+  before deletion. All 214 `refs/original/*` refs were removed, reflogs expired,
+  `git gc --prune=now` completed, `git fsck --full --no-reflogs --unreachable`
+  reports nothing, and the history gate passes afterward. GitHub remote content,
+  `main` checkout, tags, releases, and visibility were not changed.
 
-- [ ] R12: Public-release documentation, deterministic source checksum,
+- [x] R12: Public-release documentation, deterministic source checksum,
   repository contracts, strict docs, release-source policy, and diff hygiene
   agree with the rewritten history and accurately leave remote replacement as a
   separate manual step.
   CHECK: `python3 scripts/check-public-release.py all && python3 scripts/check-docs.py --strict && sh packaging/tests/test-release-source.sh && git diff --check`
   EXPECT: `/public-release-all-ok/`
-  EVIDENCE: pending
+  EVIDENCE: PASS 2026-09-02. Public-release community/GitHub/documentation/
+  checklist/history/all contracts, strict docs, GFM rendering, package layout,
+  settings migrations, deterministic source, release-candidate policy, E2E
+  preflight, full Git object check, roadmap single-NEXT check, and diff hygiene
+  pass. Arch source checksum is
+  `91b7af136a8555bc920d558defb5763b1c8c41138c72fc6743caf2481cc9cb35`.
+  The checklist leaves GitHub remote replacement and fresh-clone verification
+  manual; no force-push or remote mutation occurred.
 
 ---
 

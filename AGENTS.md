@@ -1315,6 +1315,67 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-09-02`
 
+Current phase: **First public repository readiness and local history privacy
+rewrite implemented and verified; remote migration requires maintainer action;
+Phase 19A remains next**
+
+Completed this session:
+
+- Prepared `release/public-repository-readiness` without changing runtime code,
+  `main`, GitHub visibility, tags, or releases. Added contribution guidance, a
+  neutral inbound-license agreement, GitHub community templates and CODEOWNERS,
+  minimal headless Rust CI, public launch checklist, and dependency-free release
+  contracts while preserving `LicenseRef-proprietary`.
+- Rewrote all 217 live local refs and 134 reachable commits so author/committer
+  metadata uses the reviewed GitHub noreply address and historical account-specific
+  home, media, and agent paths use neutral placeholders. A verified mode-0600
+  pre-rewrite bundle remains in `/tmp` for recovery; `refs/original/*`, reflogs,
+  and unreachable original objects were removed after equivalence verification.
+- Added a repeatable reachable-history identity/path gate and updated the release
+  checklist to distinguish the completed local rewrite from the still-pending
+  GitHub remote migration and fresh-clone audit.
+
+Verified:
+
+- The bundle-to-live equivalence audit passes across 217 refs and 134 commits,
+  preserving graph topology, names, timestamps, messages, file modes, and all
+  content except the explicitly authorized email/path substitutions.
+- The local reachable-history gate, full Git object check, strict documentation,
+  public-release contracts, deterministic source archive, release-source policy,
+  and diff hygiene pass after pruning. The earlier full Rust, packaging, E2E
+  preflight, and native Wayland evidence remains applicable because runtime code
+  did not change.
+
+Known issues:
+
+- GitHub still contains the pre-rewrite remote history because no force-push or
+  remote branch deletion was authorized. Before public visibility, coordinate a
+  force-with-lease migration of retained branches or delete obsolete branches,
+  then re-clone and repeat the complete metadata/blob audit. A normal push must
+  not combine old and rewritten histories.
+- The access-restricted `/tmp` recovery bundle intentionally contains the private
+  pre-rewrite history. Keep it offline only until remote migration and fresh-clone
+  verification succeed, then deliberately destroy it if no longer needed;
+  deletion is not secure erase.
+- `cargo-audit`, `cargo-deny`, and local Rust 1.85 through rustup remain unavailable
+  on this host. CI must confirm the actual Rust 1.85 Ubuntu job after publication.
+
+Deferred:
+
+- GitHub Private Vulnerability Reporting, branch rules, required CI, optional
+  Discussions, remote history replacement, visibility, tagging, and publishing
+  `v0.1.0-alpha.1` remain explicit maintainer actions. None was performed.
+
+Recommended next task:
+
+- After remote migration, fresh-clone audit, and manual repository settings are
+  resolved, create `phase-19a-git-awareness` and implement only the roadmap's
+  opt-in Git awareness phase. Do not begin it as part of publication work.
+
+## Prior public-readiness status (before local history rewrite)
+
+Last updated: `2026-09-02`
+
 Current phase: **First public repository readiness implemented and verified on a review branch; publication blockers require maintainer action; Phase 19A remains next**
 
 Completed this session:

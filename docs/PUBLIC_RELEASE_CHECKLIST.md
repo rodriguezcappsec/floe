@@ -16,18 +16,24 @@ authorize or create a tag, release, or visibility change.
   automated SPDX checks are an inventory policy, not legal advice.
 - [ ] Review all direct and transitive dependency licenses and bundled assets.
   Confirm required notices accompany every distributed package.
-- [ ] Confirm the Git author email embedded in existing commits is intentionally
-  public. The owner's GitHub profile does not currently publish an email. If it
-  is private, rewrite history before visibility changes and re-clone/re-audit.
-- [ ] Configure a public or GitHub noreply author identity before creating new
-  public commits.
-- [ ] Decide whether historical machine-specific home/agent paths are acceptable.
-  The working tree must contain no personal absolute path; history still requires
-  explicit acceptance or a rewrite before publication.
-- [ ] Confirm no secrets, credentials, private keys, personal files, sensitive
-  paths, machine logs, or private fixtures exist anywhere in Git history.
-- [ ] Rotate/revoke any credential that ever entered history before rewriting;
-  deleting it from the current tree is not sufficient.
+- [x] Rewrite every reachable local Git author email and committer email to the
+  reviewed GitHub noreply address, and configure that identity for new commits.
+- [x] Rewrite Git history so account-specific home, media, and agent paths use neutral
+  placeholders. Compare all rewritten local refs against a verified pre-rewrite
+  bundle, then remove rewrite backup refs and prune unreachable originals.
+- [x] Complete tracked-tree and reachable-history audits. No high-confidence
+  secret, credential, private-key, personal-file, or machine-log marker was
+  found. This is review evidence, not proof that undiscovered sensitive data
+  never existed.
+- [ ] Keep the private pre-rewrite recovery bundle access-restricted and offline
+  until remote migration and a fresh-clone audit succeed, then deliberately
+  destroy it if recovery is no longer needed. Deletion is not secure erase.
+- [ ] Before public visibility, coordinate replacement of every GitHub branch
+  that still exposes pre-rewrite history. A normal push is insufficient; use a
+  deliberate force-with-lease migration or delete obsolete remote branches,
+  then re-clone and repeat the complete metadata/blob audit.
+- [ ] If any credential is later found in current or prior history, rotate or
+  revoke it; rewriting history alone does not invalidate a disclosed secret.
 
 ## Automated repository gates
 
@@ -42,6 +48,8 @@ authorize or create a tag, release, or visibility change.
 - [x] Run the E2E harness contract/preflight; report unavailable native graphical
   layers as not run, never as passed.
 - [x] Run `git diff --check` and review the complete branch diff.
+- [x] Run the local reachable-history identity/path gate and the full
+  bundle-to-rewrite equivalence audit.
 - [x] Build the verified native release package and smoke-test the staged package
   in a disposable environment.
 

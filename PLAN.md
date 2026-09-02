@@ -69,6 +69,13 @@ printing possible secrets or making unsupported legal claims.
   rewriting local history. The rewrite will cover all reachable local refs and
   retain a verified full bundle in `/tmp`; replacing remote history remains a
   separate destructive action and is not authorized in this pass.
+- 2026-09-02: Local history rewrite complete. A mode-0600 full bundle verified
+  218 pre-rewrite refs. The equivalence audit compared 217 live refs and 134
+  commits, preserving topology, names, timestamps, messages, modes, and unrelated
+  content while applying only the authorized identity/path substitutions.
+  `refs/original/*`, reflogs, and unreachable originals were removed and pruned.
+  The GitHub remote was not changed and still requires a separately authorized,
+  coordinated replacement followed by a fresh-clone audit.
 
 ---
 

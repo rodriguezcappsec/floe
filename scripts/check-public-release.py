@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+PUBLIC_COMMIT_EMAIL = "37666398+rodriguezcappsec@users.noreply.github.com"
+RETIRED_LOCAL_ACCOUNT_PARTS = ("roc", "appsec")
 
 
 def load(relative: str, errors: list[str]) -> str:
@@ -279,9 +281,126 @@ def worktree_privacy(errors: list[str]) -> None:
         errors.append("tracked files contain the current account home path: " + ", ".join(files))
 
 
+def history(errors: list[str]) -> None:
+    original_refs = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname)", "refs/original/"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if original_refs.returncode != 0:
+        errors.append("unable to inspect filter-rewrite backup refs")
+        return
+    if original_refs.stdout.strip():
+        errors.append("filter-rewrite backup refs remain reachable")
+
+    identities = subprocess.run(
+        ["git", "log", "--all", "--format=%ae%n%ce"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if identities.returncode != 0:
+        errors.append("unable to inspect reachable commit identities")
+        return
+    unexpected = {
+        identity
+        for identity in identities.stdout.splitlines()
+        if identity and identity != PUBLIC_COMMIT_EMAIL
+    }
+    if unexpected:
+        errors.append(
+            "reachable commits contain "
+            f"{len(unexpected)} non-public author or committer email value(s)"
+        )
+
+    configured_email = subprocess.run(
+        ["git", "config", "--local", "--get", "user.email"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if configured_email.returncode == 0 and configured_email.stdout.strip() not in (
+        "",
+        PUBLIC_COMMIT_EMAIL,
+    ):
+        errors.append("repository-local Git email is not the reviewed public noreply identity")
+
+    home = Path.home()
+    retired_account = "".join(RETIRED_LOCAL_ACCOUNT_PARTS)
+    forbidden_paths = {
+        str(Path("/home") / retired_account),
+        str(Path("/run/media") / retired_account),
+    }
+    if str(home) not in ("", "/", "/root"):
+        forbidden_paths.update((str(home), str(Path("/run/media") / home.name)))
+
+    commits = subprocess.run(
+        ["git", "rev-list", "--all"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if commits.returncode != 0:
+        errors.append("unable to enumerate reachable commits")
+        return
+    commit_ids = [commit for commit in commits.stdout.splitlines() if commit]
+
+    messages = subprocess.run(
+        ["git", "log", "--all", "--format=%B"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if messages.returncode != 0:
+        errors.append("unable to inspect reachable commit messages")
+    elif any(path in messages.stdout for path in forbidden_paths):
+        errors.append("reachable commit messages contain an account-specific path")
+
+    if forbidden_paths and commit_ids:
+        grep_command = ["git", "grep", "-I", "-l"]
+        for path in forbidden_paths:
+            grep_command.extend(("-e", path))
+        grep_command.extend(commit_ids)
+        grep_command.append("--")
+        history_paths = subprocess.run(
+            grep_command,
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if history_paths.returncode == 0:
+            matches = len([line for line in history_paths.stdout.splitlines() if line])
+            errors.append(
+                f"reachable history contains account-specific paths in {matches} blob view(s)"
+            )
+        elif history_paths.returncode != 1:
+            errors.append("unable to inspect reachable blobs for account-specific paths")
+
+    if not errors:
+        refs = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname)"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        ref_count = len([line for line in refs.stdout.splitlines() if line])
+        print(f"public-release-history-ok commits={len(commit_ids)} refs={ref_count}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("check", choices=("community", "github", "documentation", "checklist", "all"))
+    parser.add_argument(
+        "check",
+        choices=("community", "github", "documentation", "checklist", "history", "all"),
+    )
     args = parser.parse_args()
     errors: list[str] = []
     checks = {
@@ -289,6 +408,7 @@ def main() -> int:
         "github": github,
         "documentation": documentation,
         "checklist": checklist,
+        "history": history,
     }
     selected = checks.values() if args.check == "all" else (checks[args.check],)
     for check in selected:
