@@ -103,7 +103,7 @@ impl SystemThumbnailerRegistry {
     pub(crate) fn discover() -> Self {
         let mut data_dirs = vec![glib::user_data_dir()];
         data_dirs.extend(glib::system_data_dirs());
-        Self::discover_from_data_dirs(&data_dirs)
+        Self::discover_from_data_dirs(&data_dirs).retain_sandbox_reachable_providers()
     }
 
     pub(crate) fn discover_from_data_dirs(data_dirs: &[PathBuf]) -> Self {
@@ -210,11 +210,55 @@ impl SystemThumbnailerRegistry {
             })
     }
 
+    fn retain_sandbox_reachable_providers(mut self) -> Self {
+        self.providers.retain_mut(|provider| {
+            let Some(executable) = sandbox_reachable_executable(&provider.argv[0]) else {
+                tracing::warn!(
+                    "ignoring system thumbnailer whose executable is unavailable in the required sandbox"
+                );
+                return false;
+            };
+            provider.argv[0] = executable.into_os_string();
+            true
+        });
+
+        self.by_mime.clear();
+        for (index, provider) in self.providers.iter().enumerate() {
+            for mime_type in &provider.mime_types {
+                self.by_mime.entry(mime_type.clone()).or_insert(index);
+            }
+        }
+        self
+    }
+
     #[cfg(test)]
     fn provider_path_for(&self, content_type: &str) -> Option<&Path> {
         self.provider_for_content_type(content_type)
             .map(|provider| provider.definition_path.as_path())
     }
+}
+
+fn sandbox_reachable_executable(program: &OsStr) -> Option<PathBuf> {
+    let program = Path::new(program);
+    let candidates = if program.is_absolute() {
+        vec![program.to_path_buf()]
+    } else if program.components().count() == 1 {
+        vec![
+            Path::new("/usr/bin").join(program),
+            Path::new("/bin").join(program),
+        ]
+    } else {
+        return None;
+    };
+
+    candidates.into_iter().find_map(|candidate| {
+        let canonical = candidate.canonicalize().ok()?;
+        if !canonical.starts_with("/usr") {
+            return None;
+        }
+        let metadata = fs::metadata(&canonical).ok()?;
+        (metadata.is_file() && metadata.permissions().mode() & 0o111 != 0).then_some(canonical)
+    })
 }
 
 impl SystemThumbnailer {
@@ -1023,6 +1067,63 @@ mod tests {
             )
             .expect_err("missing sandbox must not run provider directly");
         assert!(matches!(error, SystemThumbnailerError::SandboxUnavailable));
+    }
+
+    #[test]
+    fn adversarial_thumbnailer_sandbox() {
+        let root = tempdir().expect("temporary directory");
+        let data = root.path().join("data");
+        let user_provider = root.path().join("user-provider");
+        fs::write(&user_provider, "#!/bin/sh\nexit 0\n").expect("user provider fixture");
+        fs::set_permissions(&user_provider, fs::Permissions::from_mode(0o755))
+            .expect("user provider permissions");
+
+        write_definition(
+            &data,
+            "user.thumbnailer",
+            &format!("{} %i %o", user_provider.display()),
+            "text/plain",
+        );
+        write_definition(
+            &data,
+            "nix.thumbnailer",
+            "/nix/store/floe-missing-thumbnailer/bin/provider %i %o",
+            "application/pdf",
+        );
+        write_definition(
+            &data,
+            "system.thumbnailer",
+            "/bin/true %i %o",
+            "audio/x-floe-sandbox-fixture",
+        );
+
+        let discovered = SystemThumbnailerRegistry::discover_from_data_dirs(&[data]);
+        assert!(discovered.provider_path_for("text/plain").is_some());
+        assert!(
+            discovered
+                .provider_path_for("audio/x-floe-sandbox-fixture")
+                .is_some()
+        );
+        assert!(sandbox_reachable_executable(OsStr::new("/bin/true")).is_some());
+        let sandboxed = discovered.retain_sandbox_reachable_providers();
+
+        assert!(
+            sandboxed.provider_path_for("text/plain").is_none(),
+            "a user executable absent from the production sandbox must not be advertised"
+        );
+        assert!(
+            sandboxed.provider_path_for("application/pdf").is_none(),
+            "a Nix executable absent from the production sandbox must not be advertised"
+        );
+        assert!(
+            sandboxed
+                .provider_path_for("audio/x-floe-sandbox-fixture")
+                .is_some()
+        );
+        let provider = sandboxed
+            .provider_for_content_type("audio/x-floe-sandbox-fixture")
+            .expect("sandbox-reachable provider");
+        assert!(Path::new(&provider.argv[0]).starts_with("/usr"));
     }
 
     #[test]

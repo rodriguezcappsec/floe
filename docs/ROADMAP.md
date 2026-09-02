@@ -422,6 +422,13 @@ reported no `GtkEntry` child-finalization warning.
 | 23G — Complete details columns | COMPLETE | `phase-next-eight-maturity` | Add Owner, Group, full Path and Link Target/broken-state columns alongside existing media details. | Versioned 32-bit column layout migration, bounded lazy metadata, numeric UID/GID, exact path identity, no-follow link inspection, persistent order/width/visibility. |
 | 23H — Multi-window runtime and session hardening | COMPLETE | `phase-23h-security-inspection-suite` | One shared normal-process application state, single destructive-event presentation owner and bounded multi-window session restoration. | Capacity-16 windows, legacy one-window migration, corrupt/oversized/trailing rejection, Private/Sensitive suppression, close-owner transfer and clean shutdown are deterministic-tested; native close-one/survivor script remains the environment gate. |
 
+The 2026-09-01 cross-cutting correctness pass retained Phase 18R as the sole next
+phase while hardening completed work: copy source/rollback identity,
+application-wide Quit, shared preferences and bookmarks, background-state
+accessibility, file-only GIO launch, prefix-correct portal activation,
+administrator no-progress recovery, and sandbox-reachable thumbnailer discovery
+now have focused regression coverage.
+
 ## Deliberately deferred or not applicable
 
 - Secure erase is **NOT APPLICABLE**: permanent unlinking cannot guarantee

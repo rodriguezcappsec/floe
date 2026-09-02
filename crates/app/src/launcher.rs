@@ -126,7 +126,9 @@ pub async fn discover_open_with(path: PathBuf) -> Result<OpenWithOptions, glib::
             "The selected file has no detectable content type",
         )
     })?;
-    let default = gio::AppInfo::default_for_type(&content_type, true);
+    // Local file opening accepts both file-only (%f/%F) and URI (%u/%U)
+    // handlers. Dispatch chooses the matching GIO API after lookup.
+    let default = gio::AppInfo::default_for_type(&content_type, false);
     let mut applications = gio::AppInfo::recommended_for_type(&content_type);
     applications.extend(gio::AppInfo::all_for_type(&content_type));
     if let Some(default) = default.as_ref() {
@@ -145,13 +147,41 @@ pub fn launch_with(
     path: &Path,
     callback: impl FnOnce(Result<(), glib::Error>) + 'static,
 ) {
-    let uri = local_file_uri(path);
-    application.launch_uris_async(
-        &[uri.as_str()],
-        None::<&gio::AppLaunchContext>,
-        None::<&gio::Cancellable>,
-        callback,
-    );
+    match application_launch_kind(application) {
+        Some(ApplicationLaunchKind::Files) => {
+            let file = gio::File::for_path(path);
+            callback(application.launch(&[file], None::<&gio::AppLaunchContext>));
+        }
+        Some(ApplicationLaunchKind::Uris) => {
+            let uri = local_file_uri(path);
+            application.launch_uris_async(
+                &[uri.as_str()],
+                None::<&gio::AppLaunchContext>,
+                None::<&gio::Cancellable>,
+                callback,
+            );
+        }
+        None => callback(Err(glib::Error::new(
+            gio::IOErrorEnum::NotSupported,
+            "The selected application accepts neither local files nor URIs",
+        ))),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ApplicationLaunchKind {
+    Files,
+    Uris,
+}
+
+fn application_launch_kind(application: &gio::AppInfo) -> Option<ApplicationLaunchKind> {
+    if application.supports_files() {
+        Some(ApplicationLaunchKind::Files)
+    } else if application.supports_uris() {
+        Some(ApplicationLaunchKind::Uris)
+    } else {
+        None
+    }
 }
 
 const ASSOCIATION_QUEUE_CAPACITY: usize = 2;
@@ -310,7 +340,9 @@ fn normalize_applications(
 ) -> Vec<OpenWithApplication> {
     let applications = applications
         .into_iter()
-        .filter(|application| application.should_show() && application.supports_uris())
+        .filter(|application| {
+            application.should_show() && application_launch_kind(application).is_some()
+        })
         .map(|app_info| OpenWithApplication {
             is_default: default.is_some_and(|default| app_info.equal(default)),
             display_name: app_info.display_name().to_string(),
@@ -354,12 +386,14 @@ fn local_file_uri(path: &Path) -> glib::GString {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use std::{ffi::OsString, os::unix::ffi::OsStringExt, path::PathBuf};
+    use std::{ffi::OsString, fs, os::unix::ffi::OsStringExt, path::PathBuf};
 
     use gtk::gio::{self, prelude::*};
+    use tempfile::tempdir;
 
     use super::{
-        OpenWithApplication, OpenWithOptions, default_application, local_file_uri,
+        ApplicationLaunchKind, OpenWithApplication, OpenWithOptions, application_launch_kind,
+        default_application, local_file_uri, normalize_applications,
         sort_and_deduplicate_applications,
     };
 
@@ -371,6 +405,76 @@ mod tests {
 
         assert_eq!(decoded.as_deref(), Some(path.as_path()));
         assert!(!uri.contains('\u{fffd}'));
+    }
+
+    #[test]
+    fn adversarial_file_only_launcher() {
+        let root = tempdir().expect("temporary desktop fixtures");
+        let file_only_path = root.path().join("file-only.desktop");
+        let files_only_path = root.path().join("files-only.desktop");
+        let uri_only_path = root.path().join("uri-only.desktop");
+        fs::write(
+            &file_only_path,
+            "[Desktop Entry]\nType=Application\nName=File Only\nExec=/usr/bin/true %f\n",
+        )
+        .expect("file-only desktop fixture");
+        fs::write(
+            &files_only_path,
+            "[Desktop Entry]\nType=Application\nName=Files Only\nExec=/usr/bin/true %F\n",
+        )
+        .expect("multi-file desktop fixture");
+        fs::write(
+            &uri_only_path,
+            "[Desktop Entry]\nType=Application\nName=URI Handler\nExec=/usr/bin/true %u\n",
+        )
+        .expect("URI desktop fixture");
+        let file_only = gio::DesktopAppInfo::from_filename(&file_only_path)
+            .expect("file-only fixture app info")
+            .upcast::<gio::AppInfo>();
+        let files_only = gio::DesktopAppInfo::from_filename(&files_only_path)
+            .expect("multi-file fixture app info")
+            .upcast::<gio::AppInfo>();
+        let uri_only = gio::DesktopAppInfo::from_filename(&uri_only_path)
+            .expect("URI fixture app info")
+            .upcast::<gio::AppInfo>();
+
+        assert!(file_only.supports_files());
+        assert!(!file_only.supports_uris());
+        assert_eq!(
+            application_launch_kind(&file_only),
+            Some(ApplicationLaunchKind::Files)
+        );
+        assert_eq!(
+            application_launch_kind(&files_only),
+            Some(ApplicationLaunchKind::Files)
+        );
+        assert_eq!(
+            application_launch_kind(&uri_only),
+            Some(ApplicationLaunchKind::Uris)
+        );
+
+        let choices = normalize_applications(
+            vec![file_only.clone(), files_only.clone(), uri_only.clone()],
+            None,
+        );
+        assert!(
+            choices
+                .iter()
+                .any(|choice| choice.app_info.equal(&file_only)),
+            "visible file-only applications must remain in Open With"
+        );
+        assert!(
+            choices
+                .iter()
+                .any(|choice| choice.app_info.equal(&files_only)),
+            "visible multi-file-only applications must remain in Open With"
+        );
+        assert!(
+            choices
+                .iter()
+                .any(|choice| choice.app_info.equal(&uri_only)),
+            "URI handlers must remain in Open With"
+        );
     }
 
     #[test]

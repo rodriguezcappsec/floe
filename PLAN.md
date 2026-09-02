@@ -1,4 +1,48 @@
-# Active plan: persistent background-operation feedback regression
+# Active plan: adversarial audit remediation
+
+## Contract
+
+Fix all ten retained findings from the 2026-09-01 read-only audit without
+introducing roadmap features or weakening Floe's no-follow, no-overwrite,
+bounded-worker, GTK-responsiveness, privacy, or exact-path contracts. Every
+reproduced bug receives a lowest-layer regression test. Native-only behavior
+must be verified where the environment permits and otherwise skipped with the
+exact external limitation.
+
+## Depth tree
+
+1. Core copy integrity (`gates/adversarial-core-remediation.md`)
+   - reject source kind/identity substitution between planning and opening;
+   - never remove a rollback path after Floe loses object ownership.
+2. Application lifecycle and shared state (`gates/adversarial-app-remediation.md`)
+   - route application Quit through active-operation policy;
+   - make preferences and bookmarks authoritative application-wide state;
+   - preserve truthful outcome-specific accessibility descriptions.
+3. Linux integration (`gates/adversarial-linux-remediation.md`)
+   - support file-only GIO application handlers;
+   - make portal D-Bus activation prefix-correct;
+   - add bounded privileged-operation no-progress recovery;
+   - align thumbnailer discovery with required sandbox reachability.
+4. Root integration (`GATES.md`)
+   - independently rerun leaf checks and challenge fixes;
+   - run full Rust, documentation, packaging, E2E, and applicable native gates;
+   - update persistent status while leaving exactly Phase 18R as roadmap NEXT.
+
+## Status log
+
+- 2026-09-01: Started from clean `main` at `0eab21c`; audit retained ten
+  findings (three P1, six P2, one P3). Disjoint leaf gates defined before code.
+- 2026-09-01: All three leaves and root integration completed. Parent review
+  caught and closed omitted stale-window custom-action/folder-view coverage and
+  required live sibling presentation updates before accepting the application
+  leaf. All 15 leaf gates and five root gates now pass; deterministic workspace,
+  docs, packaging, migrations, E2E contracts, focused real-GTK administrator
+  accessibility, and isolated KDE close-survivor/restart smoke are verified.
+  Phase 18R remains the sole roadmap `NEXT`; no following phase was started.
+
+---
+
+# Archived active plan: persistent background-operation feedback regression
 
 ## User-visible contract
 

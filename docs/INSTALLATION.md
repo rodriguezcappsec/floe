@@ -48,10 +48,12 @@ DESTDIR="$staging_root" PREFIX=/usr sh packaging/uninstall.sh
 ```
 
 For a live source installation, use `PREFIX=/usr/local` or `/usr` with the
-privilege required by that prefix. Afterward refresh desktop/icon caches with
-the distribution's normal package hooks or cache tools. The installer never
-sets Floe as the default directory handler and never writes to `HOME` or user
-XDG roots.
+privilege required by that prefix. The installer rewrites the optional portal
+D-Bus service `Exec=` entry to the selected prefix, so activation resolves the
+same installed `floe` binary under either layout. Afterward refresh desktop/icon
+caches with the distribution's normal package hooks or cache tools. The
+installer never sets Floe as the default directory handler and never writes to
+`HOME` or user XDG roots.
 
 The installed command is `floe`. It accepts no target or exactly one local
 folder/file URI. The desktop entry advertises only `inode/directory` and uses

@@ -303,6 +303,13 @@ upload hashes, paths, or content.
   destinations. This prevents mistakes; it is not encryption, access control,
   immutability, privilege separation, or attacker resistance.
 
+The ordinary-copy planner opens regular sources with no-follow descriptors and
+revalidates kind, device, and inode before accepting bytes. Failure or
+cancellation cleanup atomically quarantines a public destination, verifies it is
+still the exact Floe-created object, and removes only that identity. A
+replacement object is restored and retained; ownership uncertainty is reported
+rather than erased.
+
 ### PLANNED and unavailable today
 
 Portable encryption, recipient encryption, encrypted vaults, recovery keys, privacy sessions, Sensitive Folders, Private Mode, Privacy Lock, privacy-safe caches and history, sandboxed providers, suspicious-file analysis, metadata sanitization, permission auditing, sensitive-content scanning remain planned. No current Cargo dependency implements cryptography or a sandbox.
@@ -705,6 +712,10 @@ Private policy must clear or visibly scope both internal and desktop state.
 ## Sandboxed providers
 
 Status: **IMPLEMENTED for external thumbnail and Preview providers**. Phase 18L requires `/usr/bin/bwrap` or `/bin/bwrap`, clears the environment, unshares all namespaces including network and session IPC, mounts `/usr` read-only, grants only the exact source at `/run/floe/input`, grants only a private output directory at `/run/floe/output`, uses a private `/tmp`, and retains timeout, output, identity-revalidation, cancellation, and process-group termination limits. If Bubblewrap is missing, unusable, or policy setup fails, Floe reports the provider unavailable and never retries with ordinary user authority.
+
+Production thumbnailer discovery also rejects provider executables that cannot
+resolve to an executable file inside the `/usr`-only sandbox mount. This avoids
+advertising a user, Nix, or other host path that the launched sandbox cannot see.
 
 This boundary restricts installed helper access; it does not prove a helper is bug-free or make its output trusted. Deterministic policy and controlled-fixture gates pass; Floe does not fall back to direct unsandboxed execution.
 

@@ -1,7 +1,9 @@
 use std::{
+    cell::RefCell,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
+    rc::Rc,
     sync::mpsc::{self, Receiver, SyncSender, TrySendError},
     thread::{self, JoinHandle},
 };
@@ -79,6 +81,84 @@ mod phase_21b_migration_tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn adversarial_shared_preferences_merge_disjoint_stale_window_edits() {
+        let fixture = tempdir().expect("temporary preferences");
+        let path = preference_path(fixture.path());
+        fs::create_dir_all(path.parent().expect("preference parent"))
+            .expect("create preference parent");
+        let (initial, worker) = PreferenceWorker::spawn_internal(path.clone(), None)
+            .expect("preference worker should start");
+        let shared = SharedPreferences::new(initial, worker.handle());
+        let first_base = shared.snapshot();
+        let second_base = shared.snapshot();
+
+        let mut first_edit = first_base.clone();
+        first_edit.sidebar_collapsed = true;
+        first_edit.remember_per_folder = true;
+        let folder = fixture.path().join("folder-view");
+        let folder_state = FolderViewState {
+            mode: ViewMode::Grid,
+            density: FileViewDensity::Compact,
+            ..FolderViewState::default()
+        };
+        first_edit.remember_folder_state(folder.clone(), folder_state);
+        first_edit.custom_actions.push(CustomActionDefinition {
+            id: 1,
+            name: "Inspect PDF".to_owned(),
+            executable: "pdfinfo".to_owned(),
+            arguments: vec!["%f".to_owned()],
+            target: crate::custom_actions::CustomActionTarget::Files,
+            mime_patterns: vec!["application/pdf".to_owned()],
+            allow_multiple: false,
+        });
+        shared.merge_snapshot(&first_base, &first_edit);
+
+        let mut second_edit = second_base.clone();
+        second_edit.completion_notifications = true;
+        let merged = shared.merge_snapshot(&second_base, &second_edit);
+
+        assert!(merged.sidebar_collapsed);
+        assert!(merged.completion_notifications);
+        assert_eq!(merged.custom_actions, first_edit.custom_actions);
+        assert_eq!(merged.effective_state(&folder), folder_state);
+
+        let mut presented = merged.clone();
+        presented.appearance = AppearancePreset::Glass;
+        presented.color_scheme = ColorSchemePreference::Dark;
+        presented.font_family = Some("Cantarell".to_owned());
+        presented.font_scale_percent = 125;
+        presented.reduced_motion = true;
+        presented.click_policy = ClickPolicy::Single;
+        presented.icon_style = EntryIconStyle::Phosphor;
+        presented.sidebar_density = SidebarDensity::Comfortable;
+        presented.context_menu = ContextMenuPreferences::empty();
+        presented
+            .keybindings
+            .set_from_text("win.quick-preview", "<Control>p")
+            .expect("valid keybinding override");
+        presented.vim_mode = true;
+        presented.mode = ViewMode::Miller;
+        let presentation = PreferencePresentationChanges::between(&merged, &presented);
+        assert!(presentation.appearance);
+        assert!(presentation.click_policy);
+        assert!(presentation.icon_style);
+        assert!(presentation.sidebar);
+        assert!(presentation.context_menu);
+        assert!(presentation.keybindings);
+        assert!(presentation.vim_mode);
+        assert!(presentation.view_policy);
+        worker
+            .save_before_shutdown(merged.clone())
+            .expect("final authoritative snapshot should queue");
+        drop(shared);
+        drop(worker);
+        let persisted = ViewPreferences::parse(
+            &fs::read_to_string(path).expect("authoritative preferences should persist"),
+        );
+        assert_eq!(persisted, merged);
+    }
 
     fn preference_path(root: &Path) -> PathBuf {
         root.join("config").join("floe").join(PREFERENCE_FILE_NAME)
@@ -936,6 +1016,160 @@ impl PreferenceHandle {
                 Err(PreferenceSubmitError::Full(Box::new(preferences)))
             }
             Err(TrySendError::Disconnected(_)) => Err(PreferenceSubmitError::Disconnected),
+        }
+    }
+}
+
+/// One process-wide preference model shared by every normal Floe window.
+///
+/// Windows submit an edited snapshot together with the authoritative snapshot
+/// they started from. Only fields changed by that window are merged into the
+/// latest process state, so a stale window cannot revert unrelated changes
+/// made by a sibling window. Selection Mode deliberately receives no instance
+/// of this model and remains read-only/process-isolated.
+#[derive(Clone)]
+pub struct SharedPreferences {
+    inner: Rc<RefCell<SharedPreferenceState>>,
+}
+
+struct SharedPreferenceState {
+    current: ViewPreferences,
+    pending: Option<ViewPreferences>,
+    persistence: Option<PreferenceHandle>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PreferencePresentationChanges {
+    pub appearance: bool,
+    pub click_policy: bool,
+    pub icon_style: bool,
+    pub sidebar: bool,
+    pub context_menu: bool,
+    pub keybindings: bool,
+    pub vim_mode: bool,
+    pub view_policy: bool,
+}
+
+impl PreferencePresentationChanges {
+    pub fn between(previous: &ViewPreferences, current: &ViewPreferences) -> Self {
+        Self {
+            appearance: previous.appearance != current.appearance
+                || previous.color_scheme != current.color_scheme
+                || previous.font_family != current.font_family
+                || previous.font_scale_percent != current.font_scale_percent
+                || previous.reduced_motion != current.reduced_motion,
+            click_policy: previous.click_policy != current.click_policy,
+            icon_style: previous.icon_style != current.icon_style,
+            sidebar: previous.sidebar_density != current.sidebar_density
+                || previous.sidebar_width != current.sidebar_width
+                || previous.sidebar_collapsed != current.sidebar_collapsed,
+            context_menu: previous.context_menu != current.context_menu
+                || previous.custom_actions != current.custom_actions,
+            keybindings: previous.keybindings != current.keybindings,
+            vim_mode: previous.vim_mode != current.vim_mode,
+            view_policy: previous.mode != current.mode
+                || previous.grid_size != current.grid_size
+                || previous.file_density != current.file_density
+                || previous.sort != current.sort
+                || previous.columns != current.columns
+                || previous.remember_per_folder != current.remember_per_folder
+                || previous.folder_views != current.folder_views,
+        }
+    }
+}
+
+impl SharedPreferences {
+    pub fn new(initial: ViewPreferences, persistence: Option<PreferenceHandle>) -> Self {
+        Self {
+            inner: Rc::new(RefCell::new(SharedPreferenceState {
+                current: initial,
+                pending: None,
+                persistence,
+            })),
+        }
+    }
+
+    pub fn snapshot(&self) -> ViewPreferences {
+        self.inner.borrow().current.clone()
+    }
+
+    pub fn merge_snapshot(
+        &self,
+        base: &ViewPreferences,
+        edited: &ViewPreferences,
+    ) -> ViewPreferences {
+        let mut state = self.inner.borrow_mut();
+        let mut merged = state.current.clone();
+
+        macro_rules! merge_changed_fields {
+            ($($field:ident),+ $(,)?) => {
+                $(if edited.$field != base.$field {
+                    merged.$field = edited.$field.clone();
+                })+
+            };
+        }
+
+        merge_changed_fields!(
+            window_size,
+            mode,
+            grid_size,
+            sidebar_density,
+            sidebar_width,
+            sidebar_collapsed,
+            completion_notifications,
+            miller_column_width,
+            inspector_width,
+            file_density,
+            sort,
+            columns,
+            color_scheme,
+            click_policy,
+            font_family,
+            font_scale_percent,
+            reduced_motion,
+            collapsed_groups,
+            remember_per_folder,
+            keybindings,
+            vim_mode,
+            preferred_terminal,
+            context_menu,
+            appearance,
+            icon_style,
+            saved_searches,
+            search_index_enabled,
+            metadata_sort_cache_enabled,
+            privileged_access_enabled,
+            clamav_file_limit_mib,
+            clamav_total_limit_gib,
+            custom_actions,
+            folder_views,
+        );
+
+        state.current = merged.clone();
+        state.pending = Some(merged.clone());
+        Self::flush_locked(&mut state);
+        merged
+    }
+
+    pub fn flush(&self) {
+        Self::flush_locked(&mut self.inner.borrow_mut());
+    }
+
+    fn flush_locked(state: &mut SharedPreferenceState) {
+        let Some(preferences) = state.pending.take() else {
+            return;
+        };
+        let Some(persistence) = state.persistence.as_ref() else {
+            return;
+        };
+        match persistence.try_save(preferences) {
+            Ok(()) => {}
+            Err(PreferenceSubmitError::Full(preferences)) => {
+                state.pending = Some(*preferences);
+            }
+            Err(PreferenceSubmitError::Disconnected) => {
+                state.persistence = None;
+            }
         }
     }
 }

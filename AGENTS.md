@@ -1319,6 +1319,21 @@ Current phase: **Open Safely intentionally removed; Phase 18R next**
 
 Completed this session:
 
+- Closed the ten retained adversarial-audit findings without expanding roadmap scope.
+  Ordinary copy now opens planned regular files without following links, revalidates
+  source identity, and removes rollback output only while Floe still owns the exact
+  created inode. Normal windows share one authoritative preference model and bookmark
+  persistence worker; sibling edits merge and apply live instead of reverting each
+  other. Application Quit now observes the same active-job guard as window closing,
+  and background feedback exposes distinct running, stopping, completed, partial,
+  cancelled, and failed accessibility descriptions.
+- Corrected Linux integration boundaries: Open With retains `%f`/`%F` file-only
+  desktop applications and dispatches them through GIO file launch, staged `/usr` and
+  `/usr/local` installs generate prefix-correct portal D-Bus activation, administrator
+  mutations expose a 30-second no-progress recovery state with Continue Waiting and
+  Cancel, and production thumbnail discovery advertises only executables reachable
+  inside Floe's required `/usr`-only Bubblewrap provider sandbox.
+
 - Removed the uncommitted Phase 18M Open Safely implementation after product
   review found its compatibility, policy, and interface surface outweighed its
   daily-use value. Ordinary Open/Open With remain unchanged; Phase 18L's

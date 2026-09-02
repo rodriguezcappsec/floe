@@ -1,19 +1,21 @@
 use std::{
     fs::{self, File, FileTimes, OpenOptions, Permissions},
     io::{self, Read, Write},
-    os::unix::fs::symlink,
+    os::unix::fs::{MetadataExt, symlink},
     path::{Path, PathBuf},
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::SystemTime,
 };
 
-use rustix::fs::statvfs;
+use rustix::fs::{CWD, Mode, OFlags, RenameFlags, open, renameat_with, statvfs};
 use thiserror::Error;
 
 const COPY_BUFFER_SIZE: usize = 128 * 1024;
+const MAX_CLEANUP_QUARANTINE_ATTEMPTS: u64 = 128;
+static CLEANUP_QUARANTINE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 /// Defines what happens when the exact destination path already exists.
 ///
@@ -173,6 +175,8 @@ pub enum CopyError {
     SymlinkRejected(PathBuf),
     #[error("unsupported filesystem object: {}", .0.display())]
     UnsupportedFileType(PathBuf),
+    #[error("source changed after copy planning: {}", .0.display())]
+    SourceChanged(PathBuf),
     #[error("cannot {action} {path}: {source}", path = path.display())]
     Io {
         action: &'static str,
@@ -235,6 +239,7 @@ enum PlannedKind {
     File {
         metadata: BasicMetadata,
         length: u64,
+        identity: ObjectIdentity,
     },
     Directory {
         metadata: BasicMetadata,
@@ -249,7 +254,7 @@ enum PlannedKind {
 struct CopyState {
     entries_copied: u64,
     bytes_copied: u64,
-    created_paths: Vec<(PathBuf, CreatedKind)>,
+    created_paths: Vec<CreatedPath>,
     metadata_preserved: u64,
     metadata_not_preserved: u64,
 }
@@ -271,17 +276,57 @@ impl BasicMetadata {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CreatedKind {
-    FileLike,
+    File,
     Directory,
+    Symlink,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ObjectIdentity {
+    device: u64,
+    inode: u64,
+    kind: CreatedKind,
+}
+
+#[derive(Debug)]
+struct CreatedPath {
+    path: PathBuf,
+    identity: ObjectIdentity,
+}
+
+impl ObjectIdentity {
+    fn from_metadata(metadata: &fs::Metadata) -> Option<Self> {
+        let file_type = metadata.file_type();
+        let kind = if file_type.is_dir() {
+            CreatedKind::Directory
+        } else if file_type.is_file() {
+            CreatedKind::File
+        } else if file_type.is_symlink() {
+            CreatedKind::Symlink
+        } else {
+            return None;
+        };
+        Some(Self {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            kind,
+        })
+    }
+
+    fn matches(self, metadata: &fs::Metadata) -> bool {
+        Self::from_metadata(metadata).is_some_and(|current| current == self)
+    }
 }
 
 /// Execute a copy synchronously. Callers must run this outside GTK's main loop.
 ///
 /// The source tree is inspected before the destination is created. Progress is
 /// reported after each entry and after each copied file chunk. On failure, only
-/// paths created by this attempt are removed, in reverse order.
+/// paths created by this attempt are removed, in reverse order. Cleanup
+/// revalidates each created object's no-follow identity immediately before
+/// removal and reports a partial failure instead of removing a changed path.
 pub fn execute_copy<F>(
     request: &CopyRequest,
     cancellation: &CopyCancellation,
@@ -378,6 +423,11 @@ fn build_plan(
             PlannedKind::File {
                 metadata: BasicMetadata::from_metadata(&metadata),
                 length,
+                identity: ObjectIdentity {
+                    device: metadata.dev(),
+                    inode: metadata.ino(),
+                    kind: CreatedKind::File,
+                },
             },
             1,
             length,
@@ -445,11 +495,16 @@ where
 {
     check_cancelled(cancellation)?;
     match &plan.kind {
-        PlannedKind::File { metadata, length } => {
+        PlannedKind::File {
+            metadata,
+            length,
+            identity,
+        } => {
             copy_file(
                 &plan.source,
                 &plan.destination,
                 *length,
+                *identity,
                 metadata,
                 cancellation,
                 state,
@@ -478,9 +533,10 @@ where
             symlink(target, &plan.destination).map_err(|source| {
                 destination_create_error("create symbolic link at", &plan.destination, source)
             })?;
-            state
-                .created_paths
-                .push((plan.destination.clone(), CreatedKind::FileLike));
+            state.created_paths.push(capture_created_path(
+                &plan.destination,
+                CreatedKind::Symlink,
+            )?);
             state.metadata_not_preserved = state.metadata_not_preserved.saturating_add(1);
         }
     }
@@ -500,6 +556,7 @@ fn copy_file<F>(
     source_path: &Path,
     destination_path: &Path,
     expected_length: u64,
+    expected_identity: ObjectIdentity,
     metadata: &BasicMetadata,
     cancellation: &CopyCancellation,
     state: &mut CopyState,
@@ -510,11 +567,7 @@ fn copy_file<F>(
 where
     F: FnMut(CopyProgress),
 {
-    let mut source = File::open(source_path).map_err(|source| CopyError::Io {
-        action: "open source file",
-        path: source_path.to_path_buf(),
-        source,
-    })?;
+    let mut source = open_planned_source(source_path, expected_identity)?;
     let mut destination = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -522,9 +575,11 @@ where
         .map_err(|source| {
             destination_create_error("create destination file", destination_path, source)
         })?;
-    state
-        .created_paths
-        .push((destination_path.to_path_buf(), CreatedKind::FileLike));
+    state.created_paths.push(capture_created_file(
+        destination_path,
+        &destination,
+        CreatedKind::File,
+    )?);
 
     let mut copied_for_file = 0u64;
     let mut buffer = vec![0u8; COPY_BUFFER_SIZE];
@@ -580,6 +635,93 @@ where
     })?;
     state.metadata_preserved = state.metadata_preserved.saturating_add(1);
     Ok(())
+}
+
+fn open_planned_source(
+    source_path: &Path,
+    expected_identity: ObjectIdentity,
+) -> Result<File, CopyError> {
+    let inspection = open(
+        source_path,
+        OFlags::PATH | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+        Mode::empty(),
+    )
+    .map_err(|source| source_open_error(source_path, source))?;
+    let inspection = File::from(inspection);
+    let inspected = inspection.metadata().map_err(|source| CopyError::Io {
+        action: "inspect source file without following links",
+        path: source_path.to_path_buf(),
+        source,
+    })?;
+    if !expected_identity.matches(&inspected) || !inspected.file_type().is_file() {
+        return Err(CopyError::SourceChanged(source_path.to_path_buf()));
+    }
+
+    let descriptor = open(
+        source_path,
+        OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK,
+        Mode::empty(),
+    )
+    .map_err(|source| source_open_error(source_path, source))?;
+    let source = File::from(descriptor);
+    let opened = source.metadata().map_err(|source| CopyError::Io {
+        action: "inspect opened source file",
+        path: source_path.to_path_buf(),
+        source,
+    })?;
+    if !expected_identity.matches(&opened) || !opened.file_type().is_file() {
+        return Err(CopyError::SourceChanged(source_path.to_path_buf()));
+    }
+    Ok(source)
+}
+
+fn source_open_error(source_path: &Path, source: rustix::io::Errno) -> CopyError {
+    if matches!(source, rustix::io::Errno::LOOP | rustix::io::Errno::NOENT) {
+        CopyError::SourceChanged(source_path.to_path_buf())
+    } else {
+        CopyError::Io {
+            action: "open source file without following links",
+            path: source_path.to_path_buf(),
+            source: io::Error::from_raw_os_error(source.raw_os_error()),
+        }
+    }
+}
+
+fn capture_created_file(
+    path: &Path,
+    file: &File,
+    expected_kind: CreatedKind,
+) -> Result<CreatedPath, CopyError> {
+    let metadata = file.metadata().map_err(|source| CopyError::Io {
+        action: "capture created destination identity for",
+        path: path.to_path_buf(),
+        source,
+    })?;
+    created_path_from_metadata(path, &metadata, expected_kind)
+}
+
+fn capture_created_path(path: &Path, expected_kind: CreatedKind) -> Result<CreatedPath, CopyError> {
+    let metadata = symlink_metadata(path, "capture created destination identity for")?;
+    created_path_from_metadata(path, &metadata, expected_kind)
+}
+
+fn created_path_from_metadata(
+    path: &Path,
+    metadata: &fs::Metadata,
+    expected_kind: CreatedKind,
+) -> Result<CreatedPath, CopyError> {
+    let identity =
+        ObjectIdentity::from_metadata(metadata).filter(|identity| identity.kind == expected_kind);
+    identity
+        .map(|identity| CreatedPath {
+            path: path.to_path_buf(),
+            identity,
+        })
+        .ok_or_else(|| CopyError::Io {
+            action: "revalidate created destination",
+            path: path.to_path_buf(),
+            source: io::Error::other("created destination kind changed before ownership capture"),
+        })
 }
 
 fn apply_basic_metadata(
@@ -675,7 +817,7 @@ fn create_directory(path: &Path, state: &mut CopyState) -> Result<(), CopyError>
         .map_err(|source| destination_create_error("create destination directory", path, source))?;
     state
         .created_paths
-        .push((path.to_path_buf(), CreatedKind::Directory));
+        .push(capture_created_path(path, CreatedKind::Directory)?);
     Ok(())
 }
 
@@ -749,19 +891,98 @@ fn read_directory(path: &Path) -> Result<Vec<fs::DirEntry>, CopyError> {
         .collect()
 }
 
-fn cleanup_created(paths: &[(PathBuf, CreatedKind)]) -> Result<(), (PathBuf, io::Error)> {
-    for (path, kind) in paths.iter().rev() {
-        let result = match kind {
-            CreatedKind::FileLike => fs::remove_file(path),
-            CreatedKind::Directory => fs::remove_dir(path),
+fn cleanup_created(paths: &[CreatedPath]) -> Result<(), (PathBuf, io::Error)> {
+    cleanup_created_with(paths, |_| {})
+}
+
+fn cleanup_created_with<F>(
+    paths: &[CreatedPath],
+    mut before_quarantine: F,
+) -> Result<(), (PathBuf, io::Error)>
+where
+    F: FnMut(&CreatedPath),
+{
+    for created in paths.iter().rev() {
+        let current = match fs::symlink_metadata(&created.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err((created.path.clone(), error)),
+        };
+        if !created.identity.matches(&current) {
+            return Err((
+                created.path.clone(),
+                io::Error::other("cleanup refused because the destination object identity changed"),
+            ));
+        }
+        before_quarantine(created);
+        let Some(quarantine) = quarantine_created_path(created)? else {
+            continue;
+        };
+        let quarantined =
+            fs::symlink_metadata(&quarantine).map_err(|error| (created.path.clone(), error))?;
+        if !created.identity.matches(&quarantined) {
+            restore_quarantined_path(&quarantine, &created.path)
+                .map_err(|error| (created.path.clone(), error))?;
+            return Err((
+                created.path.clone(),
+                io::Error::other(
+                    "cleanup refused because the destination object identity changed during cleanup",
+                ),
+            ));
+        }
+        let result = match created.identity.kind {
+            CreatedKind::File | CreatedKind::Symlink => fs::remove_file(&quarantine),
+            CreatedKind::Directory => fs::remove_dir(&quarantine),
         };
         if let Err(error) = result
             && error.kind() != io::ErrorKind::NotFound
         {
-            return Err((path.clone(), error));
+            return Err((created.path.clone(), error));
         }
     }
     Ok(())
+}
+
+/// Linux has no pathname operation that unlinks only when a device/inode pair
+/// matches. Move the checked entry atomically to an internal no-overwrite
+/// sibling first, then revalidate the object that actually moved. A concurrent
+/// replacement at the public destination is restored and never passed to a
+/// removal operation. A malicious same-authority process that discovers and
+/// races the internal quarantine name remains outside what pathname APIs can
+/// exclude; ordinary concurrent destination replacement cannot reach that
+/// final removal name.
+fn quarantine_created_path(created: &CreatedPath) -> Result<Option<PathBuf>, (PathBuf, io::Error)> {
+    let parent = created.path.parent().unwrap_or_else(|| Path::new("."));
+    for _ in 0..MAX_CLEANUP_QUARANTINE_ATTEMPTS {
+        let sequence = CLEANUP_QUARANTINE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let quarantine = parent.join(format!(
+            ".floe-copy-cleanup-{}-{sequence:016x}",
+            std::process::id()
+        ));
+        match renameat_with(CWD, &created.path, CWD, &quarantine, RenameFlags::NOREPLACE) {
+            Ok(()) => return Ok(Some(quarantine)),
+            Err(rustix::io::Errno::EXIST) => continue,
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(error) => {
+                return Err((
+                    created.path.clone(),
+                    io::Error::from_raw_os_error(error.raw_os_error()),
+                ));
+            }
+        }
+    }
+    Err((
+        created.path.clone(),
+        io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "could not reserve an internal no-overwrite cleanup path",
+        ),
+    ))
+}
+
+fn restore_quarantined_path(quarantine: &Path, destination: &Path) -> io::Result<()> {
+    renameat_with(CWD, quarantine, CWD, destination, RenameFlags::NOREPLACE)
+        .map_err(|error| io::Error::from_raw_os_error(error.raw_os_error()))
 }
 
 #[cfg(test)]
@@ -960,6 +1181,214 @@ mod tests {
 
         assert!(matches!(error, CopyError::Cancelled));
         assert!(!destination.exists());
+    }
+
+    #[test]
+    fn adversarial_copy_source_identity_rejects_same_size_regular_file_substitution() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let retained_source = fixture.path().join("retained-source");
+        let destination = fixture.path().join("destination");
+        fs::write(&source, b"safe").expect("source fixture should be writable");
+        let cancellation = CopyCancellation::new();
+        let plan = build_plan(
+            &source,
+            &destination,
+            SymlinkPolicy::Preserve,
+            &cancellation,
+        )
+        .expect("source should be plannable");
+
+        fs::rename(&source, &retained_source).expect("planned source should remain retained");
+        fs::write(&source, b"evil").expect("same-size replacement should be writable");
+        let mut state = CopyState::default();
+        let error = execute_plan(
+            &plan,
+            &cancellation,
+            &mut state,
+            &mut |_| {},
+            plan.total_entries,
+            plan.total_bytes,
+        )
+        .expect_err("same-size replacement identity must be rejected");
+
+        assert!(matches!(error, CopyError::SourceChanged(path) if path == source));
+        assert!(!destination.exists());
+        assert_eq!(
+            fs::read(retained_source).expect("original source should remain readable"),
+            b"safe"
+        );
+    }
+
+    #[test]
+    fn adversarial_copy_source_identity_never_follows_substituted_symlink() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let retained_source = fixture.path().join("retained-source");
+        let link_target = fixture.path().join("link-target");
+        let destination = fixture.path().join("destination");
+        fs::write(&source, b"safe").expect("source fixture should be writable");
+        fs::write(&link_target, b"evil").expect("link target fixture should be writable");
+        let cancellation = CopyCancellation::new();
+        let plan = build_plan(
+            &source,
+            &destination,
+            SymlinkPolicy::Preserve,
+            &cancellation,
+        )
+        .expect("source should be plannable");
+
+        fs::rename(&source, &retained_source).expect("planned source should remain retained");
+        symlink(&link_target, &source).expect("source should be replaceable by a symlink");
+        let mut state = CopyState::default();
+        let error = execute_plan(
+            &plan,
+            &cancellation,
+            &mut state,
+            &mut |_| {},
+            plan.total_entries,
+            plan.total_bytes,
+        )
+        .expect_err("substituted symlink must not be followed");
+
+        assert!(matches!(error, CopyError::SourceChanged(path) if path == source));
+        assert!(!destination.exists());
+        assert_eq!(
+            fs::read(link_target).expect("link target should remain readable"),
+            b"evil"
+        );
+    }
+
+    #[test]
+    fn adversarial_copy_cleanup_identity_preserves_replacement_file() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let raw_destination = OsString::from_vec(b"destination-\xff".to_vec());
+        let destination = fixture.path().join(raw_destination);
+        fs::write(&source, vec![0x33; COPY_BUFFER_SIZE * 2])
+            .expect("source fixture should be writable");
+        let cancellation = CopyCancellation::new();
+        let progress_cancellation = cancellation.clone();
+        let replacement_path = destination.clone();
+        let mut replaced = false;
+
+        let error = execute_copy(&request(&source, &destination), &cancellation, |progress| {
+            if !replaced && progress.bytes_copied() > 0 {
+                fs::remove_file(&replacement_path)
+                    .expect("partial destination should be removable");
+                fs::write(&replacement_path, b"replacement")
+                    .expect("replacement destination should be writable");
+                replaced = true;
+                progress_cancellation.cancel();
+            }
+        })
+        .expect_err("ownership loss must make cancellation cleanup partial");
+
+        match error {
+            CopyError::CleanupFailed {
+                original,
+                path,
+                cleanup,
+            } => {
+                assert!(original.is_cancelled());
+                assert_eq!(path, destination);
+                assert!(cleanup.to_string().contains("object identity changed"));
+            }
+            other => panic!("expected explicit cleanup ownership failure, got {other:?}"),
+        }
+        assert_eq!(
+            fs::read(&destination).expect("replacement must remain at its exact path"),
+            b"replacement"
+        );
+    }
+
+    #[test]
+    fn adversarial_copy_cleanup_identity_closes_check_remove_swap_window() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let destination = fixture.path().join("destination");
+        let retained_owned_file = fixture.path().join("retained-owned-file");
+        fs::write(&destination, b"owned").expect("owned fixture should be writable");
+        let created = capture_created_path(&destination, CreatedKind::File)
+            .expect("owned fixture identity should be capturable");
+
+        let error = cleanup_created_with(&[created], |_| {
+            fs::rename(&destination, &retained_owned_file)
+                .expect("owned fixture should be replaceable after the first identity check");
+            fs::write(&destination, b"replacement")
+                .expect("concurrent replacement should be writable");
+        })
+        .expect_err("the quarantined replacement identity must be rejected");
+
+        assert_eq!(error.0, destination);
+        assert!(
+            error
+                .1
+                .to_string()
+                .contains("identity changed during cleanup")
+        );
+        assert_eq!(
+            fs::read(&destination).expect("replacement must be restored to its exact path"),
+            b"replacement"
+        );
+        assert_eq!(
+            fs::read(retained_owned_file).expect("owned file should remain where it was displaced"),
+            b"owned"
+        );
+        assert!(
+            fs::read_dir(fixture.path())
+                .expect("fixture should remain readable")
+                .all(|entry| !entry
+                    .expect("fixture entry should be readable")
+                    .file_name()
+                    .as_bytes()
+                    .starts_with(b".floe-copy-cleanup-"))
+        );
+    }
+
+    #[test]
+    fn adversarial_copy_cleanup_identity_preserves_replacement_directory() {
+        let fixture = tempdir().expect("temporary directory should be available");
+        let source = fixture.path().join("source");
+        let destination = fixture.path().join("destination");
+        let displaced = fixture.path().join("displaced-owned-copy");
+        fs::create_dir(&source).expect("source directory should be creatable");
+        fs::write(source.join("child"), vec![0x33; COPY_BUFFER_SIZE * 2])
+            .expect("source fixture should be writable");
+        let cancellation = CopyCancellation::new();
+        let progress_cancellation = cancellation.clone();
+        let replacement_path = destination.clone();
+        let displaced_path = displaced.clone();
+        let mut replaced = false;
+
+        let error = execute_copy(&request(&source, &destination), &cancellation, |progress| {
+            if !replaced && progress.bytes_copied() > 0 {
+                fs::rename(&replacement_path, &displaced_path)
+                    .expect("owned destination tree should be displaceable");
+                fs::create_dir(&replacement_path)
+                    .expect("replacement directory should be creatable");
+                fs::write(replacement_path.join("marker"), b"replacement")
+                    .expect("replacement marker should be writable");
+                replaced = true;
+                progress_cancellation.cancel();
+            }
+        })
+        .expect_err("directory ownership loss must make cleanup partial");
+
+        assert!(matches!(
+            error,
+            CopyError::CleanupFailed {
+                original,
+                path,
+                cleanup,
+            } if original.is_cancelled()
+                && path == destination
+                && cleanup.to_string().contains("object identity changed")
+        ));
+        assert_eq!(
+            fs::read(destination.join("marker")).expect("replacement directory must remain intact"),
+            b"replacement"
+        );
+        assert!(displaced.exists());
     }
 
     #[test]

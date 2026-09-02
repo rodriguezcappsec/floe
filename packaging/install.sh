@@ -8,8 +8,12 @@ destdir=${DESTDIR-}
 prefix=${PREFIX-/usr/local}
 
 case "$prefix" in
-  /*) ;;
-  *) echo "PREFIX must be an absolute path" >&2; exit 2 ;;
+    /*) ;;
+    *) echo "PREFIX must be an absolute path" >&2; exit 2 ;;
+esac
+case "$prefix" in
+    *'
+'*) echo "PREFIX must not contain a newline" >&2; exit 2 ;;
 esac
 case "$destdir" in
   ""|/*) ;;
@@ -23,5 +27,18 @@ while IFS='|' read -r source destination mode; do
   esac
   install -Dm"$mode" -- "$repo_root/$source" "$destdir$prefix/$destination"
 done < "$manifest"
+
+# D-Bus activates the installed binary directly, so a staged /usr/local
+# installation must not retain the source package's /usr release prefix.
+portal_service="$destdir$prefix/share/dbus-1/services/org.freedesktop.impl.portal.desktop.floe.service"
+portal_service_tmp=$(mktemp "${TMPDIR-/tmp}/floe-portal-service.XXXXXX")
+trap 'rm -f -- "$portal_service_tmp"' EXIT HUP INT TERM
+awk -v executable="$prefix/bin/floe --portal-filechooser-backend" '
+    /^Exec=/ { print "Exec=" executable; next }
+    { print }
+' "$portal_service" > "$portal_service_tmp"
+install -m0644 -- "$portal_service_tmp" "$portal_service"
+rm -f -- "$portal_service_tmp"
+trap - EXIT HUP INT TERM
 
 echo "Installed Floe below $destdir$prefix"

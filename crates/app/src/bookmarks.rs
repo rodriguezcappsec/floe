@@ -1,8 +1,10 @@
 use std::{
+    cell::RefCell,
     collections::HashSet,
     fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
+    rc::Rc,
     sync::{
         atomic::{AtomicU64, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError, TrySendError},
@@ -379,6 +381,178 @@ impl Drop for BookmarkWorker {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SharedBookmarkSnapshot {
+    pub records: Vec<BookmarkRecord>,
+    pub loaded: bool,
+    pub save_in_flight: bool,
+    pub available: bool,
+    pub version: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SharedBookmarkNotice {
+    Loaded,
+    Saved,
+    LoadFailed(String),
+    SaveFailed(String),
+    Disconnected,
+}
+
+#[derive(Debug, Error)]
+pub enum SharedBookmarkSubmitError {
+    #[error("bookmarks are still loading")]
+    Loading,
+    #[error("a bookmark update is already being saved")]
+    Busy,
+    #[error("bookmarks are unavailable for this session")]
+    Unavailable,
+    #[error(transparent)]
+    Validation(#[from] BookmarkValidationError),
+    #[error(transparent)]
+    Worker(#[from] BookmarkSubmitError),
+}
+
+/// Application-owned bookmark catalog and its sole persistence worker.
+///
+/// Every normal window holds a clone of this lightweight handle. Any window
+/// may poll worker outcomes, while all windows observe the same bounded state
+/// version. Selection Mode receives no handle and cannot load or persist the
+/// ordinary bookmark catalog.
+#[derive(Clone)]
+pub struct SharedBookmarks {
+    inner: Rc<RefCell<SharedBookmarkState>>,
+}
+
+struct SharedBookmarkState {
+    worker: Option<BookmarkWorker>,
+    records: Vec<BookmarkRecord>,
+    rollback_records: Option<Vec<BookmarkRecord>>,
+    loaded: bool,
+    save_in_flight: bool,
+    version: u64,
+    next_revision: u64,
+}
+
+impl SharedBookmarks {
+    pub fn spawn() -> io::Result<Self> {
+        Self::from_worker(BookmarkWorker::spawn())
+    }
+
+    fn from_worker(worker: io::Result<BookmarkWorker>) -> io::Result<Self> {
+        Ok(Self {
+            inner: Rc::new(RefCell::new(SharedBookmarkState {
+                worker: Some(worker?),
+                records: Vec::new(),
+                rollback_records: None,
+                loaded: false,
+                save_in_flight: false,
+                version: 0,
+                next_revision: 0,
+            })),
+        })
+    }
+
+    pub fn snapshot(&self) -> SharedBookmarkSnapshot {
+        let state = self.inner.borrow();
+        SharedBookmarkSnapshot {
+            records: state.records.clone(),
+            loaded: state.loaded,
+            save_in_flight: state.save_in_flight,
+            available: state.worker.is_some(),
+            version: state.version,
+        }
+    }
+
+    pub fn try_save(&self, records: Vec<BookmarkRecord>) -> Result<(), SharedBookmarkSubmitError> {
+        let validated = Bookmarks::validate_records(records)?;
+        let mut state = self.inner.borrow_mut();
+        if state.worker.is_none() {
+            return Err(SharedBookmarkSubmitError::Unavailable);
+        }
+        if !state.loaded {
+            return Err(SharedBookmarkSubmitError::Loading);
+        }
+        if state.save_in_flight {
+            return Err(SharedBookmarkSubmitError::Busy);
+        }
+        let revision = state.next_revision.saturating_add(1);
+        let revised = validated.records().to_vec();
+        let Some(worker) = state.worker.as_ref() else {
+            return Err(SharedBookmarkSubmitError::Unavailable);
+        };
+        worker.try_save(revision, revised.clone())?;
+        state.next_revision = revision;
+        state.rollback_records = Some(std::mem::replace(&mut state.records, revised));
+        state.save_in_flight = true;
+        state.version = state.version.saturating_add(1);
+        Ok(())
+    }
+
+    pub fn poll(&self) -> Vec<SharedBookmarkNotice> {
+        let mut notices = Vec::new();
+        loop {
+            let event = {
+                let state = self.inner.borrow();
+                state.worker.as_ref().map(BookmarkWorker::try_event)
+            };
+            let Some(event) = event else {
+                break;
+            };
+            match event {
+                Ok(BookmarkWorkerEvent::Loaded(Ok(bookmarks))) => {
+                    let mut state = self.inner.borrow_mut();
+                    state.records = bookmarks.records().to_vec();
+                    state.loaded = true;
+                    state.version = state.version.saturating_add(1);
+                    notices.push(SharedBookmarkNotice::Loaded);
+                }
+                Ok(BookmarkWorkerEvent::Loaded(Err(error))) => {
+                    let mut state = self.inner.borrow_mut();
+                    state.loaded = false;
+                    state.version = state.version.saturating_add(1);
+                    notices.push(SharedBookmarkNotice::LoadFailed(error.to_string()));
+                }
+                Ok(BookmarkWorkerEvent::Saved { revision, result }) => {
+                    let mut state = self.inner.borrow_mut();
+                    if revision != state.next_revision {
+                        continue;
+                    }
+                    state.save_in_flight = false;
+                    match result {
+                        Ok(bookmarks) => {
+                            state.records = bookmarks.records().to_vec();
+                            state.rollback_records = None;
+                            notices.push(SharedBookmarkNotice::Saved);
+                        }
+                        Err(error) => {
+                            if let Some(previous) = state.rollback_records.take() {
+                                state.records = previous;
+                            }
+                            notices.push(SharedBookmarkNotice::SaveFailed(error.to_string()));
+                        }
+                    }
+                    state.version = state.version.saturating_add(1);
+                }
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    let mut state = self.inner.borrow_mut();
+                    state.worker.take();
+                    state.loaded = false;
+                    state.save_in_flight = false;
+                    if let Some(previous) = state.rollback_records.take() {
+                        state.records = previous;
+                    }
+                    state.version = state.version.saturating_add(1);
+                    notices.push(SharedBookmarkNotice::Disconnected);
+                    break;
+                }
+            }
+        }
+        notices
+    }
+}
+
 fn load_bookmarks(path: &Path) -> Result<Bookmarks, BookmarkPersistenceError> {
     let mut file = match File::open(path) {
         Ok(file) => file,
@@ -701,6 +875,47 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    #[test]
+    fn adversarial_shared_bookmarks_share_catalog_and_one_persistence_owner() {
+        let directory = tempdir().expect("temporary bookmark directory");
+        let path = directory.path().join("private").join(BOOKMARK_FILE_NAME);
+        let worker = BookmarkWorker::spawn_internal(path.clone(), 1, None)
+            .expect("bookmark worker should start");
+        let first = SharedBookmarks::from_worker(Ok(worker)).expect("shared bookmark model");
+        let second = first.clone();
+        assert!(Rc::ptr_eq(&first.inner, &second.inner));
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !first.snapshot().loaded && Instant::now() < deadline {
+            first.poll();
+            std::thread::yield_now();
+        }
+        assert!(first.snapshot().loaded);
+
+        let bookmarked = directory.path().join("shared-folder");
+        first
+            .try_save(vec![BookmarkRecord::from(bookmarked.clone())])
+            .expect("first window submits shared update");
+        assert_eq!(second.snapshot().records[0].path, bookmarked);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while second.snapshot().save_in_flight && Instant::now() < deadline {
+            second.poll();
+            std::thread::yield_now();
+        }
+        let first_snapshot = first.snapshot();
+        let second_snapshot = second.snapshot();
+        assert_eq!(first_snapshot, second_snapshot);
+        assert!(!second_snapshot.save_in_flight);
+        assert_eq!(
+            load_bookmarks(&path)
+                .expect("single worker persisted shared catalog")
+                .records()[0]
+                .path,
+            bookmarked
+        );
+    }
 
     #[test]
     fn phase_6k_bookmark_validation_deduplicates_exact_existing_directories() {

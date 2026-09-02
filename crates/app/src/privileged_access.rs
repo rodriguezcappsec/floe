@@ -9,7 +9,7 @@ use std::{
     ffi::{OsStr, OsString},
     os::unix::ffi::OsStrExt,
     path::{Component, Path, PathBuf},
-    rc::Rc,
+    rc::{Rc, Weak},
     time::Duration,
 };
 
@@ -30,6 +30,90 @@ const ENUMERATION_PAGE_SIZE: i32 = 128;
 const ENUMERATION_ENTRY_CAPACITY: usize = 4_096;
 const AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(120);
 const PAGE_TIMEOUT: Duration = Duration::from_secs(30);
+const OPERATION_NO_PROGRESS_TIMEOUT: Duration = Duration::from_secs(30);
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum PrivilegedWatchdogPhase {
+    #[default]
+    Idle,
+    Waiting,
+    NoProgress,
+    CancellationRequested {
+        escape_allowed: bool,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct PrivilegedOperationWatchdog {
+    operation_id: Option<u64>,
+    generation: u64,
+    phase: PrivilegedWatchdogPhase,
+}
+
+impl PrivilegedOperationWatchdog {
+    fn arm(&mut self, operation_id: u64) -> u64 {
+        self.operation_id = Some(operation_id);
+        self.generation = self.generation.wrapping_add(1).max(1);
+        self.phase = PrivilegedWatchdogPhase::Waiting;
+        self.generation
+    }
+
+    fn expire(&mut self, operation_id: u64, generation: u64) -> bool {
+        if self.operation_id == Some(operation_id)
+            && self.generation == generation
+            && self.phase == PrivilegedWatchdogPhase::Waiting
+        {
+            self.phase = PrivilegedWatchdogPhase::NoProgress;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn progress(&mut self, operation_id: u64) -> Option<u64> {
+        if self.operation_id != Some(operation_id)
+            || matches!(
+                self.phase,
+                PrivilegedWatchdogPhase::CancellationRequested { .. }
+            )
+        {
+            return None;
+        }
+        Some(self.arm(operation_id))
+    }
+
+    fn continue_waiting(&mut self) -> Option<(u64, u64)> {
+        let operation_id = self.operation_id?;
+        (self.phase == PrivilegedWatchdogPhase::NoProgress)
+            .then(|| (operation_id, self.arm(operation_id)))
+    }
+
+    fn cancellation_requested(&mut self, operation_id: u64) -> bool {
+        if self.operation_id != Some(operation_id) {
+            return false;
+        }
+        let escape_allowed = self.phase == PrivilegedWatchdogPhase::NoProgress;
+        self.phase = PrivilegedWatchdogPhase::CancellationRequested { escape_allowed };
+        escape_allowed
+    }
+
+    fn escape_allowed(self) -> bool {
+        matches!(
+            self.phase,
+            PrivilegedWatchdogPhase::CancellationRequested {
+                escape_allowed: true
+            }
+        )
+    }
+
+    fn finish(&mut self, operation_id: u64) {
+        if self.operation_id == Some(operation_id) {
+            self.operation_id = None;
+            self.phase = PrivilegedWatchdogPhase::Idle;
+            self.generation = self.generation.wrapping_add(1).max(1);
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AccessLevel {
@@ -988,6 +1072,7 @@ pub struct PrivilegedViewWidgets {
     pub forward: gtk::Button,
     pub parent: gtk::Button,
     pub cancel: gtk::Button,
+    pub continue_waiting: gtk::Button,
     pub retry: gtk::Button,
     pub return_standard: gtk::Button,
     pub new_folder: gtk::Button,
@@ -1196,10 +1281,16 @@ pub fn build_view() -> PrivilegedViewWidgets {
     status.set_accessible_role(gtk::AccessibleRole::Status);
     let retry = gtk::Button::with_label("Retry");
     retry.set_visible(false);
+    let continue_waiting = gtk::Button::with_label("Continue Waiting");
+    continue_waiting.set_visible(false);
+    continue_waiting.update_property(&[gtk::accessible::Property::Description(
+        "Wait another 30 seconds for progress from the administrator backend",
+    )]);
     let cancel = gtk::Button::with_label("Cancel");
     cancel.set_visible(false);
     footer.append(&status);
     footer.append(&retry);
+    footer.append(&continue_waiting);
     footer.append(&cancel);
     content.append(&footer);
     toolbar.set_content(Some(&content));
@@ -1215,6 +1306,7 @@ pub fn build_view() -> PrivilegedViewWidgets {
         forward,
         parent,
         cancel,
+        continue_waiting,
         retry,
         return_standard,
         new_folder,
@@ -1257,6 +1349,9 @@ pub struct PrivilegedAccessController {
     accepted_entries: RefCell<Vec<PrivilegedEntry>>,
     rollback_entries: RefCell<Option<Vec<PrivilegedEntry>>>,
     next_operation_id: Cell<u64>,
+    self_weak: Weak<PrivilegedAccessController>,
+    operation_watchdog: RefCell<PrivilegedOperationWatchdog>,
+    operation_watchdog_source: RefCell<Option<glib::SourceId>>,
 }
 
 impl PrivilegedAccessController {
@@ -1283,6 +1378,9 @@ impl PrivilegedAccessController {
                 accepted_entries: RefCell::new(Vec::new()),
                 rollback_entries: RefCell::new(None),
                 next_operation_id: Cell::new(1),
+                self_weak: weak.clone(),
+                operation_watchdog: RefCell::new(PrivilegedOperationWatchdog::default()),
+                operation_watchdog_source: RefCell::new(None),
             }
         });
         controller.install_callbacks();
@@ -1323,10 +1421,12 @@ impl PrivilegedAccessController {
     pub fn cancel_and_close(&self) {
         if self.operations.is_active() {
             self.operations.cancel();
-            self.widgets.status.set_label(
-                "Cancellation requested; keep this Administrator view open until the backend confirms a terminal result.",
-            );
-            return;
+            if !self.operation_watchdog.borrow().escape_allowed() {
+                self.widgets.status.set_label(
+                    "Cancellation requested; keep this Administrator view open until the backend confirms a terminal result.",
+                );
+                return;
+            }
         }
         self.provider.cancel();
         self.session.borrow_mut().leave();
@@ -1358,6 +1458,11 @@ impl PrivilegedAccessController {
             if let Some(controller) = controller.upgrade() {
                 if controller.operations.is_active() {
                     controller.operations.cancel();
+                    controller.widgets.continue_waiting.set_visible(false);
+                    if controller.operation_watchdog.borrow().escape_allowed() {
+                        controller.cancel_and_close();
+                        return;
+                    }
                     controller
                         .widgets
                         .status
@@ -1370,6 +1475,12 @@ impl PrivilegedAccessController {
                         .set_label("Cancellation requested…");
                 }
                 controller.widgets.cancel.set_sensitive(false);
+            }
+        });
+        let controller = Rc::downgrade(self);
+        self.widgets.continue_waiting.connect_clicked(move |_| {
+            if let Some(controller) = controller.upgrade() {
+                controller.continue_waiting_for_operation();
             }
         });
         let controller = Rc::downgrade(self);
@@ -1691,6 +1802,65 @@ impl PrivilegedAccessController {
         }
     }
 
+    fn cancel_operation_watchdog_source(&self) {
+        if let Some(source) = self.operation_watchdog_source.borrow_mut().take() {
+            source.remove();
+        }
+    }
+
+    fn schedule_operation_watchdog(&self, operation_id: u64, generation: u64) {
+        self.cancel_operation_watchdog_source();
+        let controller = self.self_weak.clone();
+        let source = glib::timeout_add_local_once(OPERATION_NO_PROGRESS_TIMEOUT, move || {
+            let Some(controller) = controller.upgrade() else {
+                return;
+            };
+            controller.operation_watchdog_source.borrow_mut().take();
+            if !controller
+                .operation_watchdog
+                .borrow_mut()
+                .expire(operation_id, generation)
+            {
+                return;
+            }
+            controller.widgets.status.set_label(
+                "Still waiting… No administrator progress for 30 seconds. Continue Waiting or Cancel.",
+            );
+            controller.widgets.continue_waiting.set_visible(true);
+            controller.widgets.cancel.set_visible(true);
+            controller.widgets.cancel.set_sensitive(true);
+        });
+        self.operation_watchdog_source.replace(Some(source));
+    }
+
+    fn arm_operation_watchdog(&self, operation_id: u64) {
+        let generation = self.operation_watchdog.borrow_mut().arm(operation_id);
+        self.schedule_operation_watchdog(operation_id, generation);
+    }
+
+    fn record_operation_progress(&self, operation_id: u64) -> bool {
+        let Some(generation) = self.operation_watchdog.borrow_mut().progress(operation_id) else {
+            return false;
+        };
+        self.schedule_operation_watchdog(operation_id, generation);
+        self.widgets.continue_waiting.set_visible(false);
+        true
+    }
+
+    fn continue_waiting_for_operation(&self) {
+        let Some((operation_id, generation)) =
+            self.operation_watchdog.borrow_mut().continue_waiting()
+        else {
+            return;
+        };
+        self.widgets.continue_waiting.set_visible(false);
+        self.widgets.cancel.set_sensitive(true);
+        self.widgets.status.set_label(&format!(
+            "Still waiting for administrator operation {operation_id}…"
+        ));
+        self.schedule_operation_watchdog(operation_id, generation);
+    }
+
     fn submit_operation(&self, request: PrivilegedOperationRequest) {
         let parent = self.parent_window.upgrade();
         let mount_operation = gtk::MountOperation::new(parent.as_ref());
@@ -1711,12 +1881,16 @@ impl PrivilegedAccessController {
     fn handle_operation_event(&self, event: PrivilegedOperationEvent) {
         match event {
             PrivilegedOperationEvent::Started { id, kind } => {
+                self.arm_operation_watchdog(id);
                 self.widgets.status.set_label(&format!(
                     "{} as Administrator… Operation {id}",
                     kind.label()
                 ));
             }
             PrivilegedOperationEvent::Progress { id, current, total } => {
+                if !self.record_operation_progress(id) {
+                    return;
+                }
                 self.widgets.status.set_label(&match total {
                     Some(total) => {
                         format!("Administrator operation {id}: {current} of {total} bytes")
@@ -1725,6 +1899,16 @@ impl PrivilegedAccessController {
                 });
             }
             PrivilegedOperationEvent::CancellationRequested { id } => {
+                self.cancel_operation_watchdog_source();
+                let escape_allowed = self
+                    .operation_watchdog
+                    .borrow_mut()
+                    .cancellation_requested(id);
+                self.widgets.continue_waiting.set_visible(false);
+                if escape_allowed {
+                    self.widgets.dialog.set_can_close(true);
+                    self.widgets.return_standard.set_sensitive(true);
+                }
                 self.widgets.status.set_label(
                     &format!("Cancellation requested for operation {id}; it is not cancelled until the backend confirms it."),
                 );
@@ -1734,6 +1918,8 @@ impl PrivilegedAccessController {
                 kind,
                 affected_parent,
             } => {
+                self.cancel_operation_watchdog_source();
+                self.operation_watchdog.borrow_mut().finish(id);
                 self.finish_operation_surface();
                 let refreshes_current = self.session.borrow().current() == Some(&affected_parent);
                 self.widgets.status.set_label(&format!(
@@ -1753,6 +1939,8 @@ impl PrivilegedAccessController {
                 failure,
                 destination_may_exist,
             } => {
+                self.cancel_operation_watchdog_source();
+                self.operation_watchdog.borrow_mut().finish(id);
                 self.finish_operation_surface();
                 let suffix = if destination_may_exist {
                     " A partial destination may remain; Floe did not remove it automatically."
@@ -1774,6 +1962,7 @@ impl PrivilegedAccessController {
         self.widgets.return_standard.set_sensitive(true);
         self.widgets.cancel.set_visible(false);
         self.widgets.cancel.set_sensitive(true);
+        self.widgets.continue_waiting.set_visible(false);
     }
 
     fn update_operation_controls(&self) {
@@ -2355,6 +2544,47 @@ mod tests {
     }
 
     #[test]
+    fn adversarial_privileged_watchdog() {
+        assert_eq!(OPERATION_NO_PROGRESS_TIMEOUT, Duration::from_secs(30));
+        let mut watchdog = PrivilegedOperationWatchdog::default();
+
+        let started = watchdog.arm(41);
+        let progress = watchdog.arm(41);
+        assert!(
+            !watchdog.expire(41, started),
+            "stale timers must be ignored"
+        );
+        assert!(watchdog.expire(41, progress));
+        assert_eq!(watchdog.phase, PrivilegedWatchdogPhase::NoProgress);
+
+        let (operation_id, continued) = watchdog
+            .continue_waiting()
+            .expect("Continue Waiting must re-arm the bounded watchdog");
+        assert_eq!(operation_id, 41);
+        assert!(watchdog.expire(operation_id, continued));
+        assert!(
+            watchdog.cancellation_requested(operation_id),
+            "Cancel from no-progress state must release the modal close guard"
+        );
+        assert_eq!(
+            watchdog.phase,
+            PrivilegedWatchdogPhase::CancellationRequested {
+                escape_allowed: true
+            }
+        );
+        assert!(watchdog.escape_allowed());
+        assert_eq!(
+            watchdog.progress(operation_id),
+            None,
+            "late progress must not re-lock a cancellation escape"
+        );
+
+        watchdog.finish(operation_id);
+        assert_eq!(watchdog.phase, PrivilegedWatchdogPhase::Idle);
+        assert_eq!(watchdog.operation_id, None);
+    }
+
+    #[test]
     #[ignore = "requires graphical GTK session; run documented GTK component gate"]
     fn phase_testing_gtk_phase_14c_ui_accessibility() {
         gtk::init().expect("GTK component gate requires a display");
@@ -2380,6 +2610,12 @@ mod tests {
                 .cancel
                 .label()
                 .is_some_and(|label| label == "Cancel")
+        );
+        assert!(
+            widgets
+                .continue_waiting
+                .label()
+                .is_some_and(|label| label == "Continue Waiting")
         );
         for (button, expected) in [
             (&widgets.new_folder, "New Folder"),
