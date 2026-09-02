@@ -76,6 +76,13 @@ printing possible secrets or making unsupported legal claims.
   `refs/original/*`, reflogs, and unreachable originals were removed and pruned.
   The GitHub remote was not changed and still requires a separately authorized,
   coordinated replacement followed by a fresh-clone audit.
+- 2026-09-02: Remote migration replaced GitHub `main` through an exact
+  force-with-lease, published the release branch, and passed a fresh-clone
+  history/source audit. PR #2's first real Rust 1.85 CI run exposed `time` 0.3.55
+  in the lockfile requiring Rust 1.88. The reviewed transitive dependency chain
+  is `sevenz-rust` to `nt-time` to `time`; pin the application lockfile to
+  Rust-1.85-compatible `time` 0.3.44, rerun local gates and GitHub CI, then merge
+  only after the required check passes.
 
 ---
 

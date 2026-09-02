@@ -12,6 +12,12 @@ An X11 fallback is not a project target and is not currently tested.
 ## Toolchain and system libraries
 
 The workspace uses Rust edition 2024 and declares Rust 1.85 as its minimum.
+Because `sevenz-rust` currently reaches `time` through `nt-time` with a broad
+compatible-version range, the application lockfile intentionally selects
+`time` 0.3.44, whose published minimum Rust version is 1.81. Lockfile updates
+must retain the workspace's Rust 1.85 compatibility and pass the pinned-toolchain
+GitHub CI job; selecting a newer semver-compatible transitive release may raise
+its compiler requirement independently of Floe.
 The current verified development host uses Rust/Cargo 1.98.0.
 
 Cargo enables GTK 4.14 and libadwaita 1.5 API features. The verified host has:

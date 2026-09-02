@@ -133,6 +133,28 @@ behavior.
   The checklist leaves GitHub remote replacement and fresh-clone verification
   manual; no force-push or remote mutation occurred.
 
+- [ ] R13: The first real GitHub Rust 1.85 CI failure is reproduced and corrected
+  without raising Floe's declared MSRV: the application lockfile selects the
+  newest reviewed compatible `time` line required through
+  `sevenz-rust -> nt-time`, and PR #2's required check passes on Rust 1.85.
+  CHECK: `cargo tree -i time@0.3.44 && gh pr checks 2 --repo rodriguezcappsec/floe`
+  EXPECT: `/Rust quality gates.*pass/`
+  EVIDENCE: pending
+
+- [x] R14: The dependency correction passes formatting, workspace check, strict
+  all-target/all-feature Clippy, full workspace tests, strict docs, deterministic
+  source/release-candidate contracts, public-release/history checks, and diff
+  hygiene; documentation and Arch checksum match the corrected lockfile.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && python3 scripts/check-docs.py --strict && sh packaging/tests/test-release-source.sh && sh packaging/tests/test-release-candidate.sh && python3 scripts/check-public-release.py all && git diff --check`
+  EXPECT: `/public-release-contracts-ok/`
+  EVIDENCE: PASS 2026-09-02. The complete local command chain exits zero.
+  `time` 0.3.44, `time-core` 0.1.6, and `time-macros` 0.2.24 compile and pass
+  every Rust test on the current toolchain; strict docs/rendering, deterministic
+  source, release candidate, public/history, nine E2E harness contracts, and
+  diff hygiene pass. Native graphical layers were not rerun because runtime code
+  did not change. Arch source checksum is
+  `c5c01e2299e05510c959a59adc9049a0a1b8e1f1283105cb41622606264cf7df`.
+
 ---
 
 # Archived active gates: Phase 20C contextual help and terminology clarity

@@ -1315,9 +1315,8 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-09-02`
 
-Current phase: **First public repository readiness and local history privacy
-rewrite implemented and verified; remote migration requires maintainer action;
-Phase 19A remains next**
+Current phase: **First public repository readiness, local/remote history privacy
+migration, and Rust 1.85 CI correction in review; Phase 19A remains next**
 
 Completed this session:
 
@@ -1334,6 +1333,13 @@ Completed this session:
 - Added a repeatable reachable-history identity/path gate and updated the release
   checklist to distinguish the completed local rewrite from the still-pending
   GitHub remote migration and fresh-clone audit.
+- Deleted 75 obsolete GitHub branches, published the rewritten release branch,
+  replaced remote `main` through an exact force-with-lease, and verified both
+  expected commit tips plus all 135 commits from a clean clone. PR #2 is the
+  release-readiness review path; repository visibility remains unchanged.
+- The first real GitHub Rust 1.85 job exposed transitive `time` 0.3.55 requiring
+  Rust 1.88 through `sevenz-rust -> nt-time`. The application lockfile now selects
+  `time` 0.3.44 (published MSRV 1.81) without raising Floe's Rust 1.85 minimum.
 
 Verified:
 
@@ -1345,14 +1351,17 @@ Verified:
   and diff hygiene pass after pruning. The earlier full Rust, packaging, E2E
   preflight, and native Wayland evidence remains applicable because runtime code
   did not change.
+- The compatible lockfile passes formatting, workspace check, strict
+  all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
+  package/source/release-candidate checks, E2E preflight, history/public-release
+  contracts, and diff hygiene locally. PR #2's Rust 1.85 rerun remains the final
+  merge gate.
 
 Known issues:
 
-- GitHub still contains the pre-rewrite remote history because no force-push or
-  remote branch deletion was authorized. Before public visibility, coordinate a
-  force-with-lease migration of retained branches or delete obsolete branches,
-  then re-clone and repeat the complete metadata/blob audit. A normal push must
-  not combine old and rewritten histories.
+- PR #2 must not merge until its required Rust 1.85 quality gate passes with the
+  corrected lockfile. The initial run failed before compilation solely because
+  the prior transitive `time` release required Rust 1.88.
 - The access-restricted `/tmp` recovery bundle intentionally contains the private
   pre-rewrite history. Keep it offline only until remote migration and fresh-clone
   verification succeed, then deliberately destroy it if no longer needed;
@@ -1363,13 +1372,13 @@ Known issues:
 Deferred:
 
 - GitHub Private Vulnerability Reporting, branch rules, required CI, optional
-  Discussions, remote history replacement, visibility, tagging, and publishing
+  Discussions, visibility, tagging, and publishing
   `v0.1.0-alpha.1` remain explicit maintainer actions. None was performed.
 
 Recommended next task:
 
-- After remote migration, fresh-clone audit, and manual repository settings are
-  resolved, create `phase-19a-git-awareness` and implement only the roadmap's
+- After PR #2 is green and merged and manual repository settings are resolved,
+  create `phase-19a-git-awareness` and implement only the roadmap's
   opt-in Git awareness phase. Do not begin it as part of publication work.
 
 ## Prior public-readiness status (before local history rewrite)
