@@ -50,5 +50,8 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Reclaim check artifacts before tests
+        run: cargo clean
+
       - name: Run tests
         run: cargo test --workspace

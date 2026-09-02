@@ -309,10 +309,12 @@ symlink/path traversal, secret-free logs, and source preservation as applicable.
 Ordinary GitHub CI runs formatting, workspace check, strict Clippy, and the full
 deterministic Rust workspace tests on the documented Rust 1.85 minimum. Its dev
 and test profiles omit debug symbols to keep GTK/Rust artifacts within the
-hosted runner's disk budget; this changes artifact diagnostics, not test scope
-or optimization behavior. GTK component, native E2E, Niri, and Plasma jobs stay
-opt-in/separate with explicit graphical environments. Never add Playwright,
-Selenium, Tauri/browser DOM testing, or label `proptest` as E2E.
+hosted runner's disk budget. CI also reclaims check/Clippy artifacts before the
+final clean test build. These controls change artifact diagnostics and rebuild
+cost, not test scope or optimization behavior. GTK component, native E2E, Niri,
+and Plasma jobs stay opt-in/separate with explicit graphical environments.
+Never add Playwright, Selenium, Tauri/browser DOM testing, or label `proptest`
+as E2E.
 
 Use `cargo fmt --all` to apply formatting. Core tests use temporary directories
 and must never target real user data. Phase 6A presentation tests are

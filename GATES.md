@@ -145,8 +145,11 @@ behavior.
   dependencies on Rust 1.85 and then exposed post-1.85 let-chain syntax in Floe.
   Run `33693526585` then passed formatting and workspace compilation on Rust
   1.85 before its older Clippy identified one test-only `format_collect` pattern.
-  The direct-String-write correction is locally verified and awaits the next CI
-  run before this gate can be checked.
+  Runs `33693923271` and `33694688815` passed formatting, workspace check, and
+  strict Clippy before the hosted runner returned Linux error 28 (`StorageFull`)
+  while setting a tiny test xattr. CI now omits debug symbols and reclaims
+  check/Clippy artifacts before a fresh full test build; the next run remains the
+  required evidence before this gate can be checked.
 
 - [x] R14: The Rust 1.85 compatibility correction passes formatting, workspace check, strict
   all-target/all-feature Clippy, full workspace tests, strict docs, deterministic
@@ -163,9 +166,10 @@ behavior.
   launch, D-Bus action listing/Ping, and clean Quit pass without GTK,
   libadwaita, or panic-critical log output. Dogtail/pyatspi and the staged
   installed-artifact walkthrough remain truthfully skipped. CI retains all four
-  quality commands while omitting only dev/test debug symbols to bound hosted
-  runner disk use. Arch source checksum is
-  `275fa3bfccef0573eeef2243f199e540cb3c8ecc9a8535de22d1fe4d533aec9a`.
+  quality commands while omitting dev/test debug symbols and reclaiming only
+  compiler artifacts before the fresh full test build to bound hosted-runner
+  disk use. Arch source checksum is
+  `a3de57b2de0d860169c0d667dd809708f2141c23e5ec4137a468540d9b985b17`.
 
 ---
 

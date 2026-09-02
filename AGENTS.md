@@ -1350,9 +1350,10 @@ Completed this session:
   then its older Clippy rejected one test-only `format_collect` pattern. The
   oversized clipboard fixture now writes directly into one bounded `String`.
 - The fifth job passed formatting, workspace check, and strict Clippy, then the
-  runner exhausted storage while setting a tiny test xattr. CI keeps all four
-  quality commands and all tests, but omits dev/test debug symbols to keep the
-  9.4-GiB local-equivalent artifact set within hosted-runner disk capacity.
+  runner exhausted storage while setting a tiny test xattr. A no-debug rerun
+  reached the same boundary, so CI keeps all four quality commands and all tests,
+  omits dev/test debug symbols, and reclaims check/Clippy compiler artifacts
+  before a fresh full test build. The xattr test itself remains strict.
 
 Verified:
 
@@ -1366,7 +1367,7 @@ Verified:
   all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
   package/source/release-candidate checks, E2E preflight, history/public-release
   contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
-  is `275fa3bfccef0573eeef2243f199e540cb3c8ecc9a8535de22d1fe4d533aec9a`.
+  is `a3de57b2de0d860169c0d667dd809708f2141c23e5ec4137a468540d9b985b17`.
   An isolated native Wayland launch answers D-Bus Ping, lists application actions,
   and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
   next Rust 1.85 run remains the final merge gate.

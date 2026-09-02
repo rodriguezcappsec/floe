@@ -103,6 +103,11 @@ printing possible secrets or making unsupported legal claims.
   (`StorageFull`) while setting a tiny user xattr. Local build artifacts occupy
   9.4 GiB. Keep every test and gate intact while disabling debug symbols only
   for CI dev/test profiles to reduce runner disk pressure, then rerun the gate.
+- 2026-09-02: Run `33694688815` confirms no-debug profiles alone are
+  insufficient and reaches the same error-28 xattr boundary after check/Clippy
+  artifacts accumulate. Preserve the strict xattr test, reclaim those compiler
+  artifacts with `cargo clean`, then perform the final test build on the same
+  Rust 1.85 runner.
 
 ---
 
