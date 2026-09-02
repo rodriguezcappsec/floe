@@ -15,9 +15,11 @@ The workspace uses Rust edition 2024 and declares Rust 1.85 as its minimum.
 Because `sevenz-rust` currently reaches `time` through `nt-time` with a broad
 compatible-version range, the application lockfile intentionally selects
 `time` 0.3.44, whose published minimum Rust version is 1.81. Lockfile updates
+also select `ogg_pager` 0.7.1, whose published minimum is Rust 1.85, because
+`lofty` permits the newer 0.7.2 release that requires Rust 1.89. Lockfile updates
 must retain the workspace's Rust 1.85 compatibility and pass the pinned-toolchain
-GitHub CI job; selecting a newer semver-compatible transitive release may raise
-its compiler requirement independently of Floe.
+GitHub CI job; newer semver-compatible transitive releases may raise their
+compiler requirements independently of Floe.
 The current verified development host uses Rust/Cargo 1.98.0.
 
 Cargo enables GTK 4.14 and libadwaita 1.5 API features. The verified host has:

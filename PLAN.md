@@ -81,8 +81,10 @@ printing possible secrets or making unsupported legal claims.
   history/source audit. PR #2's first real Rust 1.85 CI run exposed `time` 0.3.55
   in the lockfile requiring Rust 1.88. The reviewed transitive dependency chain
   is `sevenz-rust` to `nt-time` to `time`; pin the application lockfile to
-  Rust-1.85-compatible `time` 0.3.44, rerun local gates and GitHub CI, then merge
-  only after the required check passes.
+  Rust-1.85-compatible `time` 0.3.44. The second CI run then identified
+  `lofty -> ogg_pager` selecting 0.7.2 with Rust 1.89; select `ogg_pager` 0.7.1,
+  whose published MSRV is exactly Rust 1.85. Rerun local gates and GitHub CI,
+  then merge only after the required check passes.
 
 ---
 

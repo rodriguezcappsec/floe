@@ -1337,9 +1337,11 @@ Completed this session:
   replaced remote `main` through an exact force-with-lease, and verified both
   expected commit tips plus all 135 commits from a clean clone. PR #2 is the
   release-readiness review path; repository visibility remains unchanged.
-- The first real GitHub Rust 1.85 job exposed transitive `time` 0.3.55 requiring
-  Rust 1.88 through `sevenz-rust -> nt-time`. The application lockfile now selects
-  `time` 0.3.44 (published MSRV 1.81) without raising Floe's Rust 1.85 minimum.
+- The first real GitHub Rust 1.85 jobs exposed transitive `time` 0.3.55 requiring
+  Rust 1.88 through `sevenz-rust -> nt-time` and `ogg_pager` 0.7.2 requiring
+  Rust 1.89 through `lofty`. The application lockfile now selects `time` 0.3.44
+  (published MSRV 1.81) and `ogg_pager` 0.7.1 (published MSRV 1.85) without
+  raising Floe's Rust 1.85 minimum.
 
 Verified:
 
@@ -1360,8 +1362,8 @@ Verified:
 Known issues:
 
 - PR #2 must not merge until its required Rust 1.85 quality gate passes with the
-  corrected lockfile. The initial run failed before compilation solely because
-  the prior transitive `time` release required Rust 1.88.
+  corrected lockfile. The first two runs failed before compilation solely because
+  semver-compatible transitive releases had raised their compiler requirements.
 - The access-restricted `/tmp` recovery bundle intentionally contains the private
   pre-rewrite history. Keep it offline only until remote migration and fresh-clone
   verification succeed, then deliberately destroy it if no longer needed;

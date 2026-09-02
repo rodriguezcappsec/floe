@@ -133,11 +133,11 @@ behavior.
   The checklist leaves GitHub remote replacement and fresh-clone verification
   manual; no force-push or remote mutation occurred.
 
-- [ ] R13: The first real GitHub Rust 1.85 CI failure is reproduced and corrected
-  without raising Floe's declared MSRV: the application lockfile selects the
-  newest reviewed compatible `time` line required through
-  `sevenz-rust -> nt-time`, and PR #2's required check passes on Rust 1.85.
-  CHECK: `cargo tree -i time@0.3.44 && gh pr checks 2 --repo rodriguezcappsec/floe`
+- [ ] R13: The real GitHub Rust 1.85 CI failures are reproduced and corrected
+  without raising Floe's declared MSRV: the application lockfile selects
+  reviewed compatible `time` through `sevenz-rust -> nt-time` and `ogg_pager`
+  through `lofty`, and PR #2's required check passes on Rust 1.85.
+  CHECK: `cargo tree -i time@0.3.44 && cargo tree -i ogg_pager@0.7.1 && gh pr checks 2 --repo rodriguezcappsec/floe`
   EXPECT: `/Rust quality gates.*pass/`
   EVIDENCE: pending
 
@@ -148,12 +148,13 @@ behavior.
   CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && python3 scripts/check-docs.py --strict && sh packaging/tests/test-release-source.sh && sh packaging/tests/test-release-candidate.sh && python3 scripts/check-public-release.py all && git diff --check`
   EXPECT: `/public-release-contracts-ok/`
   EVIDENCE: PASS 2026-09-02. The complete local command chain exits zero.
-  `time` 0.3.44, `time-core` 0.1.6, and `time-macros` 0.2.24 compile and pass
-  every Rust test on the current toolchain; strict docs/rendering, deterministic
+  `time` 0.3.44, `time-core` 0.1.6, `time-macros` 0.2.24, and `ogg_pager`
+  0.7.1 compile and pass every Rust test on the current toolchain; strict
+  docs/rendering, deterministic
   source, release candidate, public/history, nine E2E harness contracts, and
   diff hygiene pass. Native graphical layers were not rerun because runtime code
   did not change. Arch source checksum is
-  `c5c01e2299e05510c959a59adc9049a0a1b8e1f1283105cb41622606264cf7df`.
+  `393cafe225cd7202f3ad7cf247eec66e507d8df43b4578d2fd3ef889f106d23e`.
 
 ---
 
