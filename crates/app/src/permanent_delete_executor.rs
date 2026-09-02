@@ -420,10 +420,10 @@ mod tests {
     fn wait_for_terminal(jobs: &SharedJobManager, job_id: JobId) -> JobState {
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            if let Some(state) = lock(jobs).record(job_id).map(|record| record.state())
-                && state.is_terminal()
-            {
-                return state;
+            if let Some(state) = lock(jobs).record(job_id).map(|record| record.state()) {
+                if state.is_terminal() {
+                    return state;
+                }
             }
             assert!(Instant::now() < deadline, "delete job should finish");
             thread::sleep(Duration::from_millis(5));

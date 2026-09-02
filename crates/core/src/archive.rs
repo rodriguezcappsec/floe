@@ -1686,10 +1686,10 @@ fn create_member_directories(stage: &Path, members: &[ArchiveMember]) -> Result<
         if member.kind == ArchiveMemberKind::Directory {
             directories.push(member.path.clone());
         }
-        if let Some(parent) = member.path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            directories.push(parent.to_path_buf());
+        if let Some(parent) = member.path.parent() {
+            if !parent.as_os_str().is_empty() {
+                directories.push(parent.to_path_buf());
+            }
         }
     }
     directories.sort_by_key(|path| path.components().count());

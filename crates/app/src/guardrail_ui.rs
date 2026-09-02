@@ -404,10 +404,11 @@ fn present_confirmation_review(
                 }
                 Err(error) => {
                     button.set_sensitive(true);
-                    if let Some(dialog) = dialog.upgrade()
-                        && let Some(window) = dialog.root().and_downcast::<adw::ApplicationWindow>()
-                    {
-                        present_guardrail_error(&window, &error.to_string());
+                    if let Some(dialog) = dialog.upgrade() {
+                        if let Some(window) = dialog.root().and_downcast::<adw::ApplicationWindow>()
+                        {
+                            present_guardrail_error(&window, &error.to_string());
+                        }
                     }
                 }
             }

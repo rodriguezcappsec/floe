@@ -136,25 +136,32 @@ behavior.
 - [ ] R13: The real GitHub Rust 1.85 CI failures are reproduced and corrected
   without raising Floe's declared MSRV: the application lockfile selects
   reviewed compatible `time` through `sevenz-rust -> nt-time` and `ogg_pager`
-  through `lofty`, and PR #2's required check passes on Rust 1.85.
+  through `lofty`, all workspace source avoids post-1.85 let-chain syntax, and
+  PR #2's required check passes on Rust 1.85.
   CHECK: `cargo tree -i time@0.3.44 && cargo tree -i ogg_pager@0.7.1 && gh pr checks 2 --repo rodriguezcappsec/floe`
   EXPECT: `/Rust quality gates.*pass/`
-  EVIDENCE: pending
+  EVIDENCE: pending. Runs `33691100967` and `33691584349` exposed the two
+  transitive dependency MSRV drifts. Run `33691868720` compiled those corrected
+  dependencies on Rust 1.85 and then exposed post-1.85 let-chain syntax in Floe.
+  The complete core/app syntax sweep is locally verified and awaits the next CI
+  run before this gate can be checked.
 
-- [x] R14: The dependency correction passes formatting, workspace check, strict
+- [x] R14: The Rust 1.85 compatibility correction passes formatting, workspace check, strict
   all-target/all-feature Clippy, full workspace tests, strict docs, deterministic
   source/release-candidate contracts, public-release/history checks, and diff
-  hygiene; documentation and Arch checksum match the corrected lockfile.
+  hygiene; documentation and Arch checksum match the corrected source.
   CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && python3 scripts/check-docs.py --strict && sh packaging/tests/test-release-source.sh && sh packaging/tests/test-release-candidate.sh && python3 scripts/check-public-release.py all && git diff --check`
   EXPECT: `/public-release-contracts-ok/`
   EVIDENCE: PASS 2026-09-02. The complete local command chain exits zero.
   `time` 0.3.44, `time-core` 0.1.6, `time-macros` 0.2.24, and `ogg_pager`
-  0.7.1 compile and pass every Rust test on the current toolchain; strict
-  docs/rendering, deterministic
-  source, release candidate, public/history, nine E2E harness contracts, and
-  diff hygiene pass. Native graphical layers were not rerun because runtime code
-  did not change. Arch source checksum is
-  `393cafe225cd7202f3ad7cf247eec66e507d8df43b4578d2fd3ef889f106d23e`.
+  0.7.1 compile and pass every Rust test on the current toolchain; every
+  post-1.85 let-chain was rewritten with equivalent nested control flow. Strict
+  docs/rendering, deterministic source, release candidate, public/history, nine
+  E2E harness contracts, and diff hygiene pass. The isolated native Wayland
+  launch, D-Bus action listing/Ping, and clean Quit pass without GTK,
+  libadwaita, or panic-critical log output. Dogtail/pyatspi and the staged
+  installed-artifact walkthrough remain truthfully skipped. Arch source checksum
+  is `3a83a646d4cf131be1be61d9ea94e25089bc5935f224f6b03679a3b3ceadee8e`.
 
 ---
 

@@ -344,16 +344,16 @@ impl OperationController {
             dialog.set_response_appearance("reset", adw::ResponseAppearance::Destructive);
             let controller = Rc::downgrade(self);
             dialog.connect_response(None, move |dialog, response| {
-                if response == "reset"
-                    && let Some(controller) = controller.upgrade()
-                {
-                    match controller.state.reset_undo_history() {
-                        Ok(()) => controller.show_toast(
-                            "Undo/Redo history reset; protected operations are available again",
-                            6,
-                        ),
-                        Err(error) => controller
-                            .show_toast(&format!("Could not reset Undo history: {error}"), 7),
+                if response == "reset" {
+                    if let Some(controller) = controller.upgrade() {
+                        match controller.state.reset_undo_history() {
+                            Ok(()) => controller.show_toast(
+                                "Undo/Redo history reset; protected operations are available again",
+                                6,
+                            ),
+                            Err(error) => controller
+                                .show_toast(&format!("Could not reset Undo history: {error}"), 7),
+                        }
                     }
                 }
                 dialog.close();
@@ -884,13 +884,14 @@ impl OperationController {
                 for directory in &batch_rename_directories {
                     (self.on_operation_completed)(directory);
                 }
-                if batch_rename_outcome.is_some()
-                    && let Some(action) = self
+                if batch_rename_outcome.is_some() {
+                    if let Some(action) = self
                         .window
                         .lookup_action("undo-batch-rename")
                         .and_downcast::<gio::SimpleAction>()
-                {
-                    action.set_enabled(true);
+                    {
+                        action.set_enabled(true);
+                    }
                 }
                 if let Some(request) = request.as_ref() {
                     for directory in request.affected_directories() {
@@ -1078,17 +1079,17 @@ impl OperationController {
         }
         self.state.finish_permission(job_id);
 
-        if let Some(batch_id) = self.state.batch_for_job(job_id)
-            && let Some(snapshot) = self.state.batch_snapshot(batch_id)
-        {
-            let (title, detail) = batch_summary(snapshot);
-            self.widgets.operation_label.set_label(title);
-            self.widgets.operation_detail.set_label(&detail);
-            self.visible_batch.set(Some(batch_id));
-            if snapshot.status().is_terminal() {
-                self.widgets.operation_pause.set_visible(false);
-            } else {
-                self.update_batch_controls(job_id);
+        if let Some(batch_id) = self.state.batch_for_job(job_id) {
+            if let Some(snapshot) = self.state.batch_snapshot(batch_id) {
+                let (title, detail) = batch_summary(snapshot);
+                self.widgets.operation_label.set_label(title);
+                self.widgets.operation_detail.set_label(&detail);
+                self.visible_batch.set(Some(batch_id));
+                if snapshot.status().is_terminal() {
+                    self.widgets.operation_pause.set_visible(false);
+                } else {
+                    self.update_batch_controls(job_id);
+                }
             }
         }
 
@@ -2378,9 +2379,10 @@ mod tests {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .record(job_id)
                 .map(|record| record.state())
-                && job_state.is_terminal()
             {
-                return job_state;
+                if job_state.is_terminal() {
+                    return job_state;
+                }
             }
             assert!(Instant::now() < deadline, "job did not become terminal");
             thread::sleep(Duration::from_millis(5));

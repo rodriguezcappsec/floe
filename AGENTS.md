@@ -1342,6 +1342,10 @@ Completed this session:
   Rust 1.89 through `lofty`. The application lockfile now selects `time` 0.3.44
   (published MSRV 1.81) and `ogg_pager` 0.7.1 (published MSRV 1.85) without
   raising Floe's Rust 1.85 minimum.
+- The third Rust 1.85 job compiled those corrected dependencies and exposed
+  post-1.85 let-chain syntax in Floe itself. Every affected core and application
+  guard now uses semantically equivalent nested control flow; no feature,
+  dependency, or MSRV change was introduced.
 
 Verified:
 
@@ -1350,20 +1354,22 @@ Verified:
   content except the explicitly authorized email/path substitutions.
 - The local reachable-history gate, full Git object check, strict documentation,
   public-release contracts, deterministic source archive, release-source policy,
-  and diff hygiene pass after pruning. The earlier full Rust, packaging, E2E
-  preflight, and native Wayland evidence remains applicable because runtime code
-  did not change.
-- The compatible lockfile passes formatting, workspace check, strict
+  and diff hygiene pass after pruning.
+- The complete Rust 1.85 compatibility correction passes formatting, workspace check, strict
   all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
   package/source/release-candidate checks, E2E preflight, history/public-release
-  contracts, and diff hygiene locally. PR #2's Rust 1.85 rerun remains the final
-  merge gate.
+  contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
+  is `3a83a646d4cf131be1be61d9ea94e25089bc5935f224f6b03679a3b3ceadee8e`.
+  An isolated native Wayland launch answers D-Bus Ping, lists application actions,
+  and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
+  next Rust 1.85 run remains the final merge gate.
 
 Known issues:
 
-- PR #2 must not merge until its required Rust 1.85 quality gate passes with the
-  corrected lockfile. The first two runs failed before compilation solely because
-  semver-compatible transitive releases had raised their compiler requirements.
+- PR #2 must not merge until its required Rust 1.85 quality gate passes. The
+  first two runs exposed transitive compiler-requirement drift; the third compiled
+  those dependencies and exposed newer let-chain syntax, which is now corrected
+  across the workspace and awaiting CI verification.
 - The access-restricted `/tmp` recovery bundle intentionally contains the private
   pre-rewrite history. Keep it offline only until remote migration and fresh-clone
   verification succeed, then deliberately destroy it if no longer needed;

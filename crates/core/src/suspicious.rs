@@ -115,18 +115,19 @@ pub fn analyze_suspicious_file(
                 "The filename contains invisible or control characters; inspect the escaped name.",
             ));
         }
-        if let Some(content_type) = content_type
-            && let Some(expected_prefix) = expected_mime_prefix(final_extension)
-            && !content_type.starts_with(expected_prefix)
-        {
-            findings.push(finding(
-                SuspiciousFindingKind::MimeMismatch {
-                    extension: final_extension.to_owned(),
-                    content_type: content_type.to_owned(),
-                },
-                SuspiciousSeverity::Caution,
-                "The detected content type does not match the filename extension.",
-            ));
+        if let Some(content_type) = content_type {
+            if let Some(expected_prefix) = expected_mime_prefix(final_extension) {
+                if !content_type.starts_with(expected_prefix) {
+                    findings.push(finding(
+                        SuspiciousFindingKind::MimeMismatch {
+                            extension: final_extension.to_owned(),
+                            content_type: content_type.to_owned(),
+                        },
+                        SuspiciousSeverity::Caution,
+                        "The detected content type does not match the filename extension.",
+                    ));
+                }
+            }
         }
     }
     SuspiciousAnalysis {

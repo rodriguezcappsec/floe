@@ -934,10 +934,10 @@ where
             CreatedKind::File | CreatedKind::Symlink => fs::remove_file(&quarantine),
             CreatedKind::Directory => fs::remove_dir(&quarantine),
         };
-        if let Err(error) = result
-            && error.kind() != io::ErrorKind::NotFound
-        {
-            return Err((created.path.clone(), error));
+        if let Err(error) = result {
+            if error.kind() != io::ErrorKind::NotFound {
+                return Err((created.path.clone(), error));
+            }
         }
     }
     Ok(())

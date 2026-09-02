@@ -1019,10 +1019,10 @@ impl Drop for BrowserController {
         if let Some(source) = self.operation_emphasis_source.borrow_mut().take() {
             source.remove();
         }
-        if let Some(runtime) = self.selection_mode.get_mut().as_mut()
-            && let Some(source) = runtime.poll_source.get_mut().take()
-        {
-            source.remove();
+        if let Some(runtime) = self.selection_mode.get_mut().as_mut() {
+            if let Some(source) = runtime.poll_source.get_mut().take() {
+                source.remove();
+            }
         }
         self.integrity_watch_set.get_mut().take();
         self.integrity_session.get_mut().disable();
@@ -1534,10 +1534,10 @@ impl BrowserController {
         let controller = Rc::downgrade(self);
         filename.connect_changed(move |_| {
             if let Some(controller) = controller.upgrade() {
-                if let Some(runtime) = controller.selection_mode.borrow().as_ref()
-                    && !runtime.updating_filename.get()
-                {
-                    runtime.filename_user_edited.set(true);
+                if let Some(runtime) = controller.selection_mode.borrow().as_ref() {
+                    if !runtime.updating_filename.get() {
+                        runtime.filename_user_edited.set(true);
+                    }
                 }
                 controller.refresh_selection_mode();
             }
@@ -1602,17 +1602,19 @@ impl BrowserController {
             return;
         }
         let selected = self.selected_entries.borrow();
-        if runtime.config.mode == SelectionMode::SaveFile
-            && !runtime.filename_user_edited.get()
-            && let [entry] = selected.as_slice()
-            && selection_mode_file_entry(entry)
-            && let Some(name) = entry.path().file_name().and_then(std::ffi::OsStr::to_str)
-            && runtime.filename.text().as_str() != name
-        {
-            runtime.updating_filename.set(true);
-            runtime.filename.set_text(name);
-            runtime.filename.select_region(0, -1);
-            runtime.updating_filename.set(false);
+        if runtime.config.mode == SelectionMode::SaveFile && !runtime.filename_user_edited.get() {
+            if let [entry] = selected.as_slice() {
+                if selection_mode_file_entry(entry) {
+                    if let Some(name) = entry.path().file_name().and_then(std::ffi::OsStr::to_str) {
+                        if runtime.filename.text().as_str() != name {
+                            runtime.updating_filename.set(true);
+                            runtime.filename.set_text(name);
+                            runtime.filename.select_region(0, -1);
+                            runtime.updating_filename.set(false);
+                        }
+                    }
+                }
+            }
         }
         let (enabled, message) = match runtime.config.mode {
             SelectionMode::OpenFile => match selected.as_slice() {
@@ -1995,10 +1997,10 @@ impl BrowserController {
             .grid_size_scale
             .connect_value_changed(move |scale| {
                 let index = scale.value().round() as usize;
-                if let Some(controller) = controller.upgrade()
-                    && let Some(size) = GridSize::from_index(index)
-                {
-                    controller.change_grid_size(size);
+                if let Some(controller) = controller.upgrade() {
+                    if let Some(size) = GridSize::from_index(index) {
+                        controller.change_grid_size(size);
+                    }
                 }
             });
 
@@ -2207,11 +2209,12 @@ impl BrowserController {
                     }
                 }
                 DropHoverTarget::Tab(raw_id) => {
-                    if let Ok(id) = BrowserSessionId::new(raw_id)
-                        && controller.tabs.borrow().session(id).is_some()
-                        && controller.tabs.borrow().active_id() != id
-                    {
-                        controller.activate_tab(id);
+                    if let Ok(id) = BrowserSessionId::new(raw_id) {
+                        if controller.tabs.borrow().session(id).is_some()
+                            && controller.tabs.borrow().active_id() != id
+                        {
+                            controller.activate_tab(id);
+                        }
                     }
                 }
                 DropHoverTarget::OppositePane => {
@@ -2888,19 +2891,23 @@ impl BrowserController {
                 }
                 glib::Propagation::Stop
             } else if is_quick_preview_space(key, modifiers) {
-                if let Some(controller) = controller.upgrade()
-                    && controller.quick_preview_space_enabled()
-                {
-                    controller.toggle_miller_detail(MillerDetailSurface::Preview);
+                if let Some(controller) = controller.upgrade() {
+                    if controller.quick_preview_space_enabled() {
+                        controller.toggle_miller_detail(MillerDetailSurface::Preview);
+                        glib::Propagation::Stop
+                    } else {
+                        glib::Propagation::Proceed
+                    }
+                } else {
+                    glib::Propagation::Proceed
+                }
+            } else if let Some(controller) = controller.upgrade() {
+                if let Some(command) = controller.vim_command_for_key(key, modifiers) {
+                    controller.dispatch_vim_file_view(command);
                     glib::Propagation::Stop
                 } else {
                     glib::Propagation::Proceed
                 }
-            } else if let Some(controller) = controller.upgrade()
-                && let Some(command) = controller.vim_command_for_key(key, modifiers)
-            {
-                controller.dispatch_vim_file_view(command);
-                glib::Propagation::Stop
             } else {
                 glib::Propagation::Proceed
             }
@@ -2956,10 +2963,10 @@ impl BrowserController {
         let replacement = BrowserTabs::new(PathBuf::from("/"), FolderViewState::default())
             .expect("root is an absolute fallback session");
         let workspace = self.tabs.replace(replacement);
-        if let Some(mut worker) = self.session_store.borrow_mut().take()
-            && let Err(error) = worker.save_before_shutdown(workspace)
-        {
-            tracing::warn!(%error, "could not submit final browser session");
+        if let Some(mut worker) = self.session_store.borrow_mut().take() {
+            if let Err(error) = worker.save_before_shutdown(workspace) {
+                tracing::warn!(%error, "could not submit final browser session");
+            }
         }
     }
 
@@ -4818,10 +4825,10 @@ impl BrowserController {
             gio::SimpleAction::new("run-custom-action", Some(glib::VariantTy::UINT64));
         let controller = Rc::downgrade(self);
         custom_action.connect_activate(move |_, parameter| {
-            if let Some(id) = parameter.and_then(glib::Variant::get::<u64>)
-                && let Some(controller) = controller.upgrade()
-            {
-                controller.run_custom_action(id);
+            if let Some(id) = parameter.and_then(glib::Variant::get::<u64>) {
+                if let Some(controller) = controller.upgrade() {
+                    controller.run_custom_action(id);
+                }
             }
         });
         self.widgets.window.add_action(&custom_action);
@@ -5694,14 +5701,15 @@ impl BrowserController {
             return;
         }
         for name in self.widgets.window.list_actions() {
-            if selection_mode_blocks_action(name.as_str())
-                && let Some(action) = self
+            if selection_mode_blocks_action(name.as_str()) {
+                if let Some(action) = self
                     .widgets
                     .window
                     .lookup_action(name.as_str())
                     .and_downcast::<gio::SimpleAction>()
-            {
-                action.set_enabled(false);
+                {
+                    action.set_enabled(false);
+                }
             }
         }
     }
@@ -6731,10 +6739,10 @@ impl BrowserController {
                 .map(|column| column.depth())
         });
         if let Some(depth) = retained_depth {
-            if let Some(model) = self.miller_model.borrow_mut().as_mut()
-                && let Err(error) = model.activate(depth)
-            {
-                tracing::warn!(%error, "could not reactivate retained Miller column");
+            if let Some(model) = self.miller_model.borrow_mut().as_mut() {
+                if let Err(error) = model.activate(depth) {
+                    tracing::warn!(%error, "could not reactivate retained Miller column");
+                }
             }
             return;
         }
@@ -6797,10 +6805,10 @@ impl BrowserController {
         self.miller_detail
             .borrow_mut()
             .toggle(surface, active_depth, current, &selected);
-        if self.miller_detail.borrow().state().surface() != Some(MillerDetailSurface::Preview)
-            && let Some(worker) = self.preview_worker.borrow().as_ref()
-        {
-            worker.cancel();
+        if self.miller_detail.borrow().state().surface() != Some(MillerDetailSurface::Preview) {
+            if let Some(worker) = self.preview_worker.borrow().as_ref() {
+                worker.cancel();
+            }
         }
         let visible = self.miller_detail.borrow().state().is_visible();
         self.render_miller();
@@ -7391,11 +7399,12 @@ impl BrowserController {
 
         let controller = Rc::downgrade(self);
         settings.grid_size.connect_selected_notify(move |dropdown| {
-            if let Some(controller) = controller.upgrade()
-                && let Some(size) =
+            if let Some(controller) = controller.upgrade() {
+                if let Some(size) =
                     crate::settings_center::grid_size_at(dropdown.selected() as usize)
-            {
-                controller.change_grid_size(size);
+                {
+                    controller.change_grid_size(size);
+                }
             }
         });
 
@@ -7448,10 +7457,10 @@ impl BrowserController {
         settings
             .vim_navigation
             .connect_active_notify(move |toggle| {
-                if let Some(controller) = controller.upgrade()
-                    && controller.current_preferences.borrow().vim_mode != toggle.is_active()
-                {
-                    controller.activate_window_action("vim-mode", None);
+                if let Some(controller) = controller.upgrade() {
+                    if controller.current_preferences.borrow().vim_mode != toggle.is_active() {
+                        controller.activate_window_action("vim-mode", None);
+                    }
                 }
             });
 
@@ -7678,17 +7687,17 @@ impl BrowserController {
                     };
                     let target = index.checked_add_signed(direction);
                     let mut preferences = controller.current_preferences.borrow_mut();
-                    if let Some(target) = target
-                        && target < preferences.custom_actions.len()
-                    {
-                        preferences.custom_actions.swap(index, target);
-                        drop(preferences);
-                        controller.queue_preferences();
-                        controller.refresh_custom_action_context_menu();
-                        if let Some(dialog) = dialog.upgrade() {
-                            dialog.close();
+                    if let Some(target) = target {
+                        if target < preferences.custom_actions.len() {
+                            preferences.custom_actions.swap(index, target);
+                            drop(preferences);
+                            controller.queue_preferences();
+                            controller.refresh_custom_action_context_menu();
+                            if let Some(dialog) = dialog.upgrade() {
+                                dialog.close();
+                            }
+                            controller.show_custom_actions_editor();
                         }
-                        controller.show_custom_actions_editor();
                     }
                 });
             }
@@ -8319,17 +8328,18 @@ impl BrowserController {
         if changes.context_menu {
             self.refresh_custom_action_context_menu();
         }
-        if changes.keybindings
-            && let Some(application) = self
+        if changes.keybindings {
+            if let Some(application) = self
                 .widgets
                 .window
                 .application()
                 .and_downcast::<adw::Application>()
-        {
-            crate::keybindings::install_effective_window_shortcuts(
-                &application,
-                &preferences.keybindings,
-            );
+            {
+                crate::keybindings::install_effective_window_shortcuts(
+                    &application,
+                    &preferences.keybindings,
+                );
+            }
         }
         if changes.vim_mode {
             self.widgets.miller_view.set_vim_mode(preferences.vim_mode);
@@ -8910,13 +8920,13 @@ impl BrowserController {
         } else {
             self.widgets.location_suggestions.popdown();
         }
-        if let Some(error) = result.error
-            && !matches!(
+        if let Some(error) = result.error {
+            if !matches!(
                 error,
                 io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
-            )
-        {
-            tracing::debug!(?error, "location completion unavailable for parent");
+            ) {
+                tracing::debug!(?error, "location completion unavailable for parent");
+            }
         }
     }
 
@@ -9617,21 +9627,22 @@ impl BrowserController {
             reconciled.selected_paths
         } else {
             let reveal_path = self.reveal_selection_path.borrow_mut().take();
-            if let Some(target) = reveal_path.as_ref()
-                && !entries.iter().any(|entry| entry.path() == target)
-            {
-                self.show_toast(
-                    "The symbolic link target changed or is no longer visible",
-                    6,
-                );
+            if let Some(target) = reveal_path.as_ref() {
+                if !entries.iter().any(|entry| entry.path() == target) {
+                    self.show_toast(
+                        "The symbolic link target changed or is no longer visible",
+                        6,
+                    );
+                }
             }
             reveal_path.into_iter().collect::<Vec<_>>()
         };
-        if let Some(created) = self.pending_create_rename.borrow().as_ref()
-            && entries.iter().any(|entry| entry.path() == created)
-            && !selected_paths.contains(created)
-        {
-            selected_paths.push(created.clone());
+        if let Some(created) = self.pending_create_rename.borrow().as_ref() {
+            if entries.iter().any(|entry| entry.path() == created)
+                && !selected_paths.contains(created)
+            {
+                selected_paths.push(created.clone());
+            }
         }
         self.listed_entries.replace(Arc::from(entries));
         self.apply_folder_filter(selected_paths, true);
@@ -13211,10 +13222,12 @@ impl BrowserController {
             match application_state.submit_create(request) {
                 Ok(_) => {
                     status_label.set_label("Creation queued…");
-                    if rename_after_create && let Some(controller) = controller.upgrade() {
-                        controller
-                            .pending_create_rename
-                            .replace(Some(destination.clone()));
+                    if rename_after_create {
+                        if let Some(controller) = controller.upgrade() {
+                            controller
+                                .pending_create_rename
+                                .replace(Some(destination.clone()));
+                        }
                     }
                     if let Some(dialog) = weak_dialog.upgrade() {
                         dialog.close();
@@ -13563,10 +13576,10 @@ impl BrowserController {
             });
         if trash_directory || self.tabs.borrow().active().current().path() == directory {
             let generation = self.reload_preserving_view(Vec::new());
-            if let Some(pending) = self.pending_operation_reveal.borrow_mut().as_mut()
-                && pending.directory() == directory
-            {
-                pending.bind_generation(generation);
+            if let Some(pending) = self.pending_operation_reveal.borrow_mut().as_mut() {
+                if pending.directory() == directory {
+                    pending.bind_generation(generation);
+                }
             }
         }
     }
@@ -13688,10 +13701,10 @@ impl BrowserController {
             )]);
             let controller = Rc::downgrade(self);
             dialog.connect_response(None, move |_, response| {
-                if response == "reset"
-                    && let Some(controller) = controller.upgrade()
-                {
-                    controller.confirm_guardrail_store_reset();
+                if response == "reset" {
+                    if let Some(controller) = controller.upgrade() {
+                        controller.confirm_guardrail_store_reset();
+                    }
                 }
             });
             dialog.present(Some(&self.widgets.window));
@@ -13806,10 +13819,10 @@ impl BrowserController {
         button: Option<(&str, &str)>,
         dismissible: bool,
     ) {
-        if let Some(previous) = self.background_feedback_rows.borrow_mut().remove(&activity)
-            && previous.parent().is_some()
-        {
-            self.widgets.background_feedback_list.remove(&previous);
+        if let Some(previous) = self.background_feedback_rows.borrow_mut().remove(&activity) {
+            if previous.parent().is_some() {
+                self.widgets.background_feedback_list.remove(&previous);
+            }
         }
 
         let row = gtk::Box::builder()
@@ -13861,10 +13874,10 @@ impl BrowserController {
             let revealer = self.widgets.background_feedback_revealer.clone();
             let weak_row = row.downgrade();
             dismiss.connect_clicked(move |_| {
-                if let Some(row) = weak_row.upgrade()
-                    && row.parent().is_some()
-                {
-                    list.remove(&row);
+                if let Some(row) = weak_row.upgrade() {
+                    if row.parent().is_some() {
+                        list.remove(&row);
+                    }
                 }
                 if list.first_child().is_none() {
                     revealer.set_reveal_child(false);

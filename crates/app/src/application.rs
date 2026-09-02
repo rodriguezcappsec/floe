@@ -316,17 +316,19 @@ fn run_normal() -> glib::ExitCode {
                 .map(|browser| browser.session_snapshot())
                 .collect::<Vec<_>>()
         };
-        if !snapshots.is_empty()
-            && let Some(mut worker) = session_worker_for_shutdown.borrow_mut().take()
-            && let Err(error) = worker.save_windows_before_shutdown(snapshots)
-        {
-            tracing::warn!(%error, "could not submit final multi-window session");
+        if !snapshots.is_empty() {
+            if let Some(mut worker) = session_worker_for_shutdown.borrow_mut().take() {
+                if let Err(error) = worker.save_windows_before_shutdown(snapshots) {
+                    tracing::warn!(%error, "could not submit final multi-window session");
+                }
+            }
         }
-        if let Some(worker) = preference_worker_for_shutdown.borrow().as_ref()
-            && let Err(error) =
+        if let Some(worker) = preference_worker_for_shutdown.borrow().as_ref() {
+            if let Err(error) =
                 worker.save_before_shutdown(shared_preferences_for_shutdown.snapshot())
-        {
-            tracing::warn!(%error, "could not submit final view preferences");
+            {
+                tracing::warn!(%error, "could not submit final view preferences");
+            }
         }
         application_state_for_shutdown.cleanup_selection_transient_state();
     });

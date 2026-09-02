@@ -279,15 +279,15 @@ impl ThumbnailWorker {
                     .map(SystemThumbnailerRegistry::discover_from_data_dirs)
                     .unwrap_or_else(SystemThumbnailerRegistry::discover);
                 let mut thumbnail_cache = cache_config.map(ThumbnailCache::new);
-                if let Some(cache) = thumbnail_cache.as_mut()
-                    && let Err(error) = cache.initialize()
-                {
-                    tracing::debug!(%error, "thumbnail cache cleanup was unavailable");
+                if let Some(cache) = thumbnail_cache.as_mut() {
+                    if let Err(error) = cache.initialize() {
+                        tracing::debug!(%error, "thumbnail cache cleanup was unavailable");
+                    }
                 }
-                if let Some(start_gate) = start_gate
-                    && start_gate.recv().is_err()
-                {
-                    return;
+                if let Some(start_gate) = start_gate {
+                    if start_gate.recv().is_err() {
+                        return;
+                    }
                 }
                 while let Ok(request) = request_receiver.recv() {
                     if worker_shutdown.load(Ordering::Acquire) {
@@ -429,10 +429,10 @@ fn decode_thumbnail_with_cache_and_providers(
             .into_rgba8()
     };
 
-    if let Some(cache) = cache
-        && let Err(error) = cache.store(key, &tier_thumbnail)
-    {
-        tracing::debug!(%error, content_type = %output.content_type, "persistent system thumbnail cache write failed; using generated pixels");
+    if let Some(cache) = cache {
+        if let Err(error) = cache.store(key, &tier_thumbnail) {
+            tracing::debug!(%error, content_type = %output.content_type, "persistent system thumbnail cache write failed; using generated pixels");
+        }
     }
     pixels_from_image(tier_thumbnail, key.edge)
 }
@@ -520,10 +520,10 @@ fn decode_native_thumbnail_with_cache(
             .into_rgba8()
     };
 
-    if let Some(cache) = cache
-        && let Err(error) = cache.store(key, &tier_thumbnail)
-    {
-        tracing::debug!(%error, "persistent thumbnail cache write failed; using decoded source");
+    if let Some(cache) = cache {
+        if let Err(error) = cache.store(key, &tier_thumbnail) {
+            tracing::debug!(%error, "persistent thumbnail cache write failed; using decoded source");
+        }
     }
     pixels_from_image(tier_thumbnail, key.edge)
 }

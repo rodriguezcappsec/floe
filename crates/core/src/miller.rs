@@ -224,11 +224,11 @@ impl MillerColumnModel {
                 first_affected.get_or_insert(column.depth);
                 column.directory = remapped;
             }
-            if let Some(selected) = column.selected_child.as_mut()
-                && let Some(remapped) = remap_prefix(selected, old_path, &new_path)
-            {
-                first_affected.get_or_insert(column.depth);
-                *selected = remapped;
+            if let Some(selected) = column.selected_child.as_mut() {
+                if let Some(remapped) = remap_prefix(selected, old_path, &new_path) {
+                    first_affected.get_or_insert(column.depth);
+                    *selected = remapped;
+                }
             }
         }
 

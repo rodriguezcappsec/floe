@@ -119,10 +119,10 @@ impl MetadataWorker {
         let worker = thread::Builder::new()
             .name("floe-metadata".to_owned())
             .spawn(move || {
-                if let Some(start_gate) = start_gate
-                    && start_gate.recv().is_err()
-                {
-                    return;
+                if let Some(start_gate) = start_gate {
+                    if start_gate.recv().is_err() {
+                        return;
+                    }
                 }
                 while let Ok(key) = requests.recv() {
                     let result = load_metadata(&key);

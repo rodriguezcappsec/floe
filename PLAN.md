@@ -47,9 +47,12 @@ printing possible secrets or making unsupported legal claims.
       configured GitHub noreply identity and historical account-specific paths
       use documented neutral placeholders.
    5.3 Re-audit and documentation
-      5.3.1 Re-audit every reachable commit and blob, update the public-release
-      evidence and source checksum, rerun applicable gates, and stop without a
-      force-push, tag, release, visibility change, or `main` merge.
+   5.3.1 Re-audit every reachable commit and blob, update the public-release
+         evidence and source checksum, rerun applicable gates, and stop without a
+         force-push, tag, release, visibility change, or `main` merge.
+   5.3.2 Preserve the declared Rust 1.85 MSRV by pinning compatible transitive
+         releases and rewriting all newer Rust let-chain syntax without changing
+         runtime behavior; prove the result in PR CI before merge.
 
 ## Status log
 
@@ -85,6 +88,11 @@ printing possible secrets or making unsupported legal claims.
   `lofty -> ogg_pager` selecting 0.7.2 with Rust 1.89; select `ogg_pager` 0.7.1,
   whose published MSRV is exactly Rust 1.85. Rerun local gates and GitHub CI,
   then merge only after the required check passes.
+- 2026-09-02: The pinned dependencies compile under the authoritative Rust 1.85
+  CI job. The next failure is workspace use of let-chain syntax stabilized after
+  Floe's MSRV. The bounded correction is a semantics-preserving core/app syntax
+  sweep plus full local release gates and a green PR CI run; raising the MSRV and
+  unrelated refactoring are excluded.
 
 ---
 

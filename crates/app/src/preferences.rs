@@ -610,10 +610,10 @@ impl ViewPreferences {
                     }
                 }
                 "grid-size" => {
-                    if let Ok(edge) = value.parse::<u16>()
-                        && let Some(size) = GridSize::from_persisted(edge)
-                    {
-                        preferences.grid_size = size;
+                    if let Ok(edge) = value.parse::<u16>() {
+                        if let Some(size) = GridSize::from_persisted(edge) {
+                            preferences.grid_size = size;
+                        }
                     }
                 }
                 "sidebar-density" => {
@@ -1216,10 +1216,10 @@ impl PreferenceWorker {
         let worker = thread::Builder::new()
             .name("floe-view-preferences".to_owned())
             .spawn(move || {
-                if let Some(start_gate) = start_gate
-                    && start_gate.recv().is_err()
-                {
-                    return;
+                if let Some(start_gate) = start_gate {
+                    if start_gate.recv().is_err() {
+                        return;
+                    }
                 }
                 while let Ok(mut preferences) = receiver.recv() {
                     while let Ok(newer) = receiver.try_recv() {
@@ -1385,13 +1385,13 @@ fn persist_migrated_preferences(
 }
 
 fn persist_preferences(path: &Path, preferences: &ViewPreferences) -> io::Result<()> {
-    if let Ok(metadata) = fs::symlink_metadata(path)
-        && (!metadata.is_file() || metadata.file_type().is_symlink())
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "view preference destination is not a regular file",
-        ));
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "view preference destination is not a regular file",
+            ));
+        }
     }
     write_private_file(path, preferences.serialize().as_bytes(), true)
 }
