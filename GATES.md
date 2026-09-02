@@ -162,8 +162,10 @@ behavior.
   E2E harness contracts, and diff hygiene pass. The isolated native Wayland
   launch, D-Bus action listing/Ping, and clean Quit pass without GTK,
   libadwaita, or panic-critical log output. Dogtail/pyatspi and the staged
-  installed-artifact walkthrough remain truthfully skipped. Arch source checksum
-  is `4edb59ed20479f1fef33bb65b7cd14108e9510ad4423ce7796d132bfbc46c6ce`.
+  installed-artifact walkthrough remain truthfully skipped. CI retains all four
+  quality commands while omitting only dev/test debug symbols to bound hosted
+  runner disk use. Arch source checksum is
+  `275fa3bfccef0573eeef2243f199e540cb3c8ecc9a8535de22d1fe4d533aec9a`.
 
 ---
 

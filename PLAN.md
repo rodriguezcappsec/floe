@@ -98,6 +98,11 @@ printing possible secrets or making unsupported legal claims.
   `map(format!).collect::<String>()`; build the bounded fixture directly into one
   `String`, rerun all gates, and retain a green Rust 1.85 CI result as the merge
   boundary.
+- 2026-09-02: Run `33693923271` passes Rust 1.85 formatting, workspace check,
+  and strict Clippy, then its test process receives Linux error 28
+  (`StorageFull`) while setting a tiny user xattr. Local build artifacts occupy
+  9.4 GiB. Keep every test and gate intact while disabling debug symbols only
+  for CI dev/test profiles to reduce runner disk pressure, then rerun the gate.
 
 ---
 

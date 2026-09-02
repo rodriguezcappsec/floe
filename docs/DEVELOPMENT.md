@@ -306,12 +306,13 @@ security/privacy work also tests wrong passwords, corrupt/truncated/tampered
 data, authentication failure, interruption, cleanup, atomicity, permissions,
 symlink/path traversal, secret-free logs, and source preservation as applicable.
 
-No GitHub Actions workflow exists in the current repository, so this pass does
-not invent CI infrastructure. When ordinary CI is introduced, run formatting,
-check, strict Clippy, deterministic Rust tests, and property tests there. Keep
-GTK component, native E2E, Niri, and Plasma jobs opt-in/separate with explicit
-graphical environments. Never add Playwright, Selenium, Tauri/browser DOM
-testing, or label `proptest` as E2E.
+Ordinary GitHub CI runs formatting, workspace check, strict Clippy, and the full
+deterministic Rust workspace tests on the documented Rust 1.85 minimum. Its dev
+and test profiles omit debug symbols to keep GTK/Rust artifacts within the
+hosted runner's disk budget; this changes artifact diagnostics, not test scope
+or optimization behavior. GTK component, native E2E, Niri, and Plasma jobs stay
+opt-in/separate with explicit graphical environments. Never add Playwright,
+Selenium, Tauri/browser DOM testing, or label `proptest` as E2E.
 
 Use `cargo fmt --all` to apply formatting. Core tests use temporary directories
 and must never target real user data. Phase 6A presentation tests are
