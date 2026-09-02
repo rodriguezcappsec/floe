@@ -1346,6 +1346,9 @@ Completed this session:
   post-1.85 let-chain syntax in Floe itself. Every affected core and application
   guard now uses semantically equivalent nested control flow; no feature,
   dependency, or MSRV change was introduced.
+- The fourth Rust 1.85 job passed formatting and full workspace compilation,
+  then its older Clippy rejected one test-only `format_collect` pattern. The
+  oversized clipboard fixture now writes directly into one bounded `String`.
 
 Verified:
 
@@ -1359,7 +1362,7 @@ Verified:
   all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
   package/source/release-candidate checks, E2E preflight, history/public-release
   contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
-  is `3a83a646d4cf131be1be61d9ea94e25089bc5935f224f6b03679a3b3ceadee8e`.
+  is `4edb59ed20479f1fef33bb65b7cd14108e9510ad4423ce7796d132bfbc46c6ce`.
   An isolated native Wayland launch answers D-Bus Ping, lists application actions,
   and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
   next Rust 1.85 run remains the final merge gate.
@@ -1368,8 +1371,9 @@ Known issues:
 
 - PR #2 must not merge until its required Rust 1.85 quality gate passes. The
   first two runs exposed transitive compiler-requirement drift; the third compiled
-  those dependencies and exposed newer let-chain syntax, which is now corrected
-  across the workspace and awaiting CI verification.
+  those dependencies and exposed newer let-chain syntax; the fourth passed the
+  corrected workspace compilation and exposed one older-Clippy-only test lint.
+  All identified blockers are now corrected and awaiting CI verification.
 - The access-restricted `/tmp` recovery bundle intentionally contains the private
   pre-rewrite history. Keep it offline only until remote migration and fresh-clone
   verification succeed, then deliberately destroy it if no longer needed;

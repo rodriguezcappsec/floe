@@ -93,6 +93,11 @@ printing possible secrets or making unsupported legal claims.
   Floe's MSRV. The bounded correction is a semantics-preserving core/app syntax
   sweep plus full local release gates and a green PR CI run; raising the MSRV and
   unrelated refactoring are excluded.
+- 2026-09-02: Run `33693526585` proves Rust 1.85 formatting and workspace
+  compilation now pass. Its older Clippy rejected one test-only
+  `map(format!).collect::<String>()`; build the bounded fixture directly into one
+  `String`, rerun all gates, and retain a green Rust 1.85 CI result as the merge
+  boundary.
 
 ---
 

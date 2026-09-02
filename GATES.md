@@ -143,7 +143,9 @@ behavior.
   EVIDENCE: pending. Runs `33691100967` and `33691584349` exposed the two
   transitive dependency MSRV drifts. Run `33691868720` compiled those corrected
   dependencies on Rust 1.85 and then exposed post-1.85 let-chain syntax in Floe.
-  The complete core/app syntax sweep is locally verified and awaits the next CI
+  Run `33693526585` then passed formatting and workspace compilation on Rust
+  1.85 before its older Clippy identified one test-only `format_collect` pattern.
+  The direct-String-write correction is locally verified and awaits the next CI
   run before this gate can be checked.
 
 - [x] R14: The Rust 1.85 compatibility correction passes formatting, workspace check, strict
@@ -161,7 +163,7 @@ behavior.
   launch, D-Bus action listing/Ping, and clean Quit pass without GTK,
   libadwaita, or panic-critical log output. Dogtail/pyatspi and the staged
   installed-artifact walkthrough remain truthfully skipped. Arch source checksum
-  is `3a83a646d4cf131be1be61d9ea94e25089bc5935f224f6b03679a3b3ceadee8e`.
+  is `4edb59ed20479f1fef33bb65b7cd14108e9510ad4423ce7796d132bfbc46c6ce`.
 
 ---
 
