@@ -312,6 +312,23 @@ pub static COMMANDS: &[CommandDefinition] = &[
         [F, T, H]
     ),
     command!(
+        "audit-permissions",
+        "Audit Permissions…",
+        "Inspect local Unix modes, ownership, ACL, xattr, capability, immutable, and mount evidence without claiming complete effective access",
+        Files,
+        [
+            "permissions",
+            "owner",
+            "acl",
+            "xattr",
+            "capabilities",
+            "immutable",
+            "security"
+        ],
+        [],
+        [F, H]
+    ),
+    command!(
         "inspect-privacy-safety",
         "Inspect Privacy & Safety…",
         "Show explainable local filename, type, permission, and supported image metadata evidence without declaring a file safe",
@@ -1541,5 +1558,32 @@ mod tests {
                 .description
                 .contains("accidental-change")
         );
+    }
+
+    #[test]
+    fn phase_18r_permission_ui_registers_truthful_audit_command() {
+        let definition = command("win.audit-permissions").expect("permission audit command");
+        assert!(definition.searchable);
+        assert!(
+            definition
+                .placements
+                .contains(&CommandPlacement::FileContext)
+        );
+        assert!(
+            definition
+                .placements
+                .contains(&CommandPlacement::HeaderMenu)
+        );
+        for evidence in [
+            "Unix modes",
+            "ACL",
+            "xattr",
+            "capability",
+            "immutable",
+            "mount",
+        ] {
+            assert!(definition.description.contains(evidence));
+        }
+        assert!(definition.description.contains("without claiming complete"));
     }
 }

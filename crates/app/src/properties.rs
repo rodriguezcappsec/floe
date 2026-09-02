@@ -14,8 +14,10 @@ use std::{
 };
 
 use floe_core::{
-    PermissionChange, PermissionIdentity, PermissionRequest, PermissionRequestError,
-    PermissionScope,
+    PERMISSION_AUDIT_TARGET_CAPACITY, PermissionAuditEntryState, PermissionAuditReport,
+    PermissionAuditRequest, PermissionChange, PermissionIdentity, PermissionModeFix,
+    PermissionObjectKind, PermissionProbe, PermissionRequest, PermissionRequestError,
+    PermissionScope, audit_permissions, symbolic_mode,
 };
 use gtk::{gio, gio::prelude::*};
 use rustix::fs::{AtFlags, FileType, Mode, OFlags, RawDir};
@@ -68,6 +70,8 @@ pub struct PropertiesSnapshot {
     pub inspector: InspectorFacts,
     pub filesystem: Result<FilesystemProperties, String>,
     pub recursive_folders: Arc<[RecursiveFolderProperties]>,
+    pub permission_audit: PermissionAuditReport,
+    pub permission_audit_truncated: bool,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -91,6 +95,8 @@ pub enum PropertiesError {
     Superseded,
     #[error("Inspector metadata failed: {0}")]
     Inspector(InspectorRequestError),
+    #[error("permission audit failed: {0}")]
+    PermissionAudit(String),
 }
 
 #[derive(Debug, Error)]
@@ -195,6 +201,28 @@ fn load_properties(
     let filesystem_path = request.inspector.directory.clone();
     let inspector = collect_inspector_facts(request.inspector, latest_generation, shutdown)
         .map_err(PropertiesError::Inspector)?;
+    let permission_audit_truncated =
+        inspector.selection_paths.len() > PERMISSION_AUDIT_TARGET_CAPACITY;
+    let audit_request = PermissionAuditRequest::new(
+        inspector
+            .selection_paths
+            .iter()
+            .take(PERMISSION_AUDIT_TARGET_CAPACITY)
+            .cloned()
+            .collect(),
+    )
+    .map_err(|error| PropertiesError::PermissionAudit(error.to_string()))?;
+    let permission_audit = audit_permissions(&audit_request, || {
+        latest_generation.load(Ordering::Acquire) != request.generation
+            || shutdown.load(Ordering::Acquire)
+    })
+    .map_err(|error| {
+        if matches!(error, floe_core::PermissionAuditError::Cancelled) {
+            PropertiesError::Superseded
+        } else {
+            PropertiesError::PermissionAudit(error.to_string())
+        }
+    })?;
     let filesystem =
         query_filesystem_properties(filesystem_path).map_err(|error| error.to_string());
     let mut budget = RECURSIVE_ENTRY_CAPACITY;
@@ -223,6 +251,8 @@ fn load_properties(
         inspector,
         filesystem,
         recursive_folders: recursive_folders.into(),
+        permission_audit,
+        permission_audit_truncated,
     })
 }
 
@@ -370,6 +400,24 @@ pub struct PropertiesPresentation {
     pub open_with_available: bool,
     pub checksum_available: bool,
     pub permissions: PermissionDefaults,
+    pub permission_audit: PermissionAuditPresentation,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PermissionAuditPresentation {
+    pub summary: Vec<PropertyRow>,
+    pub details: String,
+    pub fix: Option<PermissionFixPresentation>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PermissionFixPresentation {
+    pub path: PathBuf,
+    pub identity: floe_core::PermissionAuditIdentity,
+    pub object_kind: PermissionObjectKind,
+    pub original_mode: u32,
+    pub proposed_mode: u32,
+    pub reasons: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -468,6 +516,23 @@ pub fn build_permission_request(
         change,
     )
     .map_err(Into::into)
+}
+
+pub fn build_permission_fix_request(
+    fix: &PermissionFixPresentation,
+) -> Result<PermissionRequest, PermissionRequestError> {
+    let (file_mode, directory_mode) = match fix.object_kind {
+        PermissionObjectKind::Directory => (None, Some(fix.proposed_mode)),
+        PermissionObjectKind::RegularFile | PermissionObjectKind::Other => {
+            (Some(fix.proposed_mode), None)
+        }
+    };
+    PermissionRequest::new(
+        vec![fix.path.clone()],
+        PermissionScope::Direct,
+        PermissionChange::new(file_mode, directory_mode, None, None, None)?,
+    )?
+    .with_expected_identity(fix.identity)
 }
 
 fn parse_mode(value: &str) -> Option<Option<u32>> {
@@ -758,6 +823,10 @@ pub fn present(snapshot: &PropertiesSnapshot) -> PropertiesPresentation {
         has_directories: !directory_modes.is_empty(),
         editable,
     };
+    let permission_audit = present_permission_audit(
+        &snapshot.permission_audit,
+        snapshot.permission_audit_truncated,
+    );
     PropertiesPresentation {
         title,
         general,
@@ -766,7 +835,226 @@ pub fn present(snapshot: &PropertiesSnapshot) -> PropertiesPresentation {
         open_with_available: count == 1 && facts.regular_files == 1,
         checksum_available: checksum_surface_available(count, facts.regular_files),
         permissions,
+        permission_audit,
     }
+}
+
+fn present_permission_audit(
+    report: &PermissionAuditReport,
+    truncated: bool,
+) -> PermissionAuditPresentation {
+    let mut inspected = 0usize;
+    let mut finding_count = 0usize;
+    let mut high_count = 0usize;
+    let mut incomplete = usize::from(truncated);
+    let mut details = String::new();
+
+    for entry in &report.entries {
+        let name = entry
+            .path
+            .file_name()
+            .unwrap_or(entry.path.as_os_str())
+            .to_string_lossy();
+        details.push_str(&format!("{name}\n"));
+        match &entry.state {
+            PermissionAuditEntryState::Inspected(evidence) => {
+                inspected += 1;
+                finding_count += evidence.findings.len();
+                high_count += evidence
+                    .findings
+                    .iter()
+                    .filter(|finding| {
+                        finding.severity == floe_core::PermissionFindingSeverity::High
+                    })
+                    .count();
+                details.push_str(&format!(
+                    "  {} · mode {:04o} ({}) · UID {} · GID {}\n",
+                    evidence.object_kind.label(),
+                    evidence.mode,
+                    symbolic_mode(evidence.mode),
+                    evidence.uid,
+                    evidence.gid
+                ));
+                details.push_str(&format_xattr_evidence(&evidence.xattrs));
+                details.push_str(&format_immutable_evidence(&evidence.immutable));
+                details.push_str(&format_mount_evidence(&evidence.mount));
+                if evidence.findings.is_empty() {
+                    details.push_str("  Findings: none from the reviewed checks. This is not proof that access is safe or private.\n");
+                } else {
+                    details.push_str("  Findings:\n");
+                    for finding in &evidence.findings {
+                        details.push_str(&format!(
+                            "    {} — {}: {}\n",
+                            finding.severity.label(),
+                            finding.title,
+                            finding.explanation
+                        ));
+                    }
+                }
+                if let Some(fix) = &evidence.conservative_fix {
+                    details.push_str(&format!(
+                        "  Conservative mode fix available: {:04o} → {:04o}. It changes mode bits only.\n",
+                        fix.original_mode, fix.proposed_mode
+                    ));
+                }
+            }
+            PermissionAuditEntryState::SymbolicLink => {
+                incomplete += 1;
+                details.push_str("  Not inspected: symbolic links are not followed.\n");
+            }
+            PermissionAuditEntryState::Changed => {
+                incomplete += 1;
+                details.push_str("  Result discarded: the item changed during inspection.\n");
+            }
+            PermissionAuditEntryState::Inaccessible(error) => {
+                incomplete += 1;
+                details.push_str(&format!("  Not inspected: {error}.\n"));
+            }
+        }
+        details.push('\n');
+    }
+    if truncated {
+        details.push_str(&format!(
+            "Selection limited: Floe inspected the first {PERMISSION_AUDIT_TARGET_CAPACITY} exact paths.\n\n"
+        ));
+    }
+    details.push_str(
+        "Limitations: this audit is not proof that access is safe or private. Mode bits do not fully describe effective access. ACLs, mount rules, namespaces, remote services, and application sharing may differ. Floe reads xattr names, not values, and does not edit ACLs, xattrs, capabilities, immutable flags, or ownership through the conservative fix.\n",
+    );
+
+    let fix = if !truncated && report.entries.len() == 1 {
+        let entry = &report.entries[0];
+        match &entry.state {
+            PermissionAuditEntryState::Inspected(evidence) => evidence
+                .conservative_fix
+                .as_ref()
+                .map(|fix| present_fix(entry.path.clone(), fix, evidence)),
+            _ => None,
+        }
+    } else {
+        None
+    };
+
+    PermissionAuditPresentation {
+        summary: vec![
+            row(
+                "Inspected",
+                format!("{inspected} of {} item(s)", report.entries.len()),
+            ),
+            row(
+                "Findings",
+                format!("{finding_count} reviewed finding(s) · {high_count} high-attention"),
+            ),
+            row(
+                "Incomplete",
+                if incomplete == 0 {
+                    "No unsupported, changed, inaccessible, or selection-limited items".to_owned()
+                } else {
+                    format!("{incomplete} item or limit state(s); review details")
+                },
+            ),
+            row(
+                "Repair scope",
+                if fix.is_some() {
+                    "One explicit mode-bit-only proposal is available"
+                } else {
+                    "No automatic proposal; advanced metadata is inspection-only"
+                },
+            ),
+        ],
+        details,
+        fix,
+    }
+}
+
+fn present_fix(
+    path: PathBuf,
+    fix: &PermissionModeFix,
+    evidence: &floe_core::PermissionEvidence,
+) -> PermissionFixPresentation {
+    let reasons = fix
+        .reasons
+        .iter()
+        .filter_map(|kind| {
+            evidence
+                .findings
+                .iter()
+                .find(|finding| finding.kind == *kind)
+                .map(|finding| finding.title)
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    PermissionFixPresentation {
+        path,
+        identity: evidence.identity,
+        object_kind: fix.object_kind,
+        original_mode: fix.original_mode,
+        proposed_mode: fix.proposed_mode,
+        reasons,
+    }
+}
+
+fn format_xattr_evidence(evidence: &PermissionProbe<floe_core::XattrSummary>) -> String {
+    match evidence {
+        PermissionProbe::Known(summary) => format!(
+            "  Extended attributes: {} name(s), {} user, {} security; access ACL: {}; default ACL: {}; Linux file capabilities present: {}. File capabilities are optional privilege metadata, not an application-compatibility result. Values were not read.\n",
+            summary.total_names,
+            summary.user_names,
+            summary.security_names,
+            yes_no(summary.access_acl),
+            yes_no(summary.default_acl),
+            yes_no(summary.linux_capability)
+        ),
+        PermissionProbe::Unsupported => {
+            "  Extended attributes: unsupported by this filesystem or platform.\n".to_owned()
+        }
+        PermissionProbe::Limited(reason) => {
+            format!("  Extended attributes: limited ({reason}).\n")
+        }
+        PermissionProbe::Unavailable(reason) => {
+            format!("  Extended attributes: unavailable ({reason}).\n")
+        }
+    }
+}
+
+fn format_immutable_evidence(evidence: &PermissionProbe<bool>) -> String {
+    match evidence {
+        PermissionProbe::Known(value) => {
+            format!("  Immutable inode flag: {}.\n", yes_no(*value))
+        }
+        PermissionProbe::Unsupported => {
+            "  Immutable inode flag: unsupported for this item or filesystem.\n".to_owned()
+        }
+        PermissionProbe::Limited(reason) | PermissionProbe::Unavailable(reason) => {
+            format!("  Immutable inode flag: unavailable ({reason}).\n")
+        }
+    }
+}
+
+fn format_mount_evidence(evidence: &PermissionProbe<floe_core::MountContext>) -> String {
+    match evidence {
+        PermissionProbe::Known(mount) => format!(
+            "  Mount: {} at {} · {}{}{}{}.\n",
+            mount.filesystem_type.to_string_lossy(),
+            mount.mount_point.to_string_lossy(),
+            if mount.read_only {
+                "read-only"
+            } else {
+                "read-write"
+            },
+            if mount.no_exec { " · noexec" } else { "" },
+            if mount.no_suid { " · nosuid" } else { "" },
+            if mount.no_dev { " · nodev" } else { "" }
+        ),
+        PermissionProbe::Unsupported => "  Mount context: unsupported.\n".to_owned(),
+        PermissionProbe::Limited(reason) | PermissionProbe::Unavailable(reason) => {
+            format!("  Mount context: unavailable ({reason}).\n")
+        }
+    }
+}
+
+const fn yes_no(value: bool) -> &'static str {
+    if value { "yes" } else { "no" }
 }
 
 fn checksum_surface_available(selection_count: usize, regular_files: usize) -> bool {
@@ -860,6 +1148,7 @@ mod tests {
                 has_directories: false,
                 editable: true,
             },
+            permission_audit: PermissionAuditPresentation::default(),
         };
 
         let checksum_targets =
@@ -868,7 +1157,12 @@ mod tests {
         assert_ne!(checksum_targets[0], later_selection);
     }
     use floe_core::enumerate_directory;
-    use std::{fs, sync::Arc, thread};
+    use std::{
+        fs,
+        os::unix::fs::{MetadataExt, PermissionsExt},
+        sync::Arc,
+        thread,
+    };
     use tempfile::tempdir;
 
     fn request(root: &std::path::Path, generation: u64) -> PropertiesRequest {
@@ -886,6 +1180,91 @@ mod tests {
     }
 
     #[test]
+    fn phase_18r_permission_fix_is_bound_to_reviewed_identity_and_changes_only_mode() {
+        let fixture = tempdir().expect("permission fix fixture");
+        let path = fixture.path().join(".env");
+        fs::write(&path, b"synthetic value").expect("write fixture");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o666)).expect("set risky mode");
+
+        let report = audit_permissions(
+            &PermissionAuditRequest::new(vec![path.clone()]).expect("audit request"),
+            || false,
+        )
+        .expect("audit fixture");
+        let presentation = present_permission_audit(&report, false);
+        let fix = presentation.fix.expect("conservative fix");
+        assert_eq!(fix.original_mode, 0o666);
+        assert_eq!(fix.proposed_mode, 0o600);
+        assert!(fix.reasons.contains("Sensitive-looking file"));
+
+        let stale_request = build_permission_fix_request(&fix).expect("bound fix request");
+        fs::write(&path, b"replacement value changed after review").expect("change source");
+        assert!(matches!(
+            crate::permission_executor::execute_permission_change(
+                &stale_request,
+                || false,
+                |_| {}
+            ),
+            Err(crate::permission_executor::PermissionError::SourceChanged(changed))
+                if changed == path
+        ));
+        assert_eq!(
+            fs::symlink_metadata(&path).expect("stale mode").mode() & 0o7777,
+            0o666
+        );
+
+        let refreshed = audit_permissions(
+            &PermissionAuditRequest::new(vec![path.clone()]).expect("refreshed request"),
+            || false,
+        )
+        .expect("refreshed audit");
+        let refreshed_fix = present_permission_audit(&refreshed, false)
+            .fix
+            .expect("refreshed fix");
+        let request = build_permission_fix_request(&refreshed_fix).expect("fresh fix request");
+        let outcome =
+            crate::permission_executor::execute_permission_change(&request, || false, |_| {})
+                .expect("apply conservative fix");
+        assert_eq!(outcome.changed(), 1);
+        assert_eq!(
+            fs::symlink_metadata(&path).expect("fixed mode").mode() & 0o7777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn phase_18r_permission_ui_model_explains_evidence_limits_and_fix_scope() {
+        let fixture = tempdir().expect("permission UI fixture");
+        let path = fixture.path().join("private.key");
+        fs::write(&path, b"synthetic key fixture").expect("write fixture");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o604)).expect("set fixture mode");
+        let report = audit_permissions(
+            &PermissionAuditRequest::new(vec![path]).expect("audit request"),
+            || false,
+        )
+        .expect("audit fixture");
+        let presentation = present_permission_audit(&report, false);
+        for required in [
+            "mode 0604",
+            "UID",
+            "GID",
+            "Extended attributes",
+            "access ACL",
+            "Linux file capabilities present",
+            "Immutable inode flag",
+            "Mount:",
+            "not proof that access is safe or private",
+            "does not edit ACLs, xattrs, capabilities, immutable flags, or ownership",
+        ] {
+            assert!(
+                presentation.details.contains(required),
+                "missing presentation contract: {required}"
+            );
+        }
+        assert!(presentation.fix.is_some());
+    }
+
+    #[test]
     fn phase_10c_properties_model_preserves_exact_single_and_truthful_multi_values() {
         let root = tempdir().expect("root");
         fs::write(root.path().join("a.txt"), b"a").expect("a");
@@ -898,6 +1277,8 @@ mod tests {
             inspector: facts,
             filesystem: Err("fixture".to_owned()),
             recursive_folders: Arc::from([]),
+            permission_audit: PermissionAuditReport::default(),
+            permission_audit_truncated: false,
         });
         assert_eq!(presentation.title, "2 Items");
         assert!(
@@ -984,6 +1365,8 @@ mod tests {
             },
             filesystem: Err("fixture".to_owned()),
             recursive_folders: Arc::from([]),
+            permission_audit: PermissionAuditReport::default(),
+            permission_audit_truncated: false,
         };
 
         let presentation = present(&snapshot_for(AdvancedMetadataState::Present(

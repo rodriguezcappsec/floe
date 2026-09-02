@@ -688,6 +688,7 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
                         gtk::accessible::Property::Label(item.title),
                         gtk::accessible::Property::Description(item.description),
                     ]);
+                    button.set_tooltip_text(Some(item.description));
                     if let Some(action) = item.action {
                         action_buttons.push((action, button.clone()));
                     }
@@ -740,6 +741,7 @@ pub fn build(preferences: &ViewPreferences) -> SettingsCenterWidgets {
     body.append(&scroll);
     toolbar.set_content(Some(&body));
     dialog.set_child(Some(&toolbar));
+    crate::contextual_help::install_on_tree(&dialog);
 
     SettingsCenterWidgets {
         dialog,
@@ -785,6 +787,7 @@ fn dropdown(
         gtk::accessible::Property::Label(accessible_label),
         gtk::accessible::Property::Description(accessible_description),
     ]);
+    dropdown.set_tooltip_text(Some(accessible_description));
     dropdown
 }
 
@@ -797,6 +800,7 @@ fn settings_switch(active: bool, label: &str, description: &str) -> gtk::Switch 
         gtk::accessible::Property::Label(label),
         gtk::accessible::Property::Description(description),
     ]);
+    toggle.set_tooltip_text(Some(description));
     toggle
 }
 
@@ -805,17 +809,23 @@ fn control_row(definition: &SettingDefinition, control: &impl IsA<gtk::Widget>) 
         .title(escaped_markup(definition.title))
         .subtitle(escaped_markup(definition.description))
         .build();
+    row.set_tooltip_text(Some(definition.description));
+    control
+        .as_ref()
+        .set_tooltip_text(Some(definition.description));
     row.add_suffix(control);
     row.set_activatable_widget(Some(control));
     row
 }
 
 fn info_row(definition: &SettingDefinition) -> adw::ActionRow {
-    adw::ActionRow::builder()
+    let row = adw::ActionRow::builder()
         .title(escaped_markup(definition.title))
         .subtitle(escaped_markup(definition.description))
         .activatable(false)
-        .build()
+        .build();
+    row.set_tooltip_text(Some(definition.description));
+    row
 }
 
 fn escaped_markup(text: &str) -> gtk::glib::GString {
@@ -848,6 +858,59 @@ mod tests {
             assert!(SETTINGS.iter().any(|item| item.section == section));
             assert!(!section.title().trim().is_empty());
             assert!(!section.description().trim().is_empty());
+        }
+    }
+
+    #[test]
+    fn phase_20c_settings_help_is_complete_and_more_than_a_label() {
+        for definition in SETTINGS {
+            assert!(!definition.description.trim().is_empty());
+            assert_ne!(definition.description.trim(), definition.title.trim());
+            assert!(definition.description.len() <= 180);
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a real disposable GTK display"]
+    fn phase_testing_gtk_phase_20c_settings_controls_have_hover_help() {
+        gtk::init().expect("GTK initialization");
+        let widgets = build(&ViewPreferences::default());
+        let controls = [
+            widgets.appearance.clone().upcast::<gtk::Widget>(),
+            widgets.color_scheme.clone().upcast(),
+            widgets.font_family.clone().upcast(),
+            widgets.font_scale.clone().upcast(),
+            widgets.appearance_reset.clone().upcast(),
+            widgets.icon_style.clone().upcast(),
+            widgets.default_view.clone().upcast(),
+            widgets.click_policy.clone().upcast(),
+            widgets.remember_folder_view.clone().upcast(),
+            widgets.vim_navigation.clone().upcast(),
+            widgets.grid_size.clone().upcast(),
+            widgets.file_density.clone().upcast(),
+            widgets.sidebar_density.clone().upcast(),
+            widgets.search_index.clone().upcast(),
+            widgets.metadata_sort_cache.clone().upcast(),
+            widgets.clamav_file_limit.clone().upcast(),
+            widgets.clamav_total_limit.clone().upcast(),
+            widgets.privileged_access.clone().upcast(),
+            widgets.reduced_motion.clone().upcast(),
+        ];
+        for control in controls {
+            assert!(
+                control
+                    .tooltip_text()
+                    .is_some_and(|help| !help.trim().is_empty()),
+                "{} lacks hover help",
+                control.type_().name()
+            );
+        }
+        for (_, button) in &widgets.action_buttons {
+            assert!(
+                button
+                    .tooltip_text()
+                    .is_some_and(|help| !help.trim().is_empty())
+            );
         }
     }
 

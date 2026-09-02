@@ -91,8 +91,10 @@ use different development-package names.
   Undo/Redo recovery review.
 - Searchable Settings, five appearance presets, text scale, reduced motion,
   customizable shortcuts, optional Vim navigation, and direct-argv actions.
+- Native contextual help for toolbar controls, settings, command-backed buttons,
+  and model-backed menus, paired with GTK accessibility descriptions.
 - Natural filename sorting, renameable/reorderable bookmarks, a persistent collapsible sidebar, optional path-free completion notifications, on-demand SHA-256 from Inspector/Properties, and Owner/Group/Path/Link Target list columns.
-- Required Bubblewrap isolation for installed thumbnail/Preview helpers; explainable suspicious-file and metadata inspection; optional local `clamd` scanning with bounded user-configurable file/request limits; preview-confirmed, source-preserving JPEG/PNG/WebP sanitized copies. A persistent Background Activity panel keeps running, cancellation, results, and reveal feedback visible while browsing or after returning to Floe.
+- Required Bubblewrap isolation for installed thumbnail/Preview helpers; explainable suspicious-file, metadata, and Unix permission auditing; optional local `clamd` scanning with bounded user-configurable file/request limits; preview-confirmed, source-preserving JPEG/PNG/WebP sanitized copies. A persistent Background Activity panel keeps running, cancellation, results, and reveal feedback visible while browsing or after returning to Floe.
 
 ## Keyboard entry points
 
@@ -168,4 +170,9 @@ and [AGENTS.md](./AGENTS.md) before changing the project.
 
 ## Project status
 
-Phase 23H multi-window runtime/session hardening and Phases 18L, 18N/18N2, 18O, and 18P's bounded local privacy/safety tools are implemented. Open Safely was intentionally removed from current scope; Phase 18R **Permission Auditor** is the sole recommended next phase. The [Roadmap](./docs/ROADMAP.md) is the sequencing authority; code and tests determine completion.
+Phase 23H multi-window runtime/session hardening, Phase 18R Permission Auditor,
+Phase 20C contextual help, and the bounded local privacy/safety tools are
+implemented. Open Safely was intentionally removed from the current scope. Phase
+19A **Git awareness** is the sole recommended next phase. The
+[Roadmap](./docs/ROADMAP.md) is the sequencing authority; code and tests determine
+completion.

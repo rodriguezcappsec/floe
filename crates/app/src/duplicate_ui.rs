@@ -221,6 +221,7 @@ pub fn present_duplicate_setup(
     content.append(&scope_row);
     content.append(&actions);
     window.set_child(Some(&content));
+    crate::contextual_help::install_on_tree(&window);
 
     let weak_window = window.downgrade();
     cancel.connect_clicked(move |_| {
@@ -329,6 +330,7 @@ impl DuplicateProgressDialog {
         content.append(&status);
         content.append(&cancel);
         window.set_child(Some(&content));
+        crate::contextual_help::install_on_tree(&window);
         window.present();
         Self { window, status }
     }
@@ -538,6 +540,7 @@ pub fn present_duplicate_review(
         }
     });
     window.set_child(Some(&root));
+    crate::contextual_help::install_on_tree(&window);
     window.present();
 }
 

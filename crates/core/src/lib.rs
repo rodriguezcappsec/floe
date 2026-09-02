@@ -20,6 +20,7 @@ mod model;
 mod move_operation;
 mod navigation;
 mod permanent_delete;
+mod permission_audit;
 mod permissions;
 mod replace;
 mod saved_search;
@@ -127,6 +128,13 @@ pub use navigation::{Breadcrumb, NavigationState, RECENT_LOCATION_CAPACITY, brea
 pub use permanent_delete::{
     PermanentDeleteError, PermanentDeleteOutcome, PermanentDeleteProgress, PermanentDeleteRequest,
     PermanentDeleteRequestError, execute_permanent_delete,
+};
+pub use permission_audit::{
+    MountContext, PERMISSION_AUDIT_TARGET_CAPACITY, PermissionAuditEntry,
+    PermissionAuditEntryState, PermissionAuditError, PermissionAuditIdentity,
+    PermissionAuditReport, PermissionAuditRequest, PermissionEvidence, PermissionFinding,
+    PermissionFindingKind, PermissionFindingSeverity, PermissionModeFix, PermissionObjectKind,
+    PermissionProbe, XattrSummary, audit_permissions, permission_findings, symbolic_mode,
 };
 pub use permissions::{
     PERMISSION_IDENTITY_NAME_CAPACITY, PERMISSION_TARGET_CAPACITY, PermissionChange,

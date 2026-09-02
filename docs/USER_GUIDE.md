@@ -63,6 +63,12 @@ use their **Open** buttons for Keyboard Shortcuts, Context Menu Contents, the
 preferred terminal, operation history, Recovery Center, Protected Folders, and
 desktop integration. Irreversible-operation confirmations cannot be disabled.
 
+Hover a control, setting, toolbar button, or menu command for a short explanation
+of what it does. Keyboard focus and assistive technology receive the same
+description. Settings also keep their explanation visible below the setting name,
+so essential information never depends on hover alone. Full paths and specialized
+controls retain their more specific help instead of being replaced by generic text.
+
 Floe follows GTK desktop settings for system text, contrast, focus, and
 assistive technology. Phase 20B2 adds explicit non-color group/pane cues,
 focusable collapsible headings, reduced-motion behavior, and direction-isolated
@@ -557,6 +563,23 @@ adds filesystem details, aggregate folder facts, Open With information,
 permissions, and advanced metadata where available. Permission editing is an
 explicit background operation with risk acknowledgement and no-follow checks.
 
+### Permission Audit
+
+Select one or more local items and choose **Audit Permissions…** from the
+right-click **Privacy & Safety** submenu, the main menu/command palette, or open
+**Properties → Review Permission Audit…**. Floe inspects at most 128 exact paths
+in the background and reports Unix mode, numeric owner/group, mount restrictions,
+ACL and extended-attribute name presence, Linux file capabilities, and the
+immutable inode flag where the filesystem allows those queries. Links are not
+followed; changed, inaccessible, unsupported, and limited items remain visible.
+
+The report is evidence, not proof that an item is safe, private, or inaccessible
+to others. Floe reads extended-attribute names rather than their values. For one
+world-writable or sensitive-looking file, **Review Conservative Fix…** previews
+an identity-bound Unix-mode change. Applying it changes only the shown
+group/other mode bits. It does not edit ownership, ACLs, xattrs, capabilities,
+immutable flags, or administrator resources.
+
 Some document thumbnails and previews depend on installed freedesktop provider applications. Floe runs those external helpers only through the required Phase 18L Bubblewrap boundary. If Bubblewrap cannot establish exact target-only/no-network isolation, the provider result is unavailable rather than retried with normal user authority.
 
 ## Archives
@@ -765,7 +788,7 @@ Image previews use Floe's built-in reviewed decoders. PDF, office, video, and ot
 
 ### local ClamAV scan is unavailable
 
-Floe does not install or start ClamAV. Install the appropriate ClamAV daemon package for your distribution, update its signatures, and start `clamd`. Floe reviews common local sockets under `/run/clamav`, `/run/clamd.scan`, and `/var/run/clamav`; it does not accept arbitrary remote scanners. Check the distribution service log if the daemon exists but its Unix socket is inaccessible. `clamd` can independently enforce a lower `StreamMaxLength`, `MaxFileSize`, or engine limit. Raising Floe's setting does not override the daemon configuration; an affected result remains **not scanned** and includes the daemon's response.
+Floe does not install or start ClamAV. Install the appropriate ClamAV daemon package for your distribution, update its signatures, and start `clamd`. Floe reviews common local sockets under `/run/clamav`, `/run/clamd.scan`, and `/var/run/clamav`; it does not accept arbitrary remote scanners. Check the distribution service log if the daemon exists but its Unix socket is inaccessible. `clamd` can independently enforce a lower `StreamMaxLength`, `MaxFileSize`, or engine limit. Raising Floe's setting does not override the daemon configuration. If `clamd` closes `INSTREAM` after enforcing a limit, Floe recovers its pending terminal response and reports the affected file as **not scanned** with the daemon's reason instead of a generic broken-pipe error. A close without a valid terminal response remains a communication failure.
 
 ### A command is disabled
 

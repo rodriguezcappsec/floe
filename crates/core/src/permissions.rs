@@ -7,6 +7,8 @@ use std::{
 
 use thiserror::Error;
 
+use crate::permission_audit::PermissionAuditIdentity;
+
 pub const PERMISSION_TARGET_CAPACITY: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -88,6 +90,7 @@ pub struct PermissionRequest {
     targets: Vec<PathBuf>,
     scope: PermissionScope,
     change: PermissionChange,
+    expected_identity: Option<PermissionAuditIdentity>,
 }
 
 impl PermissionRequest {
@@ -120,7 +123,19 @@ impl PermissionRequest {
             targets,
             scope,
             change,
+            expected_identity: None,
         })
+    }
+
+    pub fn with_expected_identity(
+        mut self,
+        identity: PermissionAuditIdentity,
+    ) -> Result<Self, PermissionRequestError> {
+        if self.targets.len() != 1 || self.scope != PermissionScope::Direct {
+            return Err(PermissionRequestError::ExpectedIdentityScope);
+        }
+        self.expected_identity = Some(identity);
+        Ok(self)
     }
 
     pub fn targets(&self) -> &[PathBuf] {
@@ -131,6 +146,10 @@ impl PermissionRequest {
     }
     pub const fn change(&self) -> &PermissionChange {
         &self.change
+    }
+
+    pub const fn expected_identity(&self) -> Option<PermissionAuditIdentity> {
+        self.expected_identity
     }
     pub const fn requires_confirmation(&self) -> bool {
         matches!(self.scope, PermissionScope::Recursive) || self.change.changes_ownership()
@@ -192,6 +211,8 @@ pub enum PermissionRequestError {
     InvalidMode(u32),
     #[error("local owner/group name is invalid")]
     InvalidIdentityName(OsString),
+    #[error("an audited identity can bind only one direct permission target")]
+    ExpectedIdentityScope,
 }
 
 #[cfg(test)]

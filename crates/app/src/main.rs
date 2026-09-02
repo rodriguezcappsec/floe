@@ -16,6 +16,7 @@ mod command_registry;
 mod completeness;
 mod content_search;
 mod context_menu;
+mod contextual_help;
 pub mod copy_executor;
 pub mod create_executor;
 mod custom_actions;

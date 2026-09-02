@@ -312,7 +312,13 @@ rather than erased.
 
 ### PLANNED and unavailable today
 
-Portable encryption, recipient encryption, encrypted vaults, recovery keys, privacy sessions, Sensitive Folders, Private Mode, Privacy Lock, privacy-safe caches and history, sandboxed providers, suspicious-file analysis, metadata sanitization, permission auditing, sensitive-content scanning remain planned. No current Cargo dependency implements cryptography or a sandbox.
+Portable encryption, recipient encryption, encrypted vaults, recovery keys,
+privacy sessions, Sensitive Folders, Private Mode, Privacy Lock, privacy-safe
+caches and history, and sensitive-content scanning remain planned. Sandboxed
+providers, suspicious-file analysis, metadata sanitization, and permission
+auditing are implemented only within the bounded evidence and limitation sections
+below. No current Cargo dependency implements cryptography; external provider
+execution requires the separately installed Bubblewrap boundary.
 
 ## Security objectives and intended protections
 
@@ -754,7 +760,7 @@ Status: **IMPLEMENTED within Phase 18N/18N2's local evidence boundary**.
 
 **Scan with Local ClamAV…** is optional and requires a separately installed, configured, running `clamd`. Floe does not link `libclamav`, bundle signatures, invoke a shell, or upload data. It connects only to reviewed local Unix socket locations, requests the engine version, and streams exact no-follow regular-file bytes through `INSTREAM` in bounded chunks. Directory traversal is local, bounded, same-device, depth-limited, and never follows symbolic links. The user selects a 1–16384 MiB per-file limit (default 1024 MiB) and a 1–1024 GiB total-request limit (default 16 GiB); Floe normalizes the total to at least the per-file capacity and snapshots both values into each request. Traversal remains capped at 100,000 files/directories and retained findings at 4,096. Source device/inode/size/mtime/ctime is revalidated.
 
-The local daemon remains a separate policy boundary. Its `StreamMaxLength`, `MaxFileSize`, archive, or engine limits may be lower than Floe's configured limits. Floe reports daemon refusals as **not scanned** and never implies that increasing an application limit overrides `clamd` policy. Preferences are bounded before persistence and again when constructing an immutable scan request; changing Settings cannot retroactively alter a running scan.
+The local daemon remains a separate policy boundary. Its `StreamMaxLength`, `MaxFileSize`, archive, or engine limits may be lower than Floe's configured limits. If the daemon closes `INSTREAM` early with `EPIPE`, connection reset, or connection abort, Floe reads the existing bounded response channel and accepts only a valid detected or not-scanned terminal response after source revalidation. A partial-stream `OK`, malformed response, absent response, timeout, or unrelated I/O error remains a communication failure. Floe reports valid daemon refusals as **not scanned** and never implies that increasing an application limit overrides `clamd` policy. Preferences are bounded before persistence and again when constructing an immutable scan request; changing Settings cannot retroactively alter a running scan.
 
 Outcomes distinguish **signature reported**, **no known signature reported**, **not scanned**, **changed**, **cancelled**, **limit reached**, daemon/protocol error, and scanner unavailable. Cancellation during the initial daemon handshake or a file stream remains cancellation rather than a communication failure. Process-wide generations and bounded result routing prevent one Floe window from consuming or cancelling another window's scan. A digest or no-signature result is never described as safe, clean, trusted, or malware-free. Floe does not quarantine, delete, move, or open any result automatically. Paths and signatures remain memory-only presentation state and are not added to normal logs or notifications.
 
@@ -875,13 +881,41 @@ Status: **PLANNED**.
 - Create Sanitized Copy preserves the original, lists targeted fields, uses a reviewed format-specific writer, finalizes safely, and verifies supported fields. “All metadata removed” is prohibited without exhaustive format-specific verification.
 - Share-time warnings are evidence-based and restrained. Secure Share sequences inspect, optionally sanitize, optionally encrypt, optionally hash, and create a new output. It never silently modifies the original.
 
-## Permission auditor and sensitive-content scanner
+## Permission auditor
+
+Status: **IMPLEMENTED within Phase 18R's local evidence boundary**.
+
+**Audit Permissions…** is available from the selected-file context menu,
+command palette/header menu, and Properties. The existing Properties worker
+inspects at most 128 exact local paths off the GTK thread. It uses no-follow
+metadata, revalidates device, inode, size, mode, UID/GID, mtime, and ctime, and
+reports symbolic links, changes, inaccessible items, selection limits,
+unsupported filesystem capabilities, and query failures explicitly.
+
+For successfully inspected entries Floe reports numeric and symbolic Unix modes,
+numeric owner/group IDs, the enclosing mount/filesystem and read-only, noexec,
+nosuid, and nodev flags, a bounded 64 KiB list of extended-attribute names,
+POSIX ACL attribute presence, `security.capability` presence, and the Linux
+immutable inode flag where supported. It does not read or display xattr, ACL, or
+capability values. Findings explain exact reviewed evidence such as world write,
+owning-group write, sensitive-looking key/credential filenames with group/other
+access, set-ID/sticky bits, foreign numeric ownership, ACL presence, file
+capabilities, and immutable state. Filename heuristics do not inspect content and
+are not a malware or exposure verdict.
+
+Mode bits alone can be incomplete because of ACLs, mount semantics, remote
+backends, namespaces, or application-level sharing. The only suggested repair is
+an explicit preview for one inspected item: remove `other-write`, or remove all
+group/other bits from a sensitive-looking regular filename. The proposal
+preserves owner and special bits, is bound to the reviewed source identity, and
+reuses the bounded Phase 10D permission executor. It never changes ownership,
+ACLs, xattrs, capabilities, immutable flags, or administrator resources and never
+elevates Floe. Stale identity, cancellation, failure, and committed operation
+outcomes remain explicit.
+
+## Sensitive-content scanner
 
 Status: **PLANNED**.
-
-The permission auditor explains Unix modes, owner and group, POSIX ACLs, xattrs, capabilities, immutable attributes, and mount context only when queried successfully. Findings such as world-writable or broadly readable private keys include exact evidence and scope.
-
-Mode bits alone can be incomplete because of ACLs, mount semantics, remote backends, namespaces, or application-level sharing. Automatic repair is out of scope until every transformation has explicit semantics, rollback, symlink policy, and tests.
 
 The sensitive-content scanner is local, opt-in, bounded, cancellable, and heuristic. It may identify possible private keys, `.env` secrets, API-like tokens, cloud or SSH credentials, password exports, and database dumps without displaying or logging full values.
 

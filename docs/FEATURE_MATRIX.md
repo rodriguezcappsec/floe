@@ -9,9 +9,10 @@ The generic desktop integration baseline is Phase 14; Phase 18A's
 documentation-only security architecture, runtime Phases 18T–18Y, and Phase
 20A Settings Center are complete. Phase 21B packaging and migrations, Phase
 21C release documentation, and Phase 21D release-candidate hardening are
-complete. Phase 6V selection and operation reveal polish is complete. Phase 6W
-Undo Trash is the only `NEXT` phase.
-Every other future capability remains `PLANNED` or
+complete. Phase 6V selection and operation reveal polish and Phase 6W Undo Trash
+are complete. Phase 18R permission auditing and Phase 20C contextual help are
+complete. Phase 19A Git awareness
+is the only `NEXT` phase. Every other future capability remains `PLANNED` or
 `DEFERRED`.
 
 The pre-6W reliability checkpoint also makes nested Copy/Move cancellation and
@@ -244,7 +245,7 @@ job/session ownership remains Phase 23H.
 | Foreground/background folder open | `COMPLETE` | 7B | List/grid menu and middle-click background open retain focus; foreground open restores the new tab. |
 | Optional tab names | `DEFERRED` | 7C | Add only after default path-derived naming is stable. |
 | Pinned tabs | `DEFERRED` | 7C | Requires clear session persistence and close semantics. |
-| Session restore | `PLANNED` | 7C | Must be versioned and suppressed in Private/Sensitive modes. |
+| Session restore | `COMPLETE` | 7C/23H | Versioned bounded tab, split-pane, view, and multi-window state restores across clean normal-mode restarts; Selection Mode is suppressed and future Private/Sensitive modes must remain suppression-aware. |
 | Middle-click folder opens tab | `PLANNED` | 7B | Requires pointer parity with an explicit context/command action. |
 | Middle-click tab closes tab | `COMPLETE` | 7B/20B3 | Pointer gesture closes by stable tab ID; separately labelled close action and Ctrl+W remain accessible alternatives. |
 | Drag tabs | `COMPLETE` | 7B | Stable tab IDs, not indices, own reorder identity. |
@@ -305,7 +306,7 @@ job/session ownership remains Phase 23H.
 | Expandable tree view | `DEFERRED` | 20 | Optional; Miller mode is the primary spatial hierarchy investment. |
 | No thumbnail-induced layout jumps | `COMPLETE` | 6C-6G | Stable icon slots and fallbacks reserve presentation geometry. |
 | Name sorting | `COMPLETE` | 6B | Raw path bytes provide deterministic tie-breakers. |
-| Natural name sorting | `PLANNED` | 6T/10B/20 | Needs locale/path-safe policy and stable async ordering. |
+| Natural name sorting | `COMPLETE` | 23C | Persistent raw-byte-safe ordering handles arbitrarily long digit runs, leading zeros, ASCII case folding, and deterministic non-UTF-8 ties while composing with direction, folder placement, grouping, and per-folder policy. |
 | Type sorting | `COMPLETE` | 6B | Uses current coarse textual entry kind. |
 | Size sorting | `COMPLETE` | 6B | Unknown values remain last. |
 | Modified sorting | `COMPLETE` | 6B | Unknown values remain last. |
@@ -480,7 +481,7 @@ advanced predicates and explicit Match Case control.
 | XDG Places | `COMPLETE` | 6K | Home plus every distinct existing standard XDG user directory. |
 | Exact-path bookmarks | `COMPLETE` | 6K/23H | Versioned raw-path format with bounded async private atomic persistence. All normal/restored windows observe one application-owned catalog and one persistence worker; Selection Mode receives neither. |
 | Add/remove bookmark | `COMPLETE` | 6K | Current folder can be added; explicit adjacent control removes a bookmark. |
-| Reorder/rename bookmark | `PLANNED` | 20 | Preserve raw path identity; rename affects display label only. |
+| Reorder/rename bookmark | `COMPLETE` | 23D | One compact bookmark-options menu renames/resets labels, reorders, and removes entries while preserving exact raw path identity and temporarily missing destinations. |
 | Bookmark custom icon | `DEFERRED` | 20 | Only if worthwhile after core bookmark editing. |
 | Trash and Recent sidebar entries | `PARTIAL` | 6N/14 | Trash is a first-class sidebar location; Recent still needs standards integration and a privacy-safe history policy. |
 | Favorites | `PARTIAL` | 6K/19 | Bookmarks cover favorite locations; richer file favorites/tags are not designed. |
@@ -491,13 +492,13 @@ advanced predicates and explicit Match Case control.
 | Device label and free space | `COMPLETE` | 6K/6T/20B3 | Device rows preserve the GIO name as the primary line and show bounded generation-checked available capacity below it; both labels are single-line, end-ellipsized, and tooltip-backed, with read-only detail only when known. |
 | Sidebar width persistence/reset | `COMPLETE` | 6K2 | 128-480 px, 320 ms debounce, startup restore, appearance-default reset. |
 | Top-level window size persistence | `COMPLETE` | 20B2A | Restores one bounded normal width/height tuple through private version-17 preferences; GDK surface changes are debounced and maximized/fullscreen allocations are excluded. Wayland position, monitor, workspace, and compositor state are not stored. |
-| Sidebar collapsed mode | `PLANNED` | 20 | Must retain accessible destinations and restore width predictably. |
+| Sidebar collapsed mode | `COMPLETE` | 23E | Persistent accessible 56px icon rail hides only visual labels and restores the separately remembered expanded width predictably. |
 | Selection-aware file context menu | `COMPLETE` | 5C/6J/10C/12F | List, grid, and Miller share one live selection-aware model with fixed Open/edit/Trash/Delete/Properties actions, default Archives/Batch rename/Links/Terminal/Split groups, optional Copy details/Checksums, and always-reachable customization; Trash retains its purpose-specific model. |
 | Directory-background context menu | `COMPLETE` | 6J/12F | Shared list/grid/Miller background model keeps creation, Paste, Select All, Refresh, Edit Location, and customization fixed while Terminal and Split View groups follow the same preference. |
 | Expanded context actions | `PARTIAL` | 12-19 | Phase 12F integrates archive, batch rename, links, copy details, checksums, terminal, and split actions. Arbitrary external/plugin commands, per-MIME rules, privacy, and safe-open actions remain with their owning later phases. |
 | Avoid giant context-menu wall | `COMPLETE` | 11A/12F | Common actions remain direct, related productivity actions use coherent submenus/sections, and seven bounded optional groups can be shown or hidden without hiding essential recovery/destructive/property/customization access. |
 | Context-menu customization | `COMPLETE` | 12F | Native keyboard-accessible editor controls seven reviewed group IDs with deterministic defaults/order, explicit reset/apply, version-8 asynchronous persistence, shared list/grid/Miller updates, and fixed access to customization itself. Reordering, arbitrary commands, plugins, and per-MIME profiles remain deferred. |
-| Central command registry | `COMPLETE` | 11A/11C-11E/12F | 69 bounded human-readable commands map to existing GActions; live enabled state remains authoritative, effective accelerators and reviewed placements are centralized, and internal parameterized plumbing is excluded. |
+| Central command registry | `COMPLETE` | 11A/11C-11E/12F/18R | 105 bounded human-readable commands map to existing GActions; live enabled state remains authoritative, effective accelerators and reviewed placements are centralized, and internal parameterized plumbing is excluded. |
 | Command palette / Ctrl+Shift+P | `COMPLETE` | 11B | Native bounded metadata-only search delegates to live GActions, exposes disabled context, keyboard/accessibility semantics, and 16-entry memory-only recents. |
 | Customizable shortcuts | `COMPLETE` | 11C/12F/14B | Version-8 preferences support at most 128 command overrides and four bindings per normal/recoverable command, exact conflict feedback, disabling, individual/all reset, legacy migration, and asynchronous persistence. Confirmation-required and irreversible bindings retain reviewed defaults. |
 | Optional Vim mode | `COMPLETE` | 11D | Explicit persisted opt-in adds h/j/k/l, g/G, and o only on list/grid/Miller file-view controllers; modifiers, entries, search, spin, text views, and dialogs retain native behavior. |
@@ -641,7 +642,7 @@ advanced predicates and explicit Match Case control.
 | Optional quarantine area | `DEFERRED` | 18N/19 | Only with restore/original-path records and a separately reviewed restricted-review flow; never market as antivirus quarantine. |
 | Inspect Read-Only | `COMPLETE` | 9/18L | Built-ins stay passive; external thumbnail/preview providers run only inside the active required Bubblewrap policy and fail unavailable rather than fall back. |
 | Antivirus protection claim | `NOT APPLICABLE` | Policy | Floe does not claim antivirus protection; optional separately installed local `clamd` scanning reports only engine evidence and never calls a no-signature result safe. |
-| Optional local ClamAV scanning | `COMPLETE` | 18N2 | Streams bounded no-follow regular-file bytes to reviewed local `clamd` Unix sockets, revalidates identity, preserves cancellation as a distinct outcome, routes results by process-wide generation across windows, and performs no automatic mutation or upload. Settings persist bounded 1–16384 MiB per-file and 1–1024 GiB total-request limits with conservative 1/16 GiB defaults; each scan snapshots and reports its exact limits while independent daemon limits remain authoritative. |
+| Optional local ClamAV scanning | `COMPLETE` | 18N2 | Streams bounded no-follow regular-file bytes to reviewed local `clamd` Unix sockets, revalidates identity, preserves cancellation as a distinct outcome, routes results by process-wide generation across windows, and performs no automatic mutation or upload. Settings persist bounded 1–16384 MiB per-file and 1–1024 GiB total-request limits with conservative 1/16 GiB defaults; each scan snapshots and reports its exact limits while independent daemon limits remain authoritative. Early `EPIPE`/reset closes recover only valid pending detected/not-scanned terminal responses; partial-stream `OK`, malformed, or absent responses remain communication failures. |
 | Sandbox claim without active sandbox | `NOT APPLICABLE` | Policy | Strictly prohibited. |
 
 ## Metadata privacy, permissions, and local sensitive scanning
@@ -654,8 +655,8 @@ advanced predicates and explicit Match Case control.
 | Batch metadata sanitization | `COMPLETE` | 18P | Up to 128 exact local sources run on one bounded worker with between-item cancellation, partial per-item results, private staging, and source preservation. |
 | Share-time privacy warning | `PLANNED` | 18Q | Risk-based, non-noisy warning with Remove & Share, Share Anyway, Cancel. |
 | Secure Share | `PLANNED` | 18Q | Depends on inspection, sanitization, portable encryption, recipient support, and checksums. |
-| Unix permission auditor | `PLANNED` | 18R | Explain world-readable/writable and sensitive-key exposure in symbolic and numeric forms. |
-| ACL/xattr/capabilities/immutable inspection | `PLANNED` | 18R | Advanced editing remains separate and deliberate. |
+| Unix permission auditor | `COMPLETE` | 18R | Properties and the file context/command surfaces expose bounded local no-follow mode, UID/GID, mount, and evidence-based risk review for up to 128 exact selected paths; changed, linked, inaccessible, and limited results remain explicit. |
+| ACL/xattr/capabilities/immutable inspection | `COMPLETE` | 18R | Reads bounded attribute names, not values, and queries inode flags only where supported. Advanced metadata remains inspection-only; a single-item identity-bound preview may remove only reviewed risky group/other mode bits. |
 | Local sensitive-content scanner | `PLANNED` | 18S | Explicit opt-in, local-only, cancellable heuristic scanning without exposing secret values/logs. |
 | Developer secret warnings | `PLANNED` | 18S | Conservative `.env`/SSH/private-key warnings before share or removable transfer; user may proceed. |
 | Malware-detection claim for scanner | `NOT APPLICABLE` | Policy | The scanner identifies possible secrets, not malware. |
@@ -731,7 +732,7 @@ These small behaviors are acceptance requirements, not optional polish.
 | Exact bytes in details | `COMPLETE` | 10C | Properties reports exact byte totals alongside human-readable values for eligible selections and bounded folder totals. |
 | Relative dates plus exact timestamp | `PLANNED` | 10B/20 | Exact value remains available in Inspector. |
 | Async folder-size calculation | `COMPLETE` | 10C | Explicit Properties demand uses cancellable descriptor-relative no-follow traversal with entry and depth bounds plus truncation evidence. |
-| Sensible tooltips | `PARTIAL` | 0-6K2/20 | Current icon controls and ellipsized names use tooltips; full audit remains. |
+| Sensible tooltips | `COMPLETE` | 0-6K2/20C | Central command descriptions drive native hover help and matching accessible descriptions for action widgets and model-backed menus. All 31 Settings Center features retain visible subtitles and matching control/row tooltips; explicit path and specialized-control help is preserved. A real-GTK full main-control-tree audit covers direct and parent-owned help. |
 | Minimal confirmation friction | `COMPLETE` | 4F | Recoverable Move to Trash is not needlessly confirmed. |
 | Strong irreversible confirmation | `COMPLETE` | 6M/18X | Permanent delete retains its irreversible confirmation and adds exact action/scope/risk guardrail review where required. |
 | No focus stealing after jobs | `PARTIAL` | 4B-6K2/20 | Operations Island is non-modal; full notification/recovery audit remains. |

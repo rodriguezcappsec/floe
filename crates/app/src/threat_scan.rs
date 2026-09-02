@@ -263,6 +263,7 @@ impl Write for ClamAvStream {
 struct FixtureStream {
     response: std::io::Cursor<Vec<u8>>,
     writes: Arc<std::sync::Mutex<Vec<u8>>>,
+    write_failure_after: Option<usize>,
 }
 
 #[cfg(test)]
@@ -276,10 +277,22 @@ impl Read for FixtureStream {
 #[cfg(test)]
 impl Write for FixtureStream {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        self.writes
+        let mut writes = self
+            .writes
             .lock()
-            .map_err(|_| io::Error::other("fake clamd write lock poisoned"))?
-            .extend_from_slice(buffer);
+            .map_err(|_| io::Error::other("fake clamd write lock poisoned"))?;
+        if let Some(limit) = self.write_failure_after {
+            if writes.len() >= limit {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "fake clamd closed INSTREAM early",
+                ));
+            }
+            let count = buffer.len().min(limit - writes.len());
+            writes.extend_from_slice(&buffer[..count]);
+            return Ok(count);
+        }
+        writes.extend_from_slice(buffer);
         Ok(buffer.len())
     }
 
@@ -333,16 +346,21 @@ impl ClamAvClient {
                 break;
             }
             let length = u32::try_from(count).expect("stream chunk fits u32");
-            stream.write_all(&length.to_be_bytes())?;
-            stream.write_all(&buffer[..count])?;
+            if let Some(status) =
+                write_instream_bytes(&mut stream, &length.to_be_bytes(), cancelled)?
+            {
+                return revalidated_scan_status(&file, before, status);
+            }
+            if let Some(status) = write_instream_bytes(&mut stream, &buffer[..count], cancelled)? {
+                return revalidated_scan_status(&file, before, status);
+            }
         }
-        stream.write_all(&0u32.to_be_bytes())?;
+        if let Some(status) = write_instream_bytes(&mut stream, &0u32.to_be_bytes(), cancelled)? {
+            return revalidated_scan_status(&file, before, status);
+        }
         let response = read_response(&mut stream, cancelled)?;
-        let after = FileFingerprint::from_file(&file)?;
-        if before != after {
-            return Ok(ThreatFileStatus::Changed);
-        }
-        parse_scan_response(&response)
+        let status = parse_scan_response(&response)?;
+        revalidated_scan_status(&file, before, status)
     }
 
     fn connect(&self) -> Result<ClamAvStream, ThreatScanError> {
@@ -361,6 +379,50 @@ impl ClamAvClient {
         stream.set_read_timeout(Some(RESPONSE_POLL))?;
         stream.set_write_timeout(Some(Duration::from_secs(2)))?;
         Ok(ClamAvStream::Socket(stream))
+    }
+}
+
+fn write_instream_bytes(
+    stream: &mut ClamAvStream,
+    bytes: &[u8],
+    cancelled: &AtomicBool,
+) -> Result<Option<ThreatFileStatus>, ThreatScanError> {
+    match stream.write_all(bytes) {
+        Ok(()) => Ok(None),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::ConnectionAborted
+            ) =>
+        {
+            match read_response(stream, cancelled) {
+                Ok(response) => match parse_scan_response(&response) {
+                    Ok(status @ ThreatFileStatus::Detected { .. })
+                    | Ok(status @ ThreatFileStatus::NotScanned { .. }) => Ok(Some(status)),
+                    Ok(ThreatFileStatus::NoKnownSignature)
+                    | Ok(ThreatFileStatus::Changed)
+                    | Err(_) => Err(ThreatScanError::Io(error)),
+                },
+                Err(ThreatScanError::Cancelled) => Err(ThreatScanError::Cancelled),
+                Err(_) => Err(ThreatScanError::Io(error)),
+            }
+        }
+        Err(error) => Err(ThreatScanError::Io(error)),
+    }
+}
+
+fn revalidated_scan_status(
+    file: &File,
+    before: FileFingerprint,
+    status: ThreatFileStatus,
+) -> Result<ThreatFileStatus, ThreatScanError> {
+    let after = FileFingerprint::from_file(file)?;
+    if before != after {
+        Ok(ThreatFileStatus::Changed)
+    } else {
+        Ok(status)
     }
 }
 
@@ -691,6 +753,7 @@ mod tests {
             streams.push_back(FixtureStream {
                 response: std::io::Cursor::new(format!("{response}\0").into_bytes()),
                 writes: Arc::clone(&recorded),
+                write_failure_after: None,
             });
             writes.push(recorded);
         }
@@ -744,6 +807,74 @@ mod tests {
             assert!(write.starts_with(b"zINSTREAM\0"));
             assert!(write.ends_with(&0_u32.to_be_bytes()));
         }
+    }
+
+    #[test]
+    fn clamav_early_close_recovers_daemon_limit_without_accepting_partial_clean() {
+        let fixture = tempdir().expect("temporary directory");
+        let target = fixture.path().join("larger-than-daemon-stream-limit");
+        fs::write(&target, vec![0x5a; STREAM_CHUNK_BYTES + 1]).expect("write streamed fixture");
+        let accepted_bytes = b"zINSTREAM\0".len() + std::mem::size_of::<u32>() + 1024;
+
+        let writes = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let client = ClamAvClient {
+            socket: PathBuf::from("/fixture/does-not-connect.sock"),
+            fixture_streams: Some(Arc::new(std::sync::Mutex::new(VecDeque::from([
+                FixtureStream {
+                    response: std::io::Cursor::new(
+                        b"stream: INSTREAM size limit exceeded ERROR\0".to_vec(),
+                    ),
+                    writes: Arc::clone(&writes),
+                    write_failure_after: Some(accepted_bytes),
+                },
+            ])))),
+        };
+
+        assert!(matches!(
+            client
+                .scan_file(&target, &AtomicBool::new(false))
+                .expect("daemon limit response should survive early close"),
+            ThreatFileStatus::NotScanned { reason }
+                if reason == "INSTREAM size limit exceeded"
+        ));
+        assert_eq!(
+            writes.lock().expect("early-close writes").len(),
+            accepted_bytes
+        );
+
+        for response in ["stream: OK", "not a clamd terminal response", ""] {
+            let client = ClamAvClient {
+                socket: PathBuf::from("/fixture/does-not-connect.sock"),
+                fixture_streams: Some(Arc::new(std::sync::Mutex::new(VecDeque::from([
+                    FixtureStream {
+                        response: std::io::Cursor::new(format!("{response}\0").into_bytes()),
+                        writes: Arc::new(std::sync::Mutex::new(Vec::new())),
+                        write_failure_after: Some(accepted_bytes),
+                    },
+                ])))),
+            };
+            assert!(matches!(
+                client.scan_file(&target, &AtomicBool::new(false)),
+                Err(ThreatScanError::Io(error))
+                    if error.kind() == io::ErrorKind::BrokenPipe
+            ));
+        }
+
+        let open_target = File::open(&target).expect("open revalidation fixture");
+        let before = FileFingerprint::from_file(&open_target).expect("initial fingerprint");
+        fs::write(&target, b"changed while clamd was closing")
+            .expect("replace revalidation fixture contents");
+        assert_eq!(
+            revalidated_scan_status(
+                &open_target,
+                before,
+                ThreatFileStatus::NotScanned {
+                    reason: "INSTREAM size limit exceeded".to_owned(),
+                },
+            )
+            .expect("revalidate recovered status"),
+            ThreatFileStatus::Changed
+        );
     }
 
     #[test]

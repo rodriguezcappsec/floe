@@ -297,7 +297,7 @@ pub fn bookmark_actions_enabled(loaded: bool, save_in_flight: bool) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 31] = [
+pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 32] = [
     ("Open", "win.open"),
     ("Open With…", "win.open-with"),
     ("Copy", "win.copy"),
@@ -332,6 +332,7 @@ pub(crate) const FILE_CONTEXT_ACTIONS: [(&str, &str); 31] = [
     ("Protect Folder", "win.protect-folder"),
     ("Unprotect Folder", "win.unprotect-folder"),
     ("Protected Folders…", "win.protected-folders"),
+    ("Audit Permissions…", "win.audit-permissions"),
 ];
 pub(crate) const TRASH_CONTEXT_ACTIONS: [(&str, &str); 4] = [
     ("Restore", "win.restore"),
@@ -921,7 +922,14 @@ pub struct PropertiesDialogWidgets {
     pub privacy_safety_button: gtk::Button,
     pub threat_scan_button: gtk::Button,
     pub sanitize_button: gtk::Button,
+    pub permission_audit_button: gtk::Button,
     pub edit_permissions_button: gtk::Button,
+    pub close_button: gtk::Button,
+}
+
+pub struct PermissionAuditDialogWidgets {
+    pub dialog: adw::Dialog,
+    pub fix_button: gtk::Button,
     pub close_button: gtk::Button,
 }
 
@@ -2430,6 +2438,7 @@ pub fn build(
         Some("Inspect Privacy & Safety…"),
         Some("win.inspect-privacy-safety"),
     );
+    privacy_safety_model.append(Some("Audit Permissions…"), Some("win.audit-permissions"));
     privacy_safety_model.append(Some("Scan with Local ClamAV…"), Some("win.scan-threats"));
     privacy_safety_model.append(
         Some("Create Sanitized Copy…"),
@@ -3078,6 +3087,7 @@ pub fn build(
     let toast_overlay = adw::ToastOverlay::new();
     toast_overlay.set_child(Some(&content_overlay));
     window.set_content(Some(&toast_overlay));
+    crate::contextual_help::install_on_tree(&window);
 
     BrowserWidgets {
         window,
@@ -3759,6 +3769,7 @@ pub fn build_properties_dialog(
     for (title, rows) in [
         ("General", &presentation.general),
         ("Filesystem and mount", &presentation.filesystem),
+        ("Permission audit", &presentation.permission_audit.summary),
     ] {
         let section = gtk::Label::builder()
             .label(title)
@@ -3846,6 +3857,12 @@ pub fn build_properties_dialog(
         .build();
     permissions_heading.add_css_class("heading");
     content.append(&permissions_heading);
+    let permission_audit_button = gtk::Button::with_label("Review Permission Audit…");
+    permission_audit_button.set_halign(gtk::Align::Start);
+    permission_audit_button.set_tooltip_text(Some(
+        "Review bounded mode, ownership, ACL, xattr, capability, immutable, and mount evidence",
+    ));
+    content.append(&permission_audit_button);
     let edit_permissions_button = gtk::Button::with_label(if presentation.permissions.editable {
         "Edit Permissions…"
     } else {
@@ -3890,7 +3907,105 @@ pub fn build_properties_dialog(
         privacy_safety_button,
         threat_scan_button,
         sanitize_button,
+        permission_audit_button,
         edit_permissions_button,
+        close_button,
+    }
+}
+
+pub fn build_permission_audit_dialog(
+    presentation: &crate::properties::PermissionAuditPresentation,
+) -> PermissionAuditDialogWidgets {
+    let content = gtk::Box::builder()
+        .orientation(gtk::Orientation::Vertical)
+        .spacing(14)
+        .margin_top(20)
+        .margin_bottom(20)
+        .margin_start(20)
+        .margin_end(20)
+        .build();
+    let heading = gtk::Label::builder()
+        .label("Permission Audit")
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .css_classes(["title-2"])
+        .build();
+    content.append(&heading);
+    let explanation = gtk::Label::builder()
+        .label("Floe reports local evidence, not a complete security verdict. Advanced metadata remains inspection-only.")
+        .halign(gtk::Align::Start)
+        .xalign(0.0)
+        .wrap(true)
+        .css_classes(["dim-label"])
+        .build();
+    content.append(&explanation);
+    for row in &presentation.summary {
+        let line = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        let label = gtk::Label::builder()
+            .label(row.label)
+            .xalign(0.0)
+            .width_chars(17)
+            .css_classes(["dim-label"])
+            .build();
+        let value = gtk::Label::builder()
+            .label(&row.value)
+            .xalign(0.0)
+            .wrap(true)
+            .hexpand(true)
+            .build();
+        line.append(&label);
+        line.append(&value);
+        content.append(&line);
+    }
+    let details = gtk::Label::builder()
+        .label(&presentation.details)
+        .halign(gtk::Align::Fill)
+        .xalign(0.0)
+        .wrap(true)
+        .selectable(true)
+        .css_classes(["monospace"])
+        .build();
+    details.update_property(&[
+        gtk::accessible::Property::Label("Permission audit evidence"),
+        gtk::accessible::Property::Description(
+            "Exact reviewed evidence and limitations for selected items",
+        ),
+    ]);
+    content.append(&details);
+
+    let controls = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    controls.set_halign(gtk::Align::End);
+    let fix_button = gtk::Button::with_label("Review Conservative Fix…");
+    fix_button.set_sensitive(presentation.fix.is_some());
+    fix_button.set_tooltip_text(Some(
+        "Preview a mode-bit-only change for one item; advanced metadata is never modified",
+    ));
+    let close_button = gtk::Button::with_label("Close");
+    close_button.add_css_class("suggested-action");
+    controls.append(&fix_button);
+    controls.append(&close_button);
+    content.append(&controls);
+
+    let scroller = gtk::ScrolledWindow::builder()
+        .child(&content)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .min_content_height(440)
+        .build();
+    let dialog = adw::Dialog::builder()
+        .title("Permission Audit")
+        .content_width(700)
+        .content_height(620)
+        .child(&scroller)
+        .build();
+    dialog.update_property(&[
+        gtk::accessible::Property::Label("Permission Audit"),
+        gtk::accessible::Property::Description(
+            "Review Unix permissions and advanced filesystem evidence without changing it",
+        ),
+    ]);
+    PermissionAuditDialogWidgets {
+        dialog,
+        fix_button,
         close_button,
     }
 }
@@ -6324,6 +6439,7 @@ fn populate_file_context_menu_model(
             Some("Inspect Privacy & Safety…"),
             Some("win.inspect-privacy-safety"),
         );
+        security.append(Some("Audit Permissions…"), Some("win.audit-permissions"));
         security.append(Some("Scan with Local ClamAV…"), Some("win.scan-threats"));
         security.append(
             Some("Create Sanitized Copy…"),
@@ -8541,6 +8657,7 @@ mod tests {
                 ("Protect Folder", "win.protect-folder"),
                 ("Unprotect Folder", "win.unprotect-folder"),
                 ("Protected Folders…", "win.protected-folders"),
+                ("Audit Permissions…", "win.audit-permissions"),
             ]
         );
     }
@@ -8868,10 +8985,56 @@ mod tests {
                 has_directories: false,
                 editable: true,
             },
+            permission_audit: crate::properties::PermissionAuditPresentation::default(),
         };
         assert_eq!(presentation.selection_count, 2);
         assert!(!presentation.open_with_available);
         assert!(presentation.general[0].value.contains("not merged"));
+    }
+
+    #[test]
+    #[ignore = "requires graphical GTK session; run documented GTK component gate"]
+    fn phase_testing_gtk_phase_18r_permission_ui_is_accessible_and_explicit() {
+        gtk::init().expect("GTK component gate requires available display");
+        adw::init().expect("libadwaita must initialize in GTK component gate");
+        let presentation = crate::properties::PermissionAuditPresentation {
+            summary: vec![crate::properties::PropertyRow {
+                label: "Findings",
+                value: "1 reviewed finding · 1 high-attention".to_owned(),
+            }],
+            details: "private.key\n  mode 0644 (rw-r--r--)\n  Limitations: not a complete security verdict."
+                .to_owned(),
+            fix: Some(crate::properties::PermissionFixPresentation {
+                path: std::path::PathBuf::from("/tmp/private.key"),
+                identity: floe_core::PermissionAuditIdentity {
+                    device: 1,
+                    inode: 2,
+                    size: 3,
+                    mode: 0o100644,
+                    uid: 1000,
+                    gid: 1000,
+                    modified_seconds: 4,
+                    modified_nanoseconds: 5,
+                    changed_seconds: 6,
+                    changed_nanoseconds: 7,
+                },
+                object_kind: floe_core::PermissionObjectKind::RegularFile,
+                original_mode: 0o644,
+                proposed_mode: 0o600,
+                reasons: "Sensitive-looking file has group or other access".to_owned(),
+            }),
+        };
+        let widgets = build_permission_audit_dialog(&presentation);
+        assert_eq!(widgets.dialog.title().as_str(), "Permission Audit");
+        assert!(widgets.fix_button.is_sensitive());
+        assert_eq!(
+            widgets.fix_button.accessible_role(),
+            gtk::AccessibleRole::Button
+        );
+        assert_eq!(
+            widgets.close_button.accessible_role(),
+            gtk::AccessibleRole::Button
+        );
     }
 
     #[test]

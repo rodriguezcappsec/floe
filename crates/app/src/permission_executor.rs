@@ -111,6 +111,7 @@ struct PlannedEntry {
     inode: u64,
     kind: PlannedKind,
     mode: u32,
+    expected_identity: Option<floe_core::PermissionAuditIdentity>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -143,7 +144,14 @@ pub fn execute_permission_change(
             return Err(PermissionError::SymbolicLink(target.clone()));
         }
         let root_device = metadata.dev();
-        push_planned(target.clone(), &metadata, &mut plan)?;
+        let expected_identity = (request.targets().len() == 1)
+            .then(|| request.expected_identity())
+            .flatten();
+        if expected_identity.is_some_and(|expected| !identity_matches_metadata(expected, &metadata))
+        {
+            return Err(PermissionError::SourceChanged(target.clone()));
+        }
+        push_planned(target.clone(), &metadata, expected_identity, &mut plan)?;
         if matches!(request.scope(), PermissionScope::Recursive) && metadata.is_dir() {
             let directory = rustix::fs::open(
                 target,
@@ -281,6 +289,7 @@ fn resolve_identity(
 fn push_planned(
     path: PathBuf,
     metadata: &fs::Metadata,
+    expected_identity: Option<floe_core::PermissionAuditIdentity>,
     plan: &mut Vec<PlannedEntry>,
 ) -> Result<(), PermissionError> {
     if plan.len() >= PERMISSION_ENTRY_CAPACITY {
@@ -299,6 +308,7 @@ fn push_planned(
         inode: metadata.ino(),
         kind,
         mode: metadata.mode(),
+        expected_identity,
     });
     Ok(())
 }
@@ -360,6 +370,7 @@ fn preflight_directory(
             inode: stat.st_ino,
             kind: planned_kind,
             mode: stat.st_mode,
+            expected_identity: None,
         });
         if kind.is_dir() {
             let child = rustix::fs::openat(
@@ -409,6 +420,16 @@ fn apply_entry(
     {
         return Err(PermissionError::SourceChanged(entry.path.clone()));
     }
+    if let Some(expected) = entry.expected_identity {
+        let descriptor_path = PathBuf::from(format!("/proc/self/fd/{}", descriptor.as_raw_fd()));
+        let metadata = fs::metadata(&descriptor_path).map_err(|error| PermissionError::Io {
+            path: entry.path.clone(),
+            message: error.to_string(),
+        })?;
+        if !identity_matches_metadata(expected, &metadata) {
+            return Err(PermissionError::SourceChanged(entry.path.clone()));
+        }
+    }
     if change.owner.is_some() || change.group.is_some() {
         let descriptor_path = PathBuf::from(format!("/proc/self/fd/{}", descriptor.as_raw_fd()));
         rustix::fs::chown(
@@ -447,6 +468,22 @@ fn apply_entry(
         })?;
     }
     Ok(())
+}
+
+fn identity_matches_metadata(
+    expected: floe_core::PermissionAuditIdentity,
+    metadata: &fs::Metadata,
+) -> bool {
+    expected.device == metadata.dev()
+        && expected.inode == metadata.ino()
+        && expected.size == metadata.size()
+        && expected.mode == metadata.mode()
+        && expected.uid == metadata.uid()
+        && expected.gid == metadata.gid()
+        && expected.modified_seconds == metadata.mtime()
+        && expected.modified_nanoseconds == metadata.mtime_nsec()
+        && expected.changed_seconds == metadata.ctime()
+        && expected.changed_nanoseconds == metadata.ctime_nsec()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

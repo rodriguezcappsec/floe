@@ -1,4 +1,148 @@
-# Active plan: adversarial audit remediation
+# Active plan: Phase 20C contextual help and terminology clarity
+
+Depth: tree 3
+Mode: solo
+
+## Contract
+
+Floe's complex actions and settings must explain themselves without requiring the
+user to decode a short label. Hover help must be concise, action-specific, and
+paired with the same accessible description for keyboard and assistive-technology
+users. Existing visible subtitles and documentation remain the deeper explanation;
+tooltips are contextual summaries, not the only source of essential information.
+
+The implementation will reuse the central command registry for action help, cover
+model-backed menus without replacing GTK's native menu architecture, add consistent
+help to Settings Center rows and controls, retain exact-path tooltips, and clarify
+specialized Linux terminology such as file capabilities. It must not add blocking
+dialogs, filesystem work, or duplicate command metadata.
+
+## Depth tree
+
+1. Help architecture
+   1.1 Central resolution
+       1.1.1 Resolve registered action descriptions and bounded standard-control
+       explanations from one application module.
+   1.2 Native GTK delivery
+       1.2.1 Add hover tooltips and accessible descriptions to action widgets,
+       model-backed popover items, and complex settings controls.
+   1.3 Terminology and audit
+       1.3.1 Clarify ambiguous Linux/security wording, audit user-facing controls,
+       and add deterministic plus real-GTK coverage.
+   1.4 Verification and documentation
+       1.4.1 Run focused/full gates, update persistent documents, retain exactly
+       one recommended next phase, and stop.
+
+## Status log
+
+- 2026-09-02: Started after the user misread “Linux capability” as “Linux
+  compatible,” demonstrating that correct technical data can still be unclear.
+  The feature matrix already marked sensible tooltips PARTIAL. Existing command
+  descriptions, Settings Center subtitles, and 136 explicit tooltip sites will be
+  reused rather than replaced.
+- 2026-09-02: Phase 20C complete. Central action and native menu help, dynamic
+  pointer/focus delivery, Settings Center row/control help, standalone duplicate
+  windows, and clarified Linux file-capability wording are implemented. Focused
+  headless tests and three separate real-GTK gates pass, including a full main
+  interactive-control-tree audit. Formatting, workspace check, strict Clippy,
+  final full workspace tests, strict docs, nine E2E contracts, packaging,
+  migrations, roadmap single-NEXT validation, and diff hygiene pass. Phase 19A
+  Git awareness remains the sole recommended next phase and was not started.
+
+---
+
+# Archived active plan: Phase 18R permission audit and maturity-gap reconciliation
+
+Depth: tree 3
+Mode: solo
+
+## Contract
+
+The user-requested session restoration, Natural Name sorting, bookmark
+rename/reorder, and collapsible-sidebar behavior already exist as verified Phase
+23H/23C/23D/23E implementations. This pass must not duplicate or replace those
+architectures. It must rerun their focused contracts and correct stale feature
+ledger rows.
+
+The missing deliverable is Phase 18R. Floe will inspect explicitly selected local
+filesystem entries on a bounded application worker without following symbolic
+links. It will explain Unix mode and ownership evidence plus successfully queried
+ACL, extended-attribute, Linux capability, immutable-flag, and mount context.
+Findings must state their exact evidence and limitations. A conservative fix may
+remove only the audited group/other mode bits selected in an explicit preview;
+it must revalidate identity, never edit ACLs/xattrs/capabilities/immutable flags,
+never elevate Floe, never overwrite user-selected owner permissions, and report
+cancelled, changed, unsupported, partial, and failed outcomes truthfully.
+
+## Depth tree
+
+1. Maturity pass
+   1.1 Existing-feature reconciliation
+       1.1.1 Verify Phase 23H/23C/23D/23E behavior and repair stale ledgers.
+   1.2 Permission-audit domain
+       1.2.1 Add bounded no-follow inspection, evidence classification, and
+       conservative mode-fix planning with isolated filesystem tests.
+   1.3 Application and GTK integration
+       1.3.1 Add a capacity-bounded worker, persistent background feedback,
+       context/command entry points, accessible review UI, and explicit fix
+       confirmation using the existing permission executor.
+   1.4 Verification and documentation
+       1.4.1 Run focused/full gates, native GTK smoke where available, update all
+       persistent documents, choose exactly one next phase, and stop.
+
+## Status log
+
+- 2026-09-02: Plan and gates written before Phase 18R code. Repository inspection
+  found Phase 23H session restoration, Phase 23C Natural Name sorting, Phase 23D
+  bookmark organization, and Phase 23E collapsible sidebar already implemented;
+  older feature-matrix rows are stale and will be reconciled after focused tests.
+- 2026-09-02: Phase 18R implementation and reconciliation complete. Focused
+  Phase 23C/23D/23E/23H, Permission Audit, permission-fix, command/context,
+  real-GTK accessibility, and retained ClamAV regressions pass. Formatting,
+  workspace check, strict all-target/all-feature Clippy, full workspace tests,
+  strict docs, E2E contracts, package layout, migrations, single-NEXT validation,
+  and diff hygiene all pass. Phase 19A Git awareness is the sole recommended next
+  phase and was not started.
+
+---
+
+# Archived active plan: ClamAV early-close response recovery
+
+## Contract
+
+When a local `clamd` closes an `INSTREAM` request after enforcing its own lower
+stream limit, Floe must recover any pending terminal daemon response and report a
+truthful per-file **Not scanned** reason instead of collapsing it into a generic
+`Broken pipe`. Genuine transport failures must remain communication failures.
+Cancellation, response deadlines, source identity revalidation, scan bounds,
+local-only behavior, and no-safety-verdict wording remain unchanged.
+
+## Steps
+
+1. Reproduce the early-close sequence with a deterministic in-memory clamd
+   stream that returns `EPIPE` after accepting part of the request while exposing
+   a pending `... ERROR` response.
+2. Recover only recognized early-close transport kinds, parse the bounded daemon
+   response, revalidate the source identity, and preserve the original I/O error
+   when no valid terminal response exists.
+3. Run focused ClamAV tests, format/check/strict Clippy/workspace tests, document
+   the behavior, update project status, and retain Phase 18R as the sole `NEXT`.
+
+## Status log
+
+- 2026-09-02: Host `clamd` log reproduced `INSTREAM: Size limit reached,
+  (requested: 262144, max: 0)` at the reported failure. A small forced-stream
+  `clamdscan` succeeds, confirming the socket/service works and the large-stream
+  early close is the trigger.
+- 2026-09-02: Implemented bounded early-close response recovery with source
+  revalidation. Focused ClamAV tests, formatting, workspace check, strict
+  all-feature Clippy, workspace tests, strict documentation validation, roadmap
+  single-`NEXT` validation, and diff hygiene all pass. This bug fix is complete;
+  Phase 18R remains the sole recommended next phase and was not started.
+
+---
+
+# Archived active plan: adversarial audit remediation
 
 ## Contract
 

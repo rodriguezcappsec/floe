@@ -416,9 +416,10 @@ use crate::{
         InspectionOutcome, PrivacyInspectionState, PrivacySecurityRequest, PrivacySecurityResult,
     },
     properties::{
-        ExecutableEdit, PROPERTIES_RESULT_CAPACITY, PermissionEditorInput, PropertiesRequest,
-        PropertiesSubmitError, PropertiesWorker, build_permission_request,
-        checksum_targets_for_presentation, present as present_properties,
+        ExecutableEdit, PROPERTIES_RESULT_CAPACITY, PermissionAuditPresentation,
+        PermissionEditorInput, PropertiesRequest, PropertiesSubmitError, PropertiesWorker,
+        build_permission_fix_request, build_permission_request, checksum_targets_for_presentation,
+        present as present_properties,
     },
     selection_mode::{
         SELECTION_PATH_CAPACITY, SelectionCompletion, SelectionConfig, SelectionFilterRequest,
@@ -619,6 +620,89 @@ fn present_checksum_dialog_for_targets(
     widgets.algorithm_dropdown.grab_focus();
 }
 
+fn present_permission_audit_dialog(
+    parent: &adw::ApplicationWindow,
+    toast_overlay: &adw::ToastOverlay,
+    state: Rc<ApplicationState>,
+    presentation: PermissionAuditPresentation,
+) {
+    let widgets = ui::build_permission_audit_dialog(&presentation);
+    let dialog = widgets.dialog.downgrade();
+    widgets.close_button.connect_clicked(move |_| {
+        if let Some(dialog) = dialog.upgrade() {
+            dialog.close();
+        }
+    });
+
+    if let Some(fix) = presentation.fix {
+        let parent = parent.clone();
+        let audit_dialog = widgets.dialog.downgrade();
+        let toast_overlay = toast_overlay.clone();
+        widgets.fix_button.connect_clicked(move |_| {
+            let subject = fix
+                .path
+                .file_name()
+                .unwrap_or(fix.path.as_os_str())
+                .to_string_lossy();
+            let confirmation = adw::AlertDialog::builder()
+                .heading("Apply conservative mode fix?")
+                .body(format!(
+                    "{subject}\n\nMode {:04o} ({}) → {:04o} ({}).\n\nReason: {}. Floe will change only these Unix mode bits after exact identity revalidation. It will not change ownership, ACLs, xattrs, Linux capabilities, or immutable flags. A partial or failed change remains explicit.",
+                    fix.original_mode,
+                    floe_core::symbolic_mode(fix.original_mode),
+                    fix.proposed_mode,
+                    floe_core::symbolic_mode(fix.proposed_mode),
+                    fix.reasons
+                ))
+                .build();
+            confirmation.add_responses(&[("cancel", "Cancel"), ("apply", "Apply Mode Fix")]);
+            confirmation.set_default_response(Some("cancel"));
+            confirmation.set_close_response("cancel");
+            confirmation.set_response_appearance("apply", adw::ResponseAppearance::Suggested);
+            let state = Rc::clone(&state);
+            let toast_overlay = toast_overlay.clone();
+            let fix = fix.clone();
+            let audit_dialog = audit_dialog.clone();
+            confirmation.connect_response(None, move |_, response| {
+                if response != "apply" {
+                    return;
+                }
+                match build_permission_fix_request(&fix)
+                    .map_err(|error| error.to_string())
+                    .and_then(|request| {
+                        state
+                            .submit_permissions(request)
+                            .map(|_| ())
+                            .map_err(|error| error.to_string())
+                    })
+                {
+                    Ok(()) => {
+                        if let Some(dialog) = audit_dialog.upgrade() {
+                            dialog.close();
+                        }
+                        toast_overlay.add_toast(
+                            adw::Toast::builder()
+                                .title("Conservative mode fix queued")
+                                .timeout(5)
+                                .build(),
+                        );
+                    }
+                    Err(error) => toast_overlay.add_toast(
+                        adw::Toast::builder()
+                            .title(format!("Could not queue mode fix: {error}"))
+                            .timeout(7)
+                            .build(),
+                    ),
+                }
+            });
+            confirmation.present(Some(&parent));
+        });
+    }
+
+    widgets.dialog.present(Some(parent));
+    widgets.close_button.grab_focus();
+}
+
 pub struct BrowserServices {
     browser: BrowserWorker,
     thumbnails: Option<ThumbnailWorker>,
@@ -638,6 +722,13 @@ pub struct BrowserServices {
 struct PendingReconciliation {
     snapshot: ViewStateSnapshot,
     renames: Vec<RenamePair>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum PropertiesPresentationTarget {
+    #[default]
+    Properties,
+    PermissionAudit,
 }
 
 impl BrowserServices {
@@ -692,6 +783,7 @@ pub struct BrowserController {
     preview_generation: Cell<u64>,
     properties_worker: RefCell<Option<PropertiesWorker>>,
     properties_generation: Cell<u64>,
+    properties_presentation_target: Cell<PropertiesPresentationTarget>,
     privacy_security_generation: Cell<u64>,
     threat_scan_generation: Cell<u64>,
     background_feedback_state: RefCell<BackgroundFeedbackState>,
@@ -1086,6 +1178,7 @@ impl BrowserController {
             preview_generation: Cell::new(0),
             properties_worker: RefCell::new(properties),
             properties_generation: Cell::new(0),
+            properties_presentation_target: Cell::new(PropertiesPresentationTarget::Properties),
             privacy_security_generation: Cell::new(0),
             threat_scan_generation: Cell::new(0),
             background_feedback_state: RefCell::new(BackgroundFeedbackState::default()),
@@ -5361,6 +5454,10 @@ impl BrowserController {
         let properties_action =
             self.add_action("properties", |controller| controller.show_properties());
         properties_action.set_enabled(false);
+        let permission_audit = self.add_action("audit-permissions", |controller| {
+            controller.show_permission_audit()
+        });
+        permission_audit.set_enabled(false);
         let inspect_security = self.add_action("inspect-privacy-safety", |controller| {
             controller.inspect_privacy_safety();
         });
@@ -5403,7 +5500,19 @@ impl BrowserController {
         cancel_sanitization.set_enabled(false);
         self.add_action("show-last-properties", |controller| {
             if let Some(presentation) = controller.last_properties_presentation.borrow().clone() {
-                controller.present_properties_dialog(&presentation);
+                match controller.properties_presentation_target.get() {
+                    PropertiesPresentationTarget::Properties => {
+                        controller.present_properties_dialog(&presentation)
+                    }
+                    PropertiesPresentationTarget::PermissionAudit => {
+                        present_permission_audit_dialog(
+                            &controller.widgets.window,
+                            &controller.widgets.toast_overlay,
+                            Rc::clone(&controller.application_state),
+                            presentation.permission_audit,
+                        );
+                    }
+                }
             } else {
                 controller.show_toast("Properties result is no longer available", 5);
             }
@@ -10074,13 +10183,15 @@ impl BrowserController {
     }
 
     fn set_properties_enabled(&self, enabled: bool) {
-        if let Some(action) = self
-            .widgets
-            .window
-            .lookup_action("properties")
-            .and_downcast::<gio::SimpleAction>()
-        {
-            action.set_enabled(enabled && self.properties_worker.borrow().is_some());
+        for action_name in ["properties", "audit-permissions"] {
+            if let Some(action) = self
+                .widgets
+                .window
+                .lookup_action(action_name)
+                .and_downcast::<gio::SimpleAction>()
+            {
+                action.set_enabled(enabled && self.properties_worker.borrow().is_some());
+            }
         }
     }
 
@@ -10848,6 +10959,14 @@ impl BrowserController {
     }
 
     fn show_properties(&self) {
+        self.request_properties(PropertiesPresentationTarget::Properties);
+    }
+
+    fn show_permission_audit(&self) {
+        self.request_properties(PropertiesPresentationTarget::PermissionAudit);
+    }
+
+    fn request_properties(&self, presentation_target: PropertiesPresentationTarget) {
         let selected = self.selected_entries.borrow().clone();
         if selected.is_empty() {
             self.show_toast("Select one or more items to view Properties", 4);
@@ -10876,6 +10995,7 @@ impl BrowserController {
             .map(|worker| worker.submit(request));
         match submitted {
             Some(Ok(())) => {
+                self.properties_presentation_target.set(presentation_target);
                 self.set_properties_enabled(false);
                 self.begin_background_feedback(BackgroundActivity::Properties, generation);
             }
@@ -11367,11 +11487,30 @@ impl BrowserController {
                         BackgroundActivity::Properties,
                         generation,
                         BackgroundOutcomeKind::Completed,
-                        "Read-only Properties are ready",
+                        match self.properties_presentation_target.get() {
+                            PropertiesPresentationTarget::Properties => {
+                                "Read-only Properties are ready"
+                            }
+                            PropertiesPresentationTarget::PermissionAudit => {
+                                "Permission Audit is ready"
+                            }
+                        },
                         true,
                     );
                     if self.widgets.window.is_active() {
-                        self.present_properties_dialog(&presentation);
+                        match self.properties_presentation_target.get() {
+                            PropertiesPresentationTarget::Properties => {
+                                self.present_properties_dialog(&presentation)
+                            }
+                            PropertiesPresentationTarget::PermissionAudit => {
+                                present_permission_audit_dialog(
+                                    &self.widgets.window,
+                                    &self.widgets.toast_overlay,
+                                    Rc::clone(&self.application_state),
+                                    presentation.permission_audit.clone(),
+                                );
+                            }
+                        }
                     }
                 }
                 Err(error) => {
@@ -11421,6 +11560,22 @@ impl BrowserController {
                 }
             });
         }
+        let permission_audit_parent = self.widgets.window.clone();
+        let permission_audit_toasts = self.widgets.toast_overlay.clone();
+        let permission_audit_state = Rc::clone(&self.application_state);
+        let permission_audit_presentation = presentation.permission_audit.clone();
+        let properties_dialog = widgets.dialog.downgrade();
+        widgets.permission_audit_button.connect_clicked(move |_| {
+            if let Some(dialog) = properties_dialog.upgrade() {
+                dialog.close();
+            }
+            present_permission_audit_dialog(
+                &permission_audit_parent,
+                &permission_audit_toasts,
+                Rc::clone(&permission_audit_state),
+                permission_audit_presentation.clone(),
+            );
+        });
         let checksum_parent = self.widgets.window.clone();
         let checksum_toasts = self.widgets.toast_overlay.clone();
         let checksum_state = Rc::clone(&self.application_state);

@@ -1313,11 +1313,47 @@ is active, and **Integrity verified** only after verification completes.
 
 ## Active status
 
-Last updated: `2026-09-01`
+Last updated: `2026-09-02`
 
-Current phase: **Open Safely intentionally removed; Phase 18R next**
+Current phase: **Phase 20C contextual help implemented; Phase 19A next**
 
 Completed this session:
+
+- Implemented Phase 20C native contextual help. Existing central command
+  descriptions now provide hover tooltips and matching GTK accessible descriptions
+  for action-bound controls and native model-backed menu items; concise standard
+  dialog verbs have bounded fallback help. Settings Center's 31 feature definitions
+  retain visible subtitles and now apply the same help to rows and controls. Main
+  and standalone duplicate windows install dynamic pointer/focus help without
+  replacing GTK menus or adding filesystem work. Permission Audit wording now says
+  “Linux file capabilities present” and explains that capabilities are optional
+  privilege metadata, not application compatibility. Headless registry/settings
+  contracts and real-GTK action-menu, full main-control-tree, and Settings Center
+  audits pass.
+
+- Implemented Phase 18R Permission Audit through the existing off-GTK Properties
+  worker. Up to 128 exact local selections receive no-follow, identity-revalidated
+  numeric/symbolic mode, UID/GID, bounded xattr-name/ACL/capability, immutable,
+  and mount evidence with calm world-write, sensitive-name access, set-ID,
+  ownership, ACL/capability, and immutable findings. Context, command-palette, and
+  Properties surfaces expose an accessible report. A single-item explicit preview
+  may remove only reviewed risky group/other mode bits through the existing bounded
+  permission executor and is bound to the audited identity; it never edits
+  ownership, ACLs, xattrs, capabilities, immutable flags, symlinks, or administrator
+  resources. Phase 23H session restoration, 23C Natural Name sorting, 23D bookmark
+  organization, and 23E collapsible sidebar focused contracts pass; stale matrix
+  rows were reconciled instead of duplicating their implementations.
+
+- Fixed local ClamAV scans that surfaced daemon-enforced `INSTREAM` limits as
+  `Broken pipe`. On an early `EPIPE`, connection reset, or connection abort, Floe
+  now recovers a pending bounded clamd terminal response, accepts only detected or
+  not-scanned outcomes after source identity revalidation, and preserves genuine
+  communication failure for partial-stream `OK`, malformed, absent, or unrelated
+  responses. A deterministic early-close regression covers the host-observed
+  `INSTREAM size limit exceeded ERROR`; daemon limits remain authoritative.
+  Focused ClamAV tests, formatting, workspace check, strict all-target/all-feature
+  Clippy, workspace tests, strict documentation validation, roadmap single-`NEXT`
+  validation, and diff hygiene pass.
 
 - Closed the ten retained adversarial-audit findings without expanding roadmap scope.
   Ordinary copy now opens planned regular files without following links, revalidates
@@ -3546,11 +3582,11 @@ Completed this session:
 Recommended next task:
 
 ```text
-Create `phase-18t-integrity-tools` and implement saved SHA-256 fingerprints plus
-path-safe portable `SHA256SUMS` generation and verification by reusing the
-reviewed Phase 10E streaming engine. Cite `T18-01`–`T18-03`, `T18-11`–`T18-13`,
-`T18-15`–`T18-16` and `SEC-18A-08`; preserve exact raw paths, no-follow bounded
-work, hash-not-authenticity wording, and the Phase 18 test-plan gates.
+Create `phase-19a-git-awareness` and implement only the opt-in Git repository
+root, branch, bounded status badges, and exact relative-path actions defined by
+the roadmap. Keep Git work off the GTK thread and impose no repository discovery
+cost while the feature is disabled. Verify missing Git, non-repository folders,
+large repositories, raw paths, cancellation, and stale results.
 ```
 
 ---

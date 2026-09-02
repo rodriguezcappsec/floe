@@ -1,4 +1,182 @@
-# Active Gates: adversarial audit remediation
+# Active Gates: Phase 20C contextual help and terminology clarity
+
+Scope: Give complex Floe controls concise hover help and equivalent accessible
+descriptions while preserving native GTK menus and the completed Phase 18R work.
+
+- [x] H1: One bounded resolver reuses every central command description, normalizes
+  action names safely, covers common non-command controls, and never returns empty
+  or label-only pseudo-help.
+  CHECK: `cargo test -p floe-app phase_20c_help_resolution -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. Focused resolver tests pass for prefixed and local
+  action names, unknown/empty rejection, meaningful standard controls, native
+  window/search/sort actions, and menu-label normalization without label-only help.
+
+- [x] H2: Action-bound buttons and native model-backed menu items expose concise
+  pointer hover tooltips and the same GTK accessible description without custom
+  replacement menus or per-window duplicated command metadata.
+  CHECK: `cargo test -p floe-app phase_20c_action_help -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. All searchable command definitions resolve non-empty
+  explanations. The real-GTK model-menu gate proves the native GtkModelButton and
+  ordinary action-button paths receive Permission Audit hover help.
+
+- [x] H3: Every Settings Center feature row/control retains a visible explanatory
+  subtitle and gains matching hover help plus accessible description; filtering
+  and preference ownership remain unchanged.
+  CHECK: `cargo test -p floe-app phase_20c_settings_help -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. The 31-definition completeness contract and focused
+  real-GTK Settings Center audit pass; every exposed dropdown, entry, spin button,
+  switch, and linked action button has non-empty hover help.
+
+- [x] H4: Ambiguous permission/security wording names Linux file capabilities as
+  privileged metadata, and the Permission Audit UI exposes hover/focus explanation
+  without changing audit evidence or repair policy.
+  CHECK: `cargo test -p floe-app phase_18r_permission_ui -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. Permission presentation tests pass with “Linux file
+  capabilities present” and an explicit privilege-metadata versus compatibility
+  explanation; audit evidence and conservative repair semantics are unchanged.
+
+- [x] H5: Formatting, workspace check, strict all-target/all-feature Clippy, full
+  workspace tests, strict docs, E2E/package/migration contracts, diff hygiene, and
+  applicable real-GTK contextual-help tests pass; generated artifacts are absent.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && python3 scripts/check-docs.py --strict && python3 -m unittest discover -s e2e -p 'test_*.py' -v && sh packaging/tests/test-package-layout.sh && sh packaging/tests/test-migrations.sh && git diff --check`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. Format, workspace check, strict all-target/all-feature
+  Clippy, full workspace tests, strict docs, nine E2E contracts, package layout,
+  migrations, and diff hygiene exit 0. Three separate real-GTK gates pass for
+  native menu actions, the full main interactive-control tree, and Settings Center.
+  One earlier parallel workspace invocation reproduced the known intermittent test
+  process failure; an immediate standalone rerun and the final full chain both pass.
+
+- [x] H6: AGENTS, roadmap, feature matrix, design guidance, user guide, PLAN, and
+  GATES document tooltip and accessibility scope and limitations; exactly one
+  genuinely ready phase remains NEXT and no next-phase code is started.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS 2026-09-02. Strict docs report
+  `phase-21c-docs-ok files=21 strict=true`; Phase 20C is COMPLETE, sensible
+  tooltips are reconciled from PARTIAL to COMPLETE, and exactly Phase 19A Git
+  awareness remains NEXT without implementation.
+
+---
+
+# Archived active gates: Phase 18R permission audit and maturity-gap reconciliation
+
+Scope: Verify the three already-implemented Phase 23 feature groups, complete the
+missing permission auditor, and preserve the pending ClamAV fix.
+
+- [x] M1: Existing session restoration, Natural Name sorting, bookmark
+  organization, and collapsible-sidebar contracts pass without duplicate
+  implementations, and stale matrix rows are reconciled to code-backed status.
+  CHECK: `cargo test -p floe-core phase_23c_natural_sort -- --nocapture && cargo test -p floe-app phase_23c_natural_sort -- --nocapture && cargo test -p floe-app phase_23d_bookmark -- --nocapture && cargo test -p floe-app phase_23e_sidebar -- --nocapture && cargo test -p floe-app phase_23h -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. All five focused Phase 23C/23D/23E/23H test
+  commands exited 0. The feature matrix now records the existing implementations
+  as complete without adding duplicate code paths.
+
+- [x] P1: Permission inspection is local, bounded, no-follow, identity-revalidated,
+  and reports mode, owner/group, ACL/xattr/capability/immutable/mount evidence with
+  explicit unsupported and incomplete states.
+  CHECK: `cargo test -p floe-core phase_18r_permission_audit -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. The focused core audit suite exited 0 and covers
+  absolute/unique bounded requests, non-UTF-8 names, no-follow links, changed
+  identities, cancellation, mount parsing, and capability-based xattr evidence.
+
+- [x] P2: Risk findings are evidence-based and calm: world-writable, broad read or
+  execute access, private-key exposure, special mode bits, foreign ownership, ACL,
+  capability, immutable, and mount limitations never become malware or exhaustive
+  security claims.
+  CHECK: `cargo test -p floe-core phase_18r_permission_findings -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. The focused findings test exited 0 and exercises
+  world/group write, sensitive filenames, set-ID/sticky modes, foreign ownership,
+  ACL, capability, immutable evidence, symbolic modes, and prohibited overclaims.
+
+- [x] P3: Conservative repair previews remove only explicitly selected group/other
+  mode bits, preserve owner and special bits, revalidate exact source identity,
+  and reuse the bounded permission executor with truthful cancellation/partial
+  failure; ACLs, xattrs, capabilities, immutable flags, symlinks, and administrator
+  targets are never silently changed.
+  CHECK: `cargo test -p floe-app phase_18r_permission_fix -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. Focused app repair tests exited 0. A reviewed fix is
+  single-target/direct-only, preserves owner and special bits, and rejects mode,
+  owner, timestamp, size, device, or inode drift before descriptor-bound chmod.
+
+- [x] P4: GTK exposes discoverable context-menu and command-palette permission
+  auditing, a non-blocking accessible review surface, exact evidence/limitations,
+  and an explicit confirmation before any fix.
+  CHECK: `cargo test -p floe-app phase_18r_permission_ui -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. Headless presentation, command registry, and context
+  menu tests exited 0. The focused ignored real-GTK accessibility test also passed
+  on the available graphical session; it emitted only the pre-existing libadwaita
+  GtkSettings warning. Dedicated context/menu/palette activation opens the audit
+  report directly; Properties retains its separate review button.
+
+- [x] Q1: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, strict docs, E2E contracts, package/migration contracts, and
+  diff hygiene pass while the earlier ClamAV regression remains green.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && python3 scripts/check-docs.py --strict && python3 -m unittest discover -s e2e -p 'test_*.py' -v && sh packaging/tests/test-package-layout.sh && sh packaging/tests/test-migrations.sh && git diff --check && cargo test -p floe-app clamav_early_close -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS 2026-09-02. Format check, workspace check, strict all-target and
+  all-feature Clippy, full workspace tests, strict documentation, nine E2E harness
+  contract tests, package layout, migrations, diff hygiene, and the retained
+  ClamAV early-close regression all exited 0. Native Dogtail execution remains
+  skipped by the harness because its external dependency is unavailable.
+
+- [x] Q2: AGENTS, roadmap, feature matrix, user guide, privacy/security docs, PLAN,
+  and GATES describe verified behavior and limitations; exactly one genuinely
+  ready phase is marked `NEXT`, and no later phase is implemented.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS 2026-09-02. Strict docs reported
+  `phase-21c-docs-ok files=21 strict=true`; roadmap validation found exactly one
+  NEXT row, `19A — Git awareness`, and no Phase 19A implementation was started.
+
+---
+
+# Archived active gates: ClamAV early-close response recovery
+
+- [x] C1: A deterministic fake clamd that returns a size-limit terminal response
+  and closes while Floe is writing reproduces the former broken-pipe path and now
+  yields `ThreatFileStatus::NotScanned` with the daemon reason.
+  CHECK: `cargo test -p floe-app clamav_early_close -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS — 1 focused regression passed; 0 failed.
+
+- [x] C2: Early-close recovery is narrow and conservative: cancellation remains
+  cancellation, malformed or absent responses preserve the original I/O failure,
+  response size/deadline bounds remain active, and source identity is revalidated
+  before accepting any recovered status.
+  CHECK: `cargo test -p floe-app clamav_early_close -- --nocapture`
+  EXPECT: `/test result: ok/`
+  EVIDENCE: PASS — the regression rejects partial-stream `OK`, malformed, and
+  absent responses as the original `BrokenPipe`, and verifies changed-source
+  revalidation overrides a recovered daemon-limit outcome.
+
+- [x] C3: Formatting, workspace check, strict all-target/all-feature Clippy,
+  workspace tests, strict documentation, and diff hygiene pass.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && python3 scripts/check-docs.py --strict && git diff --check`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS — all commands exited 0; strict docs reported
+  `phase-21c-docs-ok files=21 strict=true`.
+
+- [x] C4: AGENTS, user/security documentation, and the feature matrix explain the
+  recovered daemon-limit outcome without claiming Floe can override clamd policy;
+  exactly Phase 18R remains roadmap `NEXT`.
+  CHECK: `test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1 && python3 scripts/check-docs.py --strict`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS — strict docs exited 0 and the sole matching row is
+  `18R — Permission auditor | NEXT`.
+
+---
+
+# Archived active gates: adversarial audit remediation
 
 Leaf ledgers:
 

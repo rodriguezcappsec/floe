@@ -482,6 +482,21 @@ original path remains untouched.
 Use one family of themed GTK symbolic icons. Do not use emoji as structural
 icons. Icon-only controls require an accessible name and a tooltip.
 
+### Contextual help
+
+Complex Floe features must explain themselves at the point of use. Registered
+commands reuse the central command description for native hover tooltips and GTK
+accessible descriptions; model-backed menu items resolve the same text from their
+action or visible command name. Settings keep a visible plain-language subtitle
+and repeat it as hover and accessibility help on the row and its control.
+
+Tooltips are concise summaries, not the only place for essential warnings,
+confirmation scope, failure recovery, or privacy and security limitations.
+Exact-path tooltips and more specific control help take priority over generic
+action text. Short technical terms must name their domain clearly—for example,
+“Linux file capabilities present” rather than the easily misread “Linux
+capability.”
+
 ### Density
 
 Density changes spacing and sizing, not information architecture. Compact mode
