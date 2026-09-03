@@ -26,7 +26,8 @@ rm -f -- "$temporary" "$file_list" "$tar_file"
     ':!packaging/arch/pkg' ':!packaging/arch/pkg/**' \
     ':!AGENTS.md' ':!PLAN.md' ':!GATES.md' ':!gates' ':!gates/**' \
     ':!.agents' ':!.codex' \
-    ':!**/__pycache__' ':!**/__pycache__/**' ':!**/*.pyc' > "$file_list"
+    ':!**/__pycache__' ':!**/__pycache__/**' ':!**/*.pyc' |
+    LC_ALL=C sort -z > "$file_list"
   tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner \
     --transform="s,^,floe-$version/," --null --files-from="$file_list" \
     -cf "$tar_file"

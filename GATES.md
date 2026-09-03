@@ -190,7 +190,18 @@ behavior.
   libadwaita, or panic-critical log output. Dogtail/pyatspi and the staged
   installed-artifact walkthrough remain truthfully skipped. CI retains the four
   direct cached Rust quality commands. Arch source checksum is
-  `96b62e53b3a6e279b5f955848e2c77dd6e7c1c0913d7a8a84dfafd7a8c8b559f`.
+  `69e0c919adec88e5a85f8321c95cf12586dee388ba342d7def44bb02661ce97e`.
+
+- [ ] R15: Release-source member ordering is identical before and after a new
+  file becomes tracked, the final Arch checksum matches remote `main`, and a
+  fresh clone passes strict Git/history, public-release, documentation, source,
+  and release-candidate gates after the ordering correction merges.
+  CHECK: `sh packaging/tests/test-release-source.sh --check && python3 scripts/check-public-release.py all && git fsck --full --strict`
+  EXPECT: `/phase-21c-release-source-ok/`
+  EVIDENCE: pending final merge and fresh-clone verification. The first final
+  clone proved file contents identical but exposed different TAR member order
+  between an untracked and committed new test file. The packager now C-sorts its
+  NUL-delimited file list and the source gate asserts global manifest ordering.
 
 ---
 
