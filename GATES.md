@@ -149,7 +149,13 @@ behavior.
   strict Clippy before the hosted runner returned Linux error 28 (`StorageFull`)
   while setting a tiny test xattr. CI now omits debug symbols and reclaims
   check/Clippy artifacts before a fresh full test build; the next run remains the
-  required evidence before this gate can be checked.
+  required evidence before this gate can be checked. Run `33695272153` proved
+  artifact reclamation solves that pressure and again passed formatting, check,
+  and Clippy, but mid-stream TAR cancellation then hung because a persistent
+  cancel was incorrectly surfaced as retryable `Interrupted` I/O. That run was
+  cancelled after reproduction. The non-retryable typed-cancellation regression
+  fix and truthful already-completed scheduling-race assertions require one green
+  replacement run.
 
 - [x] R14: The Rust 1.85 compatibility correction passes formatting, workspace check, strict
   all-target/all-feature Clippy, full workspace tests, strict docs, deterministic
@@ -169,7 +175,7 @@ behavior.
   quality commands while omitting dev/test debug symbols and reclaiming only
   compiler artifacts before the fresh full test build to bound hosted-runner
   disk use. Arch source checksum is
-  `a3de57b2de0d860169c0d667dd809708f2141c23e5ec4137a468540d9b985b17`.
+  `3b60e55e26eb689335320baea236b66fa7935e0dc21a1a1d5672ecded9140499`.
 
 ---
 

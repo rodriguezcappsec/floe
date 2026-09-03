@@ -108,6 +108,14 @@ printing possible secrets or making unsupported legal claims.
   artifacts accumulate. Preserve the strict xattr test, reclaim those compiler
   artifacts with `cargo clean`, then perform the final test build on the same
   Rust 1.85 runner.
+- 2026-09-02: Run `33695272153` passed Rust 1.85 formatting, workspace check,
+  and strict Clippy after artifact reclamation, then exposed a real mid-stream
+  TAR cancellation hang. `ProgressReader` incorrectly used retryable
+  `io::ErrorKind::Interrupted` for persistent cancellation, allowing generic
+  archive I/O to retry forever. Use a non-retryable signal, translate it back
+  to typed `ArchiveError::Cancelled`, cover progress-triggered cancellation
+  deterministically, and make scheduling-race tests accept truthful
+  already-completed outcomes before rerunning every gate.
 
 ---
 

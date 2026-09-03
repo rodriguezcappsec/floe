@@ -1355,6 +1355,14 @@ Completed this session:
   omits dev/test debug symbols, and reclaims check/Clippy compiler artifacts
   before a fresh full test build. The xattr test itself remains strict.
 
+- The artifact-reclamation run passed Rust 1.85 formatting, workspace check,
+  and strict Clippy, then exposed a genuine mid-stream TAR cancellation hang:
+  persistent cancellation was emitted as retryable `Interrupted` I/O. Archive
+  streaming now uses a non-retryable signal translated back to typed
+  `Cancelled`; deterministic progress-triggered coverage guards the regression,
+  while executor/UI tests account for the valid race where a small archive has
+  already completed before cancellation reaches it.
+
 Verified:
 
 - The bundle-to-live equivalence audit passes across 217 refs and 134 commits,
@@ -1367,7 +1375,7 @@ Verified:
   all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
   package/source/release-candidate checks, E2E preflight, history/public-release
   contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
-  is `a3de57b2de0d860169c0d667dd809708f2141c23e5ec4137a468540d9b985b17`.
+  is `3b60e55e26eb689335320baea236b66fa7935e0dc21a1a1d5672ecded9140499`.
   An isolated native Wayland launch answers D-Bus Ping, lists application actions,
   and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
   next Rust 1.85 run remains the final merge gate.
