@@ -1394,6 +1394,13 @@ Completed this session:
   parents; every author still must use the configured reviewed noreply address,
   and all other committers remain rejected.
 
+- PR #3 passed Rust 1.85 run `33701426930` and merged as `75842559`. Its fresh
+  clone passes the corrected identity policy, but exposed release TAR member
+  order changing when a newly added file moves from untracked to tracked state.
+  The packager now C-sorts the full NUL-delimited list before TAR creation and
+  the source test asserts globally sorted members; final merge/clone evidence is
+  still pending.
+
 Verified:
 
 - The bundle-to-live equivalence audit passes across 217 refs and 134 commits,
@@ -1406,7 +1413,7 @@ Verified:
   all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
   package/source/release-candidate checks, E2E preflight, history/public-release
   contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
-  is `96b62e53b3a6e279b5f955848e2c77dd6e7c1c0913d7a8a84dfafd7a8c8b559f`.
+  is `69e0c919adec88e5a85f8321c95cf12586dee388ba342d7def44bb02661ce97e`.
   An isolated native Wayland launch answers D-Bus Ping, lists application actions,
   and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
   next Rust 1.85 run remains the final merge gate.

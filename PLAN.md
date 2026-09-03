@@ -145,6 +145,13 @@ printing possible secrets or making unsupported legal claims.
   Permit only that exact identity on commits with at least two parents, retain
   the configured noreply author requirement for every commit, add pure policy
   regressions, and merge the correction through the retained release branch.
+- 2026-09-02: PR #3 passed Rust 1.85 run `33701426930` and merged as
+  `75842559deeb6d5eeaa4191584e044a9b6fac76c`. The second fresh clone passed
+  history policy but found deterministic source bytes changed solely because
+  the new test moved from `git ls-files --others` ordering to cached ordering.
+  C-sort the complete NUL-delimited file list before TAR creation, assert sorted
+  manifest order, refresh the excluded Arch checksum, merge through the retained
+  release branch, and repeat the final clone audit.
 
 ---
 

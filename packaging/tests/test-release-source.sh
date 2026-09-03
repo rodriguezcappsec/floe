@@ -14,6 +14,8 @@ sh "$repo_root/packaging/release-source.sh" "$first" >/dev/null
 sh "$repo_root/packaging/release-source.sh" "$second" >/dev/null
 cmp "$first" "$second"
 
+LC_ALL=C tar -tzf "$first" | LC_ALL=C sort -c
+
 archive_files="$temporary/archive-files.txt"
 tar -tzf "$first" > "$archive_files"
 for required in \
