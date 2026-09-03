@@ -133,14 +133,16 @@ behavior.
   The checklist leaves GitHub remote replacement and fresh-clone verification
   manual; no force-push or remote mutation occurred.
 
-- [ ] R13: The real GitHub Rust 1.85 CI failures are reproduced and corrected
+- [x] R13: The real GitHub Rust 1.85 CI failures are reproduced and corrected
   without raising Floe's declared MSRV: the application lockfile selects
   reviewed compatible `time` through `sevenz-rust -> nt-time` and `ogg_pager`
   through `lofty`, all workspace source avoids post-1.85 let-chain syntax, and
   PR #2's required check passes on Rust 1.85.
   CHECK: `cargo tree -i time@0.3.44 && cargo tree -i ogg_pager@0.7.1 && gh pr checks 2 --repo rodriguezcappsec/floe`
   EXPECT: `/Rust quality gates.*pass/`
-  EVIDENCE: pending. Runs `33691100967` and `33691584349` exposed the two
+  EVIDENCE: PASS 2026-09-02. Run `33700179608` passes the complete required
+  GitHub Rust 1.85 quality gate: formatting, workspace check, strict Clippy, and
+  every workspace test. Runs `33691100967` and `33691584349` exposed the two
   transitive dependency MSRV drifts. Run `33691868720` compiled those corrected
   dependencies on Rust 1.85 and then exposed post-1.85 let-chain syntax in Floe.
   Run `33693526585` then passed formatting and workspace compilation on Rust

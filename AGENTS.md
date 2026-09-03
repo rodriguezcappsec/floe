@@ -1382,6 +1382,11 @@ Completed this session:
   reader, on-disk xattrs remain portable, and CI is restored to the simple
   cached `cargo test --workspace` gate without debug/artifact workarounds.
 
+- GitHub Actions run `33700179608` passes the complete required Rust 1.85 gate:
+  formatting, workspace check, strict Clippy, and every workspace test. The
+  release-readiness branch is technically merge-ready after its evidence-only
+  follow-up commit receives the same green check.
+
 Verified:
 
 - The bundle-to-live equivalence audit passes across 217 refs and 134 commits,

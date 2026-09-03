@@ -133,6 +133,11 @@ printing possible secrets or making unsupported legal claims.
   4,096-byte application bound through an injected reader and keep only portable
   on-disk xattrs. Restore the simple cached `cargo test --workspace` CI gate and
   remove the unnecessary debug/artifact workarounds.
+- 2026-09-02: Run `33700179608` is green on GitHub's actual Rust 1.85 runner:
+  formatting, workspace check, strict Clippy, and every workspace test pass.
+  Record R13 complete, rerun release contracts, push the evidence-only commit,
+  require that commit's CI to pass, then merge PR #2 and fresh-clone audit
+  remote `main` without deleting the retained release branch.
 
 ---
 
