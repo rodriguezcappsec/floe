@@ -54,4 +54,7 @@ jobs:
         run: cargo clean
 
       - name: Run tests
-        run: cargo test --workspace
+        run: |
+          cargo test --workspace --exclude floe-app
+          cargo clean
+          cargo test -p floe-app

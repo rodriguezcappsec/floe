@@ -122,6 +122,11 @@ printing possible secrets or making unsupported legal claims.
   so a tiny one-file request may truthfully complete before the caller advances
   its generation; assert either bounded cancellation or the exact successful
   completed outcome, preserving deterministic `cancelled_result` coverage.
+- 2026-09-02: Run `33698804611` passed Rust 1.85 format/check/Clippy and the
+  complete 698-test application suite, then the later core xattr test again hit
+  hosted-runner `ENOSPC`. Keep one test gate and every test, but bound peak disk
+  usage by running non-application workspace tests first, reclaiming compiler
+  artifacts, then rebuilding and running the complete `floe-app` suite.
 
 ---
 

@@ -1370,6 +1370,12 @@ Completed this session:
   successful already-completed result. Deterministic cancelled-result coverage
   remains intact.
 
+- The next run passed Rust 1.85 format/check/Clippy and all 698 application
+  tests, then the later core xattr test again encountered hosted-runner
+  `ENOSPC`. CI preserves one test gate and every workspace test while bounding
+  peak disk use: non-application workspace tests run first, artifacts are
+  reclaimed, then the complete `floe-app` suite is rebuilt and run.
+
 Verified:
 
 - The bundle-to-live equivalence audit passes across 217 refs and 134 commits,
@@ -1382,7 +1388,7 @@ Verified:
   all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
   package/source/release-candidate checks, E2E preflight, history/public-release
   contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
-  is `85f524c141e0f7e62000d50cf1972de9949c381588863bfcc93fcd3309792949`.
+  is `2c3bb326a6243c0021890e88576e5535b6c3bb4412700c4dea4147d0901c5fcd`.
   An isolated native Wayland launch answers D-Bus Ping, lists application actions,
   and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
   next Rust 1.85 run remains the final merge gate.

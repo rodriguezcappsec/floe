@@ -116,6 +116,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+The hosted Rust 1.85 CI runner executes that same complete test set in bounded
+package batches: the non-application workspace tests first, then `floe-app`
+after reclaiming compiler artifacts. This avoids hosted-runner storage pressure
+without skipping tests or weakening filesystem checks such as xattr coverage.
+
 ## Release performance gate
 
 Phase 21A's stress harness is opt-in, release-only, serial, and entirely

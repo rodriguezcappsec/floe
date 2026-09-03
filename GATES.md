@@ -159,7 +159,11 @@ behavior.
   then exposed a pre-existing cooperative privacy-sanitizer test race where its
   tiny one-file request could finish before cancellation. The assertion now
   distinguishes bounded cancellation from the exact truthful completed result;
-  another green replacement run remains required.
+  another green replacement run remains required. Run `33698804611` passed the
+  full application suite and then hit hosted-runner `ENOSPC` at the later core
+  xattr check. CI now runs the same complete test set in two package batches
+  with artifact reclamation between them; no test or strict filesystem assertion
+  was removed. One green replacement run remains required.
 
 - [x] R14: The Rust 1.85 compatibility correction passes formatting, workspace check, strict
   all-target/all-feature Clippy, full workspace tests, strict docs, deterministic
@@ -179,7 +183,7 @@ behavior.
   quality commands while omitting dev/test debug symbols and reclaiming only
   compiler artifacts before the fresh full test build to bound hosted-runner
   disk use. Arch source checksum is
-  `85f524c141e0f7e62000d50cf1972de9949c381588863bfcc93fcd3309792949`.
+  `2c3bb326a6243c0021890e88576e5535b6c3bb4412700c4dea4147d0901c5fcd`.
 
 ---
 
