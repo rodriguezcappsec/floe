@@ -14,10 +14,6 @@ jobs:
     name: Rust quality gates
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    env:
-      CARGO_PROFILE_DEV_DEBUG: 0
-      CARGO_PROFILE_TEST_DEBUG: 0
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -50,11 +46,5 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Reclaim check artifacts before tests
-        run: cargo clean
-
       - name: Run tests
-        run: |
-          cargo test --workspace --exclude floe-app
-          cargo clean
-          cargo test -p floe-app
+        run: cargo test --workspace

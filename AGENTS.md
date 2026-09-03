@@ -1376,6 +1376,12 @@ Completed this session:
   peak disk use: non-application workspace tests run first, artifacts are
   reclaimed, then the complete `floe-app` suite is rebuilt and run.
 
+- Root-cause correction: the repeated Linux error 28 was ext4 rejecting a
+  4,097-byte xattr fixture, not hosted-runner disk exhaustion. Btrfs accepted
+  the same fixture locally. Oversize rejection now uses an injected bounded
+  reader, on-disk xattrs remain portable, and CI is restored to the simple
+  cached `cargo test --workspace` gate without debug/artifact workarounds.
+
 Verified:
 
 - The bundle-to-live equivalence audit passes across 217 refs and 134 commits,
@@ -1388,7 +1394,7 @@ Verified:
   all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
   package/source/release-candidate checks, E2E preflight, history/public-release
   contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
-  is `2c3bb326a6243c0021890e88576e5535b6c3bb4412700c4dea4147d0901c5fcd`.
+  is `115a5942b54448b117ab478e4def85de179682153c36e8d6ac97c3d164f80499`.
   An isolated native Wayland launch answers D-Bus Ping, lists application actions,
   and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
   next Rust 1.85 run remains the final merge gate.

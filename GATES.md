@@ -163,7 +163,11 @@ behavior.
   full application suite and then hit hosted-runner `ENOSPC` at the later core
   xattr check. CI now runs the same complete test set in two package batches
   with artifact reclamation between them; no test or strict filesystem assertion
-  was removed. One green replacement run remains required.
+  was removed. One green replacement run remains required. Root-cause correction:
+  error 28 was ext4 refusing the fixture's 4,097-byte xattr, not free-disk
+  exhaustion. Oversize rejection is now tested through an injected bounded
+  reader while real filesystem coverage uses representable xattrs. The ordinary
+  cached `cargo test --workspace` gate is restored; one green run remains required.
 
 - [x] R14: The Rust 1.85 compatibility correction passes formatting, workspace check, strict
   all-target/all-feature Clippy, full workspace tests, strict docs, deterministic
@@ -179,11 +183,9 @@ behavior.
   E2E harness contracts, and diff hygiene pass. The isolated native Wayland
   launch, D-Bus action listing/Ping, and clean Quit pass without GTK,
   libadwaita, or panic-critical log output. Dogtail/pyatspi and the staged
-  installed-artifact walkthrough remain truthfully skipped. CI retains all four
-  quality commands while omitting dev/test debug symbols and reclaiming only
-  compiler artifacts before the fresh full test build to bound hosted-runner
-  disk use. Arch source checksum is
-  `2c3bb326a6243c0021890e88576e5535b6c3bb4412700c4dea4147d0901c5fcd`.
+  installed-artifact walkthrough remain truthfully skipped. CI retains the four
+  direct cached Rust quality commands. Arch source checksum is
+  `115a5942b54448b117ab478e4def85de179682153c36e8d6ac97c3d164f80499`.
 
 ---
 

@@ -116,11 +116,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-The hosted Rust 1.85 CI runner executes that same complete test set in bounded
-package batches: the non-application workspace tests first, then `floe-app`
-after reclaiming compiler artifacts. This avoids hosted-runner storage pressure
-without skipping tests or weakening filesystem checks such as xattr coverage.
-
 ## Release performance gate
 
 Phase 21A's stress harness is opt-in, release-only, serial, and entirely
@@ -312,12 +307,9 @@ data, authentication failure, interruption, cleanup, atomicity, permissions,
 symlink/path traversal, secret-free logs, and source preservation as applicable.
 
 Ordinary GitHub CI runs formatting, workspace check, strict Clippy, and the full
-deterministic Rust workspace tests on the documented Rust 1.85 minimum. Its dev
-and test profiles omit debug symbols to keep GTK/Rust artifacts within the
-hosted runner's disk budget. CI also reclaims check/Clippy artifacts before the
-final clean test build. These controls change artifact diagnostics and rebuild
-cost, not test scope or optimization behavior. GTK component, native E2E, Niri,
-and Plasma jobs stay opt-in/separate with explicit graphical environments.
+deterministic Rust workspace tests on the documented Rust 1.85 minimum. GTK
+component, native E2E, Niri, and Plasma jobs stay opt-in/separate with explicit
+graphical environments.
 Never add Playwright, Selenium, Tauri/browser DOM testing, or label `proptest`
 as E2E.
 

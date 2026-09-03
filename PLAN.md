@@ -127,6 +127,12 @@ printing possible secrets or making unsupported legal claims.
   hosted-runner `ENOSPC`. Keep one test gate and every test, but bound peak disk
   usage by running non-application workspace tests first, reclaiming compiler
   artifacts, then rebuilding and running the complete `floe-app` suite.
+- 2026-09-02: Root-cause correction: Linux error 28 came from ext4 rejecting the
+  test's 4,097-byte xattr representation, not from free-disk exhaustion. Btrfs
+  accepts that fixture, hiding its filesystem dependency locally. Test the
+  4,096-byte application bound through an injected reader and keep only portable
+  on-disk xattrs. Restore the simple cached `cargo test --workspace` CI gate and
+  remove the unnecessary debug/artifact workarounds.
 
 ---
 
