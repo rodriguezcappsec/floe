@@ -1363,6 +1363,13 @@ Completed this session:
   while executor/UI tests account for the valid race where a small archive has
   already completed before cancellation reaches it.
 
+- The replacement run completed all 698 application tests without the archive
+  hang, then exposed a pre-existing cooperative privacy-sanitizer test race. Its
+  tiny request can truthfully finish before the caller's cancel generation is
+  observed; the test now accepts only either bounded cancellation or the exact
+  successful already-completed result. Deterministic cancelled-result coverage
+  remains intact.
+
 Verified:
 
 - The bundle-to-live equivalence audit passes across 217 refs and 134 commits,
@@ -1375,7 +1382,7 @@ Verified:
   all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
   package/source/release-candidate checks, E2E preflight, history/public-release
   contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
-  is `3b60e55e26eb689335320baea236b66fa7935e0dc21a1a1d5672ecded9140499`.
+  is `85f524c141e0f7e62000d50cf1972de9949c381588863bfcc93fcd3309792949`.
   An isolated native Wayland launch answers D-Bus Ping, lists application actions,
   and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
   next Rust 1.85 run remains the final merge gate.

@@ -155,7 +155,11 @@ behavior.
   cancel was incorrectly surfaced as retryable `Interrupted` I/O. That run was
   cancelled after reproduction. The non-retryable typed-cancellation regression
   fix and truthful already-completed scheduling-race assertions require one green
-  replacement run.
+  replacement run. Run `33698199222` completed the formerly hung archive suite,
+  then exposed a pre-existing cooperative privacy-sanitizer test race where its
+  tiny one-file request could finish before cancellation. The assertion now
+  distinguishes bounded cancellation from the exact truthful completed result;
+  another green replacement run remains required.
 
 - [x] R14: The Rust 1.85 compatibility correction passes formatting, workspace check, strict
   all-target/all-feature Clippy, full workspace tests, strict docs, deterministic
@@ -175,7 +179,7 @@ behavior.
   quality commands while omitting dev/test debug symbols and reclaiming only
   compiler artifacts before the fresh full test build to bound hosted-runner
   disk use. Arch source checksum is
-  `3b60e55e26eb689335320baea236b66fa7935e0dc21a1a1d5672ecded9140499`.
+  `85f524c141e0f7e62000d50cf1972de9949c381588863bfcc93fcd3309792949`.
 
 ---
 

@@ -116,6 +116,12 @@ printing possible secrets or making unsupported legal claims.
   to typed `ArchiveError::Cancelled`, cover progress-triggered cancellation
   deterministically, and make scheduling-race tests accept truthful
   already-completed outcomes before rerunning every gate.
+- 2026-09-02: Replacement run `33698199222` proves the archive deadlock fixed:
+  all 698 application tests reached completion. It then exposed the previously
+  observed privacy-sanitizer test scheduling race. Cancellation is cooperative,
+  so a tiny one-file request may truthfully complete before the caller advances
+  its generation; assert either bounded cancellation or the exact successful
+  completed outcome, preserving deterministic `cancelled_result` coverage.
 
 ---
 
