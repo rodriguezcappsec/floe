@@ -192,13 +192,19 @@ behavior.
   direct cached Rust quality commands. Arch source checksum is
   `69e0c919adec88e5a85f8321c95cf12586dee388ba342d7def44bb02661ce97e`.
 
-- [ ] R15: Release-source member ordering is identical before and after a new
+- [x] R15: Release-source member ordering is identical before and after a new
   file becomes tracked, the final Arch checksum matches remote `main`, and a
   fresh clone passes strict Git/history, public-release, documentation, source,
   and release-candidate gates after the ordering correction merges.
   CHECK: `sh packaging/tests/test-release-source.sh --check && python3 scripts/check-public-release.py all && git fsck --full --strict`
   EXPECT: `/phase-21c-release-source-ok/`
-  EVIDENCE: pending final merge and fresh-clone verification. The first final
+  EVIDENCE: PASS 2026-09-02. PR #4 passed Rust 1.85 run `33702204134` and
+  merged as `34c383cf235842a9593dc3333ccfd43149a3e8db`. A new single-branch
+  clone of remote `main` passes `git fsck --full --strict`, five Python policy
+  tests, strict history/public-release/docs checks, deterministic source and
+  release-candidate gates, and remains clean. Both archives retain SHA-256
+  `69e0c919adec88e5a85f8321c95cf12586dee388ba342d7def44bb02661ce97e`.
+  The first final
   clone proved file contents identical but exposed different TAR member order
   between an untracked and committed new test file. The packager now C-sorts its
   NUL-delimited file list and the source gate asserts global manifest ordering.
