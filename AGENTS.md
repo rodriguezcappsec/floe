@@ -1315,8 +1315,8 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-09-02`
 
-Current phase: **First public repository readiness, local/remote history privacy
-migration, and Rust 1.85 CI correction in review; Phase 19A remains next**
+Current phase: **First public repository readiness merged and fresh-clone
+verified; Phase 19A remains next**
 
 Completed this session:
 
@@ -1401,6 +1401,12 @@ Completed this session:
   the source test asserts globally sorted members; final merge/clone evidence is
   still pending.
 
+- PR #4 passed Rust 1.85 run `33702204134` and merged as `34c383cf`. A fresh
+  single-branch clone of remote `main` passes strict Git object, identity/history,
+  public-release, documentation, deterministic source, release-candidate, and
+  clean-worktree checks. The stable source SHA-256 is
+  `69e0c919adec88e5a85f8321c95cf12586dee388ba342d7def44bb02661ce97e`.
+
 Verified:
 
 - The bundle-to-live equivalence audit passes across 217 refs and 134 commits,
@@ -1415,22 +1421,18 @@ Verified:
   contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
   is `69e0c919adec88e5a85f8321c95cf12586dee388ba342d7def44bb02661ce97e`.
   An isolated native Wayland launch answers D-Bus Ping, lists application actions,
-  and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
-  next Rust 1.85 run remains the final merge gate.
+  and quits cleanly without GTK, libadwaita, or panic-critical log output.
 
 Known issues:
 
-- PR #2 must not merge until its required Rust 1.85 quality gate passes. The
-  first two runs exposed transitive compiler-requirement drift; the third compiled
-  those dependencies and exposed newer let-chain syntax; the fourth passed the
-  corrected workspace compilation and exposed one older-Clippy-only test lint.
-  All identified blockers are now corrected and awaiting CI verification.
+- No technical release-readiness gate remains pending. Rust 1.85 CI and final
+  fresh-clone history/source/release checks pass.
 - The access-restricted `/tmp` recovery bundle intentionally contains the private
   pre-rewrite history. Keep it offline only until remote migration and fresh-clone
   verification succeed, then deliberately destroy it if no longer needed;
   deletion is not secure erase.
 - `cargo-audit`, `cargo-deny`, and local Rust 1.85 through rustup remain unavailable
-  on this host. CI must confirm the actual Rust 1.85 Ubuntu job after publication.
+  on this host. GitHub's actual Rust 1.85 Ubuntu job passes.
 
 Deferred:
 

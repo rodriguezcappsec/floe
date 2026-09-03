@@ -152,6 +152,13 @@ printing possible secrets or making unsupported legal claims.
   C-sort the complete NUL-delimited file list before TAR creation, assert sorted
   manifest order, refresh the excluded Arch checksum, merge through the retained
   release branch, and repeat the final clone audit.
+- 2026-09-02: PR #4 passed Rust 1.85 run `33702204134` and merged as
+  `34c383cf235842a9593dc3333ccfd43149a3e8db`. A fresh single-branch clone of
+  remote `main` passes strict Git object/history/public/docs checks, all five
+  release-policy unit tests, deterministic source and release-candidate gates,
+  and clean-worktree verification. R15 is complete. Push this evidence-only
+  commit, require its CI, merge it, fast-forward local `main`, verify final refs
+  and history/source contracts, then stop with Phase 19A still sole next phase.
 
 ---
 
