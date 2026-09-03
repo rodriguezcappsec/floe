@@ -94,8 +94,9 @@ behavior.
   `24c47fb0743d42b6846b594cc54dc744c083ed436a11eb044781029b64734208`.
   Canonical origin remains `git@github.com:rodriguezcappsec/floe.git`.
 
-- [x] R10: Every reachable local commit has the configured noreply author and
-  committer email, and no reachable blob contains the former account-specific
+- [x] R10: Every reachable local commit has the reviewed public author identity
+  and either that committer identity or exact `GitHub <noreply@github.com>` on a
+  merge commit, and no reachable blob contains the former account-specific
   home, media, or unlazy-skill paths. Names, timestamps, messages, topology,
   file modes, and all unrelated blob content remain unchanged.
   CHECK: `python3 scripts/check-public-release.py history`
@@ -140,7 +141,8 @@ behavior.
   PR #2's required check passes on Rust 1.85.
   CHECK: `cargo tree -i time@0.3.44 && cargo tree -i ogg_pager@0.7.1 && gh pr checks 2 --repo rodriguezcappsec/floe`
   EXPECT: `/Rust quality gates.*pass/`
-  EVIDENCE: PASS 2026-09-02. Run `33700179608` passes the complete required
+  EVIDENCE: PASS 2026-09-02. Runs `33700179608` and evidence-only `33700826764`
+  pass the complete required
   GitHub Rust 1.85 quality gate: formatting, workspace check, strict Clippy, and
   every workspace test. Runs `33691100967` and `33691584349` exposed the two
   transitive dependency MSRV drifts. Run `33691868720` compiled those corrected
@@ -169,7 +171,8 @@ behavior.
   error 28 was ext4 refusing the fixture's 4,097-byte xattr, not free-disk
   exhaustion. Oversize rejection is now tested through an injected bounded
   reader while real filesystem coverage uses representable xattrs. The ordinary
-  cached `cargo test --workspace` gate is restored; one green run remains required.
+  cached `cargo test --workspace` gate is restored. Final run `33700826764`
+  passed; no Rust 1.85 gate remains pending.
 
 - [x] R14: The Rust 1.85 compatibility correction passes formatting, workspace check, strict
   all-target/all-feature Clippy, full workspace tests, strict docs, deterministic
@@ -187,7 +190,7 @@ behavior.
   libadwaita, or panic-critical log output. Dogtail/pyatspi and the staged
   installed-artifact walkthrough remain truthfully skipped. CI retains the four
   direct cached Rust quality commands. Arch source checksum is
-  `115a5942b54448b117ab478e4def85de179682153c36e8d6ac97c3d164f80499`.
+  `96b62e53b3a6e279b5f955848e2c77dd6e7c1c0913d7a8a84dfafd7a8c8b559f`.
 
 ---
 

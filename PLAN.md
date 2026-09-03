@@ -138,6 +138,13 @@ printing possible secrets or making unsupported legal claims.
   Record R13 complete, rerun release contracts, push the evidence-only commit,
   require that commit's CI to pass, then merge PR #2 and fresh-clone audit
   remote `main` without deleting the retained release branch.
+- 2026-09-02: Evidence-only run `33700826764` passed and PR #2 merged as
+  `afdfb1dd91885420e8b8428868e54cdbcaed2948`. Fresh-clone source, Git object,
+  release, and docs gates passed, while the history gate correctly rejected the
+  newly introduced standard GitHub merge committer `GitHub <noreply@github.com>`.
+  Permit only that exact identity on commits with at least two parents, retain
+  the configured noreply author requirement for every commit, add pure policy
+  regressions, and merge the correction through the retained release branch.
 
 ---
 

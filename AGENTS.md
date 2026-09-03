@@ -1387,6 +1387,13 @@ Completed this session:
   release-readiness branch is technically merge-ready after its evidence-only
   follow-up commit receives the same green check.
 
+- PR #2 merged as `afdfb1dd91885420e8b8428868e54cdbcaed2948` after
+  evidence-only Rust 1.85 run `33700826764` passed. The fresh-clone audit then
+  found GitHub's standard server-side merge committer. The history policy now
+  allows only exact `GitHub <noreply@github.com>` on a commit with at least two
+  parents; every author still must use the configured reviewed noreply address,
+  and all other committers remain rejected.
+
 Verified:
 
 - The bundle-to-live equivalence audit passes across 217 refs and 134 commits,
@@ -1399,7 +1406,7 @@ Verified:
   all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
   package/source/release-candidate checks, E2E preflight, history/public-release
   contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
-  is `115a5942b54448b117ab478e4def85de179682153c36e8d6ac97c3d164f80499`.
+  is `96b62e53b3a6e279b5f955848e2c77dd6e7c1c0913d7a8a84dfafd7a8c8b559f`.
   An isolated native Wayland launch answers D-Bus Ping, lists application actions,
   and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
   next Rust 1.85 run remains the final merge gate.
