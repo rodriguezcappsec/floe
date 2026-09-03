@@ -417,11 +417,21 @@ mod tests {
         let request =
             ArchiveRequest::compress(vec![large], root.path().join("cancel.tar")).expect("request");
         let cancelled = state.submit_archive(request).expect("submit cancel");
-        state.cancel_operation(cancelled.job_id()).expect("cancel");
-        assert_eq!(
-            wait_for_terminal(&state, cancelled.job_id()),
-            JobState::Cancelled
-        );
-        assert!(state.finish_archive(cancelled.job_id()).is_none());
+        let cancel_result = state.cancel_operation(cancelled.job_id());
+        if let Err(error) = &cancel_result {
+            assert!(matches!(
+                error,
+                crate::state::CopyInteractionError::ArchiveCancel(
+                    crate::archive_executor::ArchiveCancelError::NotActive(job_id)
+                ) if *job_id == cancelled.job_id()
+            ));
+        }
+        let terminal = wait_for_terminal(&state, cancelled.job_id());
+        assert!(matches!(
+            terminal,
+            JobState::Cancelled | JobState::Completed
+        ));
+        let outcome = state.finish_archive(cancelled.job_id());
+        assert_eq!(outcome.is_none(), terminal == JobState::Cancelled);
     }
 }

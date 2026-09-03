@@ -394,12 +394,12 @@ impl ParentWindow {
                 return Ok(Self::Wayland(handle.to_owned()));
             }
         }
-        if let Some(handle) = value.strip_prefix("x11:")
-            && !handle.is_empty()
-            && handle.bytes().all(|byte| byte.is_ascii_hexdigit())
-            && let Ok(window) = u64::from_str_radix(handle, 16)
-        {
-            return Ok(Self::X11(window));
+        if let Some(handle) = value.strip_prefix("x11:") {
+            if !handle.is_empty() && handle.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                if let Ok(window) = u64::from_str_radix(handle, 16) {
+                    return Ok(Self::X11(window));
+                }
+            }
         }
         Err(PortalRequestError::Parent)
     }
@@ -719,10 +719,10 @@ impl PortalService {
         let registration = match connection
             .register_object(&request.handle, &request_interface)
             .method_call(move |_, _, object_path, _, method, _, close_invocation| {
-                if method == "Close"
-                    && let Some(service) = service.upgrade()
-                {
-                    service.cancel(object_path);
+                if method == "Close" {
+                    if let Some(service) = service.upgrade() {
+                        service.cancel(object_path);
+                    }
                 }
                 close_invocation.return_value(Some(&().to_variant()));
             })
@@ -848,21 +848,21 @@ fn return_success(
     if !request.chooser_options.choices.is_empty() {
         results.insert_value("choices", &result.options.choices.to_variant());
     }
-    if let Some(index) = result.options.current_filter
-        && let Some(filter) = request.chooser_options.filters.get(index)
-    {
-        let rules = filter
-            .rules
-            .iter()
-            .map(|rule| match rule {
-                SelectionFilterRule::Glob(value) => (0u32, value.clone()),
-                SelectionFilterRule::Mime(value) => (1u32, value.clone()),
-            })
-            .collect::<Vec<_>>();
-        results.insert_value(
-            "current_filter",
-            &(filter.label.clone(), rules).to_variant(),
-        );
+    if let Some(index) = result.options.current_filter {
+        if let Some(filter) = request.chooser_options.filters.get(index) {
+            let rules = filter
+                .rules
+                .iter()
+                .map(|rule| match rule {
+                    SelectionFilterRule::Glob(value) => (0u32, value.clone()),
+                    SelectionFilterRule::Mime(value) => (1u32, value.clone()),
+                })
+                .collect::<Vec<_>>();
+            results.insert_value(
+                "current_filter",
+                &(filter.label.clone(), rules).to_variant(),
+            );
+        }
     }
     let response = glib::Variant::tuple_from_iter([0u32.to_variant(), results.end()]);
     invocation.return_value(Some(&response));

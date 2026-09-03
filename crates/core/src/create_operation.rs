@@ -783,21 +783,22 @@ mod tests {
             Err(CreateError::UnsupportedHardLinkSource(path)) if path == source_link
         ));
 
-        if let Ok(other_filesystem) = tempfile::tempdir_in("/dev/shm")
-            && fs::metadata(other_filesystem.path())
+        if let Ok(other_filesystem) = tempfile::tempdir_in("/dev/shm") {
+            if fs::metadata(other_filesystem.path())
                 .is_ok_and(|metadata| metadata.dev() != source_metadata.dev())
-        {
-            let cross_destination = other_filesystem.path().join("cross-filesystem-link");
-            assert!(matches!(
-                execute_create(
-                    &CreateRequest::hard_link(&source, &cross_destination)
-                        .expect("cross-filesystem request"),
-                    &CreateCancellation::new(),
-                    |_| {},
-                ),
-                Err(CreateError::CrossFilesystemHardLink)
-            ));
-            assert!(!cross_destination.exists());
+            {
+                let cross_destination = other_filesystem.path().join("cross-filesystem-link");
+                assert!(matches!(
+                    execute_create(
+                        &CreateRequest::hard_link(&source, &cross_destination)
+                            .expect("cross-filesystem request"),
+                        &CreateCancellation::new(),
+                        |_| {},
+                    ),
+                    Err(CreateError::CrossFilesystemHardLink)
+                ));
+                assert!(!cross_destination.exists());
+            }
         }
     }
 }

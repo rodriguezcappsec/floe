@@ -434,9 +434,12 @@ mod tests {
             Err(ClipboardTransferError::TooLarge)
         ));
 
-        let over_item_limit = (0..=MAX_CLIPBOARD_ITEMS)
-            .map(|index| format!("file:///tmp/item-{index}\n"))
-            .collect::<String>();
+        let mut over_item_limit = String::new();
+        for index in 0..=MAX_CLIPBOARD_ITEMS {
+            use std::fmt::Write as _;
+            writeln!(&mut over_item_limit, "file:///tmp/item-{index}")
+                .expect("writing to a String cannot fail");
+        }
         assert!(matches!(
             parse_uri_list(TransferIntent::Copy, over_item_limit.as_bytes()),
             Err(ClipboardTransferError::TooManyItems)

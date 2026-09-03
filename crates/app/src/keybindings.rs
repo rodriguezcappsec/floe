@@ -157,13 +157,13 @@ impl KeybindingOverrides {
         let mut assigned: HashMap<String, &'static CommandDefinition> = HashMap::new();
         for definition in command_registry::COMMANDS {
             for accelerator in self.effective(definition) {
-                if let Some(existing) = assigned.insert(accelerator.clone(), definition)
-                    && existing.action != definition.action
-                {
-                    return Err(KeybindingError::Conflict {
-                        accelerator,
-                        command: existing.name,
-                    });
+                if let Some(existing) = assigned.insert(accelerator.clone(), definition) {
+                    if existing.action != definition.action {
+                        return Err(KeybindingError::Conflict {
+                            accelerator,
+                            command: existing.name,
+                        });
+                    }
                 }
             }
         }
@@ -278,9 +278,10 @@ fn canonical_key(value: &str) -> Option<String> {
     if let Some(number) = lower
         .strip_prefix('f')
         .and_then(|part| part.parse::<u8>().ok())
-        && (1..=35).contains(&number)
     {
-        return Some(format!("F{number}"));
+        if (1..=35).contains(&number) {
+            return Some(format!("F{number}"));
+        }
     }
     let canonical = match lower.as_str() {
         "left" => "Left",

@@ -1039,10 +1039,10 @@ impl ApplicationState {
     }
 
     pub fn cancel_threat_scan(&self, generation: u64) {
-        if self.threat_scan_active.get() == Some(generation)
-            && let Some(worker) = self.threat_scan.borrow().as_ref()
-        {
-            worker.cancel();
+        if self.threat_scan_active.get() == Some(generation) {
+            if let Some(worker) = self.threat_scan.borrow().as_ref() {
+                worker.cancel();
+            }
         }
     }
 
@@ -2733,12 +2733,12 @@ impl ApplicationState {
             .map(|record| record.operation_id());
         let operation = self.operation_requests.borrow_mut().remove(&job_id);
         let batch_id = self.batch_for_job(job_id);
-        if outcome == TerminalOutcome::Completed
-            && let Some(TrackedOperation::Move(request)) = operation.as_ref()
-        {
-            self.transfer_buffer
-                .borrow_mut()
-                .clear_completed_move(request.source());
+        if outcome == TerminalOutcome::Completed {
+            if let Some(TrackedOperation::Move(request)) = operation.as_ref() {
+                self.transfer_buffer
+                    .borrow_mut()
+                    .clear_completed_move(request.source());
+            }
         }
         let create_outcome = if matches!(operation, Some(TrackedOperation::Create(_))) {
             self.create_executor.take_outcome(job_id)
@@ -3897,13 +3897,14 @@ impl ApplicationState {
     }
 
     fn discard_pending_authorization(&self, authorization: Option<GuardrailAuthorizationItem>) {
-        if let Some(authorization) = authorization
-            && let Err(error) = self
+        if let Some(authorization) = authorization {
+            if let Err(error) = self
                 .guardrails
                 .borrow_mut()
                 .discard_authorization(authorization)
-        {
-            tracing::debug!(%error, "queued guardrail authorization was already revoked");
+            {
+                tracing::debug!(%error, "queued guardrail authorization was already revoked");
+            }
         }
     }
 
@@ -4610,9 +4611,10 @@ mod tests {
             if let Some(job_state) = lock(&state.jobs)
                 .record(job_id)
                 .map(|record| record.state())
-                && job_state.is_terminal()
             {
-                return job_state;
+                if job_state.is_terminal() {
+                    return job_state;
+                }
             }
             assert!(
                 Instant::now() < deadline,

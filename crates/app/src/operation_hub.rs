@@ -81,10 +81,10 @@ impl OperationEventHub {
             state.active = state.order.last().copied();
         }
         let target = state.active.or_else(|| state.order.last().copied());
-        if let Some(target) = target
-            && let Some(inbox) = state.inboxes.get_mut(&target)
-        {
-            append_bounded(inbox, orphaned);
+        if let Some(target) = target {
+            if let Some(inbox) = state.inboxes.get_mut(&target) {
+                append_bounded(inbox, orphaned);
+            }
         }
     }
 
@@ -100,10 +100,10 @@ impl OperationEventHub {
             .active
             .filter(|candidate| state.inboxes.contains_key(candidate))
             .or_else(|| state.order.last().copied());
-        if let Some(target) = target
-            && let Some(inbox) = state.inboxes.get_mut(&target)
-        {
-            append_bounded(inbox, events);
+        if let Some(target) = target {
+            if let Some(inbox) = state.inboxes.get_mut(&target) {
+                append_bounded(inbox, events);
+            }
         }
         state
             .inboxes

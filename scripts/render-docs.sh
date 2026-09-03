@@ -10,11 +10,12 @@ temporary=$(mktemp -d)
 trap 'rm -rf -- "$temporary"' EXIT HUP INT TERM
 
 for document in \
-    README.md SECURITY.md CHANGELOG.md \
+    README.md SECURITY.md CONTRIBUTING.md CLA.md CHANGELOG.md \
     docs/GETTING_STARTED.md docs/INSTALLATION.md docs/MIGRATIONS.md \
   docs/USER_GUIDE.md docs/PHILOSOPHY.md docs/ADMINISTRATION.md docs/ACCESSIBILITY.md \
     docs/RECOVERY.md docs/DEBUGGING.md docs/LOCALIZATION.md \
-    docs/PERFORMANCE.md docs/ARCHITECTURE.md docs/DEVELOPMENT.md \
+    docs/PERFORMANCE.md docs/PUBLIC_RELEASE_CHECKLIST.md \
+    docs/ARCHITECTURE.md docs/DEVELOPMENT.md \
     docs/PRIVACY_SECURITY.md docs/PRIVILEGED_ACCESS.md \
     docs/FEATURE_MATRIX.md docs/ROADMAP.md
 do

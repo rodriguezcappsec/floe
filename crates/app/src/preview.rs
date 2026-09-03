@@ -1272,10 +1272,10 @@ impl PreviewWorker {
         let worker = thread::Builder::new()
             .name("floe-preview".to_owned())
             .spawn(move || {
-                if let Some(gate) = start_gate
-                    && gate.recv().is_err()
-                {
-                    return;
+                if let Some(gate) = start_gate {
+                    if gate.recv().is_err() {
+                        return;
+                    }
                 }
                 let mut cache = PreviewMemoryCache::default();
                 let mut observed_cache_epoch = 0;

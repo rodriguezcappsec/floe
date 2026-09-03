@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose a focused improvement to a Floe workflow
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem first. Large features, filesystem-semantic changes, and security or privacy designs should be discussed before implementation.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What is difficult, unsafe, slow, inaccessible, or unavailable today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the user-visible workflow and expected outcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: What do you use today, if anything?
+
+  - type: input
+    id: workflow
+    attributes:
+      label: Affected Floe workflow
+      placeholder: Search, file operations, Grid view, devices, Quick Preview
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Areas that may be affected
+      description: Select every area that applies; uncertainty is fine.
+      options:
+        - label: Filesystem semantics or user data
+        - label: Privacy or security
+        - label: Linux, desktop, filesystem, or application compatibility
+        - label: Accessibility or performance
+        - label: None of these or unsure

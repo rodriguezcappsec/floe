@@ -271,10 +271,10 @@ impl CreateExecutor {
         if let Some(sender) = self.sender.take() {
             let _ = sender.try_send(CreateCommand::Shutdown);
         }
-        if let Some(worker) = self.worker.take()
-            && worker.join().is_err()
-        {
-            tracing::error!("create worker panicked during shutdown");
+        if let Some(worker) = self.worker.take() {
+            if worker.join().is_err() {
+                tracing::error!("create worker panicked during shutdown");
+            }
         }
     }
 }
@@ -486,10 +486,10 @@ mod tests {
     fn wait_for_terminal(jobs: &SharedJobManager, job_id: JobId) -> JobState {
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            if let Some(state) = lock(jobs).record(job_id).map(|record| record.state())
-                && state.is_terminal()
-            {
-                return state;
+            if let Some(state) = lock(jobs).record(job_id).map(|record| record.state()) {
+                if state.is_terminal() {
+                    return state;
+                }
             }
             assert!(Instant::now() < deadline, "create job timed out");
             std::thread::sleep(Duration::from_millis(5));

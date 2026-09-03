@@ -1,4 +1,197 @@
-# Active Gates: Phase 20C contextual help and terminology clarity
+# Active Gates: First public repository readiness and history privacy rewrite
+
+Scope: Make the repository professionally reviewable for public source access
+and outside pull requests while preserving proprietary licensing and runtime
+behavior.
+
+- [x] R1: Floe's proprietary/source-available license remains unmodified and
+  consistently represented by `LICENSE`, Cargo metadata, README, contribution
+  terms, and public templates; no open-source claim or invented entity exists.
+  CHECK: `test "$(rg -c 'license = "LicenseRef-proprietary"' Cargo.toml)" -eq 1 && rg -n 'source-available.*proprietary|proprietary.*source-available' README.md CONTRIBUTING.md CLA.md && git diff --exit-code main -- LICENSE`
+  EXPECT: `/source-available/`
+  EVIDENCE: PASS. Root `LICENSE` is unchanged from `main`; Cargo, AppStream,
+  Arch, README, contribution, and CLA wording consistently preserve
+  `LicenseRef-proprietary` and source-available proprietary status.
+
+- [x] R2: Contribution policy and inbound license grant cover welcomed changes,
+  proportional issue-first workflow, testing, CLA acknowledgement, contributor
+  ownership/rights warranties, proprietary/commercial incorporation,
+  sublicensing/relicensing, and employer permission.
+  CHECK: `python3 scripts/check-public-release.py community`
+  EXPECT: `/public-release-community-ok/`
+  EVIDENCE: PASS. `public-release-community-ok`; manual review confirms the CLA
+  contains the complete requested grant, ownership, warranty, employer, and
+  pull-request agreement terms without inventing an entity or legal review.
+
+- [x] R3: GitHub CI and bug/feature/PR templates are valid, concise, privacy-aware,
+  and CI runs the exact four documented headless Rust gates on PRs and main using
+  documented Ubuntu system dependencies and Rust 1.85 with Cargo caching.
+  CHECK: `python3 scripts/check-public-release.py github`
+  EXPECT: `/public-release-github-ok/`
+  EVIDENCE: PASS. `public-release-github-ok`; PyYAML parses all three YAML files.
+  CI contains each required command exactly once and excludes graphical suites.
+
+- [x] R4: README and SECURITY accurately state maturity, supported platform,
+  build path, limitations, contribution model, implemented local inspection,
+  optional clamd scanning, sandboxed external providers, unsandboxed ordinary
+  launches, guardrail/hash/delete/recovery limits, and private-reporting route.
+  CHECK: `python3 scripts/check-public-release.py documentation`
+  EXPECT: `/public-release-documentation-ok/`
+  EVIDENCE: PASS. `public-release-documentation-ok`, strict documentation, and
+  GFM rendering pass; implementation claims were cross-checked against current
+  threat-scan, privacy, provider, launcher, guardrail, and permission boundaries.
+
+- [x] R5: Public launch checklist separates automated evidence from manual GitHub
+  settings, recommends but does not create `v0.1.0-alpha.1`, and includes private
+  vulnerability reporting, issues, optional discussions, ruleset/CI, assets,
+  history, advisory/license, package/smoke, tag, and visibility checks.
+  CHECK: `python3 scripts/check-public-release.py checklist`
+  EXPECT: `/public-release-checklist-ok/`
+  EVIDENCE: PASS. `public-release-checklist-ok`; automated gates are marked only
+  after execution and manual history/legal/GitHub/release/visibility actions stay
+  unchecked. No tag, release, or visibility change occurred.
+
+- [x] R6: Tracked-tree and Git-history privacy/secret review plus direct
+  dependency/bundled-asset/license review are completed without exposing possible
+  secrets; any uncertainty is categorized for human/legal review.
+  EVIDENCE: PASS. Working-tree and reachable-history scans find zero
+  high-confidence secret markers, account-home paths, non-public commit email
+  identities, or sensitive filenames after the authorized rewrite. The external
+  bundle comparison proves only the reviewed email/path substitutions changed.
+  Resolved dependency policy passes 206 packages/10 allowed SPDX identifiers;
+  direct dependencies and the bundled proprietary/Phosphor assets were reviewed.
+  Human legal and notice-obligation review remains explicit.
+
+- [x] R7: Rust formatting, build, strict Clippy, workspace tests, strict docs,
+  rendered docs, packaging layout/migrations/source/release-candidate, advisory or
+  dependency checks, E2E preflight, public-release contracts, and diff hygiene are
+  each run and recorded truthfully; graphical skips are not reported as passes.
+  EVIDENCE: PASS with truthful external skips. All named deterministic gates,
+  frozen release build, package layout/migrations, deterministic source,
+  release-candidate, repository contracts, and two native Wayland smokes pass.
+  E2E preflight passes five contracts and reports two skips: Dogtail/AT-SPI is
+  unavailable and no staged installed artifact was configured. `cargo-audit`,
+  `cargo-deny`, rustup, and a local Rust 1.85 run are unavailable.
+
+- [x] R8: `AGENTS.md` records the verified review branch outcome and exactly one
+  recommended next feature remains Phase 19A; no feature, tag, release,
+  visibility, merge, or direct `main` push occurs.
+  CHECK: `python3 scripts/check-docs.py --strict && test "$(rg -c '^\| .*\| NEXT \|' docs/ROADMAP.md)" -eq 1 && git branch --show-current && git diff --check`
+  EXPECT: `/phase-21c-docs-ok/`
+  EVIDENCE: PASS. Status records implementation, evidence, blockers, skips, and
+  manual actions; roadmap still has exactly Phase 19A as NEXT. Branch is
+  `release/public-repository-readiness`; `main`, tags, releases, and visibility
+  were not changed.
+
+- [x] R9: The verified public-readiness tree is committed with the configured
+  GitHub noreply identity before rewriting; a full external bundle contains and
+  verifies every pre-rewrite local ref, and the canonical origin URL is recorded.
+  CHECK: `test "$(stat -c '%a' /tmp/floe-pre-public-rewrite-2e04694.bundle)" = 600 && git bundle verify /tmp/floe-pre-public-rewrite-2e04694.bundle`
+  EXPECT: `/The bundle records a complete history/`
+  EVIDENCE: PASS 2026-09-02. Commit `2e04694` captured the verified tree using
+  the reviewed noreply identity before rewriting. The mode-0600 bundle contains
+  218 refs, verifies as complete, and has SHA-256
+  `24c47fb0743d42b6846b594cc54dc744c083ed436a11eb044781029b64734208`.
+  Canonical origin remains `git@github.com:rodriguezcappsec/floe.git`.
+
+- [x] R10: Every reachable local commit has the configured noreply author and
+  committer email, and no reachable blob contains the former account-specific
+  home, media, or unlazy-skill paths. Names, timestamps, messages, topology,
+  file modes, and all unrelated blob content remain unchanged.
+  CHECK: `python3 scripts/check-public-release.py history`
+  EXPECT: `/public-release-history-ok/`
+  EVIDENCE: PASS 2026-09-02. Repository gate reports
+  `public-release-history-ok commits=134 refs=217`. Independent bundle-to-live
+  canonical comparison reports `history-rewrite-equivalent refs=217 commits=134`;
+  it compares every ref's complete reachable graph, commit metadata, messages,
+  tree paths, modes, and normalized blob bytes.
+
+- [x] R11: Rewrite backup refs are removed only after the external bundle is
+  verified; reflogs and unreachable originals are expired/pruned, then the
+  complete local ref/blob/metadata audit still passes. No force-push, tag,
+  release, repository visibility change, or merge to `main` occurs.
+  CHECK: `python3 scripts/check-public-release.py history && test -z "$(git for-each-ref --format='%(refname)' refs/original/)"`
+  EXPECT: `/public-release-history-ok/`
+  EVIDENCE: PASS 2026-09-02. The external bundle and equivalence audit passed
+  before deletion. All 214 `refs/original/*` refs were removed, reflogs expired,
+  `git gc --prune=now` completed, `git fsck --full --no-reflogs --unreachable`
+  reports nothing, and the history gate passes afterward. GitHub remote content,
+  `main` checkout, tags, releases, and visibility were not changed.
+
+- [x] R12: Public-release documentation, deterministic source checksum,
+  repository contracts, strict docs, release-source policy, and diff hygiene
+  agree with the rewritten history and accurately leave remote replacement as a
+  separate manual step.
+  CHECK: `python3 scripts/check-public-release.py all && python3 scripts/check-docs.py --strict && sh packaging/tests/test-release-source.sh && git diff --check`
+  EXPECT: `/public-release-all-ok/`
+  EVIDENCE: PASS 2026-09-02. Public-release community/GitHub/documentation/
+  checklist/history/all contracts, strict docs, GFM rendering, package layout,
+  settings migrations, deterministic source, release-candidate policy, E2E
+  preflight, full Git object check, roadmap single-NEXT check, and diff hygiene
+  pass. Arch source checksum is
+  `91b7af136a8555bc920d558defb5763b1c8c41138c72fc6743caf2481cc9cb35`.
+  The checklist leaves GitHub remote replacement and fresh-clone verification
+  manual; no force-push or remote mutation occurred.
+
+- [x] R13: The real GitHub Rust 1.85 CI failures are reproduced and corrected
+  without raising Floe's declared MSRV: the application lockfile selects
+  reviewed compatible `time` through `sevenz-rust -> nt-time` and `ogg_pager`
+  through `lofty`, all workspace source avoids post-1.85 let-chain syntax, and
+  PR #2's required check passes on Rust 1.85.
+  CHECK: `cargo tree -i time@0.3.44 && cargo tree -i ogg_pager@0.7.1 && gh pr checks 2 --repo rodriguezcappsec/floe`
+  EXPECT: `/Rust quality gates.*pass/`
+  EVIDENCE: PASS 2026-09-02. Run `33700179608` passes the complete required
+  GitHub Rust 1.85 quality gate: formatting, workspace check, strict Clippy, and
+  every workspace test. Runs `33691100967` and `33691584349` exposed the two
+  transitive dependency MSRV drifts. Run `33691868720` compiled those corrected
+  dependencies on Rust 1.85 and then exposed post-1.85 let-chain syntax in Floe.
+  Run `33693526585` then passed formatting and workspace compilation on Rust
+  1.85 before its older Clippy identified one test-only `format_collect` pattern.
+  Runs `33693923271` and `33694688815` passed formatting, workspace check, and
+  strict Clippy before the hosted runner returned Linux error 28 (`StorageFull`)
+  while setting a tiny test xattr. CI now omits debug symbols and reclaims
+  check/Clippy artifacts before a fresh full test build; the next run remains the
+  required evidence before this gate can be checked. Run `33695272153` proved
+  artifact reclamation solves that pressure and again passed formatting, check,
+  and Clippy, but mid-stream TAR cancellation then hung because a persistent
+  cancel was incorrectly surfaced as retryable `Interrupted` I/O. That run was
+  cancelled after reproduction. The non-retryable typed-cancellation regression
+  fix and truthful already-completed scheduling-race assertions require one green
+  replacement run. Run `33698199222` completed the formerly hung archive suite,
+  then exposed a pre-existing cooperative privacy-sanitizer test race where its
+  tiny one-file request could finish before cancellation. The assertion now
+  distinguishes bounded cancellation from the exact truthful completed result;
+  another green replacement run remains required. Run `33698804611` passed the
+  full application suite and then hit hosted-runner `ENOSPC` at the later core
+  xattr check. CI now runs the same complete test set in two package batches
+  with artifact reclamation between them; no test or strict filesystem assertion
+  was removed. One green replacement run remains required. Root-cause correction:
+  error 28 was ext4 refusing the fixture's 4,097-byte xattr, not free-disk
+  exhaustion. Oversize rejection is now tested through an injected bounded
+  reader while real filesystem coverage uses representable xattrs. The ordinary
+  cached `cargo test --workspace` gate is restored; one green run remains required.
+
+- [x] R14: The Rust 1.85 compatibility correction passes formatting, workspace check, strict
+  all-target/all-feature Clippy, full workspace tests, strict docs, deterministic
+  source/release-candidate contracts, public-release/history checks, and diff
+  hygiene; documentation and Arch checksum match the corrected source.
+  CHECK: `cargo fmt --all -- --check && cargo check --workspace && cargo clippy --workspace --all-targets --all-features -- -D warnings && cargo test --workspace && python3 scripts/check-docs.py --strict && sh packaging/tests/test-release-source.sh && sh packaging/tests/test-release-candidate.sh && python3 scripts/check-public-release.py all && git diff --check`
+  EXPECT: `/public-release-contracts-ok/`
+  EVIDENCE: PASS 2026-09-02. The complete local command chain exits zero.
+  `time` 0.3.44, `time-core` 0.1.6, `time-macros` 0.2.24, and `ogg_pager`
+  0.7.1 compile and pass every Rust test on the current toolchain; every
+  post-1.85 let-chain was rewritten with equivalent nested control flow. Strict
+  docs/rendering, deterministic source, release candidate, public/history, nine
+  E2E harness contracts, and diff hygiene pass. The isolated native Wayland
+  launch, D-Bus action listing/Ping, and clean Quit pass without GTK,
+  libadwaita, or panic-critical log output. Dogtail/pyatspi and the staged
+  installed-artifact walkthrough remain truthfully skipped. CI retains the four
+  direct cached Rust quality commands. Arch source checksum is
+  `115a5942b54448b117ab478e4def85de179682153c36e8d6ac97c3d164f80499`.
+
+---
+
+# Archived active gates: Phase 20C contextual help and terminology clarity
 
 Scope: Give complex Floe controls concise hover help and equivalent accessible
 descriptions while preserving native GTK menus and the completed Phase 18R work.

@@ -1315,6 +1315,201 @@ is active, and **Integrity verified** only after verification completes.
 
 Last updated: `2026-09-02`
 
+Current phase: **First public repository readiness, local/remote history privacy
+migration, and Rust 1.85 CI correction in review; Phase 19A remains next**
+
+Completed this session:
+
+- Prepared `release/public-repository-readiness` without changing runtime code,
+  `main`, GitHub visibility, tags, or releases. Added contribution guidance, a
+  neutral inbound-license agreement, GitHub community templates and CODEOWNERS,
+  minimal headless Rust CI, public launch checklist, and dependency-free release
+  contracts while preserving `LicenseRef-proprietary`.
+- Rewrote all 217 live local refs and 134 reachable commits so author/committer
+  metadata uses the reviewed GitHub noreply address and historical account-specific
+  home, media, and agent paths use neutral placeholders. A verified mode-0600
+  pre-rewrite bundle remains in `/tmp` for recovery; `refs/original/*`, reflogs,
+  and unreachable original objects were removed after equivalence verification.
+- Added a repeatable reachable-history identity/path gate and updated the release
+  checklist to distinguish the completed local rewrite from the still-pending
+  GitHub remote migration and fresh-clone audit.
+- Deleted 75 obsolete GitHub branches, published the rewritten release branch,
+  replaced remote `main` through an exact force-with-lease, and verified both
+  expected commit tips plus all 135 commits from a clean clone. PR #2 is the
+  release-readiness review path; repository visibility remains unchanged.
+- The first real GitHub Rust 1.85 jobs exposed transitive `time` 0.3.55 requiring
+  Rust 1.88 through `sevenz-rust -> nt-time` and `ogg_pager` 0.7.2 requiring
+  Rust 1.89 through `lofty`. The application lockfile now selects `time` 0.3.44
+  (published MSRV 1.81) and `ogg_pager` 0.7.1 (published MSRV 1.85) without
+  raising Floe's Rust 1.85 minimum.
+- The third Rust 1.85 job compiled those corrected dependencies and exposed
+  post-1.85 let-chain syntax in Floe itself. Every affected core and application
+  guard now uses semantically equivalent nested control flow; no feature,
+  dependency, or MSRV change was introduced.
+- The fourth Rust 1.85 job passed formatting and full workspace compilation,
+  then its older Clippy rejected one test-only `format_collect` pattern. The
+  oversized clipboard fixture now writes directly into one bounded `String`.
+- The fifth job passed formatting, workspace check, and strict Clippy, then the
+  runner exhausted storage while setting a tiny test xattr. A no-debug rerun
+  reached the same boundary, so CI keeps all four quality commands and all tests,
+  omits dev/test debug symbols, and reclaims check/Clippy compiler artifacts
+  before a fresh full test build. The xattr test itself remains strict.
+
+- The artifact-reclamation run passed Rust 1.85 formatting, workspace check,
+  and strict Clippy, then exposed a genuine mid-stream TAR cancellation hang:
+  persistent cancellation was emitted as retryable `Interrupted` I/O. Archive
+  streaming now uses a non-retryable signal translated back to typed
+  `Cancelled`; deterministic progress-triggered coverage guards the regression,
+  while executor/UI tests account for the valid race where a small archive has
+  already completed before cancellation reaches it.
+
+- The replacement run completed all 698 application tests without the archive
+  hang, then exposed a pre-existing cooperative privacy-sanitizer test race. Its
+  tiny request can truthfully finish before the caller's cancel generation is
+  observed; the test now accepts only either bounded cancellation or the exact
+  successful already-completed result. Deterministic cancelled-result coverage
+  remains intact.
+
+- The next run passed Rust 1.85 format/check/Clippy and all 698 application
+  tests, then the later core xattr test again encountered hosted-runner
+  `ENOSPC`. CI preserves one test gate and every workspace test while bounding
+  peak disk use: non-application workspace tests run first, artifacts are
+  reclaimed, then the complete `floe-app` suite is rebuilt and run.
+
+- Root-cause correction: the repeated Linux error 28 was ext4 rejecting a
+  4,097-byte xattr fixture, not hosted-runner disk exhaustion. Btrfs accepted
+  the same fixture locally. Oversize rejection now uses an injected bounded
+  reader, on-disk xattrs remain portable, and CI is restored to the simple
+  cached `cargo test --workspace` gate without debug/artifact workarounds.
+
+- GitHub Actions run `33700179608` passes the complete required Rust 1.85 gate:
+  formatting, workspace check, strict Clippy, and every workspace test. The
+  release-readiness branch is technically merge-ready after its evidence-only
+  follow-up commit receives the same green check.
+
+Verified:
+
+- The bundle-to-live equivalence audit passes across 217 refs and 134 commits,
+  preserving graph topology, names, timestamps, messages, file modes, and all
+  content except the explicitly authorized email/path substitutions.
+- The local reachable-history gate, full Git object check, strict documentation,
+  public-release contracts, deterministic source archive, release-source policy,
+  and diff hygiene pass after pruning.
+- The complete Rust 1.85 compatibility correction passes formatting, workspace check, strict
+  all-target/all-feature Clippy, full workspace tests, strict docs/rendering,
+  package/source/release-candidate checks, E2E preflight, history/public-release
+  contracts, and diff hygiene locally. The refreshed deterministic source SHA-256
+  is `115a5942b54448b117ab478e4def85de179682153c36e8d6ac97c3d164f80499`.
+  An isolated native Wayland launch answers D-Bus Ping, lists application actions,
+  and quits cleanly without GTK, libadwaita, or panic-critical log output. PR #2's
+  next Rust 1.85 run remains the final merge gate.
+
+Known issues:
+
+- PR #2 must not merge until its required Rust 1.85 quality gate passes. The
+  first two runs exposed transitive compiler-requirement drift; the third compiled
+  those dependencies and exposed newer let-chain syntax; the fourth passed the
+  corrected workspace compilation and exposed one older-Clippy-only test lint.
+  All identified blockers are now corrected and awaiting CI verification.
+- The access-restricted `/tmp` recovery bundle intentionally contains the private
+  pre-rewrite history. Keep it offline only until remote migration and fresh-clone
+  verification succeed, then deliberately destroy it if no longer needed;
+  deletion is not secure erase.
+- `cargo-audit`, `cargo-deny`, and local Rust 1.85 through rustup remain unavailable
+  on this host. CI must confirm the actual Rust 1.85 Ubuntu job after publication.
+
+Deferred:
+
+- GitHub Private Vulnerability Reporting, branch rules, required CI, optional
+  Discussions, visibility, tagging, and publishing
+  `v0.1.0-alpha.1` remain explicit maintainer actions. None was performed.
+
+Recommended next task:
+
+- After PR #2 is green and merged and manual repository settings are resolved,
+  create `phase-19a-git-awareness` and implement only the roadmap's
+  opt-in Git awareness phase. Do not begin it as part of publication work.
+
+## Prior public-readiness status (before local history rewrite)
+
+Last updated: `2026-09-02`
+
+Current phase: **First public repository readiness implemented and verified on a review branch; publication blockers require maintainer action; Phase 19A remains next**
+
+Completed this session:
+
+- Prepared `release/public-repository-readiness` without changing runtime code,
+  `main`, repository visibility, tags, or releases. Added contribution guidance,
+  a neutral inbound-license agreement for proprietary/commercial incorporation,
+  GitHub issue forms, pull-request template, confirmed-owner CODEOWNERS, minimal
+  Rust CI, public launch checklist, and dependency-free repository contracts.
+- Preserved the root proprietary license and `LicenseRef-proprietary` Cargo,
+  AppStream, and Arch metadata. README now presents alpha maturity,
+  source-available proprietary rights, build/install path, contribution route,
+  implemented highlights, and limitations without claiming Floe is open source.
+- Replaced stale security policy claims with exact implemented suspicious-file,
+  optional local `clamd`, metadata/privacy, permission-audit, sanitized-copy, and
+  Bubblewrap provider boundaries. Ordinary Open/Open With remains explicitly
+  unsandboxed; Protected Folder, hash, deletion, recovery, and general-boundary
+  limitations remain explicit. Private Vulnerability Reporting is the preferred
+  sensitive-report route once enabled.
+- Removed account-specific absolute home paths from the tracked working tree and
+  expanded strict documentation/render/source-package coverage to the new public
+  files. Updated the deterministic Arch source checksum.
+
+Verified:
+
+- Formatting, workspace check, strict all-target Clippy, workspace tests,
+  dependency/advisory/environment policy, strict documentation, rendered docs,
+  YAML parsing, package layout, settings migrations, frozen release build,
+  deterministic source/release-candidate checks, diff hygiene, and repository
+  contracts pass.
+- E2E harness contracts pass; native Dogtail/AT-SPI and installed-artifact
+  walkthrough remain truthfully skipped for missing external setup. Existing KDE
+  close-survivor/restart smoke and isolated release-binary Wayland Ping/actions/
+  clean-quit smoke pass with private HOME/XDG roots.
+
+Important decisions:
+
+- Public source visibility does not grant redistribution, repackaging, sale, or
+  derivative-publication rights. Intentional pull-request submission constitutes
+  agreement to `CLA.md`; contributors retain their own copyright.
+- Ordinary CI uses Ubuntu 24.04, the documented Rust 1.85.0 minimum, GTK and
+  libadwaita development packages, Cargo caching, and only the four deterministic
+  headless Rust gates. Graphical compositor suites remain separate.
+- Automated SPDX/advisory policy is inventory evidence, not a legal opinion or a
+  live full advisory-database scan. Human review of CLA and redistribution
+  obligations remains required.
+
+Known issues:
+
+- Git history contains one author email value across existing commits; the
+  repository owner's GitHub profile does not publish an email. The maintainer
+  must confirm intentional disclosure or rewrite history before publication.
+- Historical commits retain account-specific home/agent paths even though the
+  current tree is clean. The maintainer must explicitly accept that disclosure
+  or rewrite and re-audit history before publication.
+- `cargo-audit`, `cargo-deny`, and local Rust 1.85 via rustup are unavailable on
+  this host. Repository dependency-license policy and recorded advisory floors
+  pass; CI must confirm the actual Rust 1.85 Ubuntu job after the branch is
+  pushed.
+
+Deferred:
+
+- Enabling GitHub Private Vulnerability Reporting, branch rules, required CI,
+  optional Discussions, visibility changes, tagging, and publishing the proposed
+  `v0.1.0-alpha.1` prerelease are manual maintainer actions. None was performed.
+
+Recommended next task:
+
+- After publication blockers and manual settings are resolved, create
+  `phase-19a-git-awareness` and implement only the roadmap's opt-in Git awareness
+  phase. Do not begin it as part of repository publication work.
+
+## Prior active status (Phase 20C)
+
+Last updated: `2026-09-02`
+
 Current phase: **Phase 20C contextual help implemented; Phase 19A next**
 
 Completed this session:

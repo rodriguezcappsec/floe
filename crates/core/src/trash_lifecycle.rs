@@ -191,11 +191,10 @@ pub fn discover_local_trash_receipt(
 }
 
 fn snapshot_info_names(root: &TrashRoot) -> Option<HashSet<OsString>> {
-    if let Some(ancestor) = root.guarded_ancestor.as_deref()
-        && fs::symlink_metadata(ancestor).is_ok()
-        && !validate_shared_root(ancestor).ok()?
-    {
-        return None;
+    if let Some(ancestor) = root.guarded_ancestor.as_deref() {
+        if fs::symlink_metadata(ancestor).is_ok() && !validate_shared_root(ancestor).ok()? {
+            return None;
+        }
     }
     for directory in [root.base(), root.files()] {
         match fs::symlink_metadata(directory) {
@@ -243,10 +242,10 @@ pub fn enumerate_trash_with_cancel(
     root: &TrashRoot,
     is_cancelled: impl Fn() -> bool,
 ) -> Result<Vec<DirectoryEntry>, TrashEnumerateError> {
-    if let Some(ancestor) = root.guarded_ancestor.as_deref()
-        && !validate_shared_root(ancestor)?
-    {
-        return Ok(Vec::new());
+    if let Some(ancestor) = root.guarded_ancestor.as_deref() {
+        if !validate_shared_root(ancestor)? {
+            return Ok(Vec::new());
+        }
     }
     if !validate_root_directory(root.base(), "root")? {
         return Ok(Vec::new());

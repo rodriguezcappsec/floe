@@ -70,10 +70,10 @@ impl StorageWorker {
         let worker = thread::Builder::new()
             .name("floe-storage-facts".to_owned())
             .spawn(move || {
-                if let Some(start_gate) = start_gate
-                    && start_gate.recv().is_err()
-                {
-                    return;
+                if let Some(start_gate) = start_gate {
+                    if start_gate.recv().is_err() {
+                        return;
+                    }
                 }
                 while let Ok(request) = requests.recv() {
                     let result = query_storage_facts(&request.path);

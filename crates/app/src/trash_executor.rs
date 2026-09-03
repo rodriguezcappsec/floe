@@ -161,13 +161,13 @@ impl TrashBackend for GioTrashBackend {
 
 fn local_trash_roots(source: &gio::File, cancellable: &gio::Cancellable) -> Vec<TrashRoot> {
     let mut roots = vec![TrashRoot::for_data_home(glib::user_data_dir())];
-    if let Ok(mount) = source.find_enclosing_mount(Some(cancellable))
-        && let Some(top) = mount.root().path()
-    {
-        roots.extend(TrashRoot::for_mount_top(
-            &top,
-            rustix::process::getuid().as_raw(),
-        ));
+    if let Ok(mount) = source.find_enclosing_mount(Some(cancellable)) {
+        if let Some(top) = mount.root().path() {
+            roots.extend(TrashRoot::for_mount_top(
+                &top,
+                rustix::process::getuid().as_raw(),
+            ));
+        }
     }
     roots
 }
@@ -457,16 +457,16 @@ fn execute_task(
         .and_then(|()| backend.trash(&task.request, &task.cancellable));
     let command = match result {
         Ok(receipt) => {
-            if let (Some(history), Some(receipt)) = (undo_history, receipt)
-                && let Err(error) = history.record_trash(
+            if let (Some(history), Some(receipt)) = (undo_history, receipt) {
+                if let Err(error) = history.record_trash(
                     receipt.original_path(),
                     receipt.payload_path(),
                     receipt.info_path(),
                     receipt.payload_identity(),
                     receipt.info_identity(),
-                )
-            {
-                tracing::warn!(%error, "Trash completed without durable Undo receipt");
+                ) {
+                    tracing::warn!(%error, "Trash completed without durable Undo receipt");
+                }
             }
             JobCommand::Complete
         }
@@ -647,10 +647,10 @@ mod tests {
     fn wait_for_terminal(jobs: &SharedJobManager, job_id: JobId) -> JobState {
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            if let Some(state) = lock(jobs).record(job_id).map(|record| record.state())
-                && state.is_terminal()
-            {
-                return state;
+            if let Some(state) = lock(jobs).record(job_id).map(|record| record.state()) {
+                if state.is_terminal() {
+                    return state;
+                }
             }
             assert!(
                 Instant::now() < deadline,

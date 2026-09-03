@@ -75,8 +75,12 @@ pub fn enrich_user_sort_metadata(
 
 #[cfg(unix)]
 fn read_bounded(path: &std::path::Path, name: &str) -> Option<Box<[u8]>> {
+    read_bounded_with(|buffer| rustix::fs::lgetxattr(path, name, buffer).ok())
+}
+
+fn read_bounded_with(mut read: impl FnMut(&mut [u8]) -> Option<usize>) -> Option<Box<[u8]>> {
     let mut buffer = [0_u8; USER_SORT_METADATA_VALUE_CAPACITY + 1];
-    let length = rustix::fs::lgetxattr(path, name, &mut buffer[..]).ok()?;
+    let length = read(&mut buffer)?;
     (length <= USER_SORT_METADATA_VALUE_CAPACITY)
         .then(|| buffer[..length].to_vec().into_boxed_slice())
 }
@@ -186,10 +190,12 @@ mod tests {
         let malformed = root.path().join(OsString::from("malformed"));
         fs::write(&malformed, b"x").expect("fixture file");
         set(&malformed, RATING_XATTR, b"11");
-        set(
-            &malformed,
-            TAGS_XATTR,
-            &vec![b'x'; USER_SORT_METADATA_VALUE_CAPACITY + 1],
+        assert!(
+            read_bounded_with(|buffer| {
+                buffer.fill(b'x');
+                Some(buffer.len())
+            })
+            .is_none()
         );
         set(&malformed, COMMENT_XATTR, b"");
         let mut entries = vec![entry(malformed)];

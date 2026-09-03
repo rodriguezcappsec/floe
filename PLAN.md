@@ -1,4 +1,147 @@
-# Active plan: Phase 20C contextual help and terminology clarity
+# Active plan: First public repository readiness and history privacy rewrite
+
+Depth: tree 3
+
+Mode: solo
+
+## Contract
+
+Prepare `rodriguezcappsec/floe` for public source viewing and outside pull
+requests without changing Floe's proprietary `LicenseRef-proprietary` model,
+application behavior, release tags, repository visibility, or `main`. Add
+professional contribution and inbound-license terms, precise security reporting
+guidance, deterministic headless CI, issue/PR templates, a manual launch
+checklist, and focused README/status corrections. Audit the tracked tree, Git
+history, direct dependencies, and bundled assets for publication risks without
+printing possible secrets or making unsupported legal claims.
+
+## Depth tree
+
+1. Baseline and publication audit
+   1.1 Repository, identity, and legal metadata
+      1.1.1 Verify branch/remote/version/license consistency, review dependencies,
+      assets, notices, tracked files, and history for release blockers.
+2. Community and repository infrastructure
+   2.1 Contribution contract
+      2.1.1 Add `CONTRIBUTING.md`, `CLA.md`, issue forms, and pull-request
+      template with concise workflow, safety prompts, and proprietary inbound
+      licensing acknowledgement.
+   2.2 Continuous integration
+      2.2.1 Add ordinary Ubuntu headless CI using the documented Rust 1.85,
+      GTK 4.14, libadwaita 1.5, Cargo cache, and exact four Rust quality gates.
+3. Public documentation
+   3.1 Honest security and project presentation
+      3.1.1 Correct `SECURITY.md`, polish README discovery/licensing/contribution
+      sections, and add a complete manual public-launch checklist.
+4. Verification and handoff
+   4.1 Release-readiness evidence
+      4.1.1 Run Rust, docs/render, packaging/migration/source/release,
+      dependency/advisory/license, E2E preflight, and diff gates; update
+      `AGENTS.md` status and categorize remaining manual/blocking work.
+5. Authorized local history rewrite
+   5.1 Recovery boundary
+      5.1.1 Commit the verified working tree, create a full external Git bundle,
+      verify it, and retain the canonical origin URL before rewriting refs.
+   5.2 Identity and path sanitization
+      5.2.1 Rewrite every reachable local ref so author/committer emails use the
+      configured GitHub noreply identity and historical account-specific paths
+      use documented neutral placeholders.
+   5.3 Re-audit and documentation
+   5.3.1 Re-audit every reachable commit and blob, update the public-release
+         evidence and source checksum, rerun applicable gates, and stop without a
+         force-push, tag, release, visibility change, or `main` merge.
+   5.3.2 Preserve the declared Rust 1.85 MSRV by pinning compatible transitive
+         releases and rewriting all newer Rust let-chain syntax without changing
+         runtime behavior; prove the result in PR CI before merge.
+
+## Status log
+
+- 2026-09-02: Began from clean synchronized `main` at `33273e5`; created
+  `release/public-repository-readiness`. Initial review confirmed root Cargo
+  metadata and `LICENSE` both retain `LicenseRef-proprietary`; identified stale
+  `SECURITY.md` claims about implemented provider sandboxing and ClamAV scanning.
+- 2026-09-02: Implementation and available gates complete. Community files,
+  exact CI, public documentation, release checklist, sanitized current-tree
+  paths, deterministic source checksum, packaging/E2E/native evidence all pass.
+  Publication remains blocked pending intentional-disclosure or history-rewrite
+  decisions for the non-public author email and historical machine paths, plus
+  manual GitHub settings. Phase 19A remains the sole recommended next feature and
+  was not started.
+- 2026-09-02: The repository owner supplied the GitHub noreply identity
+  `37666398+rodriguezcappsec@users.noreply.github.com` and explicitly authorized
+  rewriting local history. The rewrite will cover all reachable local refs and
+  retain a verified full bundle in `/tmp`; replacing remote history remains a
+  separate destructive action and is not authorized in this pass.
+- 2026-09-02: Local history rewrite complete. A mode-0600 full bundle verified
+  218 pre-rewrite refs. The equivalence audit compared 217 live refs and 134
+  commits, preserving topology, names, timestamps, messages, modes, and unrelated
+  content while applying only the authorized identity/path substitutions.
+  `refs/original/*`, reflogs, and unreachable originals were removed and pruned.
+  The GitHub remote was not changed and still requires a separately authorized,
+  coordinated replacement followed by a fresh-clone audit.
+- 2026-09-02: Remote migration replaced GitHub `main` through an exact
+  force-with-lease, published the release branch, and passed a fresh-clone
+  history/source audit. PR #2's first real Rust 1.85 CI run exposed `time` 0.3.55
+  in the lockfile requiring Rust 1.88. The reviewed transitive dependency chain
+  is `sevenz-rust` to `nt-time` to `time`; pin the application lockfile to
+  Rust-1.85-compatible `time` 0.3.44. The second CI run then identified
+  `lofty -> ogg_pager` selecting 0.7.2 with Rust 1.89; select `ogg_pager` 0.7.1,
+  whose published MSRV is exactly Rust 1.85. Rerun local gates and GitHub CI,
+  then merge only after the required check passes.
+- 2026-09-02: The pinned dependencies compile under the authoritative Rust 1.85
+  CI job. The next failure is workspace use of let-chain syntax stabilized after
+  Floe's MSRV. The bounded correction is a semantics-preserving core/app syntax
+  sweep plus full local release gates and a green PR CI run; raising the MSRV and
+  unrelated refactoring are excluded.
+- 2026-09-02: Run `33693526585` proves Rust 1.85 formatting and workspace
+  compilation now pass. Its older Clippy rejected one test-only
+  `map(format!).collect::<String>()`; build the bounded fixture directly into one
+  `String`, rerun all gates, and retain a green Rust 1.85 CI result as the merge
+  boundary.
+- 2026-09-02: Run `33693923271` passes Rust 1.85 formatting, workspace check,
+  and strict Clippy, then its test process receives Linux error 28
+  (`StorageFull`) while setting a tiny user xattr. Local build artifacts occupy
+  9.4 GiB. Keep every test and gate intact while disabling debug symbols only
+  for CI dev/test profiles to reduce runner disk pressure, then rerun the gate.
+- 2026-09-02: Run `33694688815` confirms no-debug profiles alone are
+  insufficient and reaches the same error-28 xattr boundary after check/Clippy
+  artifacts accumulate. Preserve the strict xattr test, reclaim those compiler
+  artifacts with `cargo clean`, then perform the final test build on the same
+  Rust 1.85 runner.
+- 2026-09-02: Run `33695272153` passed Rust 1.85 formatting, workspace check,
+  and strict Clippy after artifact reclamation, then exposed a real mid-stream
+  TAR cancellation hang. `ProgressReader` incorrectly used retryable
+  `io::ErrorKind::Interrupted` for persistent cancellation, allowing generic
+  archive I/O to retry forever. Use a non-retryable signal, translate it back
+  to typed `ArchiveError::Cancelled`, cover progress-triggered cancellation
+  deterministically, and make scheduling-race tests accept truthful
+  already-completed outcomes before rerunning every gate.
+- 2026-09-02: Replacement run `33698199222` proves the archive deadlock fixed:
+  all 698 application tests reached completion. It then exposed the previously
+  observed privacy-sanitizer test scheduling race. Cancellation is cooperative,
+  so a tiny one-file request may truthfully complete before the caller advances
+  its generation; assert either bounded cancellation or the exact successful
+  completed outcome, preserving deterministic `cancelled_result` coverage.
+- 2026-09-02: Run `33698804611` passed Rust 1.85 format/check/Clippy and the
+  complete 698-test application suite, then the later core xattr test again hit
+  hosted-runner `ENOSPC`. Keep one test gate and every test, but bound peak disk
+  usage by running non-application workspace tests first, reclaiming compiler
+  artifacts, then rebuilding and running the complete `floe-app` suite.
+- 2026-09-02: Root-cause correction: Linux error 28 came from ext4 rejecting the
+  test's 4,097-byte xattr representation, not from free-disk exhaustion. Btrfs
+  accepts that fixture, hiding its filesystem dependency locally. Test the
+  4,096-byte application bound through an injected reader and keep only portable
+  on-disk xattrs. Restore the simple cached `cargo test --workspace` CI gate and
+  remove the unnecessary debug/artifact workarounds.
+- 2026-09-02: Run `33700179608` is green on GitHub's actual Rust 1.85 runner:
+  formatting, workspace check, strict Clippy, and every workspace test pass.
+  Record R13 complete, rerun release contracts, push the evidence-only commit,
+  require that commit's CI to pass, then merge PR #2 and fresh-clone audit
+  remote `main` without deleting the retained release branch.
+
+---
+
+# Archived active plan: Phase 20C contextual help and terminology clarity
 
 Depth: tree 3
 Mode: solo

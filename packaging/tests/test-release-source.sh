@@ -17,12 +17,14 @@ cmp "$first" "$second"
 archive_files="$temporary/archive-files.txt"
 tar -tzf "$first" > "$archive_files"
 for required in \
-  README.md SECURITY.md CHANGELOG.md \
+  README.md SECURITY.md CONTRIBUTING.md CLA.md CHANGELOG.md \
   docs/GETTING_STARTED.md docs/USER_GUIDE.md docs/PHILOSOPHY.md docs/ADMINISTRATION.md \
   docs/ACCESSIBILITY.md docs/RECOVERY.md docs/DEBUGGING.md \
   docs/LOCALIZATION.md docs/INSTALLATION.md docs/MIGRATIONS.md \
+  docs/PUBLIC_RELEASE_CHECKLIST.md \
   docs/PERFORMANCE.md docs/PRIVACY_SECURITY.md \
-  scripts/check-docs.py scripts/test_check_docs.py scripts/render-docs.sh \
+  scripts/check-docs.py scripts/check-public-release.py \
+  scripts/test_check_docs.py scripts/render-docs.sh \
   e2e/test_release_walkthrough.py; do
   grep -Fxq "floe-$version/$required" "$archive_files"
 done

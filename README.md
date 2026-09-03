@@ -4,33 +4,70 @@
 
 <h3>A spatial file manager for Wayland</h3>
 
-<p>Fast native Linux file management, flexible views, deep keyboard workflows,<br>and a safety-first Rust core.</p>
+<p>Native Linux file management with flexible views, deep keyboard workflows,<br>bounded background jobs, and exact path handling in Rust.</p>
 
 </div>
 
 # Floe
 
 Floe is a GTK4/libadwaita file manager for Linux Wayland desktops. It combines
-List, Grid, split-pane, and spatial Miller views with background file jobs,
-Quick Preview, search, archives, integrity tools, and configurable keyboard
-workflows. Exact Linux paths remain authoritative even when a filename cannot
-be displayed as valid UTF-8.
+virtualized List and Grid views, split panes, spatial Miller columns, background
+file operations, Quick Preview, search, archives, integrity tools, and
+configurable keyboard workflows. Exact Linux paths remain authoritative even
+when a filename cannot be displayed as valid UTF-8.
 
-Floe's choices follow a documented product philosophy: user ownership, exact
-path identity, narrow authority, local-first processing, responsive bounded
-work, standards-based integration, and honest security language. Read
+> **Alpha software:** Floe is under active development. Back up important data,
+> review destructive operations carefully, and read the current limitations
+> before relying on it as a daily file manager.
+
+> **License:** Floe is source-available but proprietary software. The source is
+> public for transparency, auditing, learning, issue investigation, and
+> contribution through the official repository. Public access does not grant
+> general permission to redistribute, repackage, sell, or publish forks or
+> derivative versions. See [LICENSE](./LICENSE).
+
+Floe follows a documented product philosophy: user ownership, exact path
+identity, narrow authority, local-first processing, responsive bounded work,
+standards-based integration, and honest security language. Read
 [Why Floe works this way](./docs/PHILOSOPHY.md).
 
-The implemented desktop path is generic GTK/GIO/XDG. Niri and KDE Plasma are
-first-class product targets, but compositor-specific integrations are deferred
-and never required by the filesystem core.
+The implemented desktop path uses generic GTK/GIO/XDG facilities. Niri and KDE
+Plasma are first-class product targets, but compositor-specific integrations are
+deferred and are never required by the filesystem core.
 
-## Install and start
+## Highlights
 
-Floe currently has one verified native packaging strategy: the Arch package
-contract and manifest-driven native installer. Flatpak is not implemented.
+- Virtualized List and Grid views plus bounded spatial Miller columns.
+- Tabs, split panes, breadcrumbs, session restoration, and multiple windows.
+- Copy, move, rename, duplicate, links, templates, drag and drop, Trash,
+  restore, permanent deletion, conflicts, cancellation, and private 30-day
+  Undo/Redo for supported local operations.
+- Successful local operations reveal and briefly emphasize their exact output
+  when its destination is already visible.
+- Quick Preview, Inspector, Properties, permissions, metadata, checksums,
+  archives, unified search, an optional local filename index, and exact duplicate
+  review.
+- Integrity fingerprints and manifests, verified copy/transfer, Protected Folder
+  guardrails, and conservative interrupted-operation recovery review.
+- Five appearance presets, icon choices, scalable text, density controls,
+  reduced motion, customizable shortcuts, optional Vim navigation, and native
+  contextual help with accessibility descriptions.
+- Explainable suspicious-file, metadata, and Unix permission inspection;
+  optional local `clamd` scanning with configurable bounds; source-preserving
+  JPEG/PNG/WebP sanitized copies; and Bubblewrap-isolated external thumbnail and
+  preview providers.
 
-See [Installation](./docs/INSTALLATION.md), then launch:
+Long-running safety and inspection work remains visible in Background Activity,
+with cancellation, results, reveal, and dismiss controls as appropriate.
+
+## Install and run
+
+Floe currently has one verified packaging strategy: an Arch package contract and
+a manifest-driven native installer. Flatpak is not implemented. See
+[Installation](./docs/INSTALLATION.md) for staging, packaging, optional runtime
+dependencies, and uninstall behavior.
+
+After installation:
 
 ```bash
 floe
@@ -38,10 +75,23 @@ floe /path/to/folder
 floe /path/to/file.pdf
 ```
 
-The stable application ID is `io.github.rodriguezcappsec.Floe`. Each invocation
-accepts at most one local target; remote URIs are rejected.
+The stable application ID is `io.github.rodriguezcappsec.Floe`. Each normal
+invocation accepts at most one local target; remote URIs are rejected.
 
-Floe can also act as a native local file selector for applications and scripts:
+To build and run from a checkout on Arch Linux or CachyOS:
+
+```bash
+sudo pacman -S --needed rust gtk4 libadwaita pkgconf
+cargo run -p floe-app
+```
+
+Rust 1.85+, GTK 4.14+, and libadwaita 1.5+ are required. Other distributions use
+different development-package names; see
+[Developing Floe](./docs/DEVELOPMENT.md).
+
+## Local file-selector mode
+
+Floe can act as a native local file selector for applications and scripts:
 
 ```bash
 floe --choose-open [--multiple] [--initial-directory /path]
@@ -53,48 +103,14 @@ Accepted paths are printed as one exact percent-encoded local `file://` URI per
 line. Cancel emits no path and returns nonzero. Each selector is an independent
 process, so simultaneous callers do not collide.
 
-Floe also ships an optional XDG FileChooser backend. Installation never selects
-it automatically: administrators or users explicitly choose the `floe` backend
-in `portals.conf`. The first version supports local Open File, single Select
-Folder, Save File, and Save Files requests, multiple file opening, modal Wayland
-parent handles, current folders/names, cancellation, and exact URI results.
-Nonempty portal filters/choices, multiple folders, and X11 parents fail
-explicitly until those extensions are implemented. See
-[Administration](docs/ADMINISTRATION.md) before enabling it.
-
-To build from a checkout:
-
-```bash
-sudo pacman -S --needed rust gtk4 libadwaita pkgconf
-cargo run -p floe-app
-```
-
-Rust 1.85+, GTK 4.14+, and libadwaita 1.5+ are required. Other distributions
-use different development-package names.
-
-## Current capabilities
-
-- Virtualized List and Grid plus bounded spatial Miller columns.
-- Tabs, session restore, split panes, breadcrumbs, and local CLI routing.
-- Multiple independent windows with `Ctrl+N`, exact **Open Folder in New Window** routing, one shared operation/event coordinator, and bounded multi-window session restoration. Closing an idle window never waits on stalled read-only workers; an active presentation owner asks you to wait or cancel first.
-- Copy, move, rename, duplicate, links, templates, drag and drop, Trash,
-  restore, permanent deletion, identity-checked Replace/Replace All, conflicts,
-  cancellation, and private 30-day Undo/Redo for reversible local work,
-  including exact-receipt Floe-owned local Trash actions.
-- Exact completed-operation reveal: successful copy, move, rename, create,
-  duplicate, and replace results are selected, scrolled into view, and briefly
-  emphasized when their destination folder is already visible.
-- Quick Preview, Inspector, Properties, permissions, metadata, checksums,
-  archives, search, an optional local index, and exact duplicate review.
-- Integrity fingerprints and manifests, baselines, verified copy/transfer,
-  Protected Folder guardrails, and conservative interrupted-operation plus
-  Undo/Redo recovery review.
-- Searchable Settings, five appearance presets, text scale, reduced motion,
-  customizable shortcuts, optional Vim navigation, and direct-argv actions.
-- Native contextual help for toolbar controls, settings, command-backed buttons,
-  and model-backed menus, paired with GTK accessibility descriptions.
-- Natural filename sorting, renameable/reorderable bookmarks, a persistent collapsible sidebar, optional path-free completion notifications, on-demand SHA-256 from Inspector/Properties, and Owner/Group/Path/Link Target list columns.
-- Required Bubblewrap isolation for installed thumbnail/Preview helpers; explainable suspicious-file, metadata, and Unix permission auditing; optional local `clamd` scanning with bounded user-configurable file/request limits; preview-confirmed, source-preserving JPEG/PNG/WebP sanitized copies. A persistent Background Activity panel keeps running, cancellation, results, and reveal feedback visible while browsing or after returning to Floe.
+Floe also ships an optional XDG FileChooser backend. Installation does not select
+it automatically; administrators or users must explicitly choose `floe` in
+`portals.conf`. The current backend supports local Open File, single Select
+Folder, Save File, and Save Files requests, including multiple file opening,
+modal Wayland parent handles, current folders/names, cancellation, and exact URI
+results. Unsupported nonempty filters/choices, multiple-folder requests, and X11
+parents fail explicitly. Read [Administration](./docs/ADMINISTRATION.md) before
+enabling it.
 
 ## Keyboard entry points
 
@@ -113,7 +129,51 @@ use different development-package names.
 | `Space` | Quick Preview |
 | `Ctrl+I` / `Alt+Enter` | Inspector / Properties |
 
-## Release documentation
+## Important limitations
+
+- Niri-specific, Plasma-specific, remote/network, and Android/MTP integrations
+  are deferred. Generic local Wayland behavior remains implemented.
+- Flatpak is not implemented.
+- Experimental administrator access is opt-in. Its separate view supports a
+  bounded subset of explicitly confirmed operations; preview, external tools,
+  archives, ownership, ACL/xattr, and recursive administrator copy remain
+  unavailable. See [Privileged Access](./docs/PRIVILEGED_ACCESS.md).
+- External thumbnail and Quick Preview providers require Bubblewrap and fail
+  unavailable if their isolation boundary cannot start. Ordinary **Open** and
+  **Open With** are normal desktop application launches and are not sandboxed by
+  Floe.
+- Encrypted Vault, Sensitive Folder, user-facing Private Mode, Open Safely,
+  Secure Share, portable encryption, quarantine, and automatic malware deletion
+  are unavailable.
+- Protected Folder is an accidental-change guardrail, not encryption or access
+  control. Permanent deletion is not secure erase.
+- Hashes do not prove authenticity, authorship, malware safety, or trust.
+- Recovery is conservative restart review, not a transaction, universal rollback
+  guarantee, or backup.
+- Floe is English-only with partial RTL foundations. Complete Orca, translated
+  RTL, and physical multi-monitor/fractional-scale verification are unclaimed.
+- Logs and technical errors may contain sensitive paths. Review and redact them
+  before sharing.
+
+Floe is not an antivirus product, sandbox for ordinary applications, backup
+system, or general security boundary. Read [SECURITY.md](./SECURITY.md) and the
+[Privacy and Security architecture](./docs/PRIVACY_SECURITY.md) for exact claims.
+
+## Contributing
+
+Outside contributions are welcome through pull requests in the official Floe
+repository. Start with [CONTRIBUTING.md](./CONTRIBUTING.md), and read the
+[Contributor License Agreement](./CLA.md) before submitting work. Contributors
+retain copyright in work they personally author and grant the Floe project
+copyright holder the rights needed to incorporate accepted contributions into
+proprietary and commercial Floe versions.
+
+Report non-sensitive bugs with the GitHub issue form. Report vulnerabilities
+through GitHub Private Vulnerability Reporting when enabled; never disclose
+credentials, personal files, sensitive paths, or active exploit details in a
+public issue. See [SECURITY.md](./SECURITY.md).
+
+## Documentation
 
 - [Getting Started](./docs/GETTING_STARTED.md)
 - [User Guide](./docs/USER_GUIDE.md)
@@ -124,35 +184,15 @@ use different development-package names.
 - [Recovery](./docs/RECOVERY.md)
 - [Debugging](./docs/DEBUGGING.md)
 - [Localization and RTL](./docs/LOCALIZATION.md)
-- [Security Policy](./SECURITY.md) and [Privacy/Security Architecture](./docs/PRIVACY_SECURITY.md)
+- [Security Policy](./SECURITY.md) and
+  [Privacy/Security Architecture](./docs/PRIVACY_SECURITY.md)
 - [Performance](./docs/PERFORMANCE.md)
 - [Release environment matrix](./docs/RELEASE_MATRIX.md)
 - [Feature Matrix](./docs/FEATURE_MATRIX.md) and [Roadmap](./docs/ROADMAP.md)
+- [Public release checklist](./docs/PUBLIC_RELEASE_CHECKLIST.md)
 - [Changelog](./CHANGELOG.md)
 
-## Important limitations
-
-- Niri-specific, Plasma-specific, remote/network, and Android/MTP integrations
-  are deferred. Generic local Wayland behavior remains implemented.
-- Flatpak is not implemented.
-- Experimental administrator access is opt-in. Its separate view supports
-  explicitly confirmed, no-overwrite New Folder, Rename, file Copy/Move, Trash,
-  empty-item permanent deletion, and Unix mode changes; previews, external
-  tools, archives, ownership, ACL/xattr, and recursive administrator copy remain
-  unavailable.
-- Installed thumbnail/Preview helpers require Bubblewrap and fail unavailable if the boundary cannot start. Ordinary **Open** and **Open With** are not sandboxed and remain normal desktop launches; the proposed Open Safely workflow was intentionally removed from current scope.
-- Encrypted Vault, Sensitive Folder, user-facing Private Mode, Secure Share, and portable encryption are unavailable.
-- Protected Folder is an accidental-change guardrail, not encryption or access
-  control. Permanent deletion is not secure erase.
-- Hashes do not prove authenticity, authorship, malware safety, or trust.
-- Recovery is conservative restart review, not a transaction, rollback, or
-  backup guarantee.
-- Floe is English-only with partial RTL foundations. Complete Orca, translated
-  RTL, and physical multi-monitor fractional-scale verification are unclaimed.
-- Logs and technical details may contain sensitive paths; review and redact
-  them before sharing.
-
-## Architecture and development
+## Architecture and project status
 
 ```text
 GTK4 / libadwaita UI
@@ -165,14 +205,12 @@ GTK-independent filesystem core
 ```
 
 Filesystem work does not belong in GTK callbacks. Read
-[Architecture](./docs/ARCHITECTURE.md), [Developing Floe](./docs/DEVELOPMENT.md),
-and [AGENTS.md](./AGENTS.md) before changing the project.
+[Architecture](./docs/ARCHITECTURE.md),
+[Developing Floe](./docs/DEVELOPMENT.md), and [AGENTS.md](./AGENTS.md) before
+changing the project.
 
-## Project status
-
-Phase 23H multi-window runtime/session hardening, Phase 18R Permission Auditor,
-Phase 20C contextual help, and the bounded local privacy/safety tools are
-implemented. Open Safely was intentionally removed from the current scope. Phase
-19A **Git awareness** is the sole recommended next phase. The
-[Roadmap](./docs/ROADMAP.md) is the sequencing authority; code and tests determine
-completion.
+Floe remains alpha software. Phase 23H multi-window runtime/session hardening,
+Phase 18R Permission Audit, Phase 20C contextual help, and bounded local
+privacy/safety tools are implemented. Phase 19A **Git awareness** remains the
+sole recommended next feature. The [Roadmap](./docs/ROADMAP.md) is the sequencing
+authority; code and tests determine completion.

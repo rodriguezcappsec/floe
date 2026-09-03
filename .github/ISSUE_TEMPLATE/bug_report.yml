@@ -1,0 +1,95 @@
+name: Bug report
+description: Report a reproducible problem in Floe
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Floe.
+
+        **Privacy warning:** Do not upload personal files or disclose sensitive filesystem paths. Redact paths, usernames, credentials, private keys, and personal content from screenshots and logs.
+
+  - type: input
+    id: version
+    attributes:
+      label: Floe version or commit
+      description: Use a release version or the output of `git rev-parse --short HEAD`.
+      placeholder: v0.1.0-alpha.1 or abc1234
+    validations:
+      required: true
+
+  - type: input
+    id: distribution
+    attributes:
+      label: Linux distribution
+      placeholder: Arch Linux, Fedora 42, Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop environment or compositor
+      placeholder: KDE Plasma Wayland, Niri, GNOME Wayland
+    validations:
+      required: true
+
+  - type: input
+    id: gtk_versions
+    attributes:
+      label: GTK and libadwaita versions
+      description: If relevant, run `pkg-config --modversion gtk4 libadwaita-1`.
+      placeholder: GTK 4.14.2; libadwaita 1.5.0
+
+  - type: input
+    id: filesystem
+    attributes:
+      label: Filesystem or device involved
+      description: If relevant, name only the filesystem type and local/removable context; omit sensitive mount paths.
+      placeholder: btrfs home volume, exFAT USB drive, not applicable
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Use synthetic files and redact private information.
+      placeholder: |
+        1. Open Floe...
+        2. Select...
+        3. Run...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs or screenshots
+      description: Include only the smallest relevant excerpt. Review and redact usernames, paths, filenames, personal content, and secrets before posting.
+
+  - type: dropdown
+    id: clean_state
+    attributes:
+      label: Reproduces with a clean/private Floe state?
+      description: Test only if you can do so without deleting or exposing real settings or user data.
+      options:
+        - Not tested
+        - Yes, with temporary private HOME/XDG roots
+        - No
+    validations:
+      required: true

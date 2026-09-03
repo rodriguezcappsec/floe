@@ -152,11 +152,11 @@ pub fn build_batch_rename_preview(
             RenameCase::Lower => transformed.to_lowercase(),
             RenameCase::Upper => transformed.to_uppercase(),
         };
-        if rule.preserve_extension
-            && let Some(extension) = extension
-        {
-            transformed.push('.');
-            transformed.push_str(extension);
+        if rule.preserve_extension {
+            if let Some(extension) = extension {
+                transformed.push('.');
+                transformed.push_str(extension);
+            }
         }
         if transformed.is_empty()
             || transformed == "."

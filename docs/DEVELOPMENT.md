@@ -12,6 +12,14 @@ An X11 fallback is not a project target and is not currently tested.
 ## Toolchain and system libraries
 
 The workspace uses Rust edition 2024 and declares Rust 1.85 as its minimum.
+Because `sevenz-rust` currently reaches `time` through `nt-time` with a broad
+compatible-version range, the application lockfile intentionally selects
+`time` 0.3.44, whose published minimum Rust version is 1.81. Lockfile updates
+also select `ogg_pager` 0.7.1, whose published minimum is Rust 1.85, because
+`lofty` permits the newer 0.7.2 release that requires Rust 1.89. Lockfile updates
+must retain the workspace's Rust 1.85 compatibility and pass the pinned-toolchain
+GitHub CI job; newer semver-compatible transitive releases may raise their
+compiler requirements independently of Floe.
 The current verified development host uses Rust/Cargo 1.98.0.
 
 Cargo enables GTK 4.14 and libadwaita 1.5 API features. The verified host has:
@@ -298,12 +306,12 @@ security/privacy work also tests wrong passwords, corrupt/truncated/tampered
 data, authentication failure, interruption, cleanup, atomicity, permissions,
 symlink/path traversal, secret-free logs, and source preservation as applicable.
 
-No GitHub Actions workflow exists in the current repository, so this pass does
-not invent CI infrastructure. When ordinary CI is introduced, run formatting,
-check, strict Clippy, deterministic Rust tests, and property tests there. Keep
-GTK component, native E2E, Niri, and Plasma jobs opt-in/separate with explicit
-graphical environments. Never add Playwright, Selenium, Tauri/browser DOM
-testing, or label `proptest` as E2E.
+Ordinary GitHub CI runs formatting, workspace check, strict Clippy, and the full
+deterministic Rust workspace tests on the documented Rust 1.85 minimum. GTK
+component, native E2E, Niri, and Plasma jobs stay opt-in/separate with explicit
+graphical environments.
+Never add Playwright, Selenium, Tauri/browser DOM testing, or label `proptest`
+as E2E.
 
 Use `cargo fmt --all` to apply formatting. Core tests use temporary directories
 and must never target real user data. Phase 6A presentation tests are
@@ -880,9 +888,6 @@ Focused deterministic verification is available with:
 
 ```bash
 cargo test --workspace phase_18 -- --nocapture
-node <unlazy-skill-dir>/scripts/gate-check.mjs --status \
-  gates/phase-18t.md gates/phase-18u.md gates/phase-18v.md \
-  gates/phase-18w.md gates/phase-18x.md
 ```
 
 GTK contracts must run as separate filtered processes because GTK can only be

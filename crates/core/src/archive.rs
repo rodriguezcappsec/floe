@@ -1350,10 +1350,16 @@ fn write_tar<W: Write>(
                 };
                 builder
                     .append_data(&mut header, &item.member, &mut reader)
-                    .map_err(|source| ArchiveError::Io {
-                        action: "write TAR member",
-                        path: item.member.clone(),
-                        source,
+                    .map_err(|source| {
+                        if cancellation.is_cancelled() {
+                            ArchiveError::Cancelled
+                        } else {
+                            ArchiveError::Io {
+                                action: "write TAR member",
+                                path: item.member.clone(),
+                                source,
+                            }
+                        }
                     })?;
                 revalidate_source(&item.source, identity)?;
             }
@@ -1498,10 +1504,11 @@ struct ProgressReader<'a, R> {
 impl<R: Read> Read for ProgressReader<'_, R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.cancellation.is_cancelled() {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "archive cancelled",
-            ));
+            // `Interrupted` is reserved for transient I/O interruptions and generic
+            // readers are allowed to retry it forever. Cancellation is persistent,
+            // so expose a non-retryable error and translate it back to
+            // `ArchiveError::Cancelled` at the archive-format boundary.
+            return Err(io::Error::other("archive cancelled"));
         }
         let read = self.inner.read(buffer)?;
         *self.completed = self
@@ -1686,10 +1693,10 @@ fn create_member_directories(stage: &Path, members: &[ArchiveMember]) -> Result<
         if member.kind == ArchiveMemberKind::Directory {
             directories.push(member.path.clone());
         }
-        if let Some(parent) = member.path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            directories.push(parent.to_path_buf());
+        if let Some(parent) = member.path.parent() {
+            if !parent.as_os_str().is_empty() {
+                directories.push(parent.to_path_buf());
+            }
         }
     }
     directories.sort_by_key(|path| path.components().count());
@@ -1965,6 +1972,32 @@ mod tests {
             validate_member_plan(&bomb, 1, limits, false),
             Err(ArchiveError::ExpansionRatioLimit)
         ));
+    }
+
+    #[test]
+    fn phase_12a_mid_stream_tar_cancellation_is_not_retried_as_interrupted_io() {
+        let root = tempdir().expect("root");
+        let source = root.path().join("source.bin");
+        fs::write(&source, vec![7_u8; ARCHIVE_COPY_BUFFER_BYTES * 4]).expect("source");
+        let destination = root.path().join("cancelled.tar");
+        let request = ArchiveRequest::compress(vec![source], destination.clone()).expect("request");
+        let cancellation = ArchiveCancellation::new();
+        let mut reported_progress = false;
+
+        let outcome = execute_archive(&request, &cancellation, |_| {
+            reported_progress = true;
+            cancellation.cancel();
+        });
+
+        assert!(
+            reported_progress,
+            "fixture must cancel after streaming starts"
+        );
+        assert!(matches!(outcome, Err(ArchiveError::Cancelled)));
+        assert!(
+            !destination.exists(),
+            "cancelled archive must not be published"
+        );
     }
 
     #[test]

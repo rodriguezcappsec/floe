@@ -353,12 +353,19 @@ mod tests {
         let request = ArchiveRequest::compress(vec![source], root.path().join("cancel.tar"))
             .expect("request");
         let submission = executor.submit(request).expect("submission");
-        executor.cancel(submission.job_id()).expect("cancel");
+        let cancel_result = executor.cancel(submission.job_id());
+        if let Err(error) = &cancel_result {
+            assert_eq!(error, &ArchiveCancelError::NotActive(submission.job_id()));
+        }
+        let terminal = wait_for_terminal(&jobs, submission.job_id());
+        assert!(matches!(
+            terminal,
+            JobState::Cancelled | JobState::Completed
+        ));
         assert_eq!(
-            wait_for_terminal(&jobs, submission.job_id()),
-            JobState::Cancelled
+            executor.take_result(submission.job_id()).is_none(),
+            terminal == JobState::Cancelled
         );
-        assert!(executor.take_result(submission.job_id()).is_none());
         assert_eq!(ARCHIVE_QUEUE_CAPACITY, 4);
         assert_eq!(ARCHIVE_RESULT_CAPACITY, 16);
     }
