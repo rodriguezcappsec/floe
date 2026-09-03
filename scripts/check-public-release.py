@@ -10,7 +10,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_COMMIT_EMAIL = "37666398+rodriguezcappsec@users.noreply.github.com"
+GITHUB_MERGE_COMMITTER = ("GitHub", "noreply@github.com")
 RETIRED_LOCAL_ACCOUNT_PARTS = ("roc", "appsec")
+
+
+def commit_identity_is_public(
+    parents: str,
+    author_email: str,
+    committer_name: str,
+    committer_email: str,
+) -> bool:
+    if author_email != PUBLIC_COMMIT_EMAIL:
+        return False
+    if committer_email == PUBLIC_COMMIT_EMAIL:
+        return True
+    return (
+        len(parents.split()) >= 2
+        and (committer_name, committer_email) == GITHUB_MERGE_COMMITTER
+    )
 
 
 def load(relative: str, errors: list[str]) -> str:
@@ -296,7 +313,7 @@ def history(errors: list[str]) -> None:
         errors.append("filter-rewrite backup refs remain reachable")
 
     identities = subprocess.run(
-        ["git", "log", "--all", "--format=%ae%n%ce"],
+        ["git", "log", "--all", "--format=%P%x00%ae%x00%cn%x00%ce"],
         cwd=ROOT,
         check=False,
         capture_output=True,
@@ -305,11 +322,17 @@ def history(errors: list[str]) -> None:
     if identities.returncode != 0:
         errors.append("unable to inspect reachable commit identities")
         return
-    unexpected = {
-        identity
-        for identity in identities.stdout.splitlines()
-        if identity and identity != PUBLIC_COMMIT_EMAIL
-    }
+    unexpected: set[str] = set()
+    for line in identities.stdout.splitlines():
+        fields = line.split("\0")
+        if len(fields) != 4:
+            errors.append("unable to parse reachable commit identities")
+            return
+        parents, author_email, committer_name, committer_email = fields
+        if not commit_identity_is_public(
+            parents, author_email, committer_name, committer_email
+        ):
+            unexpected.add(f"{author_email}\0{committer_name}\0{committer_email}")
     if unexpected:
         errors.append(
             "reachable commits contain "

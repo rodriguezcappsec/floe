@@ -24,7 +24,7 @@ for required in \
   docs/PUBLIC_RELEASE_CHECKLIST.md \
   docs/PERFORMANCE.md docs/PRIVACY_SECURITY.md \
   scripts/check-docs.py scripts/check-public-release.py \
-  scripts/test_check_docs.py scripts/render-docs.sh \
+  scripts/test_check_docs.py scripts/test_check_public_release.py scripts/render-docs.sh \
   e2e/test_release_walkthrough.py; do
   grep -Fxq "floe-$version/$required" "$archive_files"
 done
